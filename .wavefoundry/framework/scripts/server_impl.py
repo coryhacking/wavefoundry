@@ -20,7 +20,7 @@ import time
 import hashlib
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Mapping, Optional
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -62,6 +62,7 @@ from review_policy import (
     REVIEW_POLICY_EVALUATOR_VERSION,
     REVIEW_POLICY_SCHEMA_VERSION,
     build_policy_receipt,
+    receipt_semantic_fields,
     current_policy_receipt,
     delivery_council_required,
     extract_full_council_triggers,
@@ -2680,10 +2681,28 @@ def _required_wave_council_signoffs(
         return required
     if lifecycle_phase == "close":
         # A present-but-stale readiness approval remains required and therefore
-        # blocks through the normal currency diagnostic. Only a genuinely
-        # absent approval receives the in-flight transition carve-out.
+        # blocks through the normal currency diagnostic.
         if prepare_signoff_recorded:
             return required
+        # The carve-out exists for waves that were in flight BEFORE the policy
+        # applied, and absence of an approval is a poor proxy for that: a
+        # readiness approval refused as stale is also absent, so keying on
+        # absence would make refusing the approval WEAKEN the close gate below
+        # what the silent accept required.  Key on never-prepared-under-policy
+        # instead.  The ledger-health conjunct is not optional --
+        # `resolve_review_authority` empties `records` on any ledger error, so a
+        # receipt check alone reads a corrupt ledger as "never prepared" and
+        # fails open inside a fail-closed design.
+        never_prepared_under_policy = (
+            current_policy_receipt(authority.records) is None
+            and not authority.ledger_errors
+        )
+        if not never_prepared_under_policy:
+            return required
+        # Both exits below drop the readiness key, so the carve-out must gate
+        # both.  The `has_review_signoff` exit is not a corner case: it is the
+        # normal end-state of a wave whose readiness approval was refused and
+        # which then completed delivery review.
         if has_review_signoff and review_key:
             return [review_key]
         return [key for key in required if key != prepare_key]
@@ -2766,7 +2785,25 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
             continue
         try:
             change_text = change_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeError) as exc:
+            # BOTH causes block. An earlier revision kept the legacy silent skip
+            # for I/O failures and surfaced only decode failures, which left the
+            # close hard gate fail-open for a permission-denied admitted
+            # document -- the same hole, reachable by `chmod 000`. The stated
+            # reason (close cannot verify an admitted document it cannot read)
+            # does not distinguish the two, so neither does this.
+            findings.append({
+                    "change_id": change_id,
+                    "item_type": "change document",
+                    # Non-empty so the renderer tags it `[unreadable]` rather
+                    # than `[task]`, which told the operator to mark an
+                    # unreadable file `[x]` or `[~]`.
+                    "item_id": "unreadable",
+                    "item_text": (
+                        f"could not read {change_path.name}: "
+                        + _read_error_detail(exc)
+                    ),
+                })
             continue
 
         ac_section = _extract_close_gate_section(change_text, "Acceptance Criteria")
@@ -2852,7 +2889,21 @@ def list_waves(root: Path) -> list[dict]:
 
 
 def _parse_plan_record(root: Path, plan_md: Path) -> dict:
-    text = plan_md.read_text(encoding="utf-8")
+    # 1uu9z follow-up: wf_list_plans is the recovery tool `change_doc_unreadable`
+    # routes to from wf_add_change's error exits, so an unreadable plan document
+    # must be REPORTED here, not raised -- the original crash sent the operator
+    # from the diagnostic into a second stack trace. This site was missed by the
+    # AC-6 census (the twelfth function, found by the delivery code lane).
+    try:
+        text = plan_md.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return {
+            "id": plan_md.stem,
+            "status": "unknown",
+            "title": plan_md.stem,
+            "path": str(plan_md.relative_to(root)).replace("\\", "/"),
+            "read_error": _read_error_detail(exc),
+        }
     change_id_m = _CHANGE_ID_PATTERN.search(text)
     change_status_m = _CHANGE_STATUS_PATTERN.search(text)
     status_m = _STATUS_PATTERN.search(text)
@@ -3067,8 +3118,13 @@ def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
     matches = _resolve_change_doc_matches(root, change_id_prefix)
     if len(matches) != 1:
         return None
+    if matches[0].get("read_error"):
+        # `_resolve_change_doc_matches` now MATCHES an unreadable document and
+        # reports the cause rather than skipping it. Returning its empty
+        # `content` here would hand back a blank change doc with no signal --
+        # the silent-drop failure this wave exists to prevent, relocated.
+        return None
     return str(matches[0].get("content") or "")
-    return None
 
 
 def get_prompt(root: Path, shortcut: str) -> Optional[str]:
@@ -3095,12 +3151,15 @@ def _diagnostic(
     *,
     recovery_tools: list[str] | None = None,
     recovery_usage: str = "",
+    advisory: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"code": code, "message": message}
     if recovery_tools:
         payload["recovery_tools"] = recovery_tools
     if recovery_usage:
         payload["recovery_usage"] = recovery_usage
+    if advisory is True:
+        payload["advisory"] = True
     return payload
 
 
@@ -5598,10 +5657,21 @@ def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     all_plans = cache.list_plans_cached() if cache else list_plans(root)
     has_more = len(all_plans) > n
     plans = all_plans[:n]
+    unreadable = [p for p in plans if p.get("read_error")]
+    diagnostics = [
+        _diagnostic(
+            "change_doc_unreadable",
+            f"Could not read plan doc {p['path']}: {p['read_error']}. "
+            "The entry is listed with no parsed content.",
+        )
+        for p in unreadable
+    ]
+    if not plans:
+        diagnostics.append(_diagnostic("no_plans", "No plan docs found."))
     return _response(
         "ok",
         {"plans": plans, "total": len(all_plans), "has_more": has_more},
-        diagnostics=[] if plans else [_diagnostic("no_plans", "No plan docs found.")],
+        diagnostics=diagnostics,
         next_tools=["wf_new_feature", "wf_current_wave"] if plans else ["wf_help"],
         usage="wf_help(goal='plan_feature')",
     )
@@ -5665,8 +5735,16 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             if doc_path is not None and doc_path.exists():
                 try:
                     content_lines = doc_path.read_text(encoding="utf-8").splitlines()
-                except OSError:
+                except (OSError, UnicodeError) as exc:
                     content_lines = []
+                    changes.append({
+                        "id": cid,
+                        "status": "unknown",
+                        "path": _repo_rel(root, doc_path),
+                        "content": None,
+                        "read_error": _read_error_detail(exc),
+                    })
+                    continue
                 truncated = len(content_lines) > _MAX_CONTENT_LINES
                 content = "\n".join(content_lines[:_MAX_CONTENT_LINES])
                 if truncated:
@@ -5683,9 +5761,21 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                 })
             else:
                 changes.append({"id": cid, "status": "unknown", "path": None, "content": None})
+        unreadable = [change for change in changes if change.get("read_error")]
+        diagnostics = [
+            _diagnostic(
+                "change_doc_unreadable",
+                f"Could not read admitted change '{change['id']}' at {change['path']}: "
+                f"{change['read_error']}",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )
+            for change in unreadable
+        ]
         return _response(
             "ok",
             {"wave_id": wave_id_s, "count": len(changes), "changes": changes},
+            diagnostics=diagnostics or None,
             next_tools=["wf_validate_docs", "wf_current_wave"],
             usage="wf_validate_docs()",
         )
@@ -5724,6 +5814,20 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             usage="wf_list_plans()",
         )
     match = matches[0]
+    if match.get("read_error"):
+        return _response(
+            "error",
+            {"change_id": change_id_s, "change": None, "changes": []},
+            diagnostics=[_diagnostic(
+                "change_doc_unreadable",
+                f"Could not read change '{match['change_id']}' at {match['path']}: "
+                f"{match['read_error']}",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )],
+            next_tools=["wf_validate_docs"],
+            usage="wf_validate_docs()",
+        )
     return _response(
         "ok",
         {
@@ -6036,7 +6140,17 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
                 continue
             try:
                 text = p.read_text(encoding="utf-8")
-            except OSError:
+            except (OSError, UnicodeError) as exc:
+                canonical_change_id = p.stem
+                if _change_doc_matches_token(p, canonical_change_id, token):
+                    matches.append(
+                        {
+                            "path": str(p.relative_to(root)).replace("\\", "/"),
+                            "change_id": canonical_change_id,
+                            "content": "",
+                            "read_error": _read_error_detail(exc),
+                        }
+                    )
                 continue
             change_match = _CHANGE_ID_PATTERN.search(text)
             canonical_change_id = change_match.group(1) if change_match else p.stem
@@ -6172,7 +6286,21 @@ def _mark_change_item_response(
                 recovery_usage=f"wf_get_change(change_id='{change_id}')",
             )],
         )
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_md.parent.name, "change_id": change_id, "path": _repo_rel(root, path)},
+            diagnostics=[_diagnostic(
+                "change_doc_unreadable",
+                f"Could not read admitted change '{change_id}' at {_repo_rel(root, path)}: {_read_error_detail(exc)}",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )],
+            next_tools=["wf_validate_docs"],
+            usage="wf_validate_docs()",
+        )
     section = ""
     candidates: list[tuple[int, re.Match[str], str]] = []
     all_labels: list[str] = []
@@ -6350,13 +6478,47 @@ def _mark_change_item_response(
                 "review_actions": review_actions,
             },
         },
-        diagnostics=action_diagnostics,
+        # The write is correct and stays; only the silence was the defect.
+        # Publishing here moves any current readiness approval to non-current,
+        # and reporting that only as a payload field left the operator with an
+        # `ok` and an empty diagnostic list while their approvals lapsed.
+        diagnostics=[
+            _diagnostic(
+                "review_policy_receipt_superseded",
+                "Deferring this acceptance criterion changed the approved contract and "
+                "published a new review-policy receipt, so any current readiness approval "
+                "is now non-current and must be re-recorded"
+                + receipt_supersession_attribution(
+                    policy_state,
+                    change_ids,
+                    # The receipt is ALREADY published here, so the one this
+                    # helper calls "pending" is the new current one.
+                    labels=("superseded receipt", "new current receipt"),
+                ),
+                recovery_tools=["wf_review_wave", "wf_review_event"],
+                recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
+            ),
+            *action_diagnostics,
+        ],
         next_tools=["wf_review_event", "wf_review_wave"],
     )
 
 
 def _plan_change_doc_path(root: Path, change_id: str) -> Path:
     return root / "docs" / "plans" / f"{change_id}.md"
+
+
+def _read_error_detail(exc: BaseException) -> str:
+    """Operator-safe one-line cause for a failed document read.
+
+    An OSError's ``str`` embeds the absolute filesystem path
+    ("[Errno 13] Permission denied: '/…'"), which re-leaks the path the
+    surrounding message just rendered repo-relative.  ``strerror`` carries the
+    cause alone; decode errors have no path in their ``str`` and stay verbatim.
+    """
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"{type(exc).__name__}: {exc.strerror}"
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _repo_rel(root: Path, path: Path) -> str:
@@ -7053,6 +7215,102 @@ def _replace_required_review_lanes(
     return pattern.sub(rendered, wave_text, count=1)
 
 
+def _staleness_recovery_tools(error: str) -> list[str]:
+    """Route recovery by CAUSE.  Re-preparing repairs neither refusing cause."""
+
+    cause = policy_input_error_cause(error)
+    if cause == "config":
+        return ["wf_validate_docs"]
+    if cause == "ambiguous_headings":
+        return ["wf_get_change"]
+    return ["wf_prepare_wave"]
+
+
+def _staleness_recovery_usage(error: str, wave_id: str) -> str:
+    cause = policy_input_error_cause(error)
+    if cause == "config":
+        return "wf_validate_docs()  # repair the `wave_review` section of docs/workflow-config.json"
+    if cause == "ambiguous_headings":
+        return "wf_get_change(change_id=...)  # remove the duplicated heading, then retry"
+    return f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
+
+
+def receipt_supersession_attribution(
+    state: Mapping[str, Any],
+    change_ids: Sequence[str],
+    *,
+    labels: tuple[str, str] = ("current receipt", "pending receipt"),
+) -> str:
+    """Name what moved, and only what the persisted data actually supports.
+
+    A bare diagnostic code reproduces the confusion this exists to remove: the
+    operator sees approvals lapse and cannot tell which input moved.  Per-change
+    attribution is deliberately NOT claimed -- the per-change digests are
+    computed into a local and discarded, and the receipt validator enforces a
+    closed field set -- so this reports the change ids that were digested and
+    stops there rather than implying it knows which one changed.
+    """
+
+    pending = state.get("receipt") or {}
+    current = current_policy_receipt(state.get("records") or []) or {}
+    pending_fields = receipt_semantic_fields(pending) if pending else {}
+    current_fields = receipt_semantic_fields(current) if current else {}
+    differing = sorted(
+        key
+        for key in set(pending_fields) | set(current_fields)
+        if pending_fields.get(key) != current_fields.get(key)
+    )
+    parts = [
+        f"{labels[0]} {current.get('receipt_id') or 'none'}",
+        f"{labels[1]} {pending.get('receipt_id') or 'none'}",
+        (
+            "differing receipt_semantic_fields: " + ", ".join(differing)
+            if differing
+            else "no differing receipt_semantic_fields"
+        ),
+        (
+            "digested change ids: " + ", ".join(change_ids)
+            if change_ids
+            else "digested change ids: none"
+        ),
+    ]
+    return (
+        " (" + "; ".join(parts) + "). "
+        "Which specific document changed is not attributable from persisted data."
+    )
+
+
+class PolicyInputError(str):
+    """A policy-selection error that remembers WHY it could not be computed.
+
+    Callers that only report errors keep treating these as plain strings.  The
+    readiness-approval staleness check needs more: it degrades to a warning for
+    an environmental failure but must REFUSE for an authoring defect, and the
+    two arrive on the same `errors` channel.  Discriminating on message prose
+    would break the first time a message is reworded, so the cause travels with
+    the error instead.
+    """
+
+    __slots__ = ("cause",)
+
+    def __new__(cls, cause: str, message: str) -> "PolicyInputError":
+        item = super().__new__(cls, message)
+        item.cause = cause
+        return item
+
+
+#: Causes for which the staleness check degrades to a warning rather than
+#: refusing.  Environmental only: a plan that cannot be read is not the
+#: approver's fault and must never make approvals unrecordable.
+POLICY_INPUT_DEGRADABLE_CAUSES = frozenset({"read"})
+
+
+def policy_input_error_cause(error: str) -> str:
+    """Cause for one policy-selection error; `unknown` for untagged legacy strings."""
+
+    return getattr(error, "cause", "unknown")
+
+
 def _prepare_policy_state(
     root: Path,
     wave_md: Path,
@@ -7065,12 +7323,12 @@ def _prepare_policy_state(
     config = _read_workflow_config(root)
     policy, policy_errors = normalize_wave_review_policy(config.get("wave_review"))
     if policy_errors or policy is None:
-        return None, policy_errors
+        return None, tuple(PolicyInputError("config", e) for e in policy_errors)
     requested = extract_requested_review_lanes(wave_text)
     project_lanes = tuple(_read_project_required_review_lanes(root))
     change_inputs: list[tuple[str, str, bytes]] = []
     change_texts: list[str] = []
-    errors: list[str] = []
+    errors: list[PolicyInputError] = []
     for change_id in change_ids:
         path = _wave_change_doc_path(root, wave_md, change_id)
         try:
@@ -7082,7 +7340,10 @@ def _prepare_policy_state(
                 text = override
                 body = text.encode("utf-8")
         except (OSError, UnicodeError) as exc:
-            errors.append(f"cannot read admitted change `{change_id}` for policy selection: {exc}")
+            errors.append(PolicyInputError(
+                "read",
+                f"cannot read admitted change `{change_id}` for policy selection: {_read_error_detail(exc)}",
+            ))
             continue
         kind = change_id.split("-", 1)[0].rsplit("-", 1)[-1]
         # Loud, not silent, and not fatal. The exclusion normalizers degrade by
@@ -7091,7 +7352,9 @@ def _prepare_policy_state(
         # back with no explanation. Report the ambiguity here instead, where the
         # existing (None, errors) channel already reaches the operator.
         for problem in ambiguous_excluded_headings(text):
-            errors.append(f"admitted change `{change_id}`: {problem}")
+            errors.append(PolicyInputError(
+                "ambiguous_headings", f"admitted change `{change_id}`: {problem}"
+            ))
         change_inputs.append((change_id, kind, body))
         change_texts.append(text)
     if errors:
@@ -7110,10 +7373,10 @@ def _prepare_policy_state(
     )
     records, ledger_errors = read_review_event_ledger(wave_md)
     if ledger_errors:
-        return None, tuple(ledger_errors)
+        return None, tuple(PolicyInputError("ledger", e) for e in ledger_errors)
     record_errors = validate_review_evidence_records(records)
     if record_errors:
-        return None, tuple(record_errors)
+        return None, tuple(PolicyInputError("record", e) for e in record_errors)
     heads = current_synthesis_heads(records).values()
     mode = str(policy["delivery_mode"])
     # One canonical representation feeds every receipt-semantic reader. Lane
@@ -7264,7 +7527,7 @@ def _publish_prepare_policy_state(
 
 
 def _review_policy_receipt_diagnostics(
-    root: Path, wave_md: Path, wave_text: str
+    root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False
 ) -> list[dict[str, Any]]:
     """Recompute receipt inputs; downstream lifecycle gates never reselect."""
 
@@ -7302,15 +7565,23 @@ def _review_policy_receipt_diagnostics(
                 "Persisted Required review lanes no longer match the current policy inputs; re-Prepare.",
                 recovery_tools=["wf_prepare_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
+                advisory=advisory,
             )
         )
     if state["receipt_append_required"]:
+        # Only this site can build the full attribution payload: the error loop
+        # above has `state is None` (no current receipt, no pending receipt, no
+        # semantic fields) and the roster-drift site may have no distinct
+        # pending receipt id.  Demanding the same payload at all three would
+        # force an implementer to invent placeholder values.
         diagnostics.append(
             _diagnostic(
                 "review_policy_receipt_stale",
-                "The current review-policy receipt does not match the wave/config/change inputs; re-Prepare.",
+                "The current review-policy receipt does not match the wave/config/change inputs; re-Prepare."
+                + receipt_supersession_attribution(state, change_ids),
                 recovery_tools=["wf_prepare_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
+                advisory=advisory,
             )
         )
     return diagnostics
@@ -7601,6 +7872,32 @@ def wf_add_change_response(
             usage="wf_current_wave()",
         )
     relocated = source_path == target_path
+    # Refuse an undecodable or unreadable change document BEFORE any mutation.
+    # `_resolve_change_doc_matches` now MATCHES such a document (it reports the
+    # read failure rather than skipping), so without this guard `create` would
+    # relocate the file out of `docs/plans/`, fail at the metadata repair, and
+    # return an error that never mentions the move -- turning a
+    # crash-before-mutation into a mutation-then-misleading-error.
+    _readability_probe = source_path if source_path.exists() else target_path
+    if _readability_probe.exists():
+        try:
+            _readability_probe.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
+                diagnostics=[
+                    _diagnostic(
+                        "change_doc_unreadable",
+                        f"Could not read change doc {_repo_rel(root, _readability_probe)}: "
+                        f"{_read_error_detail(exc)}. Nothing was moved or admitted.",
+                        recovery_tools=["wf_get_change"],
+                        recovery_usage=f"wf_get_change(change_id={canonical_change_id!r})",
+                    )
+                ],
+                next_tools=["wf_get_change"],
+                usage=f"wf_get_change(change_id={canonical_change_id!r})",
+            )
     if mode_s == "create":
         if target_path.exists() and source_path != target_path:
             return _response(
@@ -7649,11 +7946,11 @@ def wf_add_change_response(
             )
             if repaired_admitted_text != admitted_text:
                 target_path.write_text(repaired_admitted_text, encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             return _response(
                 "error",
                 {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
-                diagnostics=[_diagnostic("change_metadata_repair_failed", f"Failed to update admitted change metadata: {exc}")],
+                diagnostics=[_diagnostic("change_metadata_repair_failed", f"Failed to update admitted change metadata: {_read_error_detail(exc)}")],
             )
         text = _insert_change_block_into_changes_section(text, canonical_change_id)
         wave_md.write_text(text, encoding="utf-8")
@@ -7664,7 +7961,13 @@ def wf_add_change_response(
     _doc_check_path = target_path if (mode_s == "create" and target_path.exists()) else source_path
     broken_links: list[str] = []
     if _doc_check_path.exists():
-        _doc_text = _doc_check_path.read_text(encoding="utf-8")
+        try:
+            _doc_text = _doc_check_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            # Unreachable for the decode case now that the readability probe
+            # above refuses first; kept because this read can still fail for
+            # I/O reasons, and a broken-link scan must never crash the tool.
+            _doc_text = ""
         broken_links = _broken_relative_links_after_relocation(_doc_text)
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
@@ -14422,7 +14725,14 @@ def _prepare_council_instructions(rotating_seat: str | None) -> str:
         "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
         "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
         "censuses must be complete. Do not approve a plan whose claims were checked only against "
-        "its own text. Have wave-council synthesize findings. "
+        "its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a "
+        "function, class, method, constant, test name, or distinguishing expression — rather than "
+        "a bare file:line, because a symbol anchor resolves to today's text while a line anchor "
+        "drifts hardest when a sibling wave edits the target concurrently. A line number is still "
+        "correct for a module-level constant block, data file, specific line in a generated "
+        "artifact, prose in a hand-authored markdown document, or deliberately historical "
+        "citation; name that case inline so a reviewer can tell a deliberate line anchor from a "
+        "lapsed one. Have wave-council synthesize findings. "
         "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
         "whose seats: field lists the seats actually run, each at most once, with per-seat "
         "evidence (or an explicit no-findings note) recorded in the wave record "
@@ -15217,6 +15527,7 @@ def wf_review_event_response(
             finding_id=finding_id,
             records=current.records,
         )
+        stale_warnings: list[dict[str, Any]] = []
         if readiness_approval:
             live_receipt = current_policy_receipt(current.records)
             if (
@@ -15238,6 +15549,105 @@ def wf_review_event_response(
                 )
         existing_bundle = _identified_review_event_bundle(current.records, identity)
         replayed = existing_bundle is not None
+        if readiness_approval and existing_bundle is None:
+            # Only a genuinely NEW append is checked.  An idempotent replay of an
+            # already-recorded approval must still replay: the record is already in
+            # the ledger, so refusing it would report that the approval could never
+            # satisfy a gate about a call that wrote nothing, and would break the
+            # documented same-identity retry contract.
+            # The check above compares receipt IDs, so a mint that has become
+            # PENDING without the current id moving passes it -- which is the
+            # whole defect.  Recompute the policy inputs here, inside the
+            # publication lock, and refuse rather than writing an approval that
+            # is dead on arrival into an append-only authority ledger.
+            recompute_change_ids = _extract_change_ids_from_wave_text(original)
+            recompute_state, recompute_errors = _prepare_policy_state(
+                root,
+                wave_md,
+                original,
+                recompute_change_ids,
+                # `_prepare_policy_state` never reads `council_brief`; building
+                # the real brief here would run seat selection and template
+                # assembly on every readiness approval, inside the lock, for
+                # nothing.
+                {},
+            )
+            if recompute_errors:
+                blocking = [
+                    error
+                    for error in recompute_errors
+                    if policy_input_error_cause(error)
+                    not in POLICY_INPUT_DEGRADABLE_CAUSES
+                ]
+                if blocking:
+                    return _response(
+                        "error",
+                        {"wave_id": wave_id, "mode": mode_s, "event": event},
+                        diagnostics=[
+                            _diagnostic(
+                                "review_policy_receipt_stale",
+                                "Cannot verify the review-policy receipt is current, and the "
+                                f"cause is repairable rather than environmental: {error}",
+                                recovery_tools=_staleness_recovery_tools(error),
+                                recovery_usage=_staleness_recovery_usage(
+                                    error, wave_id
+                                ),
+                            )
+                            for error in blocking
+                        ],
+                    )
+                # Degrade, but say so: the ledger will not record that this
+                # approval skipped verification, so the response must.
+                stale_warnings = [
+                    _diagnostic(
+                        "review_policy_staleness_unverified",
+                        "The review-policy staleness check COULD NOT BE PERFORMED for this "
+                        f"approval and it was accepted without that verification: {error}",
+                        recovery_tools=["wf_prepare_wave"],
+                        recovery_usage=(
+                            f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
+                        ),
+                    )
+                    for error in recompute_errors
+                ]
+            elif recompute_state is None:
+                # State absent with an EMPTY error tuple; branching on `errors`
+                # alone mishandles it.
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s, "event": event},
+                    diagnostics=[
+                        _diagnostic(
+                            "review_policy_receipt_stale",
+                            "Cannot verify the review-policy receipt is current: policy "
+                            "selection returned no state and no error.",
+                            recovery_tools=["wf_prepare_wave"],
+                            recovery_usage=(
+                                f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
+                            ),
+                        )
+                    ],
+                )
+            elif recompute_state["receipt_append_required"]:
+                return _response(
+                    "error",
+                    {"wave_id": wave_id, "mode": mode_s, "event": event},
+                    diagnostics=[
+                        _diagnostic(
+                            "review_policy_receipt_stale",
+                            "A readiness approval cannot bind an already-superseded receipt: "
+                            "a policy input has moved and the next Prepare will publish a new "
+                            "receipt, so this approval could never satisfy a gate"
+                            + receipt_supersession_attribution(
+                                recompute_state, recompute_change_ids
+                            ),
+                            recovery_tools=["wf_prepare_wave"],
+                            recovery_usage=(
+                                f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
+                            ),
+                        )
+                    ],
+                )
         if existing_bundle is not None:
             if existing_bundle[0].get(REQUEST_DIGEST_FIELD) != request_digest:
                 return _response(
@@ -15306,7 +15716,15 @@ def wf_review_event_response(
             "replayed": replayed,
         }
         if mode_s == "dry_run":
-            return _response("dry_run", payload, next_tools=["wf_review_event"])
+            # The preview must carry the same caveat the mutating call reports.
+            # The refusal branches already fire on dry-run; dropping only the
+            # degraded-acceptance warning made a preview quieter than the call
+            # it previews, which is the asymmetry this change exists to remove.
+            return _response(
+                "dry_run", payload,
+                diagnostics=stale_warnings or None,
+                next_tools=["wf_review_event"],
+            )
         event_committed = replayed
         if not replayed:
             try:
@@ -15379,7 +15797,7 @@ def wf_review_event_response(
         return _response(
             "ok",
             payload,
-            diagnostics=action_diagnostics,
+            diagnostics=[*stale_warnings, *action_diagnostics],
             next_tools=["wf_review_event", "wf_review_wave"],
         )
 
@@ -15401,10 +15819,31 @@ def wf_review_event_response(
 
 
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    diagnostics: list[dict[str, Any]] = []
+
+    def _prepare_envelope(
+        status: str,
+        data: dict[str, Any],
+        *,
+        next_tools: list[str] | None = None,
+        usage: str = "",
+    ) -> dict[str, Any]:
+        return _response(
+            status,
+            data,
+            diagnostics=diagnostics or None,
+            next_tools=next_tools,
+            usage=usage,
+        )
+
+    def _has_blocking_diagnostics() -> bool:
+        return any(diagnostic.get("advisory") is not True for diagnostic in diagnostics)
+
     requested_mode = (mode or "").strip().lower()
     mode_s = {"apply": "create", "evaluate": "dry_run"}.get(requested_mode, requested_mode)
     if mode_s not in {"dry_run", "ready", "create"}:
-        return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": ["dry_run", "evaluate", "ready", "create"]}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: dry_run (or evaluate), ready, create.")], next_tools=["wf_help"], usage="wf_help()")
+        diagnostics.append(_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: dry_run (or evaluate), ready, create."))
+        return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode, "valid_modes": ["dry_run", "evaluate", "ready", "create"]}, next_tools=["wf_help"], usage="wf_help()")
     # Wave 1p45l: decouple readiness from activation.
     #   dry_run  — read-only validation, no guard, no writes.
     #   ready    — full readiness (relocate + garden + lint + council verdict) recorded WITHOUT
@@ -15415,10 +15854,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     _mutating = mode_s in ("create", "ready")
     wave_md = _find_wave_md(root, wave_id)
     if wave_md is None:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        diagnostics.append(_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()"))
+        return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves"], usage="wf_list_waves()")
     text = wave_md.read_text(encoding="utf-8")
     change_ids = _extract_change_ids_from_wave_text(text)
-    diagnostics: list[dict[str, Any]] = []
     diagnostics.extend(_wave_review_policy_diagnostics(root))
     diagnostics.extend(
         _review_evidence_diagnostics(
@@ -15427,7 +15866,6 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             wave_key=wave_md.parent.name,
         )
     )
-    _ac_advisories: list[dict[str, Any]] = []
     repairs_needed = 0
     repaired = 0
     updated = False
@@ -15488,11 +15926,11 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             continue
         try:
             change_text = change_path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             diagnostics.append(
                 _diagnostic(
                     "change_doc_unreadable",
-                    f"Could not read admitted change '{admitted_change}' at {_repo_rel(root, change_path)}: {exc}",
+                    f"Could not read admitted change '{admitted_change}' at {_repo_rel(root, change_path)}: {_read_error_detail(exc)}",
                     recovery_tools=["wf_get_change"],
                     recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
                 )
@@ -15515,12 +15953,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             ac_section = change_text[ac_section_start:]
             ac_rows = [line for line in ac_section.splitlines() if line.strip().startswith("| AC-")]
             if ac_rows and all(_AC_PLACEHOLDER in row for row in ac_rows):
-                _ac_advisories.append(
+                diagnostics.append(
                     _diagnostic(
                         "ac_priority_unpopulated",
                         f"Change '{admitted_change}' AC priority table still contains only placeholder text. Fill in priority values (required / important / nice-to-have / not-this-scope) for each AC row before closing the wave.",
                         recovery_tools=["wf_get_change"],
                         recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+                        advisory=True,
                     )
                 )
     # Garden + lint are the last preflight before policy publication. A failed
@@ -15576,7 +16015,36 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         )
         for error in policy_state_errors
     )
-    if _mutating and policy_state is not None and not diagnostics:
+    # Placement is load-bearing: this runs AFTER the `policy_state_errors`
+    # loop above, because on the error-cause path that loop and
+    # `_review_policy_receipt_diagnostics` produce the byte-identical message.
+    # A dedupe snapshot taken before the loop is empty and therefore inert.
+    if mode_s == "dry_run" and policy_state is not None:
+        # Dry-run is the affordance an operator reaches for BEFORE mutating, and
+        # it was the one surface silent about the mutation it previews: the
+        # pending mint was reachable only as
+        # `data.review_policy.receipt_append_required`, buried in the payload.
+        #
+        # It is ADVISORY, not blocking. On the shared list it made prepare
+        # return `status: "error"`, dropping `readied`, `transitioned_to_active`
+        # and the council-verdict fields, and `error` is not in
+        # `LIFECYCLE_ENGAGED_STATUSES`, so every preflight after an ordinary
+        # change-doc edit silently reclassified as not-engaged in focus and
+        # context-efficiency telemetry.
+        #
+        # The `policy_state is not None` guard matches prepare's own policy
+        # block: `_prepare_policy_state` returns a state only from its single
+        # success return, which always carries `errors == ()`. So this runs only
+        # when prepare's `policy_state_errors` loop above produced nothing,
+        # which is why no dedupe is needed here -- the two producers are
+        # mutually exclusive by construction. An earlier revision carried a
+        # `_seen_stale` collision check; this guard made it unreachable.
+        #
+        # This reads only; it writes nothing.
+        diagnostics.extend(
+            _review_policy_receipt_diagnostics(root, wave_md, text, advisory=True)
+        )
+    if _mutating and policy_state is not None and not _has_blocking_diagnostics():
         try:
             text = _publish_prepare_policy_state(
                 root, wave_md, text, policy_state
@@ -15586,7 +16054,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             diagnostics.append(
                 _diagnostic(
                     "review_policy_receipt_stale",
-                    f"Prepare could not publish the review-policy roster/receipt: {exc}",
+                    f"Prepare could not publish the review-policy roster/receipt: {_read_error_detail(exc)}",
                     recovery_tools=["wf_prepare_wave"],
                     recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
                 )
@@ -15655,13 +16123,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
             )
         )
-    if diagnostics:
+    if _has_blocking_diagnostics():
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired, "council_brief": council_brief, "review_policy": policy_response}
         error_data["required_council_signoffs"] = required_council_signoffs
         error_data.update(guard_data)
         next_tools_list = ["wf_prepare_wave", "wf_pause_wave", "wf_current_wave"] if other_active is not None else ["wf_validate_docs", "wf_current_wave"]
         usage_hint = f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')" if other_active is not None else "wf_validate_docs()"
-        return _response("error", error_data, diagnostics=diagnostics, next_tools=next_tools_list, usage=usage_hint)
+        return _prepare_envelope("error", error_data, next_tools=next_tools_list, usage=usage_hint)
     # Prepare-phase Wave Council review — final step of wf_prepare_wave (12sp5).
     # The brief remains available on both branches. Only legacy waves consume
     # the prose verdict below; declared waves consumed typed authority above.
@@ -15694,10 +16162,8 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             "then call wf_prepare_wave(mode='create') to complete prepare."
         )
         if _mutating:
-            return _response(
-                "ready_for_council_review",
-                {"wave_id": wave_id, "mode": mode_s, "council_brief": council_brief},
-                diagnostics=[_diagnostic(
+            diagnostics.append(
+                _diagnostic(
                     "prepare_council_verdict_missing",
                     "Technical checks passed. Ready to run prepare-phase Wave Council review. "
                     "Run each council seat in isolation against the admitted change docs, "
@@ -15705,17 +16171,22 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                     f"then call wf_prepare_wave(mode={mode_s!r}) again to complete this step.",
                     recovery_tools=["wf_prepare_wave"],
                     recovery_usage=f"wf_prepare_wave(mode={mode_s!r})",
-                )],
+                )
+            )
+            return _prepare_envelope(
+                "ready_for_council_review",
+                {"wave_id": wave_id, "mode": mode_s, "council_brief": council_brief},
                 next_tools=["wf_prepare_wave"],
                 usage=council_usage,
             )
         # dry_run: include brief as advisory, don't block
-        _ac_advisories.append(_diagnostic(
+        diagnostics.append(_diagnostic(
             "prepare_council_verdict_missing",
             "Technical checks passed. Ready to run prepare-phase Wave Council review. "
             "Run the council review and record the verdict before calling wf_prepare_wave(mode='create').",
             recovery_tools=["wf_prepare_wave"],
             recovery_usage="wf_prepare_wave(mode='create')",
+            advisory=True,
         ))
     elif not verdict_valid:
         if seat_alignment_issues:
@@ -15742,7 +16213,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 )
             )
         if mode_s == "create":
-            return _response(
+            return _prepare_envelope(
                 "error",
                 {
                     "wave_id": wave_id,
@@ -15757,7 +16228,6 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                     "council_verdict_present": verdict_present,
                     "council_verdict_valid": verdict_valid,
                 },
-                diagnostics=diagnostics,
                 next_tools=["wf_prepare_wave"],
                 usage="wf_prepare_wave(mode='create')",
             )
@@ -15773,13 +16243,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 required_run_kind="readiness",
             )
         )
-    if diagnostics:
+    if _has_blocking_diagnostics():
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
         error_data["required_council_signoffs"] = required_council_signoffs
         error_data["council_brief"] = council_brief
         error_data["council_verdict_present"] = verdict_present
         error_data["council_verdict_valid"] = verdict_valid
-        return _response("error", error_data, diagnostics=diagnostics, next_tools=["wf_prepare_wave"], usage="wf_prepare_wave(mode='create')")
+        return _prepare_envelope("error", error_data, next_tools=["wf_prepare_wave"], usage="wf_prepare_wave(mode='create')")
     transitioned_to_active = False
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
@@ -15791,12 +16261,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         try:
             projected_text = _project_current_review_status(root, wave_md, text)
         except ValueError as exc:
-            return _response(
+            diagnostics.append(_diagnostic("review_projection_failed", str(exc)))
+            return _prepare_envelope(
                 "error",
                 {"wave_id": wave_id, "mode": mode_s},
-                diagnostics=[
-                    _diagnostic("review_projection_failed", str(exc))
-                ],
                 next_tools=["wf_review_event", "wf_validate_docs"],
             )
         if projected_text != wave_md.read_text(encoding="utf-8"):
@@ -15827,7 +16295,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     )
     if _mem_advisories:
         resp_data["memory_advisories"] = _mem_advisories
-    envelope = _response("dry_run" if mode_s == "dry_run" else "ok", resp_data, diagnostics=_ac_advisories if _ac_advisories else None, next_tools=["wf_current_wave"], usage="wf_current_wave()")
+    envelope = _prepare_envelope("dry_run" if mode_s == "dry_run" else "ok", resp_data, next_tools=["wf_current_wave"], usage="wf_current_wave()")
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
@@ -16332,7 +16800,7 @@ def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
         ):
             change = _wave_change_doc_path(root, wave_md, change_id)
             targets.extend(serialization_point_paths(change.read_text(encoding="utf-8")))
-    except OSError:
+    except (OSError, UnicodeError):
         return None
     if not targets:
         return None
@@ -16407,12 +16875,16 @@ def _retrieval_posture_thresholds(root: Path) -> tuple[int, int]:
 
 
 def _wave_has_gapfill_note(wave_md: Path) -> bool:
-    try:
-        for doc in sorted(wave_md.parent.glob("*.md")):
+    # Per-document, and catching decode failures too: an `except OSError` around
+    # the whole loop let one undecodable change doc abort the scan, and because
+    # both call sites wrap this in `except Exception` the effect was to silently
+    # disable the retrieval-posture sensor rather than to crash visibly.
+    for doc in sorted(wave_md.parent.glob("*.md")):
+        try:
             if "Gapfill:" in doc.read_text(encoding="utf-8"):
                 return True
-    except OSError:
-        pass
+        except (OSError, UnicodeError):
+            continue
     return False
 
 
@@ -16618,7 +17090,21 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         if not change_path.exists():
             ordered_changes.append({"change_id": cid, "status": "unknown", "depends_on": []})
             continue
-        ct = change_path.read_text(encoding="utf-8")
+        try:
+            ct = change_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "mode": mode_s},
+                diagnostics=[_diagnostic(
+                    "change_doc_unreadable",
+                    f"Could not read admitted change '{cid}' at {_repo_rel(root, change_path)}: {_read_error_detail(exc)}",
+                    recovery_tools=["wf_validate_docs"],
+                    recovery_usage="wf_validate_docs()",
+                )],
+                next_tools=["wf_validate_docs", "wf_current_wave"],
+                usage="wf_validate_docs()",
+            )
         status_m = _CHANGE_STATUS_PATTERN.search(ct)
         cs = status_m.group(1) if status_m else "unknown"
         deps_m = re.findall(r"Depends On:\s*`([^`]+)`", ct)
@@ -16794,7 +17280,19 @@ def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path)
         if not change_path.exists():
             change_summaries.append({"id": cid, "title": cid, "completed_acs": [], "decisions": [], "progress": []})
             continue
-        ct = change_path.read_text(encoding="utf-8")
+        try:
+            ct = change_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            # Wave-relative, not absolute: this string reaches the operator in a
+            # close diagnostic, and the function has no repo root to hand to
+            # `_repo_rel`.  The document is always a sibling of `wave_md`.
+            # `_read_error_detail` strips the absolute path an OSError's str
+            # embeds; the wave-relative form above is the only path rendered.
+            raise ValueError(
+                f"Could not read admitted change '{cid}' at "
+                f"{wave_md.parent.name}/{change_path.name}: "
+                f"{_read_error_detail(exc)}"
+            ) from exc
         # Title from H1
         h1_m = re.search(r"^#\s+(.+)$", ct, re.MULTILINE)
         title = h1_m.group(1).strip() if h1_m else cid
@@ -17034,7 +17532,28 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         secrets_notice = {**secrets_notice, "retrieval_posture_gap": _close_posture_gap}
     # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
     # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
-    silent_unchecked = _collect_silent_unchecked_items_for_close(wave_md, text)
+    silent_all = _collect_silent_unchecked_items_for_close(wave_md, text)
+    # 1uu9z follow-up: an unreadable admitted document is a different failure
+    # than an unchecked item and gets its own diagnostic. Folding it into the
+    # unchecked-items count produced a false count and an unactionable
+    # instruction ("mark it `[x]` or `[~]`") for a file that will not decode,
+    # under a code every sibling site does not use.
+    unreadable_docs = [i for i in silent_all if i["item_type"] == "change document"]
+    silent_unchecked = [i for i in silent_all if i["item_type"] != "change document"]
+    for item in unreadable_docs:
+        diagnostics.append(
+            _diagnostic(
+                "change_doc_unreadable",
+                (
+                    f"Wave close blocked: admitted change '{item['change_id']}' could not "
+                    f"be read ({item['item_text']}). The close hard gate cannot be "
+                    "verified over a document that cannot be read; repair or restore "
+                    "the file before close."
+                ),
+                recovery_tools=["wf_get_change", "wf_current_wave"],
+                recovery_usage=f"wf_get_change(change_id='{item['change_id']}')",
+            )
+        )
     if silent_unchecked:
         # Build a structured, operator-readable message naming up to 10 items inline; counts
         # beyond that summarized. The diagnostic carries the full list in its data for tools.
@@ -17062,7 +17581,21 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     if diagnostics:
         return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, **secrets_notice}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
     # Generate the wave summary from structured change doc fields (12sq4).
-    wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
+    try:
+        wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed},
+            diagnostics=[_diagnostic(
+                "change_doc_unreadable",
+                f"Could not read an admitted change while generating the close summary: {exc}",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )] + gate_diagnostics,
+            next_tools=["wf_validate_docs", "wf_current_wave"],
+            usage="wf_validate_docs()",
+        )
     updated = False
     transitioned_to_closed = False
     handoff_rel = ""
@@ -30465,6 +30998,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             for match in matches:
                 lines.append(f"- `{match['change_id']}` — `{match['path']}`")
             return "\n".join(lines) + "\n"
+        if matches[0].get("read_error"):
+            # Never hand back an empty body for a document that could not be
+            # read; the spec promises `# Not Found` for absent resources and an
+            # unreadable one must not read as empty.
+            return (
+                "# Unreadable Change\n\n"
+                f"`{matches[0]['change_id']}` could not be read: "
+                f"{matches[0]['read_error']}\n"
+            )
         return str(matches[0]["content"])
 
     @mcp.resource(

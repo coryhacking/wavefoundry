@@ -10,6 +10,28 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A readiness approval that could never satisfy a gate is now refused instead of
+  silently accepted.** Recording a readiness approval while a policy input had already
+  moved returned `ok` with no diagnostics, wrote a permanently unusable record into the
+  append-only review ledger, and left you to discover it only when the next Prepare
+  lapsed the approval. It is now refused, and the refusal names the current receipt, the
+  pending receipt, which receipt fields differ, and which change documents were digested.
+  Recovery is one `wf_prepare_wave(mode='ready')` plus one approval per readiness lane.
+  This covers every receipt-bound readiness key, not just the council key -- specialist
+  lanes were accepting stale binds too. An idempotent retry of an already-recorded
+  approval still replays without appending, as before.
+- **Closing a wave no longer requires less review after the refusal than before it.** The
+  close-time carve-out for waves that predate the review policy keyed on approval absence,
+  and a refused approval is also absent -- so doing the right thing produced a weaker close
+  gate than ignoring the problem. It now keys on whether the wave was ever prepared under
+  the policy, and both branches of that gate are covered.
+- **`wf_prepare_wave(mode='dry_run')` now tells you a receipt mint is pending.** The
+  preview was the one surface silent about the mutation it previews; the signal existed
+  only buried in the response payload. It is reported as an advisory, so a pending mint --
+  the ordinary state after any change-doc edit -- does not turn your preview into a failure.
+- **`wf_mark_ac(state='~')` now says when it superseded your receipt.** Deferring an
+  acceptance criterion publishes a new receipt and moves any current readiness approval to
+  non-current; that was reported only as a payload field, so it read as a silent success.
 - **Recordkeeping edits no longer lapse your review approvals.** Editing a boilerplate
   `## Session Handoff`, a Windows checkout, a stray trailing space, an editor that strips
   whitespace on save, a missing or extra newline at end of file, or reordering the `## Changes`
@@ -150,6 +172,46 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`wf_prepare_wave(mode='evaluate')` is documented where callers can find it.** The read-only alias
   was already accepted but appeared in no tool docstring and in no shipped lifecycle prompt.
+
+- **A change document that cannot be read no longer crashes the tool you reach for first.** A file
+  that is not valid UTF-8 -- a bad checkout, a mangled paste, a wrong-encoding save -- raised a stack
+  trace out of `wf_prepare_wave` instead of telling you which document was broken. Twelve read sites
+  were involved, not the two originally reported, and the recovery tools were among them --
+  `wf_get_change` and `wf_list_plans` are exactly where the diagnostic sends you, so the crash
+  repeated one tool over. Every lifecycle boundary now returns a `change_doc_unreadable` diagnostic
+  naming the document and the cause: prepare, implement, close, `wf_get_change`, `wf_list_plans`,
+  `wf_add_change`, and the `wavefoundry://change/{change_id}` resource, which renders
+  `# Unreadable Change` rather than an empty body. A bulk `wave_id` lookup still returns the readable
+  siblings, and `wf_list_plans` still lists the readable plans, each unreadable entry carrying a
+  `read_error` instead of parsed content. No failure message carries your absolute filesystem path.
+
+  **Two behavior changes are deliberate rather than incidental.** An unreadable admitted document used
+  to be skipped silently at close, so the close hard gate passed over a document it could not verify;
+  it is now a blocker. And one unreadable document no longer disables the retrieval-posture scan for
+  an entire wave -- that check reads per document instead of aborting the whole pass. Waves whose
+  documents all decode normally are unaffected.
+
+  **`wf_add_change` refuses before it moves.** Making the resolver honest about unreadable documents
+  also let `wf_add_change(mode='create')` reach the relocation step and move a file it could not read.
+  It now checks readability first and refuses without touching anything.
+
+- **The receipt-authority documentation matches what the code does.** Five statements in the
+  architecture reference described the system as it was before the previous release: that Prepare is
+  the sole writer of the review roster and receipt (`wf_mark_ac(state='~')` is a second writer), the
+  evaluator version, the count of tools that report avoided context, the count of lifecycle tools
+  that record telemetry debits, and the event-ledger ownership row that omitted both receipt
+  writers. The closure rule in the shipped review-system seed also described a carve-out no
+  predicate implements. All are corrected, and installed repositories see the seed correction at
+  their next upgrade.
+
+- **Review findings that cite code now anchor by symbol.** The citation rule that already governed
+  plans and implementation reaches the surfaces where review evidence is authored: the evidence
+  record's `artifact_or_test_id` and prose, the council seat's finding-authoring guidance, and the
+  runtime prepare-council brief a seat actually receives at readiness. A symbol anchor resolves to
+  today's text; a bare line number drifts hardest exactly when a sibling wave edits the target.
+  The five deliberate line-anchor cases (constant blocks, data files, generated artifacts,
+  hand-authored prose, historical citations) stay legitimate and must be named inline. Installed
+  repositories see the seed half at their next upgrade.
 
 ### Changed
 

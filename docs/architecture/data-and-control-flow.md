@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-08
+Last verified: 2026-08-10
 
 ## Primary Control Paths
 
@@ -94,9 +94,9 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 
 ### Path 6a: Context-Efficiency Capture and Projection
 
-1. Exactly 18 retrieval/navigation tools attach `context_avoided` after producing their complete core response: `code_ask`, `code_search`, `code_lexical`, `docs_search`, `code_keyword`, `code_pattern`, `code_constants`, `code_read`, `code_outline`, `code_definition`, `code_references`, `code_callhierarchy`, `code_impact`, `code_dependencies`, `code_callgraph`, `code_graph_path`, `code_graph_community`, and `code_commit_provenance`.
+1. `_CONTEXT_RETRIEVAL_TOOLS` defines the retrieval/navigation tools that attach `context_avoided` after producing their complete core response: `code_ask`, `code_search`, `code_lexical`, `docs_search`, `code_keyword`, `code_pattern`, `code_constants`, `code_read`, `code_outline`, `code_definition`, `code_references`, `code_callhierarchy`, `code_impact`, `code_dependencies`, `code_callgraph`, `code_graph_path`, `code_graph_community`, `code_commit_provenance`, `code_hover`, and `code_risk_score`.
 2. Each event canonically estimates the request and complete response as `ceil(UTF-8 bytes / 4)`. Contained content-returning paths and the documented structural path fields provide source-size credit. Paths and versions become opaque IDs before persistence. SQLite credits a source version once per wave phase across content and structural retrieval; a changed version or new phase may be credited again.
-3. Five lifecycle tools record request/response debits whenever their handler is reached. A newly completed create, prepare, implement, full review, or close milestone may also credit exactly one contained project-local shortcut prompt. Dry runs, refusals, lifecycle no-ops, and incomplete reviews retain their debits but receive no prompt credit.
+3. The lifecycle tools in `_LIFECYCLE_CONTEXT_STAGES` record request/response debits whenever their handler is reached — the create/prepare/implement/review/close set plus the tracking tools `wf_mark_ac` and `wf_mark_task`, which are attributed to the implement stage. A newly completed create, prepare, implement, full review, or close milestone may also credit exactly one contained project-local shortcut prompt. Dry runs, refusals, lifecycle no-ops, and incomplete reviews retain their debits but receive no prompt credit.
 4. `ImplHandler` retains a random producer identity, a lazily acquired crash-released OS lease, and current focus in memory. Every eligible event writes through atomically to `.wavefoundry/logs/context-efficiency.sqlite`; event IDs and phase/source/version uniqueness are enforced across processes. Successful create/prepare transfers its own general rows and atomically claims only persisted peer identities whose lease is provably unheld; live or ambiguous peers remain isolated.
 5. The per-stage ledger is closed: content source credit + structural source credit + workflow prompt credit − request debit − response debit. Saved output and avoided tool loops enter only as the conservative residual from a pre-registered, quality-equivalent paired evaluation (at least five completed pairs, assisted quality componentwise no worse, minimum residual across qualifying pairs).
 6. Lifecycle projection boundaries re-read durable state under the project-global `wave.md` lock and atomically replace only the marker-owned block. MCP reload and framework upgrade first project every pending wave generation. Claude's dedicated detached `Stop` adapter and an MCP-owned cross-host safety-net monitor call the narrower root-bound projector after a generation-stable quiet period (120 seconds by default, configurable at `context_efficiency.projection.quiet_period_seconds`, clamped 90–600). Automatic callers fail fast on lock contention and cannot flush telemetry, transfer general rows, mutate focus/stage, seal, or compact. A generation compare-and-set is the exact covered-row cutoff: an older projection cannot mark newer events published. Close additionally seals that generation, then transactionally replaces payload rows with the cumulative checkpoint floor plus compact event-ID replay tombstones. Reads combine the floor with later raw rows after reopen; a failed post-publication compaction stays pending and retries.
@@ -180,7 +180,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 | Context-efficiency focus | One MCP `ImplHandler` process | that process's lifecycle attribution | lifecycle transitions only; no event totals live solely in memory |
 | `.wavefoundry/logs/context-efficiency.sqlite` | MCP operational telemetry | eligible retrieval/lifecycle calls, exact-match memory-advisory estimates, paired-evaluation attachment, lifecycle/reload/upgrade projection, `wf_current_wave`, `wf_audit` | write-through opaque accounting plus separate origin-bounded exploration events; ignored and lazy |
 | Wave records `docs/waves/<id>/wave.md` | wave-coordinator | wave inspection tools | wave lifecycle commands |
-| Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wf_create_wave` (empty) and locked `wf_review_event`; sole machine authority for review evidence |
+| Wave event ledger `docs/waves/<id>/events.jsonl` | wave-coordinator | prepare/review/close, dashboard/resources | `wf_create_wave` (empty), locked `wf_review_event`, `wf_prepare_wave` (the `review_policy_receipt`), and `wf_mark_ac(state='~')` on an acceptance criterion when the wave uses external review evidence and `wave_review` is configured — both receipt writers publish through the same publisher. `wf_mark_task` is receipt-neutral. Sole machine authority for review evidence |
 | Publication lock `.wavefoundry/locks/review-evidence-adoptions.lock` | `project_state_publication_lock` (`review_evidence.py`) | every project-state publication writer | host-local, ignored, crash-safe coordination only; basename is a stable compatibility ABI |
 | Change docs `docs/plans/<id>.md` | Engineering | wf_get_change | wf_new_* tools, operator, wf_remove_change |
 | Change docs `docs/waves/<wave-id>/<id>.md` | Active wave | wf_get_change, wave lifecycle tools | wf_add_change, wf_prepare_wave |
@@ -473,8 +473,8 @@ readiness gate); only a `drift_clear_failed` on a confirmed transition escalates
 
 ## Review-policy and upgrade authority (protocol 2)
 
-Prepare is the sole writer of the generated review roster and the append-only
-`review_policy_receipt` in the existing wave ledger. The receipt binds policy,
+Prepare and `_mark_change_item_response`'s `refresh_receipt` path publish the generated review roster and the append-only
+`review_policy_receipt` in the existing wave ledger through the same publisher. The receipt binds policy,
 admitted change content, project/requested lanes, primer depth, seats, and the
 delivery-Council decision to its immediate parent, so A → B → A cannot revive
 the first A approval. These normalizers are no longer only receipt hashing: `select_required_review_lanes`
@@ -493,7 +493,7 @@ value, the `## Progress Log` body, a `## Session Handoff` body that exactly
 matches the shipped template sentence, and completion-tracking checkbox markers
 in Acceptance Criteria and Tasks. An Acceptance Criteria `[~]` is deliberately
 NOT normalized, because an intentional non-delivery changes the contract. Every
-other byte remains significant. Evaluator version 2 makes that boundary
+other byte remains significant. `REVIEW_POLICY_EVALUATOR_VERSION` makes that boundary
 explicit, so a non-closed legacy receipt converges through one re-Prepare while
 closed Markdown and ledgers remain immutable. Review and Close share the common
 delivery evaluator; Close owns only the registered closure-only delta.

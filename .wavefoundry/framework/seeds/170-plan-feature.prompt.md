@@ -87,6 +87,28 @@ Change document format:
 
 If a change edits `canonical_review_policy_body` or any of its normalizers, say so in the change document and expect a one-time cost that no other edit has. Those functions decide what the review-policy digest SEES, so changing them re-digests every change document in the repository at once, lapsing every readiness approval in every open wave with no document edited. Plan for one re-Prepare per open wave, disclose it, and avoid making the edit while waves are readied but unclosed without saying so.
 
+### Citations in change docs anchor by symbol
+
+When a change document cites code, cite a **resolvable anchor** — a function, class, method, constant, test name, or a distinguishing expression — rather than a bare `file:line`.
+
+The reason is not tidiness, it is resolvability. A symbol anchor can be *resolved*: `code_definition(symbol)` and `code_read` return today's text, so a reviewer reading the plan a week later gets the current version. A line anchor can only be *checked*, and checking is what costs review cycles. Line anchors drift hardest exactly when the target file is under concurrent edit by a sibling wave, which is precisely when reviewers are most likely to be reading it.
+
+**A line number is still correct in these cases**, and using one here is not a defect:
+
+| Case | Why a line is the right anchor |
+|---|---|
+| A module-level constant block | No containing symbol |
+| A data file | No symbol structure at all |
+| A specific line in a generated artifact | The generator owns the symbol names, not the author |
+| Prose in a hand-authored markdown document | A paragraph has no containing symbol |
+| A deliberately historical citation | It records what was verified at a point in time |
+
+**A line citation taken under one of these cases names the case inline**, so a reviewer can tell a deliberate line anchor from a lapsed one. "`docs/architecture/foo.md:477` (prose, no containing symbol)" is a good citation; a bare `foo.md:477` is not.
+
+**Historical rows are exempt and stay exempt.** Line numbers already written into `## Progress Log` and `## Decision Log` rows record what was verified when. Do not rewrite them to symbols — that falsifies the history. The rule applies to live claims, not to the log of how they were reached.
+
+There is no mechanical gate for this. Separating a live claim from a historical row from a legitimately line-anchored site is a judgment call, and a lint rule that fired on correct citations would train authors to ignore it.
+
 ### AC and task checkbox states — the `[~]` marker
 
 Three checkbox states are canonical for ACs and tasks:

@@ -10,6 +10,7 @@ import inspect
 import json
 import math
 import os
+import stat
 import re
 import shutil
 import sqlite3
@@ -12238,6 +12239,580 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         self.assertEqual(wave_resp["data"]["wave_id"], "bulk-wave")
         self.assertEqual(wave_resp["data"]["count"], 2)
 
+    def _fresh_root(self):
+        """Start a clean repo for one subTest without re-entering setUp().
+
+        Re-calling setUp() rebinds self.tmp, so the earlier TemporaryDirectory
+        leaks and any addCleanup() closure fires against a path tearDown has
+        already removed.
+        """
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def _make_unreadable(self, path, mode):
+        """Make `path` unreadable by `mode`, and restore it at test end.
+
+        Restoration is registered against this exact path, so it must only be
+        used on a root that stays alive for the rest of the test.
+        """
+        if mode == "decode":
+            path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        else:
+            if not path.exists():
+                path.write_text("# placeholder\n", encoding="utf-8")
+            os.chmod(path, 0)
+            self.addCleanup(
+                lambda: path.exists() and os.chmod(path, stat.S_IRUSR | stat.S_IWUSR))
+        return path
+
+    def _unreadable_admitted_wave(self, *, mode="decode", council=False):
+        """A governed wave whose single admitted change cannot be read.
+
+        `mode="decode"` writes invalid UTF-8; `mode="permission"` chmods it to 0.
+        The OSError variant exists because an earlier revision guarded only the
+        decode case, leaving the close hard gate fail-open for a
+        permission-denied document.  `council=True` records a passing
+        prepare-council verdict, which `wf_implement_wave` gates on *before* it
+        reads any change document.
+        """
+        self._setup_wave()
+        wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+        if council:
+            wave_md.write_text(
+                wave_md.read_text(encoding="utf-8")
+                + "\n## Review Checkpoints\n\n"
+                + _prepare_council_verdict_line(date="2026-08-06", verdict="PASS")
+                + "\n",
+                encoding="utf-8")
+        return self._make_unreadable(
+            self.root / "docs" / "waves" / "bulk-wave" / "ch1xx-feat first.md", mode)
+
+    def test_close_blocks_on_an_unreadable_admitted_change(self):
+        """1uu9z AC-4: VISIBLE, not silently dropped.
+
+        The falsifying mutant is "catch the error, then `continue`" -- it
+        produces a non-crashing result identical to the fix, and it survived the
+        entire module before this test existed.  Both causes are asserted: the
+        decode half was delivered first, and the OSError half was still silently
+        skipped, which left the close hard gate fail-open for a `chmod 000`
+        document.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                bad = self._unreadable_admitted_wave(mode=mode)
+                wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+                findings = self.srv._collect_silent_unchecked_items_for_close(
+                    wave_md, wave_md.read_text(encoding="utf-8"))
+                unreadable = [f for f in findings
+                              if f.get("change_id") == "ch1xx-feat first"]
+                self.assertTrue(
+                    unreadable,
+                    f"an unreadable admitted change ({mode}) must appear in the "
+                    "close blocker list, not be skipped",
+                )
+                self.assertIn(
+                    bad.name, unreadable[0]["item_text"],
+                    "item_text must name the file; it is the operator-facing body",
+                )
+                self.assertIn(
+                    "Error", unreadable[0]["item_text"],
+                    "item_text must carry the exception type",
+                )
+                self.assertTrue(
+                    unreadable[0].get("item_id"),
+                    "item_id must be non-empty so the renderer does not tag an "
+                    "unreadable file as an ordinary unchecked item",
+                )
+
+    def test_prepare_and_implement_report_an_unreadable_change(self):
+        """1uu9z AC-1 and AC-2b: both tool boundaries return, naming the cause.
+
+        Nine of twelve guard mutants survived the delivered suite; these are two
+        of the boundaries that had no test at all.
+        """
+        for mode in ("decode", "permission"):
+            for tool in ("prepare", "implement"):
+                with self.subTest(cause=mode, tool=tool):
+                    self._fresh_root()
+                    self._unreadable_admitted_wave(
+                        mode=mode, council=(tool == "implement"))
+                    fn = (self.srv.wf_prepare_wave_response if tool == "prepare"
+                          else self.srv.wf_implement_wave_response)
+                    resp = fn(self.root, wave_id="bulk-wave", mode="dry_run")
+                    diagnostics = resp.get("diagnostics") or []
+                    codes = [d["code"] for d in diagnostics]
+                    self.assertIn(
+                        "change_doc_unreadable", codes,
+                        f"{tool} must report the unreadable document, not crash "
+                        f"and not stay silent (got {codes})",
+                    )
+                    message = " ".join(d["message"] for d in diagnostics
+                                       if d["code"] == "change_doc_unreadable")
+                    self.assertIn("ch1xx-feat first", message,
+                                  "the diagnostic must name the document")
+                    self.assertIn(
+                        "Error", message,
+                        "AC-3: the diagnostic must carry the CAUSE (exception "
+                        "type), not the document name alone -- a message "
+                        "dropping the cause survived mutation before this",
+                    )
+
+    def test_add_change_refuses_an_unreadable_doc_without_moving_it(self):
+        """1uu9z Requirement 1: no site raises, and nothing mutates on refusal.
+
+        Two defects meet here.  The resolver was widened to MATCH unreadable
+        documents, which let `wf_add_change(mode='create')` reach
+        `_move_change_doc` and relocate a file it could not read; and a second
+        read in the same function was left unguarded, so `dry_run` still raised.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                self._setup_wave()
+                plans = self.root / "docs" / "plans"
+                plans.mkdir(parents=True, exist_ok=True)
+                src = plans / "ch9xx-feat unreadable.md"
+                src.write_text(
+                    "# U\n\nChange ID: `ch9xx-feat unreadable`\n"
+                    "Change Status: `planned`\n", encoding="utf-8")
+                self._make_unreadable(src, mode)
+                target = (self.root / "docs" / "waves" / "bulk-wave"
+                          / "ch9xx-feat unreadable.md")
+                for call_mode in ("dry_run", "create"):
+                    resp = self.srv.wf_add_change_response(
+                        self.root, wave_id="bulk-wave",
+                        change_id="ch9xx-feat unreadable", mode=call_mode)
+                    self.assertEqual(resp["status"], "error", (call_mode, resp))
+                    self.assertIn(
+                        "change_doc_unreadable",
+                        [d["code"] for d in resp.get("diagnostics") or []])
+                    self.assertTrue(
+                        src.exists(),
+                        f"{call_mode} must not move a document it cannot read")
+                    self.assertFalse(
+                        target.exists(),
+                        f"{call_mode} relocated an unreadable document; a "
+                        "refusal must not mutate")
+
+    def test_close_returns_at_the_tool_boundary_not_just_the_helper(self):
+        """1uu9z AC-2: asserted at `wf_close_wave`, both close-path sites.
+
+        The helper test above calls `_collect_silent_unchecked_items_for_close`
+        directly, which cannot satisfy this AC: a readiness seat proved that
+        patching only that helper left `wf_close_wave` still raising, from
+        `_generate_wf_close_wave_summary` in the same body.  Only a call at the
+        tool boundary covers both.  Asserted as "does not raise" plus a named
+        cause, because a crash and a silent pass are the two failure modes and
+        one assertion each cannot tell them apart.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                self._unreadable_admitted_wave(mode=mode)
+                try:
+                    resp = self.srv.wf_close_wave_response(
+                        self.root, "bulk-wave", mode="dry_run")
+                except UnicodeError as exc:
+                    self.fail(f"wf_close_wave raised instead of reporting: {exc!r}")
+                except OSError as exc:
+                    self.fail(f"wf_close_wave raised instead of reporting: {exc!r}")
+                codes = [d["code"] for d in resp.get("diagnostics") or []]
+                self.assertIn(
+                    "change_doc_unreadable", codes,
+                    "an unreadable admitted document is its own diagnostic, "
+                    "under the code every sibling site uses -- not an "
+                    "unchecked-items entry (the first version reported a false "
+                    "unchecked count with an impossible instruction)",
+                )
+                close_message = " ".join(
+                    d["message"] for d in resp["diagnostics"]
+                    if d["code"] == "change_doc_unreadable")
+                self.assertIn(
+                    "Error", close_message,
+                    "AC-3 at close: the partitioned diagnostic must carry the "
+                    "cause, not the document name alone",
+                )
+                unchecked = " ".join(
+                    d["message"] for d in resp["diagnostics"]
+                    if d["code"] == "silent_unchecked_items_at_close")
+                self.assertNotIn(
+                    "ch1xx-feat first", unchecked,
+                    "the unreadable document must be excluded from the "
+                    "unchecked-items count and prose",
+                )
+                blob = json.dumps(resp)
+                self.assertIn(
+                    "ch1xx-feat first", blob,
+                    "close must name the document it could not read",
+                )
+                self.assertNotEqual(
+                    resp["status"], "ok",
+                    "an unreadable admitted document must not close cleanly; "
+                    "the hard gate cannot be verified over a document that "
+                    "cannot be read",
+                )
+
+    def test_the_summary_boundary_catch_reports_when_the_race_lands(self):
+        """1uu9z AC-2, second close-path site, exercised at the tool boundary.
+
+        In-process, `_collect_silent_unchecked_items_for_close` blocks first
+        over the identical change set, so `_generate_wf_close_wave_summary`'s
+        caller-side catch is reachable only through a TOCTOU race: the document
+        was readable during the hard-gate scan and unreadable by the summary
+        read.  The race is simulated by patching the hard-gate helper to see
+        nothing; every prior gate must also pass or close returns before the
+        summary is generated.  Without this test all three narrowings of the
+        boundary handler survived mutation.
+        """
+        from unittest.mock import patch as _patch
+
+        wave_dir = self.root / "docs" / "waves" / "race-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n"
+            "wave-id: `race-wave`\n"
+            "Status: active\n\n"
+            "## Changes\n\n"
+            "Change ID: `ch9ra-feat racer`\n"
+            "Change Status: `complete`\n\n"
+            "## Review Evidence\n\n"
+            "- operator-signoff: approved\n"
+            "- architecture-reviewer: approved\n"
+            "- code-reviewer: approved\n"
+            "- qa-reviewer: approved\n",
+            encoding="utf-8",
+        )
+        (wave_dir / "ch9ra-feat racer.md").write_bytes(b"\xff\xfe not utf-8")
+        with _patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
+             _patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
+             _patch.object(self.srv, "_collect_silent_unchecked_items_for_close", return_value=[]):
+            try:
+                resp = self.srv.wf_close_wave_response(self.root, "race-wave", mode="dry_run")
+            except (OSError, UnicodeError, ValueError) as exc:
+                self.fail(f"the summary boundary catch must report, not raise: {exc!r}")
+        self.assertEqual(resp["status"], "error")
+        codes = [d["code"] for d in resp.get("diagnostics") or []]
+        self.assertIn("change_doc_unreadable", codes, codes)
+        message = " ".join(d["message"] for d in resp["diagnostics"]
+                           if d["code"] == "change_doc_unreadable")
+        self.assertIn("ch9ra-feat racer", message)
+        self.assertNotIn(str(self.root), message,
+                         "the boundary message must not leak the absolute path")
+
+    def test_mark_and_footprint_survive_an_unreadable_doc_both_causes(self):
+        """1uu9z AC-5 at the two sites the delivered suite left unproven.
+
+        `_mark_change_item_response` must return an error naming the cause;
+        `_wave_code_footprint` must degrade to None -- it feeds an advisory,
+        and the pre-change whole-loop `except OSError` is exactly the shape
+        that silently disabled a sensor before.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                self._unreadable_admitted_wave(mode=mode)
+                resp = self.srv._mark_change_item_response(
+                    self.root, "bulk-wave", "ch1xx-feat first", "AC-1", "x",
+                    target_section="Acceptance Criteria", mode="dry_run")
+                self.assertEqual(resp["status"], "error")
+                self.assertIn(
+                    "change_doc_unreadable",
+                    [d["code"] for d in resp.get("diagnostics") or []])
+                self.assertIsNone(
+                    self.srv._wave_code_footprint(
+                        self.root,
+                        self.root / "docs" / "waves" / "bulk-wave" / "wave.md"),
+                    "the footprint advisory must degrade, not raise",
+                )
+
+    def test_bulk_get_change_reports_the_oserror_cause_too(self):
+        """1uu9z AC-5: the bulk surface was pinned for decode only; the OSError
+        half survived mutation (drop `OSError`, keep `UnicodeError`)."""
+        self._fresh_root()
+        self._unreadable_admitted_wave(mode="permission")
+        resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(resp["status"], "ok")
+        codes = [d["code"] for d in resp.get("diagnostics") or []]
+        self.assertIn("change_doc_unreadable", codes)
+        entry = next(c for c in resp["data"]["changes"]
+                     if c["id"] == "ch1xx-feat first")
+        self.assertIsNone(entry["content"])
+        self.assertIn("Error", entry["read_error"])
+
+    def test_list_plans_reports_an_unreadable_plan_doc(self):
+        """1uu9z follow-up (twelfth site, found by the delivery code lane):
+        `wf_list_plans` is the recovery tool `change_doc_unreadable` routes to
+        from `wf_add_change`'s error exits, and it raised on the same input --
+        the diagnostic sent the operator into a second stack trace.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                plans = self.root / "docs" / "plans"
+                plans.mkdir(parents=True, exist_ok=True)
+                (plans / "ch8ok-feat readable.md").write_text(
+                    "# OK\n\nChange ID: `ch8ok-feat readable`\n"
+                    "Change Status: `planned`\n", encoding="utf-8")
+                bad = plans / "ch8xx-feat unreadable.md"
+                self._make_unreadable(bad, mode)
+                try:
+                    resp = self.srv.wf_list_plans_response(self.root)
+                except (OSError, UnicodeError) as exc:
+                    self.fail(f"wf_list_plans must report, not raise: {exc!r}")
+                self.assertEqual(resp["status"], "ok")
+                self.assertIn(
+                    "change_doc_unreadable",
+                    [d["code"] for d in resp.get("diagnostics") or []],
+                    "the unreadable plan must be reported, not silently listed",
+                )
+                ids = [p["id"] for p in resp["data"]["plans"]]
+                self.assertIn("ch8ok-feat readable", ids,
+                              "readable siblings must still be returned")
+                bad_entry = next(p for p in resp["data"]["plans"]
+                                 if p["id"] == "ch8xx-feat unreadable")
+                self.assertIn("Error", bad_entry["read_error"])
+
+    def test_the_close_read_failure_names_a_wave_relative_path(self):
+        """1uu9z: the close diagnostic must not leak the operator's filesystem.
+
+        `_generate_wf_close_wave_summary` has no repo root to hand `_repo_rel`,
+        so its first version interpolated the absolute `change_path`.  Both
+        causes are asserted: the OSError direction at this site survived
+        mutation when only the decode case was pinned.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                self._unreadable_admitted_wave(mode=mode)
+                try:
+                    self.srv._generate_wf_close_wave_summary(
+                        "bulk-wave",
+                        (self.root / "docs" / "waves" / "bulk-wave" / "wave.md").read_text(
+                            encoding="utf-8"),
+                        self.root / "docs" / "waves" / "bulk-wave" / "wave.md",
+                    )
+                except ValueError as exc:
+                    self.assertIn("bulk-wave/ch1xx-feat first.md", str(exc))
+                    self.assertNotIn(
+                        str(self.root), str(exc),
+                        "the message must not contain the absolute repository path",
+                    )
+                else:
+                    self.fail("expected the unreadable document to be reported")
+
+    def test_an_unreadable_change_is_never_returned_as_empty(self):
+        """1uu9z AC-4 at the read surfaces.
+
+        `_resolve_change_doc_matches` now matches unreadable documents with
+        `content: ""`.  Handing that back is the silent-drop failure relocated:
+        an agent attaching the resource would see a blank change doc with no
+        signal that anything failed.
+        """
+        self._unreadable_admitted_wave()
+        self.assertIsNone(
+            self.srv.get_change(self.root, "ch1xx-feat first"),
+            "get_change must not return an empty string for an unreadable doc",
+        )
+
+    def test_one_unreadable_doc_does_not_disable_the_gapfill_scan(self):
+        """1uu9z AC-4: a per-document guard, not a per-loop one.
+
+        The falsifying mutant narrows the handler back to `except OSError`, so a
+        decode failure escapes `_wave_has_gapfill_note`.  Both call sites wrap it
+        in `except Exception`, so the visible effect is not a crash -- it is the
+        retrieval-posture sensor silently reporting "no gapfill note" for the
+        whole wave.  The unreadable document sorts FIRST so it is reached before
+        the note; with a per-loop guard the scan aborts and never sees it.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+                wave_dir.mkdir(parents=True, exist_ok=True)
+                wave_md = wave_dir / "wave.md"
+                wave_md.write_text("# Wave Record\n", encoding="utf-8")
+                self._make_unreadable(wave_dir / "a-unreadable.md", mode)
+                (wave_dir / "z-note.md").write_text(
+                    "# Later\n\nGapfill: retrieval posture recorded.\n",
+                    encoding="utf-8")
+                self.assertTrue(
+                    self.srv._wave_has_gapfill_note(wave_md),
+                    f"one unreadable document ({mode}) must not hide a Gapfill "
+                    "note in a document the scan had not reached yet",
+                )
+
+    def _registered_resources(self):
+        """Capture the resource closures `register_mcp_surface` registers.
+
+        `resource_change` is a closure over `get_handler`, not a module
+        attribute, so it cannot be reached by import.  A recording double for
+        the FastMCP surface is the only way to exercise the real function that
+        the `wavefoundry://change/{change_id}` URI resolves to.
+        """
+        captured = {}
+        root = self.root
+
+        class _ToolManager:
+            # register_mcp_surface probes mcp._tool_manager._tools; model that
+            # shape rather than a catch-all __getattr__, which hands the probe a
+            # function where it expects a mapping.
+            def __init__(self):
+                self._tools = {}
+
+        class _Recorder:
+            def __init__(self):
+                self._tool_manager = _ToolManager()
+
+            def resource(self, uri, **kwargs):
+                def deco(fn):
+                    captured[fn.__name__] = fn
+                    return fn
+                return deco
+
+            def tool(self, *args, **kwargs):
+                def deco(fn):
+                    self._tool_manager._tools[kwargs.get("name", fn.__name__)] = fn
+                    return fn
+                if args and callable(args[0]):
+                    return deco(args[0])
+                return deco
+
+        class _Handler:
+            pass
+
+        handler = _Handler()
+        handler.root = root
+        self.srv.register_mcp_surface(_Recorder(), lambda: handler)
+        self.assertIn(
+            "resource_change", captured,
+            "register_mcp_surface no longer registers resource_change; this "
+            "test's capture harness needs updating",
+        )
+        return captured
+
+    def test_the_change_resource_signals_an_unreadable_doc(self):
+        """1uu9z AC-4 at the resource surface.
+
+        The falsifying mutant returns `matches[0]["content"]`, which the
+        resolver sets to `""` for an unreadable document.  An agent attaching
+        `wavefoundry://change/...` would then receive a blank change doc with no
+        indication that anything failed -- the silent-drop defect relocated from
+        the close gate to the read surface.
+        """
+        for mode in ("decode", "permission"):
+            with self.subTest(cause=mode):
+                self._fresh_root()
+                self._unreadable_admitted_wave(mode=mode)
+                body = self._registered_resources()["resource_change"](
+                    "ch1xx-feat first")
+                self.assertTrue(
+                    body.strip(),
+                    "an unreadable change doc must never render as an empty "
+                    "resource body",
+                )
+                self.assertIn("Unreadable", body)
+                self.assertIn("ch1xx-feat first", body)
+
+    def test_no_read_failure_message_leaks_the_absolute_path(self):
+        """1uu9z AC-3 hardening: a PermissionError's own str embeds the
+        absolute path ("[Errno 13] Permission denied: '/…'"), so every site
+        interpolating `{exc}` re-leaked the path its message had just rendered
+        repo-relative.  All read-failure text now routes through
+        `_read_error_detail`, which keeps `strerror` alone for OSError.
+        Found red-first: the wave-relative pin failed the moment its
+        permission subtest was added.
+        """
+        import json as _json
+        self._unreadable_admitted_wave(mode="permission")
+        # The prepare subject must reach `_prepare_policy_state`, which runs
+        # only on a DECLARED wave with `wave_review` configured -- without
+        # both, the leaking policy-selection line at that site is never
+        # executed and this test passes vacuously for prepare.  Found by the
+        # delivery code lane: the sanitized `change_doc_unreadable` message
+        # and the leaking `review_policy_receipt_stale` one sat adjacent in
+        # the same real-config envelope.
+        (self.root / "docs" / "workflow-config.json").write_text(
+            _json.dumps({"wave_review": {"enabled": True, "delivery_mode": "targeted"}}),
+            encoding="utf-8",
+        )
+        wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "# Wave Record\n",
+                "# Wave Record\n\nreview-evidence-source: events.jsonl\n", 1),
+            encoding="utf-8")
+        (self.root / "docs" / "waves" / "bulk-wave" / "events.jsonl").write_text(
+            "", encoding="utf-8")
+        prepare_resp = self.srv.wf_prepare_wave_response(
+            self.root, wave_id="bulk-wave", mode="dry_run")
+        prepare_blob = _json.dumps(prepare_resp.get("diagnostics") or [])
+        self.assertIn(
+            "for policy selection", prepare_blob,
+            "fixture must actually reach _prepare_policy_state's read-failure "
+            "path, or the prepare half of this test is vacuous",
+        )
+        surfaces = {
+            "prepare": prepare_resp,
+            "get_change": self.srv.wf_get_change_response(
+                self.root, wave_id="bulk-wave"),
+            "mark": self.srv._mark_change_item_response(
+                self.root, "bulk-wave", "ch1xx-feat first", "AC-1", "x",
+                target_section="Acceptance Criteria", mode="dry_run"),
+            "close": self.srv.wf_close_wave_response(
+                self.root, "bulk-wave", mode="dry_run"),
+        }
+        for name, resp in surfaces.items():
+            blob = _json.dumps(resp.get("diagnostics") or []) + _json.dumps(
+                resp.get("data") or {})
+            self.assertNotIn(
+                str(self.root), blob,
+                f"{name}: a read-failure message leaked the absolute repository path",
+            )
+
+    def test_a_readable_wave_is_unaffected_by_the_guards(self):
+        """1uu9z AC-7 regression half: ok status, zero read diagnostics, determinism.
+
+        This is NOT the before/after proof -- two calls of the same build cannot
+        detect a regression against the pre-guard code, and a mutant that adds a
+        field to every readable record passes it.  The real comparison was
+        executed once against the reconstructed pre-guard shape across eight
+        surfaces (byte-identical; recorded in the change doc's Progress Log)
+        and is not reproducible from HEAD without mutating the working tree.
+        What this test holds durably: a normally-decoding wave yields status
+        ``ok``, no read diagnostics, and identical responses across calls.
+        """
+        self._setup_wave()
+        first = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
+        second = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(
+            [d["code"] for d in first.get("diagnostics") or []], [],
+            "a normally-decoding wave must produce no read diagnostics",
+        )
+        self.assertEqual(first["data"], second["data"])
+
+    def test_undecodable_change_is_reported_in_bulk_and_single_lookup(self):
+        """1uu9z AC-2b: the recovery tool must not turn decode failure into a crash."""
+        self._setup_wave()
+        bad = self.root / "docs" / "waves" / "bulk-wave" / "ch1xx-feat first.md"
+        bad.write_bytes(b"\x80not utf-8")
+
+        bulk = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
+        self.assertEqual(bulk["status"], "ok")
+        bulk_diagnostics = bulk.get("diagnostics") or []
+        self.assertTrue(any(d["code"] == "change_doc_unreadable" for d in bulk_diagnostics))
+        self.assertIn("ch1xx-feat first", " ".join(d["message"] for d in bulk_diagnostics))
+        self.assertIn("UnicodeDecodeError", " ".join(d["message"] for d in bulk_diagnostics))
+
+        single = self.srv.wf_get_change_response(self.root, change_id="ch1xx-feat first")
+        self.assertEqual(single["status"], "error")
+        single_messages = " ".join(d["message"] for d in single.get("diagnostics") or [])
+        self.assertIn("ch1xx-feat first", single_messages)
+        self.assertIn("UnicodeDecodeError", single_messages)
+
 
 class FtsQueryShapeTests(unittest.TestCase):
     @classmethod
@@ -15883,11 +16458,22 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
 
     def test_transition_policy_distinguishes_stale_absent_and_current_readiness(self):
-        """1tsyx AC-7: canonical producers pin stale, absent, and current."""
+        """1tsyx AC-7: canonical producers pin stale, absent, and current.
+
+        1upba AC-9 amends the `absent` expectation DELIBERATELY.  This fixture
+        publishes a receipt for every state and skips only the approval, so its
+        "absent" wave is GOVERNED by the policy rather than in flight from
+        before it.  The carve-out now keys on never-prepared-under-policy
+        (no receipt, healthy ledger) instead of on approval absence, because
+        refusing a stale readiness approval also makes it absent -- so keying on
+        absence would let the refusal WEAKEN the close gate below what the
+        silent accept required.  See the sibling test below for the population
+        the carve-out still serves.
+        """
         self._write_config(transition_policy="applies-from-next-prepare")
         expected = {
             "stale": ["wave-council-readiness", "wave-council-delivery"],
-            "absent": ["wave-council-delivery"],
+            "absent": ["wave-council-readiness", "wave-council-delivery"],
             "current": ["wave-council-readiness", "wave-council-delivery"],
         }
         for state, keys in expected.items():
@@ -15981,6 +16567,1523 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     wave_md=wave_md,
                 )
                 self.assertEqual(actual, keys)
+
+    LINT_OK = {"passed": True, "errors": [], "warnings": [], "output": ""}
+    GARDEN_OK = {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+
+    def _run_prepare(self, **kwargs):
+        """Drive prepare past the docs gate so it actually reaches publication.
+
+        Without this the fixture's diagnostics short-circuit at
+        `if diagnostics:` and every assertion downstream is vacuous -- which is
+        exactly how two tests in this class shipped asserting nothing.
+        """
+        with patch.object(self.srv, "run_validate", return_value=self.LINT_OK), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            return self.srv.wf_prepare_wave_response(self.root, **kwargs)
+
+    def _close_roster(self, wave_md):
+        return self.srv._required_wave_council_signoffs(
+            self.root,
+            "close",
+            wave_text=wave_md.read_text(encoding="utf-8"),
+            wave_md=wave_md,
+        )
+
+    def _governed_wave_without_readiness_approval(self, slug):
+        """A wave that HAS a receipt but no readiness approval.
+
+        This is the state a refused readiness approval leaves behind, and it is
+        the state the close carve-out must NOT treat as pre-policy.
+        """
+        created = self.srv.wf_create_wave_response(self.root, slug, mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        wave_id = created["data"]["wave_id"]
+        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_text = wave_md.read_text(encoding="utf-8")
+        brief = self.srv._build_prepare_council_brief(wave_id, wave_text, [])
+        policy_state, policy_errors = self.srv._prepare_policy_state(
+            self.root, wave_md, wave_text, [], brief
+        )
+        self.assertEqual(policy_errors, ())
+        self.srv._publish_prepare_policy_state(
+            self.root, wave_md, wave_text, policy_state
+        )
+        return wave_id, wave_md
+
+    def test_close_carve_out_does_not_fire_at_the_delivery_signoff_exit(self):
+        """1upba AC-9: the close branch has TWO exits that drop the readiness key.
+
+        `if has_review_signoff and review_key: return [review_key]` is the exit
+        an implementation that patches only the fallthrough leaves untouched,
+        and it is the NORMAL end-state of a wave whose readiness approval was
+        refused and which then completed delivery review.  Every earlier fixture
+        for this behavior lacked a current delivery approval, so the inversion
+        would have shipped green.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md = self._governed_wave_without_readiness_approval(
+            "close-exit-b"
+        )
+        self.assertEqual(
+            self._close_roster(wave_md),
+            ["wave-council-readiness", "wave-council-delivery"],
+            "governed wave with no readiness approval must keep the readiness key",
+        )
+
+        run = self.srv.wf_review_event_response(
+            self.root,
+            wave_id=wave_id,
+            event="run",
+            mode="create",
+            actor="wave-council",
+            context_id="close-exit-b-delivery",
+            approval_phase="delivery",
+            run_kind="initial_delivery",
+            cycle=0,
+        )
+        self.assertEqual(run["status"], "ok", run)
+        approval = self.srv.wf_review_event_response(
+            self.root,
+            wave_id=wave_id,
+            event="approval",
+            mode="create",
+            signoff_key="wave-council-delivery",
+            approval_phase="delivery",
+            actor="wave-council",
+            context_id="close-exit-b-delivery",
+            fresh_context=True,
+            independent=True,
+            evidence={
+                "observed": "delivery council approved the delivered scope",
+                "artifact_or_test_id": "test:close-exit-b",
+            },
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(approval["status"], "ok", approval)
+
+        # Exit B is now reachable. Without the fix it returns only the delivery
+        # key, which is strictly MORE permissive than the silent accept.
+        self.assertEqual(
+            self._close_roster(wave_md),
+            ["wave-council-readiness", "wave-council-delivery"],
+            "a current delivery approval must not drop the readiness key from a "
+            "wave that was prepared under the policy",
+        )
+
+    def test_close_carve_out_still_serves_a_wave_with_no_receipt(self):
+        """1upba AC-9: deleting the carve-out outright must not pass.
+
+        The carve-out exists for waves in flight before the policy applied.
+        Those carry no receipt at all, so they must still drop the readiness key.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        created = self.srv.wf_create_wave_response(
+            self.root, "close-no-receipt", mode="create"
+        )
+        self.assertEqual(created["status"], "ok", created)
+        wave_md = (
+            self.root / "docs" / "waves" / created["data"]["wave_id"] / "wave.md"
+        )
+        self.assertNotIn(
+            "wave-council-readiness",
+            self._close_roster(wave_md),
+            "a wave never prepared under the policy keeps its carve-out",
+        )
+
+    def _prepared_wave_with_change(self, slug, change_id="1abc-bug sample"):
+        """A governed wave with one admitted change and a published receipt."""
+        created = self.srv.wf_create_wave_response(self.root, slug, mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        wave_id = created["data"]["wave_id"]
+        wave_dir = self.root / "docs" / "waves" / wave_id
+        change_path = wave_dir / f"{change_id}.md"
+        change_path.write_text(
+            "# Sample Change\n\n"
+            f"Change ID: `{change_id}`\n"
+            "Change Status: `planned`\n\n"
+            "## Rationale\n\nwhy\n\n"
+            "## Requirements\n\n1. x\n\n"
+            "## Scope\n\nin scope\n\n"
+            "## Acceptance Criteria\n\n- [ ] AC-1: a thing.\n\n"
+            "## Tasks\n\n- [ ] do it.\n\n"
+            "## AC Priority\n\n\n| AC | Priority | Rationale |\n| ---- | -------- | --------- |\n"
+            "| AC-1 | required | the thing. |\n\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| d | u | e |\n",
+            encoding="utf-8",
+        )
+        wave_md = wave_dir / "wave.md"
+        wave_md.write_text(
+            wave_md.read_text(encoding="utf-8").replace(
+                "## Changes\n", f"## Changes\n\nChange ID: `{change_id}`\nChange Status: `planned`\n"
+            ),
+            encoding="utf-8",
+        )
+        wave_text = wave_md.read_text(encoding="utf-8")
+        change_ids = self.srv._extract_change_ids_from_wave_text(wave_text)
+        self.assertEqual(change_ids, [change_id])
+        brief = self.srv._build_prepare_council_brief(wave_id, wave_text, change_ids)
+        state, errors = self.srv._prepare_policy_state(
+            self.root, wave_md, wave_text, change_ids, brief
+        )
+        self.assertEqual(errors, ())
+        self.srv._publish_prepare_policy_state(self.root, wave_md, wave_text, state)
+        return wave_id, wave_md, change_path
+
+    def _record_readiness_approval(self, wave_id, signoff_key, context_id):
+        # A specialist lane must be recorded BY that lane; only the council key
+        # is recorded by `wave-council`.
+        actor = "wave-council" if signoff_key.startswith("wave-council") else signoff_key
+        self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor=actor, context_id=context_id,
+            approval_phase="readiness", run_kind="readiness", cycle=0,
+        )
+        return self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="approval", mode="create",
+            signoff_key=signoff_key, approval_phase="readiness",
+            actor=actor, context_id=context_id,
+            fresh_context=True, independent=True,
+            evidence={
+                "observed": "reviewed the admitted scope",
+                "artifact_or_test_id": "test:staleness",
+            },
+            integrity_checks=integrity_checks(),
+        )
+
+    def test_a_readiness_approval_is_refused_against_an_already_stale_receipt(self):
+        """1upba AC-1 red-first: today this returns ok with zero diagnostics.
+
+        The record is dead on arrival either way -- `review_authority_projection`
+        only honors an approval while its `policy_receipt_id` matches the
+        CURRENT receipt -- so accepting it writes a permanently unusable record
+        into an append-only authority ledger and reports success.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("stale-refusal")
+
+        ok = self._record_readiness_approval(wave_id, "wave-council-readiness", "c0")
+        self.assertEqual(ok["status"], "ok", ok)
+
+        # Move a policy input: a requirement edit is digested.
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace(
+                "1. x", "1. x, and a second requirement that changes the digest"
+            ),
+            encoding="utf-8",
+        )
+        # Snapshot AFTER the run record, so the assertion brackets the approval
+        # alone rather than the run event that legitimately appends.
+        self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor="wave-council", context_id="c1",
+            approval_phase="readiness", run_kind="readiness", cycle=0,
+        )
+        ledger_before = (wave_md.parent / "events.jsonl").read_bytes()
+
+        refused = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="approval", mode="create",
+            signoff_key="wave-council-readiness", approval_phase="readiness",
+            actor="wave-council", context_id="c1",
+            fresh_context=True, independent=True,
+            evidence={
+                "observed": "reviewed the admitted scope",
+                "artifact_or_test_id": "test:staleness",
+            },
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        codes = [d["code"] for d in refused["diagnostics"]]
+        self.assertIn("review_policy_receipt_stale", codes)
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("could never satisfy a gate", message)
+        self.assertEqual(
+            (wave_md.parent / "events.jsonl").read_bytes(),
+            ledger_before,
+            "a refused approval must append nothing to the authority ledger",
+        )
+
+    def test_the_refusal_covers_specialist_lanes_not_only_the_council_key(self):
+        """1upba AC-1: `readiness_approval` is true for every key except two.
+
+        An implementation scoped to `wave-council-readiness` alone would pass a
+        council-key-only test while leaving specialist lanes accepting stale
+        binds, which is half the defect shipping.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-lane")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x plus more"),
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(wave_id, "code-reviewer", "lane")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn(
+            "review_policy_receipt_stale",
+            [d["code"] for d in refused["diagnostics"]],
+        )
+
+    def test_delivery_and_operator_approvals_are_not_refused(self):
+        """1upba AC-1 negative boundary.
+
+        The `readiness_approval` predicate deliberately excludes
+        `wave-council-delivery` and `operator-signoff`.  An implementer who
+        hoisted the recompute above that branch would refuse them while still
+        passing every positive case above.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-neg")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x plus more"),
+            encoding="utf-8",
+        )
+        self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor="wave-council", context_id="dv",
+            approval_phase="delivery", run_kind="initial_delivery", cycle=0,
+        )
+        delivery = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="approval", mode="create",
+            signoff_key="wave-council-delivery", approval_phase="delivery",
+            actor="wave-council", context_id="dv",
+            fresh_context=True, independent=True,
+            evidence={
+                "observed": "delivery reviewed",
+                "artifact_or_test_id": "test:neg",
+            },
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(delivery["status"], "ok", delivery)
+
+    def test_an_ambiguous_excluded_heading_refuses_rather_than_degrading(self):
+        """1upba AC-2 case (d): the author-reachable bypass.
+
+        `1urlc` added `ambiguous_excluded_headings` into the same `errors`
+        channel as read failures.  Degrading the whole channel would let an
+        author switch off the staleness check for their own wave by typing a
+        second `## Progress Log` heading.  Built from a REAL fixture document
+        rather than a stub, because a stub cannot show an ordinary author can
+        reach it.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-ambig")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| x | y | z |\n",
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "ambig"
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("repairable rather than environmental", message)
+
+    def test_an_unreadable_change_doc_warns_and_accepts(self):
+        """1upba AC-2 case (a): the environmental cause degrades.
+
+        An unparseable plan must never make approvals unrecordable -- but the
+        ledger will not record that this approval skipped verification, so the
+        response has to say so.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-read")
+        change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        accepted = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "unreadable"
+        )
+        self.assertEqual(accepted["status"], "ok", accepted)
+        codes = [d["code"] for d in accepted["diagnostics"]]
+        self.assertIn("review_policy_staleness_unverified", codes)
+        message = " ".join(d["message"] for d in accepted["diagnostics"])
+        self.assertIn("COULD NOT BE PERFORMED", message)
+
+    def test_the_staleness_refusal_names_what_moved(self):
+        """1upba AC-3: attribution, asserted on content rather than code.
+
+        It must also NOT claim per-document attribution, which the persisted
+        data cannot support: the per-change digests are discarded and the
+        receipt validator enforces a closed field set.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-attr")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "attr"
+        )
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("current receipt", message)
+        self.assertIn("pending receipt", message)
+        self.assertIn("policy_input_digest", message)
+        self.assertIn("digested change ids", message)
+        self.assertIn("1abc-bug sample", message)
+        self.assertIn("not attributable from persisted data", message)
+
+    def test_prepare_dry_run_surfaces_a_pending_mint_and_writes_nothing(self):
+        """1upba AC-4: the DOCS-GATE ERROR path.
+
+        Kept alongside the `_run_prepare` preview test because it reaches
+        prepare through a different exit: this call bails at the docs gate, so
+        its byte-identity assertions run against a short-circuited response
+        while the preview test asserts the same property on the path that
+        reaches the end of the function.
+
+        An earlier docstring claimed this was "the only test that kills the
+        mutant dropping the advisory from the error return's splat". Wave
+        `1uugg` removed the per-return splat entirely -- every return now
+        routes through `_prepare_envelope` -- so that mutant no longer exists
+        and the claim is withdrawn.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("stale-dry")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        wave_before = wave_md.read_bytes()
+        ledger_before = (wave_md.parent / "events.jsonl").read_bytes()
+
+        resp = self.srv.wf_prepare_wave_response(
+            self.root, wave_id=wave_id, mode="dry_run"
+        )
+        self.assertIn(
+            "review_policy_receipt_stale",
+            [d["code"] for d in resp.get("diagnostics") or []],
+            resp,
+        )
+        self.assertEqual(wave_md.read_bytes(), wave_before, "dry_run must not write")
+        self.assertEqual(
+            (wave_md.parent / "events.jsonl").read_bytes(),
+            ledger_before,
+            "dry_run must not write",
+        )
+
+    def test_attribution_names_a_non_digest_field_when_one_moves(self):
+        """1upba AC-3: the fixture that stops the field list being hardcoded.
+
+        Every natural transition moves `policy_input_digest` ALONE, so an
+        implementation that hardcoded that one field name passed every other
+        attribution test.  Declaring Serialization Points targets grows
+        `required_lanes`, which is a receipt-semantic field and not the digest.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("attr-nondigest")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Serialization Points\n\n"
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `src/auth/session.py`\n"
+            "- `docs/specs/api.md`\n",
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "nondigest"
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("required_lanes", message)
+        self.assertIn("policy_input_digest", message)
+
+    def test_mark_ac_deferral_reports_its_supersession_as_a_diagnostic(self):
+        """1upba AC-5: today the payload field was the only signal.
+
+        Suppressing this diagnostic survived the entire 1615-test module, so
+        neither half of AC-5 existed.  Also pins the label correction: the
+        receipt is already published here, so the helper's "pending" slot holds
+        the NEW CURRENT receipt and must not be labelled "pending".
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("mark-ac-diag")
+        # `_mark_change_item_response` is the real handler and is shared with
+        # `wf_mark_task`; naming it directly is what AC-5 means by "the test
+        # names which tool it drives". An earlier version guarded on a
+        # `wf_mark_ac_response` symbol that exists nowhere in the tree.
+        marked = self.srv._mark_change_item_response(
+            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            target_section="Acceptance Criteria", mode="create",
+            reason="Deliberately deferred for this fixture so the deferral path "
+                   "publishes a receipt and the supersession signal is observable.",
+        )
+        self.assertEqual(marked["status"], "ok", marked)
+        codes = [d["code"] for d in marked.get("diagnostics") or []]
+        self.assertIn("review_policy_receipt_superseded", codes)
+        message = " ".join(d["message"] for d in (marked.get("diagnostics") or []))
+        self.assertIn("new current receipt", message)
+        # AC-3 also requires the digested change ids and the explicit disclaimer;
+        # asserting the label pair alone let a placeholder-attribution mutant
+        # ("superseded receipt aaa; new current receipt bbb") pass all 38 tests.
+        self.assertIn("digested change ids", message)
+        self.assertIn("not attributable from persisted data", message)
+        self.assertNotIn(
+            "pending receipt", message,
+            "the receipt is already published at this surface; calling it pending "
+            "tells the operator the opposite of what happened",
+        )
+
+    def test_a_corrupt_ledger_does_not_drop_the_readiness_key(self):
+        """1upba AC-9: the fail-open direction, one conjunct away.
+
+        `resolve_review_authority` empties `records` on any ledger error, so a
+        receipt-presence check ALONE reads a corrupt ledger as "never prepared"
+        and drops the readiness key.  Dropping `and not authority.ledger_errors`
+        survived the full module before this test existed.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        _wave_id, wave_md = self._governed_wave_without_readiness_approval(
+            "close-corrupt"
+        )
+        (wave_md.parent / "events.jsonl").write_text(
+            "{not valid json at all\n", encoding="utf-8"
+        )
+        self.assertIn(
+            "wave-council-readiness",
+            self._close_roster(wave_md),
+            "an unreadable ledger must not be read as never-prepared",
+        )
+
+    def test_an_invalid_wave_review_config_refuses_the_approval(self):
+        """1upba AC-2 case (b): the accepted repository-wide refusal.
+
+        Degrading here would turn one bad config into a global, config-controlled
+        bypass of the whole change.  Recorded as accepted in Requirement 2, and
+        previously pinned by nothing.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("bad-config")
+        cfg_path = self.root / "docs" / "workflow-config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg["wave_review"] = "not an object"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "badcfg"
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("repairable rather than environmental", message)
+        # Recovery must route to the tool that can actually repair the cause;
+        # re-preparing fails identically on a bad config.
+        tools = [t for d in refused["diagnostics"] for t in (d.get("recovery_tools") or [])]
+        self.assertIn("wf_validate_docs", tools)
+        self.assertNotIn("wf_prepare_wave", tools)
+
+    def test_the_ambiguous_heading_refusal_names_the_offending_document(self):
+        """1upba AC-2 case (d) content half: dropping the interpolation survived."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("ambig-named")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| x | y | z |\n",
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "ambignamed"
+        )
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("1abc-bug sample", message, "the offending document must be named")
+        self.assertIn("Progress Log", message, "the offending heading must be named")
+
+    def test_an_accepted_degraded_approval_is_actually_appended(self):
+        """1upba AC-2 case (a): `ok` alone would pass an implementation that
+        returned success without recording anything."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("degraded-append")
+        change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        accepted = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "degraded"
+        )
+        self.assertEqual(accepted["status"], "ok", accepted)
+        authority = self.srv.resolve_review_authority(
+            self.root, wave_md, wave_text=wave_md.read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            authority.signoff_recorded(
+                "wave-council-readiness", approval_phase="readiness"
+            ),
+            "the degraded path must genuinely record the approval, not just return ok",
+        )
+
+    def test_an_idempotent_replay_of_a_recorded_approval_still_replays(self):
+        """1upba: the recompute must not break the same-identity retry contract.
+
+        The record is already in the ledger, so refusing the retry would report
+        that the approval could never satisfy a gate about a call that wrote
+        nothing.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("replay")
+        first = self._record_readiness_approval(wave_id, "wave-council-readiness", "rp")
+        self.assertEqual(first["status"], "ok", first)
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        before = (wave_md.parent / "events.jsonl").read_bytes()
+        replay = self._record_readiness_approval(wave_id, "wave-council-readiness", "rp")
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertEqual(
+            (wave_md.parent / "events.jsonl").read_bytes(), before,
+            "a replay must not append",
+        )
+
+    def test_prepare_dry_run_keeps_its_preview_status_and_envelope(self):
+        """1upba AC-4: a pending mint is information, not a failure.
+
+        `error` is not in `LIFECYCLE_ENGAGED_STATUSES`, so blocking here would
+        silently reclassify every ordinary preflight as not-engaged in focus and
+        context-efficiency telemetry, and would drop the council-verdict fields
+        the preview exists to produce.
+
+        Both calls run through `_run_prepare` so the baseline is a genuine
+        `status: "dry_run"` envelope.  An earlier version compared an error
+        envelope to an error envelope, under which moving the advisory onto the
+        shared blocking list -- the design executed and rejected during
+        implementation -- survived all 7032 tests in the repository.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("dry-status")
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "dry")
+
+        clean = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        self.assertEqual(
+            clean["status"], "dry_run",
+            "the baseline must be a real preview envelope, or every assertion "
+            "below compares an error to an error",
+        )
+        self.assertNotIn(
+            "review_policy_receipt_stale",
+            [d["code"] for d in clean.get("diagnostics") or []],
+        )
+
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        wave_before = wave_md.read_bytes()
+        ledger_before = (wave_md.parent / "events.jsonl").read_bytes()
+        pending = self._run_prepare(wave_id=wave_id, mode="dry_run")
+
+        self.assertIn(
+            "review_policy_receipt_stale",
+            [d["code"] for d in pending.get("diagnostics") or []],
+            "the pending mint must be reported on the preview path itself",
+        )
+        self.assertEqual(
+            pending["status"], "dry_run",
+            "a pending mint must not turn a preview into a failure",
+        )
+        self.assertIn(
+            pending["status"], self.srv.LIFECYCLE_ENGAGED_STATUSES,
+            "a preflight must stay target-engaged for focus and CE telemetry",
+        )
+        self.assertEqual(
+            set(pending["data"]), set(clean["data"]),
+            "a pending mint must not drop preview fields from the envelope",
+        )
+        # AC-4's byte-identity half, asserted on the REAL preview path. The
+        # sibling direct-call test also asserts it, but that call bails at the
+        # docs gate, so its assertions run against a short-circuited response.
+        self.assertEqual(wave_md.read_bytes(), wave_before, "dry_run must not write")
+        self.assertEqual(
+            (wave_md.parent / "events.jsonl").read_bytes(), ledger_before,
+            "dry_run must not write",
+        )
+
+    def test_prepare_advisory_requires_literal_true(self):
+        """1uugg AC-1/2: only literal True is advisory at prepare gates."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("literal-advisory")
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "literal")
+
+        for value, expected_status in ((True, "dry_run"), (None, "error"), (False, "error"), ("false", "error"), (1, "error")):
+            diagnostic = {"code": "probe", "message": "probe"}
+            if value is not None:
+                diagnostic["advisory"] = value
+            with self.subTest(value=value), patch.object(
+                self.srv, "_wave_review_policy_diagnostics", return_value=[diagnostic]
+            ):
+                response = self._run_prepare(wave_id=wave_id, mode="dry_run")
+                self.assertEqual(response["status"], expected_status, response)
+                self.assertIn(diagnostic, response.get("diagnostics") or [])
+
+    def test_every_prepare_return_routes_through_the_envelope_helper(self):
+        """1uugg AC-4: asserted per RETURN NODE, derived from source.
+
+        An earlier version asserted hardcoded counts (`len(returns) == 8`,
+        `source.count("return _prepare_envelope") == 7`). That failed both
+        halves of AC-4's claim: it never checked that EACH return routes
+        through the helper, and a correctly-added return broke the count
+        instead of being covered -- the opposite of the stated durability.
+        This walks the nodes, so a return added later is checked rather than
+        counted.
+        """
+        module = ast.parse(Path(self.srv.__file__).read_text(encoding="utf-8"))
+        prepare = next(
+            n for n in ast.walk(module)
+            if isinstance(n, ast.FunctionDef) and n.name == "wf_prepare_wave_response"
+        )
+        nested = {
+            n.name for n in ast.walk(prepare)
+            if isinstance(n, ast.FunctionDef) and n is not prepare
+        }
+
+        def _enclosing_is_prepare(node):
+            for candidate in ast.walk(prepare):
+                if isinstance(candidate, ast.FunctionDef) and candidate is not prepare:
+                    if any(child is node for child in ast.walk(candidate)):
+                        return False
+            return True
+
+        top_level = [
+            n for n in ast.walk(prepare)
+            if isinstance(n, ast.Return) and _enclosing_is_prepare(n)
+        ]
+        self.assertTrue(top_level, "prepare must have returns to check")
+        allowed = {"_prepare_envelope", "_attach_lint_to_response"}
+        for node in top_level:
+            value = node.value
+            self.assertIsInstance(
+                value, ast.Call,
+                f"every prepare return must call a helper, not build a value inline "
+                f"(line {node.lineno})",
+            )
+            name = getattr(value.func, "id", None) or getattr(value.func, "attr", None)
+            self.assertIn(
+                name, allowed,
+                f"return at line {node.lineno} calls {name!r}; every return must route "
+                f"through _prepare_envelope so no site can construct its own "
+                f"diagnostics list (nested helpers seen: {sorted(nested)})",
+            )
+            if name == "_attach_lint_to_response":
+                # Admitting the wrapper without inspecting its argument let a
+                # return build its own diagnostics list INSIDE it and still
+                # pass -- proved by a delivery-lane mutant. The wrapped value
+                # must itself be an envelope-helper call.
+                self.assertTrue(value.args, f"line {node.lineno}: no wrapped value")
+                inner = value.args[0]
+                if isinstance(inner, ast.Call):
+                    inner_name = (getattr(inner.func, "id", None)
+                                  or getattr(inner.func, "attr", None))
+                elif isinstance(inner, ast.Name):
+                    # Traced rather than assumed: the name must be bound from a
+                    # `_prepare_envelope(...)` call inside this function.
+                    inner_name = None
+                    for assign in ast.walk(prepare):
+                        if not isinstance(assign, ast.Assign):
+                            continue
+                        if not any(isinstance(tgt, ast.Name) and tgt.id == inner.id
+                                   for tgt in assign.targets):
+                            continue
+                        if isinstance(assign.value, ast.Call):
+                            inner_name = (getattr(assign.value.func, "id", None)
+                                          or getattr(assign.value.func, "attr", None))
+                else:
+                    inner_name = type(inner).__name__
+                self.assertEqual(
+                    inner_name, "_prepare_envelope",
+                    f"line {node.lineno}: _attach_lint_to_response wraps {inner_name!r}; "
+                    "it must wrap a _prepare_envelope result, or a return can "
+                    "construct its own diagnostics list inside the wrapper and "
+                    "still pass",
+                )
+
+    def test_advisory_tags_appear_only_at_the_sanctioned_sites(self):
+        """1uugg AC-10c: assert the sanctioned SET, not its cardinality.
+
+        Two earlier forms were both defeatable. `inspect.getsource(prepare)`
+        could not see a mistag in a contributing helper. Counting
+        `advisory=True` occurrences could not see a tag MOVED from a sanctioned
+        site onto another one -- the delivery QA lane moved it onto
+        `missing_wave_council_signoff` (the readiness stage gate) and
+        `another_wave_active` (the single-OPEN guard) while holding the count
+        at three, and both passed. AC-10c says "the set equals exactly the
+        sanctioned set", so this resolves each tag to the diagnostic code it
+        actually marks.
+        """
+        module = ast.parse(Path(self.srv.__file__).read_text(encoding="utf-8"))
+        owner: dict[int, str] = {}
+        for fn in ast.walk(module):
+            if isinstance(fn, ast.FunctionDef):
+                for child in ast.walk(fn):
+                    owner.setdefault(id(child), fn.name)
+
+        tagged: set[tuple[str, str]] = set()
+        forwarding: set[str] = set()
+        for node in ast.walk(module):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if kw.arg != "advisory":
+                    continue
+                callee = getattr(node.func, "id", None) or getattr(node.func, "attr", "?")
+                where = owner.get(id(node), "<module>")
+                if isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                    code = "<helper-call>"
+                    if node.args and isinstance(node.args[0], ast.Constant):
+                        code = node.args[0].value
+                    tagged.add((where, callee, code))
+                elif not isinstance(kw.value, ast.Constant):
+                    forwarding.add(where)
+
+        self.assertEqual(
+            tagged,
+            {
+                ("wf_prepare_wave_response", "_diagnostic", "ac_priority_unpopulated"),
+                ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
+                ("wf_prepare_wave_response", "_review_policy_receipt_diagnostics", "<helper-call>"),
+            },
+            "exactly these three sites may be advisory. A tag added, removed, or "
+            "MOVED onto another diagnostic changes this set even when the count "
+            "does not -- moving it onto missing_wave_council_signoff or "
+            "another_wave_active would otherwise open the readiness stage gate "
+            "or the single-OPEN guard silently.",
+        )
+        self.assertEqual(
+            forwarding, {"_review_policy_receipt_diagnostics"},
+            "only the shared stale-receipt helper may FORWARD an advisory flag; "
+            "any other function doing so can tag a blocker its caller cannot see",
+        )
+
+    def test_prepare_advisory_predicate_and_workaround_removal(self):
+        """1uugg AC-7 and the predicate direction, kept from the original pin."""
+        source = Path(self.srv.__file__).read_text(encoding="utf-8")
+        self.assertIn('diagnostic.get("advisory") is not True', source)
+        # AC-7 is scoped to Python sources, not to prepare's own body: an
+        # earlier version checked only `inspect.getsource(prepare)`, so a
+        # reintroduction elsewhere in `server_impl.py` would have passed. The
+        # symbols deliberately survive in prose (this plan and two wave
+        # records), which is why the census is Python-only rather than
+        # repo-wide.
+        self.assertNotIn("_prepare_stale_advisories", source)
+        self.assertNotIn("_ac_advisories", source)
+
+    def test_publication_behavior_is_unchanged_at_create(self):
+        """1upba AC-6: pinned at `mode='create'`, not `mode='ready'`.
+
+        `_activating` is create-only, so the false-ready outcome this guards --
+        the wave reaching `active` on a dead approval with a required lane and
+        the delivery council silently dropped -- is invisible at `ready`.
+
+        Driven through `_run_prepare` so prepare passes the docs gate and
+        genuinely publishes. An earlier version called prepare directly, hit
+        `change_doc_missing_sections` plus 25 lint errors, never published, and
+        asserted its own fixture's setup.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("ac6-create")
+
+        def receipt():
+            return self.srv.current_policy_receipt(
+                self.srv.resolve_review_authority(
+                    self.root, wave_md, wave_text=wave_md.read_text(encoding="utf-8")
+                ).records
+            )
+
+        before = receipt()
+        # Declaring targets moves the doc off legacy-fallback scoring, so a
+        # dropped lane would be visible.
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Serialization Points\n\n"
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `src/auth/session.py`\n"
+            "- `docs/specs/api.md`\n",
+            encoding="utf-8",
+        )
+        resp = self._run_prepare(wave_id=wave_id, mode="create")
+        after = receipt()
+
+        self.assertIsNotNone(after)
+        self.assertNotEqual(
+            after["receipt_id"], before["receipt_id"],
+            "prepare must publish the pending receipt; if these are equal the "
+            "test is asserting its own setup rather than prepare's behavior",
+        )
+        wave_text = wave_md.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Status: active", wave_text,
+            "a wave must not ready on a stale approval",
+        )
+        self.assertEqual(
+            tuple(self.srv._extract_required_review_lanes(wave_text)),
+            tuple(after["required_lanes"]),
+            "the persisted roster must match the published receipt",
+        )
+        self.assertEqual(
+            resp["data"]["review_policy"]["delivery_council_required"],
+            after["delivery_council_required"],
+            "AC-6(iii): delivery_council_required must match the pending receipt",
+        )
+
+    def test_anti_revival_holds_end_to_end_including_the_midpoint(self):
+        """1upba AC-8: the structural form passes trivially.
+
+        `derive_receipt_id` chains to the parent, so an A -> B -> A' input cycle
+        must yield THREE distinct ids and must not resurrect the A-bound
+        approval. The symmetric half matters because a one-sided assertion
+        would pass an implementation that special-cased the first approval.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("ac8-revival")
+        original = change_path.read_text(encoding="utf-8")
+
+        def republish():
+            text = wave_md.read_text(encoding="utf-8")
+            ids = self.srv._extract_change_ids_from_wave_text(text)
+            state, errors = self.srv._prepare_policy_state(
+                self.root, wave_md, text, ids, {}
+            )
+            self.assertEqual(errors, ())
+            self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
+            return state["receipt"]["receipt_id"]
+
+        id_a = republish()
+        self.assertEqual(
+            self._record_readiness_approval(wave_id, "wave-council-readiness", "A")["status"],
+            "ok",
+        )
+
+        change_path.write_text(original.replace("1. x", "1. x variant B"), encoding="utf-8")
+        id_b = republish()
+
+        def current(key="wave-council-readiness"):
+            text = wave_md.read_text(encoding="utf-8")
+            return self.srv.resolve_review_authority(
+                self.root, wave_md, wave_text=text
+            ).signoff_current(key, approval_phase="readiness")
+
+        self.assertFalse(current(), "the A-bound approval must be non-current at B")
+        self.assertEqual(
+            self._record_readiness_approval(wave_id, "wave-council-readiness", "B")["status"],
+            "ok",
+        )
+        self.assertTrue(current(), "the B-bound approval is current at B")
+
+        change_path.write_text(original, encoding="utf-8")  # revert to A'
+        id_a_prime = republish()
+
+        self.assertEqual(
+            len({id_a, id_b, id_a_prime}), 3,
+            "a reverted input must chain to a NEW receipt id, never collide with the first",
+        )
+        self.assertFalse(
+            current(),
+            "reverting must not revive the A approval, and must not leave B current",
+        )
+
+    def test_convergence_is_one_prepare_plus_one_approval_per_lane(self):
+        """1upba AC-10: stated per lane, so a single-key pin cannot mask the
+        AC-1 lane-scoping defect, and with zero duplicate approvals."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("ac10-converge")
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "pre")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x edited"),
+            encoding="utf-8",
+        )
+        text = wave_md.read_text(encoding="utf-8")
+        ids = self.srv._extract_change_ids_from_wave_text(text)
+        state, errors = self.srv._prepare_policy_state(self.root, wave_md, text, ids, {})
+        self.assertEqual(errors, ())
+        self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
+
+        keys = ["wave-council-readiness", *state["required_lanes"]]
+        self.assertGreater(len(keys), 1, "the fixture must exercise more than the council key")
+        for key in keys:
+            resp = self._record_readiness_approval(wave_id, key, f"conv-{key}")
+            self.assertEqual(resp["status"], "ok", (key, resp))
+
+        text = wave_md.read_text(encoding="utf-8")
+        authority = self.srv.resolve_review_authority(self.root, wave_md, wave_text=text)
+        for key in keys:
+            self.assertTrue(
+                authority.signoff_current(key, approval_phase="readiness"),
+                f"{key} must be current after one prepare plus one approval",
+            )
+        records = [
+            r for r in authority.records
+            if r.get("record_type") == "executable_evidence"
+            and r.get("approval_phase") == "readiness"
+            and r.get("policy_receipt_id") == state["receipt"]["receipt_id"]
+        ]
+        self.assertEqual(
+            len(records), len(keys),
+            "convergence must not require re-recording any lane twice",
+        )
+
+    def test_delivery_phase_keys_are_excluded_from_the_readiness_recompute(self):
+        """1upba AC-1, negative boundary, BOTH delivery-phase keys.
+
+        An earlier version asserted the predicate SOURCE TEXT, on the premise
+        that removing either key survives an end-to-end test. The code lane
+        disproved that by execution: dropping either key makes the refusal fire
+        on that key, observable as `review_policy_receipt_stale` replacing the
+        phase rejection. So a behavioral pin exists, and asserting source text
+        was an evasion -- it also pinned syntax, so reformatting the set literal
+        would break it with no behavior change.
+
+        Both keys are rejected at `approval_phase="readiness"` by the evidence
+        layer BEFORE the recompute, which is why the correct assertion is that
+        they carry `invalid_review_event` and NOT the staleness refusal.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("neg-boundary")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        for key in ("operator-signoff", "wave-council-delivery"):
+            with self.subTest(signoff_key=key):
+                self.srv.wf_review_event_response(
+                    self.root, wave_id=wave_id, event="run", mode="create",
+                    actor="wave-council", context_id=f"neg-{key}",
+                    approval_phase="readiness", run_kind="readiness", cycle=0,
+                )
+                resp = self.srv.wf_review_event_response(
+                    self.root, wave_id=wave_id, event="approval", mode="create",
+                    signoff_key=key, approval_phase="readiness",
+                    actor="wave-council", context_id=f"neg-{key}",
+                    fresh_context=True, independent=True,
+                    evidence={
+                        "observed": "negative boundary probe",
+                        "artifact_or_test_id": "test:neg-boundary",
+                    },
+                    integrity_checks=integrity_checks(),
+                )
+                codes = [d["code"] for d in resp["diagnostics"]]
+                self.assertNotIn(
+                    "review_policy_receipt_stale", codes,
+                    f"{key} must not be subject to the readiness staleness refusal",
+                )
+                self.assertIn("invalid_review_event", codes, resp)
+
+    def test_the_dry_run_surface_also_carries_the_attribution_payload(self):
+        """1upba AC-3: content on the `_review_policy_receipt_diagnostics` surface.
+
+        Stripping the attribution from that emit site survived the full module
+        while the sibling test still passed, because the sibling asserts only
+        the diagnostic code.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("dry-attr")
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "dryattr")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+        resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        stale = [
+            d for d in resp.get("diagnostics") or []
+            if d["code"] == "review_policy_receipt_stale"
+        ]
+        self.assertTrue(stale, resp)
+        message = " ".join(d["message"] for d in stale)
+        self.assertIn("current receipt", message)
+        self.assertIn("pending receipt", message)
+        self.assertIn("digested change ids", message)
+        self.assertIn("not attributable from persisted data", message)
+
+    def test_a_mark_without_supersession_reports_no_supersession(self):
+        """1upba AC-5, absence half.
+
+        The mirror-image defect -- telling an operator their approvals lapsed
+        when no receipt moved -- shipped unguarded: emitting a false
+        `review_policy_receipt_superseded` on the receipt-neutral return
+        survived the full module. Asserted as the ABSENCE of that code rather
+        than an empty diagnostic list, because the deferral path returns
+        fixture-dependent `action_diagnostics`.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("mark-neutral")
+        # A task mark is receipt-neutral: nothing is published, so nothing lapses.
+        marked = self.srv._mark_change_item_response(
+            self.root, wave_id, "1abc-bug sample", "do it.", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(marked["status"], "ok", marked)
+        self.assertNotIn(
+            "review_policy_receipt_superseded",
+            [d["code"] for d in marked.get("diagnostics") or []],
+            "a receipt-neutral mark must not claim approvals lapsed",
+        )
+
+    def test_policy_state_absent_with_no_error_refuses(self):
+        """1upba AC-2 case (c): the fail-closed guard, asserted by outcome.
+
+        Stubbing is legitimate here and only here: the plan records this branch
+        as unreachable by construction on today's producer, so a real fixture
+        cannot reach it. Case (d) by contrast is built from a real document,
+        because its whole point is that an ordinary author can reach it.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("none-empty")
+        with patch.object(self.srv, "_prepare_policy_state", return_value=(None, ())):
+            refused = self._record_readiness_approval(
+                wave_id, "wave-council-readiness", "noneempty"
+            )
+        self.assertEqual(refused["status"], "error", refused)
+        message = " ".join(d["message"] for d in refused["diagnostics"])
+        self.assertIn("no state and no error", message)
+
+    def test_the_stale_advisory_is_not_reported_twice(self):
+        """The staleness message is reported once, by construction.
+
+        History, because the mechanism changed twice. `1upba` shipped a
+        `_seen_stale` dedupe for a genuine two-producer collision on the
+        error-cause path. `1uugg` then guarded that block on
+        `policy_state is not None`, and since `_prepare_policy_state` returns a
+        state only from its single success return (always `errors == ()`), the
+        two producers became mutually exclusive and the dedupe unreachable. Two
+        delivery lanes independently proved it dead: deleting it survived all
+        tests. The dedupe and its comment are gone.
+
+        The PROPERTY is still worth pinning -- an operator must not be told the
+        same thing twice -- so this test survives its mechanism, re-founded on
+        what actually holds. It fails if a future change lets both producers
+        fire again.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("no-dupe")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| x | y | z |\n",
+            encoding="utf-8",
+        )
+        resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        messages = [
+            d["message"] for d in resp.get("diagnostics") or []
+            if d["code"] == "review_policy_receipt_stale"
+        ]
+        self.assertTrue(messages, resp)
+        self.assertEqual(
+            len(messages), len(set(messages)),
+            "the same staleness message must not be reported twice",
+        )
+
+    def test_review_event_dry_run_previews_the_degraded_acceptance_warning(self):
+        """1upba: a preview must not be quieter than the call it previews.
+
+        The refusal branches already fire on dry-run; dropping only the
+        degraded-acceptance warning made `dry_run` hide a caveat that `create`
+        reports, which is the same asymmetry this change exists to remove.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("dry-warn")
+        change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
+        self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor="wave-council", context_id="drywarn",
+            approval_phase="readiness", run_kind="readiness", cycle=0,
+        )
+        preview = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="approval", mode="dry_run",
+            signoff_key="wave-council-readiness", approval_phase="readiness",
+            actor="wave-council", context_id="drywarn",
+            fresh_context=True, independent=True,
+            evidence={"observed": "preview", "artifact_or_test_id": "test:dry-warn"},
+            integrity_checks=integrity_checks(),
+        )
+        self.assertIn(
+            "review_policy_staleness_unverified",
+            [d["code"] for d in preview.get("diagnostics") or []],
+            "the preview must carry the same caveat the mutating call reports",
+        )
+
+    def test_attribution_reports_the_receipt_ids_by_value_and_in_order(self):
+        """1upba AC-3: the ids are required CONTENT, not just labels.
+
+        Asserting only the label pair let two mutants live: replacing both ids
+        with `none`, and -- the harmful one -- SWAPPING current and pending, so
+        the operator is told the superseded receipt is the new one. That is
+        precisely the confusion AC-3 exists to remove.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, _change_path = self._prepared_wave_with_change("attr-ids")
+        before = self.srv.current_policy_receipt(
+            self.srv.resolve_review_authority(
+                self.root, wave_md, wave_text=wave_md.read_text(encoding="utf-8")
+            ).records
+        )
+        marked = self.srv._mark_change_item_response(
+            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            target_section="Acceptance Criteria", mode="create",
+            reason="Deferred so the supersession attribution is observable by value.",
+        )
+        self.assertEqual(marked["status"], "ok", marked)
+        new_id = marked["data"]["review_receipt_refreshed"]["receipt_id"]
+        message = " ".join(d["message"] for d in marked.get("diagnostics") or [])
+        self.assertNotEqual(before["receipt_id"], new_id)
+        self.assertIn(before["receipt_id"], message, "the superseded id must appear")
+        self.assertIn(new_id, message, "the new current id must appear")
+        # Order matters: swapping them inverts the operator-facing meaning.
+        self.assertLess(
+            message.index(f"superseded receipt {before['receipt_id']}"),
+            message.index(f"new current receipt {new_id}"),
+            "each id must sit under its own label, not the other's",
+        )
+
+    def test_an_ac_completion_mark_reports_no_supersession(self):
+        """1upba AC-5 absence half, on the Acceptance Criteria path.
+
+        The sibling test drives a Tasks mark, so a spurious diagnostic emitted
+        only for `target_section == "Acceptance Criteria"` survived it. An AC
+        `[x]` mark is receipt-neutral too and must stay silent.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _change_path = self._prepared_wave_with_change("ac-complete")
+        marked = self.srv._mark_change_item_response(
+            self.root, wave_id, "1abc-bug sample", "AC-1", "x",
+            target_section="Acceptance Criteria", mode="create",
+        )
+        self.assertEqual(marked["status"], "ok", marked)
+        self.assertNotIn(
+            "review_policy_receipt_superseded",
+            [d["code"] for d in marked.get("diagnostics") or []],
+            "completing an AC publishes nothing, so nothing lapsed",
+        )
+
+    def test_the_ambiguous_heading_refusal_routes_recovery_to_the_change_doc(self):
+        """1upba: the config arm's recovery routing was pinned, this one was not.
+
+        Re-preparing cannot repair a duplicated heading any more than it can
+        repair a bad config; both must route to the tool that can.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("ambig-route")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8")
+            + "\n## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| x | y | z |\n",
+            encoding="utf-8",
+        )
+        refused = self._record_readiness_approval(
+            wave_id, "wave-council-readiness", "ambigroute"
+        )
+        self.assertEqual(refused["status"], "error", refused)
+        tools = [t for d in refused["diagnostics"] for t in (d.get("recovery_tools") or [])]
+        self.assertIn("wf_get_change", tools)
+        self.assertNotIn("wf_prepare_wave", tools)
+
+    def _wave_with_an_advisory_only_create(self, slug):
+        """A governed wave whose only prepare diagnostic is advisory.
+
+        Ordering matters and is the reason an earlier attempt at this test
+        concluded the property was undeliverable: the placeholder edit must
+        land BEFORE the readiness approval, or the edit moves the digest and
+        lapses the approval, adding a blocking `missing_wave_council_signoff`
+        that hides the behavior under test.
+        """
+        wave_id, wave_md, change_path = self._prepared_wave_with_change(slug)
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace(
+                "| AC-1 | required | the thing. |",
+                "| AC-1 | required / important / nice-to-have / not-this-scope |  |",
+            ),
+            encoding="utf-8",
+        )
+        text = wave_md.read_text(encoding="utf-8")
+        ids = self.srv._extract_change_ids_from_wave_text(text)
+        state, errors = self.srv._prepare_policy_state(self.root, wave_md, text, ids, {})
+        self.assertEqual(errors, ())
+        self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
+        self._record_readiness_approval(wave_id, "wave-council-readiness", f"adv-{slug}")
+        return wave_id, wave_md, change_path
+
+    def test_an_advisory_only_create_publishes_and_activates(self):
+        """1uugg AC-5: the publication guard is a WRITE.
+
+        An earlier revision marked this `[~]` on the premise that publication
+        rotates the receipt identity and stales the readiness approval in the
+        same call, making activation unreachable. That is true only when
+        `receipt_append_required` is True. On the ordinary ready-approve-create
+        flow it is False, publication is a re-render, the approval stays
+        current, and the wave activates -- so the requirement was satisfiable
+        all along. Proved by spy trace during delivery review.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, _cp = self._wave_with_an_advisory_only_create("ac5-adv")
+
+        published = []
+        real = self.srv._publish_prepare_policy_state
+        with patch.object(
+            self.srv, "_publish_prepare_policy_state",
+            side_effect=lambda *a, **k: (published.append(1), real(*a, **k))[1],
+        ):
+            resp = self._run_prepare(wave_id=wave_id, mode="create")
+
+        codes = [(d["code"], d.get("advisory")) for d in resp.get("diagnostics") or []]
+        self.assertEqual(
+            codes, [("ac_priority_unpopulated", True)],
+            "the fixture must produce exactly one advisory and no blocker",
+        )
+        self.assertEqual(published, [1], "an advisory must not suppress publication")
+        self.assertEqual(resp["status"], "ok")
+        self.assertTrue(resp["data"].get("transitioned_to_active"))
+        self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_an_advisory_plus_a_blocker_does_not_publish(self):
+        """1uugg AC-5b: the negative twin.
+
+        Without it, a predicate that filters the list before the docs-gate
+        diagnostics are appended satisfies AC-5 while publishing a receipt on a
+        lint-failed wave. The blocker must be one appended BEFORE the
+        publication guard -- `docs_lint_error` is the canonical choice, since
+        `missing_wave_council_signoff` and `another_wave_active` are appended
+        after it and would pass against pre-change code.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, _cp = self._wave_with_an_advisory_only_create("ac5b-adv")
+        before_wave = wave_md.read_bytes()
+        before_ledger = (wave_md.parent / "events.jsonl").read_bytes()
+
+        published = []
+        real = self.srv._publish_prepare_policy_state
+        lint_bad = {"passed": False, "errors": ["ERROR: synthetic docs gate failure"],
+                    "warnings": [], "output": ""}
+        with patch.object(self.srv, "run_validate", return_value=lint_bad), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"), \
+             patch.object(self.srv, "_publish_prepare_policy_state",
+                          side_effect=lambda *a, **k: (published.append(1), real(*a, **k))[1]):
+            resp = self.srv.wf_prepare_wave_response(self.root, wave_id=wave_id, mode="create")
+
+        codes = [d["code"] for d in resp.get("diagnostics") or []]
+        self.assertIn("ac_priority_unpopulated", codes, "the advisory must still be present")
+        self.assertIn("docs_lint_error", codes, "the blocker must be present")
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual(published, [], "a blocking diagnostic must suppress publication")
+        self.assertEqual(wave_md.read_bytes(), before_wave)
+        self.assertEqual((wave_md.parent / "events.jsonl").read_bytes(), before_ledger)
+
+    def test_the_advisory_is_in_the_same_list_each_consumer_evaluates(self):
+        """1uugg AC-5c: OBSERVED at each gate, not inferred from the outcome.
+
+        An earlier version asserted publication happened, `status: ok`, and an
+        exact envelope code list. A restored parallel advisory list merged only
+        at the envelope satisfies all three, so the test could not tell a
+        converted gate from an unconverted one -- exactly the two-list vacuity
+        Requirement 4 exists to prevent.
+
+        This replaces the advisory payload with a dict that records every
+        `get("advisory")` call, so the assertion is that the three truthiness
+        consumers each interrogated THAT object. A parallel list would leave
+        the recorder untouched.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+
+        class _RecordingDiagnostic(dict):
+            probes = 0
+
+            def get(self, key, default=None):
+                if key == "advisory":
+                    type(self).probes += 1
+                return super().get(key, default)
+
+        real_diagnostic = self.srv._diagnostic
+
+        def _recording(code, message, **kwargs):
+            payload = real_diagnostic(code, message, **kwargs)
+            if code == "ac_priority_unpopulated":
+                return _RecordingDiagnostic(payload)
+            return payload
+
+        with patch.object(self.srv, "_diagnostic", side_effect=_recording):
+            wave_id, _wave_md, _cp = self._wave_with_an_advisory_only_create("ac5c-obs")
+            _RecordingDiagnostic.probes = 0
+            resp = self._run_prepare(wave_id=wave_id, mode="create")
+
+        self.assertEqual(resp["status"], "ok", resp)
+        self.assertEqual(
+            [d["code"] for d in resp.get("diagnostics") or []],
+            ["ac_priority_unpopulated"],
+        )
+        # Publication guard + both failure gates each evaluate the shared list.
+        self.assertGreaterEqual(
+            _RecordingDiagnostic.probes, 3,
+            "the advisory must be interrogated by all three truthiness "
+            f"consumers; it was probed {_RecordingDiagnostic.probes} time(s), "
+            "which means at least one gate read a different list",
+        )
+
+    def test_dry_run_roster_drift_stays_a_preview(self):
+        """1uugg AC-3b: the reclassification argued in Requirement 2.
+
+        Roster drift is checked nowhere else in prepare and is reachable
+        WITHOUT a pending mint -- the persisted value comes from the wave
+        text's `Required review lanes` line while `receipt_append_required`
+        comes from comparing receipt semantics.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, _cp = self._prepared_wave_with_change("ac3b-drift")
+        text = wave_md.read_text(encoding="utf-8")
+        persisted = self.srv._extract_required_review_lanes(text)
+        self.assertTrue(persisted, "fixture must persist a roster to drift from")
+        # The edit must land BEFORE the approval: hand-editing `wave.md`
+        # desyncs the Review Status projection, and the approval's write is what
+        # re-syncs it. Editing after would add a blocking `review_evidence_invalid`
+        # that hides the behavior under test.
+        wave_md.write_text(
+            text.replace(
+                f"Required review lanes: {', '.join(persisted)}",
+                "Required review lanes: qa-reviewer, security-reviewer",
+            ),
+            encoding="utf-8",
+        )
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "ac3b")
+        resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        stale = [d for d in resp.get("diagnostics") or []
+                 if d["code"] == "review_policy_receipt_stale"]
+        self.assertTrue(stale, resp)
+        self.assertTrue(all(d.get("advisory") is True for d in stale))
+        self.assertEqual(resp["status"], "dry_run")
+
+    def test_the_two_in_prepare_stale_emissions_stay_blocking(self):
+        """1uugg AC-10, first path: the `policy_state_errors` loop."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _cp = self._prepared_wave_with_change("ac10-block")
+        cfg_path = self.root / "docs" / "workflow-config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg["wave_review"] = "not an object"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        stale = [d for d in resp.get("diagnostics") or []
+                 if d["code"] == "review_policy_receipt_stale"]
+        self.assertTrue(stale, resp)
+        self.assertTrue(
+            any(d.get("advisory") is not True for d in stale),
+            "a policy-state error must remain blocking even on the dry-run path",
+        )
+        self.assertEqual(resp["status"], "error")
+
+    def test_a_publish_failure_emits_a_blocking_stale_diagnostic(self):
+        """1uugg AC-10, SECOND path: the publish-failure handler.
+
+        AC-10 names two in-prepare emissions. An earlier version exercised only
+        the `policy_state_errors` loop, so the claim that both are covered was
+        false. This one is reachable only when `_publish_prepare_policy_state`
+        raises -- and if it were advisory, prepare would report `ok` after
+        failing to write the roster and receipt.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, _cp = self._wave_with_an_advisory_only_create("ac10-pubfail")
+        with patch.object(
+            self.srv, "_publish_prepare_policy_state",
+            side_effect=OSError("synthetic publication failure"),
+        ):
+            resp = self._run_prepare(wave_id=wave_id, mode="create")
+        stale = [d for d in resp.get("diagnostics") or []
+                 if d["code"] == "review_policy_receipt_stale"]
+        self.assertTrue(stale, resp)
+        self.assertIn("could not publish", " ".join(d["message"] for d in stale))
+        self.assertTrue(
+            all(d.get("advisory") is not True for d in stale),
+            "a failed publication must block, never be advisory",
+        )
+        self.assertEqual(resp["status"], "error")
+        self.assertNotIn("Status: active", wave_md.read_text(encoding="utf-8"))
+
+    def test_the_other_callers_of_the_stale_helper_are_unaffected(self):
+        """1uugg AC-10b: asserted PER CALLER, each verified to reach the helper.
+
+        Two earlier forms were both weaker than the AC. The first called
+        `_review_policy_receipt_diagnostics` directly, proving the default
+        keyword but not that production callers preserve the payload. The
+        second drove three tools but used one global flag, so an arm that
+        contributed nothing was indistinguishable from one that did -- and its
+        `wf_review_event` arm inspected the APPROVAL response, whose stale
+        diagnostic comes from the `1upba` readiness-refusal path, not from this
+        helper at all. The `run` response, the only `wf_review_event` call that
+        reaches the helper, was discarded.
+
+        This drives the three callers that surface the diagnostic in their
+        response and asserts PER CALLER that each one did, and that the key is
+        absent from it. `wf_close_wave` covers `_evaluate_shared_delivery_state`.
+
+        `wf_review_event` is covered separately and deliberately: probed at both
+        modes, its `run` path returns no diagnostics at all, and its approval
+        path is refused by the `1upba` readiness-refusal recompute before
+        `transact` runs, so neither response carries helper output. Asserting on
+        either would be asserting on a different producer. What that caller
+        actually consumes is the helper's DEFAULT invocation, which is checked
+        directly below.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("ac10b-real")
+        self._record_readiness_approval(wave_id, "wave-council-readiness", "ac10b")
+        change_path.write_text(
+            change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
+            encoding="utf-8",
+        )
+
+        responses = {
+            "wf_review_wave": self.srv.wf_review_wave_response(
+                self.root, wave_id=wave_id, phase="implementation"),
+            "wf_implement_wave": self.srv.wf_implement_wave_response(
+                self.root, wave_id=wave_id, mode="dry_run"),
+            "wf_close_wave": self.srv.wf_close_wave_response(
+                self.root, wave_id=wave_id, mode="dry_run"),
+        }
+
+        for tool, resp in responses.items():
+            stale = [d for d in resp.get("diagnostics") or []
+                     if d["code"] == "review_policy_receipt_stale"]
+            with self.subTest(caller=tool):
+                self.assertTrue(
+                    stale,
+                    f"{tool} must surface the stale receipt, or this arm proves "
+                    "nothing about payload preservation",
+                )
+                for d in stale:
+                    self.assertNotIn(
+                        "advisory", d,
+                        f"{tool} must receive it with the key ABSENT, not merely "
+                        "false; tagging the shared construction rather than "
+                        "prepare's call site would stamp it here",
+                    )
+
+        # The fourth caller, `wf_review_event`, consumes the helper's default
+        # invocation inside `transact()` without surfacing it. Check that seam
+        # directly rather than through a response that never carries it.
+        text = wave_md.read_text(encoding="utf-8")
+        default = self.srv._review_policy_receipt_diagnostics(self.root, wave_md, text)
+        self.assertTrue(default, "the fixture must produce a pending mint")
+        for d in default:
+            self.assertNotIn("advisory", d, "the default invocation must not tag")
+
+    def test_absent_wave_review_config_adds_no_stale_diagnostic_to_a_preview(self):
+        """1uugg Requirement 8: classification changes, detection does not.
+
+        The dry-run advisory call must see exactly the configuration prepare's
+        own policy block saw; the helper's internal guard is one conjunct
+        weaker, so an unguarded call turned a clean preview into `error`.
+        """
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, _cp = self._prepared_wave_with_change("absent-cfg")
+        cfg_path = self.root / "docs" / "workflow-config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg.pop("wave_review", None)
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
+        self.assertNotIn(
+            "review_policy_receipt_stale",
+            [d["code"] for d in resp.get("diagnostics") or []],
+            "an absent wave_review section must not make the preview report a "
+            "stale receipt; prepare's own policy block skips silently here",
+        )
+
+    def test_policy_input_errors_carry_a_typed_cause(self):
+        """1upba Requirement 2: discriminate by cause, never by message prose."""
+        tagged = self.srv.PolicyInputError("ambiguous_headings", "boom")
+        self.assertIsInstance(tagged, str)
+        self.assertEqual(self.srv.policy_input_error_cause(tagged), "ambiguous_headings")
+        self.assertEqual(self.srv.policy_input_error_cause("legacy"), "unknown")
+        self.assertNotIn(
+            "ambiguous_headings", self.srv.POLICY_INPUT_DEGRADABLE_CAUSES,
+            "an authoring defect must never degrade to a warning",
+        )
+        self.assertIn("read", self.srv.POLICY_INPUT_DEGRADABLE_CAUSES)
 
     def test_policy_reader_no_longer_exposes_required_for_all_waves(self):
         """1tsyx AC-5 red-first: the parsed-but-unused flag is removed."""
@@ -26271,6 +28374,38 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         self.assertIn("file:line sites and symbols must resolve", instructions)
         self.assertIn("censuses must be complete", instructions)
         self.assertIn("seats actually run", instructions)
+
+    def test_brief_carries_the_finding_authoring_citation_rule(self):
+        """1uu9y AC-5: the runtime brief is a consumer surface, not an exemption.
+
+        Seeds 209 and 237 state the resolvable-anchor rule, but a council seat
+        at readiness receives THIS string, not the seed.  Leaving it un-updated
+        meant the one surface a seat actually reads kept only the verification
+        half of the rule and never the authoring half.
+
+        Pinned as clauses rather than one exact sentence because the brief
+        deliberately compresses seed 237's wording; the load-bearing parts are
+        the anchor vocabulary, the resolvability reason, and the carve-outs
+        carrying the name-the-case-inline obligation.
+        """
+        instructions = self.srv._build_prepare_council_brief(
+            "w1", "wave text", ["c1"])["instructions"]
+        for clause in (
+            "cite a resolvable anchor",
+            "rather than a bare file:line",
+            "distinguishing expression",
+            "resolves to today's text",
+            "module-level constant block",
+            "deliberately historical",
+            "name that case inline",
+        ):
+            self.assertIn(clause, instructions, f"missing clause: {clause!r}")
+        self.assertLess(
+            instructions.index("Do not approve a plan"),
+            instructions.index("cite a resolvable anchor"),
+            "the authoring rule must follow the verification rule, so the "
+            "exact-value pin over the verification sentence stays contiguous",
+        )
 
     def test_brief_code_grounded_sentence_is_pinned_exactly(self):
         """1tmb4 AC-6 (server site): exact-value pin over the full contract sentence.

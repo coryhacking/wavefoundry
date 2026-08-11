@@ -166,7 +166,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 
 - the next `Prepare wave` pass must record `wave-council-readiness`
 - waves already past readiness still require the delivery-phase council pass before closure
-- closure does not retroactively require a missing readiness signoff for a wave that never re-entered `Prepare wave`
+- closure does not retroactively require a readiness signoff for a wave that has never recorded one, carries no published review-policy receipt, and whose event ledger is readable. A wave becomes governed by publishing a receipt — normally at `Prepare wave`, but also through `wf_mark_ac(state='~')` on a wave that uses external review evidence with `wave_review` configured, which can publish a receipt from an empty ledger.
 
 ### Recording signoff
 

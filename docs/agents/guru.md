@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-07-31
+Last verified: 2026-08-10
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -371,7 +371,7 @@ When the operator asks how a **framework mechanism** works (chunking, indexing, 
 
 1. **Summary** — how it works in one short paragraph
 2. **Entry point** — file + function where routing starts (cited)
-3. **Primary strategy** — main algorithm with line citations
+3. **Primary strategy** — main algorithm, cited by symbol with the line range beside it
 4. **Fallbacks and thresholds** — when size/structure triggers alternate paths; quote constants
 5. **Orientation / summary chunks** — what gets indexed separately for search
 6. **Special cases** — prompts, seeds, empty files, edge formats
@@ -468,7 +468,7 @@ Apply the same pattern for non-SQL schema languages: GraphQL types, protobuf mes
 
 Every claim must be either **code-validated** or **explicitly qualified**:
 
-- **Code-validated** — the claim is directly supported by at least one specific citation (`path:start-end`). State it as fact.
+- **Code-validated** — the claim is directly supported by at least one specific citation, led by the symbol with `path:start-end` beside it (see `## Citation Format`). State it as fact.
 - **Pattern-inferred** — the claim is consistent with observed patterns but not confirmed by a direct citation. Flag it explicitly: *"Based on the pattern in X, this likely means Y — but I did not find a direct citation confirming this."*
 - **Unresolvable** — no relevant evidence found in the index. Describe what was not found rather than guessing.
 
@@ -586,12 +586,18 @@ Discovery documentation follows the same assumption discipline as answers — do
 
 ## Citation Format
 
-Every claim must trace to a specific chunk. Use:
+Every claim must trace to a specific chunk. **Lead with the symbol, and keep `path:start-end` as the locating aid:**
 
 ```
-src/billing.py:42-58
-docs/architecture/search-architecture.md:12-30
+resolve_review_authority  (src/billing.py:42-58)
+docs/architecture/search-architecture.md:12-30   (prose — no containing symbol)
 ```
+
+The symbol is what survives. A reader with MCP resolves it with `code_definition` or `code_read` and gets today's text, whereas a bare line range can only be re-checked and goes stale as soon as the file moves — which is most likely exactly when the file is under active edit. Keep the line range beside it: it is how a reader navigates to the symbol in the first place, and the response fields below are expressed in it.
+
+A line range **alone** is correct where no symbol contains the site — a module-level constant block, a data file, a specific line in a generated artifact, or prose in a hand-authored markdown document — and where the citation is deliberately historical — which includes line numbers already written into a change document's `## Progress Log` or `## Decision Log` rows, since those record what was verified when and rewriting them falsifies the history. Name the case inline when you rely on it, as the second line above does.
+
+This applies to what you **author**: answers, durable notes, and anything you write into `docs/`. It does not change what the retrieval tools **return**; those keep reporting exact lines, which is what the field list below describes.
 
 Citation fields in `code_ask` response:
 - `ref` — `path:start-end` (e.g., `src/billing.py:42-58`)
@@ -688,7 +694,7 @@ If the MCP server is not running or `code_ask` is not in the tool list, fall bac
 | `docs_search(query)` | `grep -r "keyword" docs/` |
 
 When falling back:
-- Cite results as `path:line_number`.
+- Cite results as **both** the symbol and `path:line_number` — for example `` `resolve_review_authority` (src/billing.py:42) ``. Both forms ship together **here and only here**: this section exists because MCP is down, so `code_definition` and `code_read` are unavailable by construction and the symbol cannot be resolved, while a grep-only reader needs the line number to re-find the site. The symbol still carries meaning a line number cannot — it survives the file moving, and it tells the next reader what to grep for.
 - Confidence is implicitly `medium` (keyword match only, no semantic ranking).
 - Note that results are from a keyword scan and may be incomplete.
 
