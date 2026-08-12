@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.16.0] - unreleased
+## [1.16.0] - 2026-08-11
 
 ### Changed
 
@@ -32,9 +32,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   background code pass is removed, so when the upgrade reports complete, the
   semantic index is fully published. Wave 1v0r0 / change 1v0qz.
 
-## [1.15.5] - unreleased
-
 ### Fixed
+
+- **`code_ask` now puts an exact, source-current declaration first when a
+  broader question names a known symbol.** The correction is language-neutral
+  wherever the published graph provides a declaration-capable node, preserves
+  the rest of the hybrid context, and fails closed to ordinary retrieval when
+  the graph or source receipt is stale, ambiguous, or unavailable. Direct
+  `code_definition` remains the preferred low-latency lookup tool. Wave 1v08w
+  / change 1v08v.
 
 - **A readiness approval that could never satisfy a gate is now refused instead of
   silently accepted.** Recording a readiness approval while a policy input had already
@@ -81,8 +87,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not. The trigger is the token. This widens matching slightly and only ever adds review: one
   document in this repository gains `qa-reviewer`, none loses anything.
 
-  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` moves from 6 to 7 so the
-  permanent `events.jsonl` history can tell a plan edit apart from this canonicalization change. Any
+  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` advances to `7` -- its final
+  value in this release -- so the permanent `events.jsonl` history can tell a plan edit apart from
+  this canonicalization change. Upgrading from 1.15.4 pays for this once, together with the other
+  evaluator steps below, not separately; see the net transition under **Changed**. Any
   wave that is readied or open when this lands goes stale once at its next `wf_prepare_wave` and its
   READINESS-phase approvals lapse once; re-record them and the receipt settles. Delivery-phase
   approvals, finding heads, and repair records are untouched, and CLOSED waves are untouched. Note
@@ -156,7 +164,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its wave is closed.
 
 - **Upgrade note (one-time re-Prepare).** These two fixes move lane semantics and the digest
-  boundary together and ship as a single evaluator-version bump from `5` to `6`. Every **non-closed**
+  boundary together and ship as a single evaluator-version bump, one of the intermediate steps
+  folded into this release's net `4`-to-`7` transition. Every **non-closed**
   wave needs exactly one re-Prepare to publish the current version; repeated Prepare is idempotent
   after it. Approvals recorded against the old receipt lapse once at that re-Prepare and must be
   re-recorded. **Closed waves and their event ledgers stay byte-immutable.** Change docs need no bulk
@@ -312,12 +321,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   value. Previously, advancing a change superseded the review-policy receipt and forced a re-Prepare
   plus a full re-record of readiness approvals against plan text that had not changed by a byte.
 
-- **Review-policy receipts move to evaluator version 6, which costs one re-Prepare in total.** The
-  last released version was 4, and this release carries the intermediate step, so upgrading from
-  1.15.4 is a single 4-to-6 transition and not two. Any wave that is readied or open when this lands
-  goes stale once at its next `wf_prepare_wave`; re-record the readiness approvals and the receipt
-  settles. Closed waves are untouched. See the upgrade note under **Fixed** for what version 6
-  changes.
+- **Review-policy receipts move to evaluator version 7, which costs one re-Prepare in total.** The
+  last released version was 4, and this release carries every intermediate step, so upgrading from
+  1.15.4 is a single 4-to-7 transition and not three. Any wave that is readied or open when this
+  lands goes stale once at its next `wf_prepare_wave`; re-record the readiness approvals and the
+  receipt settles. Closed waves are untouched. The notes under **Fixed** describe each intermediate
+  step and what it changed; versions 5 and 6 never reached a release, so you never pay for them
+  separately.
 
 - **The retrieval-posture advisory is now bounded to the wave's declared files.** It counts only
   changed files matching the `## Serialization Points` of the wave's admitted change docs, so
