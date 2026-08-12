@@ -98,7 +98,9 @@ re-embedded both layers on every GPU host for a defect they never had.
 **Constraints imposed:**
 
 - **Any future change that batches the INT8 embedder reintroduces this defect.** Treat batch shape on
-  a dynamically quantized graph as part of the vector contract, not an implementation detail.
+  a dynamically quantized graph as part of the vector contract, not an implementation detail. This
+  generalizes beyond the embedder: it holds for **every** dynamically quantized graph in the system,
+  and `StaticShapeReranker` is a confirmed second instance (see **Related**).
 - Index-time and query-time encoding must stay identical on the INT8 path. They are the same class,
   so a change to one silently changes the other's agreement.
 - The precision-class token and the identity fingerprint are consulted by both compare and write
@@ -123,6 +125,28 @@ re-embedded both layers on every GPU host for a defect they never had.
 - ADR [1p92d](1p92d-adr%20embedding-precision-policy.md) — the precision policy this refines. Its
   recall parity result stands; this ADR adds the encoding constraint it did not consider.
 - Wave `1v454 int8-embedding-determinism` / change `1v453-bug`.
-- **Open exposure, deliberately out of scope:** `StaticShapeReranker` uses the same dynamic
-  quantization mechanism over a query-time candidate pool and may carry the same class of defect. It
-  has its own batch shape and was not investigated. This is recorded so the exposure is not lost.
+- **`StaticShapeReranker` carries the same defect. CONFIRMED and measured 2026-08-12**, after this
+  ADR was first written; the earlier "may carry" wording is superseded. It is a separate change and
+  is **not** a regression from this wave, which never touched the reranker path.
+
+  The reranker INT8 export carries **26** `DynamicQuantizeLinear` operators (its FP16 export carries
+  none, so GPU hosts are unaffected, exactly as for the embedder). `rerank` pads to
+  `RERANK_STATIC_BATCH` = 40 only when the group is short, so the same composition dependence
+  applies. The difference that makes it worse rather than better: reranker scores **are compared
+  across batch boundaries**. `AGENT_CANDIDATE_MAX` = 40 is a *post*-rerank selection backstop, not a
+  cap on what reaches the reranker, and `VECTOR_TOP_K` = 30 per index across two indexes makes pools
+  of roughly 60 routine, so a pool splits into 40 real plus a padded remainder. `_rerank` then
+  min-max normalizes across all scores spanning both batches, and `_agent_rerank` sigmoids each
+  logit into the relevance floor, drop-off, and confidence band.
+
+  Measured: holding the query and the 60 candidates fixed and changing only which batch a passage
+  lands in moved its score from `+1.4068` to `+1.5228`, about 1.8 points of sigmoid relevance. A
+  correct cross-encoder scores each (query, passage) pair independently and must therefore be
+  order-invariant; over five queries against real repository passages, reordering the same pool
+  changed top-5 ordering in 3 and top-10 membership in 1, while the top-1 result held in all 5.
+  A control isolates the cause and pre-validates the remedy: at pool sizes of 40 and 35, where no
+  split occurs, ordering is identical in 5/5.
+
+  Limits on that evidence: five queries, one pool, one shuffle seed, and passages assembled from
+  repository text rather than drawn through the live retrieval pipeline. The direction and the cause
+  are established; the rates are not calibrated frequencies.

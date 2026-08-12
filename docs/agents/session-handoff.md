@@ -56,6 +56,18 @@ All four lanes returned CHANGES REQUESTED; every finding is folded and re-verifi
 
 Tag `v1.16.0`, stamp commit `0324f9ee` (`1.16.0+pig9`), suite 7181 across 62 files, docs-lint ok. Model set v2 published at the permanent `models` tag as `wavefoundry-models-2.zip`. Set 1 stays unpublished (it carries the components the supplier-lineage policy removed), so 1.15.x and earlier have no distributed offline model set.
 
+### Stage-gate waiver — seed 209 census instrument sentence (2026-08-12)
+
+**Scope:** one paragraph added to `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md`, in the `census` object contract. No code, no validator semantics, no schema field added or changed.
+
+**Granted by:** operator, in-session, 2026-08-12 ("we can make that one change directly").
+
+**Gate handling:** `seed_edit_allowed` opened immediately before the edit and closed immediately after.
+
+**What it adds and why it is not a restatement:** the seeds already carry the MCP-first exploration order comprehensively (`seed-020` Retrieval Rules, `seed-180:103-121`, and the tool-posture preamble in every reviewer role seed), so no further "prefer the MCP tools" guidance was added. The gap was epistemic rather than preferential: `census.universe_closed` presumes the author can tell when the universe is open, and an identifier search cannot find a consumer that holds the value under a different local name, so a census can report closed in good faith and be wrong. That is the defect wave 1v454 shipped and repaired.
+
+**Asymmetry worth knowing:** `seed-180:130` already teaches the complement, that graph queries miss non-code mentions so impact analysis should also run `code_keyword`. Nothing taught the reverse direction until now.
+
 ### Stage-gate waiver — operator-approved, named scope
 
 **Scope:** comment-only corrections in `.wavefoundry/framework/scripts/accel_embedder.py`. No behavioral change, no contract change, no test change.
