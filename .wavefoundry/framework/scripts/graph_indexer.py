@@ -85,6 +85,18 @@ GRAPH_STORE_FILENAMES = {
 }
 GRAPH_STORE_SCHEMA_VERSION = "1"
 
+# Language-neutral declaration kinds emitted by the graph extractors.  Module,
+# file, document, and external nodes are structural context, not declaration
+# authority for definition-first retrieval.
+DECLARATION_NODE_KINDS = frozenset({
+    "class",
+    "constant",
+    "function",
+    "property",
+    "type",
+    "variable",
+})
+
 _DOC_EXTENSIONS = {".md", ".markdown", ".txt"}
 _CODE_EXTENSIONS = {
     ".py",
@@ -1472,6 +1484,120 @@ def read_state_builder_version(index_dir: Path, layer: str = "project") -> str:
         if isinstance(state, dict):
             return str(state.get("builder_version") or "")
     return ""
+
+
+def read_bound_graph_payload_source_hash(
+    root: Path,
+    source_path: str,
+    layer: str = "project",
+) -> dict[str, Any] | None:
+    """Return an exact published graph snapshot and its source-file receipt.
+
+    The graph payload and SQLite state store publish in separate atomic steps.
+    This fail-closed reader therefore binds the bytes read from one opened graph
+    inode to the store's ``bound`` fingerprint/size/mtime metadata and fetches
+    the requested per-file source hash in the same read-only SQLite statement.
+    It never constructs :class:`GraphStateStore` and never creates or repairs
+    index state.  Any missing, corrupt, pending, replaced, or mismatched input
+    returns ``None``.
+    """
+    if layer not in GRAPH_FILENAMES or layer not in GRAPH_STORE_FILENAMES:
+        return None
+    rel_source = _repo_rel(source_path)
+    if not rel_source:
+        return None
+    graph_dir = root / ".wavefoundry" / "index" / GRAPH_DIRNAME
+    graph_path = graph_dir / GRAPH_FILENAMES[layer]
+    store_path = graph_dir / GRAPH_STORE_FILENAMES[layer]
+    try:
+        with graph_path.open("rb") as graph_file:
+            stat_before = os.fstat(graph_file.fileno())
+            raw = graph_file.read()
+            stat_after_read = os.fstat(graph_file.fileno())
+            if (
+                stat_before.st_dev,
+                stat_before.st_ino,
+                stat_before.st_size,
+                stat_before.st_mtime_ns,
+            ) != (
+                stat_after_read.st_dev,
+                stat_after_read.st_ino,
+                stat_after_read.st_size,
+                stat_after_read.st_mtime_ns,
+            ):
+                return None
+            decoded = gzip.decompress(raw) if raw[:2] == _GZIP_MAGIC else raw
+            payload = json.loads(decoded.decode("utf-8"))
+            if not isinstance(payload, dict) or not payload:
+                return None
+            fingerprint = str(payload.get("input_fingerprint") or "")
+            if not fingerprint:
+                return None
+
+            conn = sqlite3.connect(
+                f"file:{store_path.as_posix()}?mode=ro",
+                uri=True,
+                timeout=2.0,
+            )
+            try:
+                conn.execute("PRAGMA query_only=ON")
+                row = conn.execute(
+                    "SELECT "
+                    "(SELECT source_hash FROM files WHERE path = ?), "
+                    "(SELECT value FROM meta WHERE key = 'payload_stat_state'), "
+                    "(SELECT value FROM meta WHERE key = 'payload_fingerprint'), "
+                    "(SELECT value FROM meta WHERE key = 'payload_size'), "
+                    "(SELECT value FROM meta WHERE key = 'payload_mtime_ns'), "
+                    "(SELECT value FROM meta WHERE key = 'builder_version')",
+                    (rel_source,),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            stat_after_state = os.fstat(graph_file.fileno())
+            published_stat = graph_path.stat()
+            observed_identity = (
+                stat_after_read.st_dev,
+                stat_after_read.st_ino,
+                stat_after_read.st_size,
+                stat_after_read.st_mtime_ns,
+            )
+            if observed_identity != (
+                stat_after_state.st_dev,
+                stat_after_state.st_ino,
+                stat_after_state.st_size,
+                stat_after_state.st_mtime_ns,
+            ) or observed_identity != (
+                published_stat.st_dev,
+                published_stat.st_ino,
+                published_stat.st_size,
+                published_stat.st_mtime_ns,
+            ):
+                return None
+    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError, gzip.BadGzipFile):
+        return None
+
+    if not row or not row[0]:
+        return None
+    source_hash, state, bound_fingerprint, bound_size, bound_mtime, builder = (
+        str(value or "") for value in row
+    )
+    if (
+        state != "bound"
+        or bound_fingerprint != fingerprint
+        or bound_size != str(stat_after_read.st_size)
+        or bound_mtime != str(stat_after_read.st_mtime_ns)
+        or builder != str(payload.get("builder_version") or "")
+        or builder != GRAPH_BUILDER_VERSION
+    ):
+        return None
+    payload.setdefault("layer", layer)
+    payload.setdefault("schema_version", GRAPH_SCHEMA_VERSION)
+    payload.setdefault("nodes", [])
+    payload.setdefault("edges", [])
+    payload["present"] = True
+    payload["graph_path"] = str(graph_path.relative_to(root)).replace("\\", "/")
+    return {"payload": payload, "source_hash": source_hash}
 
 
 _DI_SIGNALS_MOD = None

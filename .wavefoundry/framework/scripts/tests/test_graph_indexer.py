@@ -4,11 +4,13 @@ import io
 import importlib.util
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +32,161 @@ def load_graph_di_signals():
     sys.modules["graph_di_signals"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+class BoundGraphReceiptTests(unittest.TestCase):
+    """Wave 1v08w: read-only graph payload/source receipt authority."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    def _fixture(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        graph_dir = root / ".wavefoundry" / "index" / self.mod.GRAPH_DIRNAME
+        graph_dir.mkdir(parents=True)
+        graph_path = graph_dir / self.mod.GRAPH_FILENAMES["project"]
+        store_path = graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]
+        payload = {
+            "schema_version": self.mod.GRAPH_SCHEMA_VERSION,
+            "builder_version": self.mod.GRAPH_BUILDER_VERSION,
+            "layer": "project",
+            "input_fingerprint": "fp-current",
+            "nodes": [],
+            "edges": [],
+        }
+        self.mod._write_json(graph_path, payload)
+        stat = graph_path.stat()
+        conn = sqlite3.connect(store_path)
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute(
+            "CREATE TABLE files (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, record BLOB NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO meta(key, value) VALUES (?, ?)",
+            [
+                ("builder_version", self.mod.GRAPH_BUILDER_VERSION),
+                ("payload_fingerprint", "fp-current"),
+                ("payload_size", str(stat.st_size)),
+                ("payload_mtime_ns", str(stat.st_mtime_ns)),
+                ("payload_stat_state", "bound"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO files(path, source_hash, record) VALUES (?, ?, ?)",
+            ("src/defs.py", "source-hash", b"record"),
+        )
+        conn.commit()
+        conn.close()
+        return root, graph_path, store_path, payload
+
+    def test_bound_payload_returns_exact_source_hash_without_state_store(self):
+        root, _, _, payload = self._fixture()
+        with patch.object(
+            self.mod,
+            "GraphStateStore",
+            side_effect=AssertionError("mutable store must not be constructed"),
+        ) as mutable_store:
+            result = self.mod.read_bound_graph_payload_source_hash(
+                root, "src/defs.py"
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["source_hash"], "source-hash")
+        self.assertEqual(result["payload"]["input_fingerprint"], payload["input_fingerprint"])
+        mutable_store.assert_not_called()
+
+    def test_bound_payload_fails_closed_for_receipt_matrix(self):
+        cases = (
+            ("pending", "payload_stat_state", "pending"),
+            ("fingerprint", "payload_fingerprint", "wrong"),
+            ("size", "payload_size", "1"),
+            ("mtime", "payload_mtime_ns", "1"),
+            ("builder", "builder_version", "44"),
+        )
+        for label, key, value in cases:
+            with self.subTest(case=label):
+                root, _, store_path, _ = self._fixture()
+                conn = sqlite3.connect(store_path)
+                conn.execute("UPDATE meta SET value = ? WHERE key = ?", (value, key))
+                conn.commit()
+                conn.close()
+                self.assertIsNone(
+                    self.mod.read_bound_graph_payload_source_hash(root, "src/defs.py")
+                )
+
+    def test_bound_payload_fails_closed_for_missing_corrupt_and_unowned_source(self):
+        for label in ("missing", "corrupt", "unowned-source"):
+            with self.subTest(case=label):
+                root, _, store_path, _ = self._fixture()
+                if label == "missing":
+                    store_path.unlink()
+                elif label == "corrupt":
+                    store_path.write_bytes(b"not sqlite")
+                else:
+                    conn = sqlite3.connect(store_path)
+                    conn.execute("DELETE FROM files")
+                    conn.commit()
+                    conn.close()
+                self.assertIsNone(
+                    self.mod.read_bound_graph_payload_source_hash(root, "src/defs.py")
+                )
+
+    def test_bound_payload_rejects_path_replacement_during_state_read(self):
+        root, graph_path, _, payload = self._fixture()
+        replacement = graph_path.with_name("replacement.json")
+        self.mod._write_json(replacement, payload)
+        real_connect = self.mod.sqlite3.connect
+
+        def replacing_connect(*args, **kwargs):
+            os.replace(replacement, graph_path)
+            return real_connect(*args, **kwargs)
+
+        with patch.object(self.mod.sqlite3, "connect", side_effect=replacing_connect):
+            result = self.mod.read_bound_graph_payload_source_hash(
+                root, "src/defs.py"
+            )
+        self.assertIsNone(result)
+
+
+class RemainingCodeProfileDeclarationTests(unittest.TestCase):
+    """AC-1 profile census: Bash and Objective-C emit declaration nodes too."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.session = self.mod.GraphIndexSession(
+            root=self.root,
+            index_dir=self.root / ".wavefoundry" / "index",
+            layer="project",
+            files=[],
+            current_file_meta={},
+            walker_version="test",
+            chunker_version="test",
+        )
+
+    def _assert_declaration(self, language, path, source, symbol):
+        if self.mod._ts_get_parser(language) is None:
+            self.skipTest(f"tree-sitter {language} grammar unavailable")
+        artifact = self.session._extract_code_artifact(path, source)
+        matches = [
+            node for node in artifact["nodes"]
+            if node.get("label") == symbol
+            and node.get("kind") in self.mod.DECLARATION_NODE_KINDS
+        ]
+        self.assertTrue(matches)
+
+    def test_bash_function_is_declaration_capable(self):
+        self._assert_declaration(
+            "bash", "scripts/tool.sh", "function run_task() { echo ok; }\n", "run_task"
+        )
+
+    def test_objective_c_function_is_declaration_capable(self):
+        self._assert_declaration(
+            "objc", "src/Widget.m", "void render_widget(void) { }\n", "render_widget"
+        )
 
 
 class DiSignalPrecheckTests(unittest.TestCase):

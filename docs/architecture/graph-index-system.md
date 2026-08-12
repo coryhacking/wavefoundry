@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-11
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -38,7 +38,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 
 The graph index is a persisted directed graph of nodes (files, symbols, and docs) and typed edges (calls, imports, defines, doc references, DI wiring). It is built separately from the semantic embedding index and stored as gzip-compressed compact JSON artifacts on disk (readers sniff the gzip magic bytes and transparently fall back to legacy plain JSON). The graph enables structural queries — call hierarchies, upstream impact analysis, cross-layer traversal, community detection — that semantic similarity search cannot answer.
 
-The graph is **not** used for semantic search. It is used exclusively by graph-backed MCP tools and by `code_references` as a candidate-file restrictor to avoid full repository walks.
+The graph is not itself a semantic embedding index, but its published structural data is also a read-only ranking signal for hybrid `code_ask` retrieval. `code_ask` may use an exact, source-current declaration from the bound published graph snapshot to keep a named symbol's definition ahead of usages while retaining the ordinary semantic and lexical context. Graph-backed MCP tools and `code_references` also consume the graph directly; the latter uses it as a candidate-file restrictor to avoid full repository walks.
 
 ---
 

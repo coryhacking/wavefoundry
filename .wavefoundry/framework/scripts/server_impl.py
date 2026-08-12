@@ -291,8 +291,8 @@ _DEMOTION_JRNLS = 0.50  # journals/reports/feedback — observational notes
 # context for a code question but must not OUTRANK the implementing source — a gentler
 # down-weight than the narrative/historical tiers above (which are weaker evidence).
 _DEMOTION_REFDOCS = 0.80  # docs/architecture/, docs/specs/, ADRs
-# Post-normalization score boost for symbol-injected code chunks (12q63).
-_SYMBOL_INJECTION_BOOST = 0.40
+# Post-normalization nudge reserved for structurally confirmed declarations.
+_SYMBOL_DEFINITION_BOOST = 0.40
 # Definition-file boosting: vocabulary-triggered keyword augmentation for schema languages.
 # Each rule fires when any vocabulary term appears in the lowercased query.
 # Injected candidates receive score=0.0 so the reranker evaluates them on content merit only.
@@ -1342,8 +1342,8 @@ class WaveIndex:
                 return False
             for logit, c in zip(logits, candidates):
                 c["score"] = 1.0 / (1.0 + math.exp(-float(logit)))  # sigmoid → relevance prob
-                if c.get("_sym_injected") and c.get("kind") == "code":
-                    c["score"] = min(c["score"] + _SYMBOL_INJECTION_BOOST, 1.0)
+                if c.get("_sym_definition") and c.get("kind") == "code":
+                    c["score"] = min(c["score"] + _SYMBOL_DEFINITION_BOOST, 1.0)
             return True
         except Exception:
             return False
@@ -1360,8 +1360,8 @@ class WaveIndex:
             for s, c in zip(scores, candidates):
                 c["score"] = 1.0 if max_s == min_s else float((s - min_s) / (max_s - min_s))
             for c in candidates:
-                if c.get("_sym_injected") and c.get("kind") == "code":
-                    c["score"] = min(c["score"] + _SYMBOL_INJECTION_BOOST, 1.0)
+                if c.get("_sym_definition") and c.get("kind") == "code":
+                    c["score"] = min(c["score"] + _SYMBOL_DEFINITION_BOOST, 1.0)
             return sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[:top_n]
         except Exception:
             return candidates[:top_n]
@@ -1385,7 +1385,12 @@ class WaveIndex:
         sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
         return [chunks_by_id[cid] for cid in sorted_ids[:top_n]]
 
-    def _node_def_candidate(self, node: dict) -> Optional[dict]:
+    def _node_def_candidate(
+        self,
+        node: dict,
+        *,
+        source_text: Optional[str] = None,
+    ) -> Optional[dict]:
         """Wave 1p4hu: build an agent candidate from a graph NODE — its definition text read from
         source (a bounded window), tagged kind=code, score 0.0 (it is a structural, not semantic,
         hit). None when the source file is unreadable. Path qualified via the same helper the
@@ -1395,10 +1400,14 @@ class WaveIndex:
             return None
         head = str(node.get("source_location") or "").split(":", 1)[0]
         line = int(head) if head.isdigit() else 1
-        try:
-            text_lines = (self.root / sf).read_text(encoding="utf-8", errors="replace").splitlines()
-        except Exception:
-            return None
+        if source_text is None:
+            try:
+                source_text = (self.root / sf).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except Exception:
+                return None
+        text_lines = source_text.splitlines()
         start = max(0, line - 1)
         window = text_lines[start:start + AGENT_GRAPH_DEF_WINDOW]
         snippet = "\n".join(window).strip()
@@ -1411,9 +1420,104 @@ class WaveIndex:
             "text": f"{breadcrumb}\n\n{snippet}",
             "score": 0.0,
             "kind": "code",
-            "lines": [line, line + len(window)],
+            "lines": [line, line + len(window) - 1],
             "_graph_kind": node.get("kind"),
         }
+
+    def _published_exact_definition_candidate(self, symbol: str) -> Optional[dict]:
+        """Return one exact declaration from the current published graph only.
+
+        This defensive ``code_ask`` lookup deliberately bypasses graph-query
+        accessors: those accessors may synchronously rebuild stale graphs and
+        invalidate their cache.  A missing, stale, ambiguous, or unreadable
+        snapshot therefore returns ``None`` and leaves hybrid retrieval alone.
+        """
+        needle = (symbol or "").strip()
+        if not needle:
+            return None
+        try:
+            gq = _load_graph_query()
+            graph_indexer = gq._get_graph_indexer()
+            payload = graph_indexer.read_graph_payload(self.root, "project")
+            if not payload.get("present"):
+                return None
+            if str(payload.get("builder_version") or "") != str(
+                graph_indexer.GRAPH_BUILDER_VERSION
+            ):
+                return None
+        except Exception:
+            return None
+
+        declaration_kinds = getattr(
+            graph_indexer,
+            "DECLARATION_NODE_KINDS",
+            frozenset(),
+        )
+
+        def exact_nodes(graph_payload: dict) -> list[dict]:
+            matches: list[dict] = []
+            for node in graph_payload.get("nodes") or []:
+                if not isinstance(node, dict):
+                    continue
+                node_id = str(node.get("id") or "")
+                label = str(node.get("label") or "")
+                if needle not in {node_id, label, node_id.rsplit("::", 1)[-1]}:
+                    continue
+                if str(node.get("kind") or "") not in declaration_kinds:
+                    continue
+                matches.append(node)
+            return matches
+
+        # Count exact graph identities before any path/line deduplication.  Two
+        # exact nodes are ambiguous even when a malformed payload gives them the
+        # same source location.
+        initial_matches = exact_nodes(payload)
+        if len(initial_matches) != 1:
+            return None
+        initial_node = initial_matches[0]
+        source_file = initial_node.get("source_file")
+        if not isinstance(source_file, str) or not source_file:
+            return None
+        try:
+            bound = graph_indexer.read_bound_graph_payload_source_hash(
+                self.root,
+                source_file,
+                "project",
+            )
+        except Exception:
+            return None
+        if not isinstance(bound, dict):
+            return None
+        bound_payload = bound.get("payload")
+        expected_source_hash = str(bound.get("source_hash") or "")
+        if not isinstance(bound_payload, dict) or not expected_source_hash:
+            return None
+        bound_matches = exact_nodes(bound_payload)
+        if len(bound_matches) != 1:
+            return None
+        node = bound_matches[0]
+        identity_keys = ("id", "label", "kind", "source_file", "source_location")
+        if tuple(initial_node.get(key) for key in identity_keys) != tuple(
+            node.get(key) for key in identity_keys
+        ):
+            return None
+        try:
+            # One read supplies both the receipt hash and the rendered citation;
+            # never hash and then re-read the source through _node_def_candidate.
+            source_text = (self.root / source_file).read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except Exception:
+            return None
+        if hashlib.sha256(
+            source_text.encode("utf-8", errors="replace")
+        ).hexdigest() != expected_source_hash:
+            return None
+        candidate = self._node_def_candidate(node, source_text=source_text)
+        if candidate is None:
+            return None
+        candidate["_sym_definition"] = True
+        return candidate
 
     def _merge_graph_into_citations(self, query: str, graph_src: list[dict], results: list[dict], *, reranked: bool) -> int:
         """Wave 1p66t: append the strongest cross-file graph neighbors to the citation list so a
@@ -2074,40 +2178,35 @@ class WaveIndex:
             if injected > 0:
                 definition_boosted.append(rule["label"])
 
-        # --- Symbol-first injection (explanatory + navigational, 12q63; widened) ---
-        # Value/where-is questions ("what is the value of X and where is it used?") classify as
-        # navigational but still NAME a symbol. The injection is the only safety net that forces a
-        # query-named declaration into the candidate pool regardless of vector top-K, so the
-        # _definition_match_boost leaf branch can lift it; gating it to explanatory left navigational
-        # value-questions dependent on raw cosine, which ranks usage chunks over a 1-line declaration.
+        # --- Exact symbol declaration injection (explanatory + navigational) ---
+        # Read only the already-published graph snapshot.  Never call the public
+        # definition resolver or a graph accessor that can rebuild/refresh on a
+        # miss.  Generic keyword usages stay in the normal hybrid pool and get no
+        # declaration marker or forced preference.
+        exact_definition_candidate: Optional[dict] = None
         if question_type in ("explanatory", "navigational"):
             sym = _extract_question_symbol(query)
             if sym:
-                existing_keys = {
-                    (r.get("path", ""), (r.get("lines") or [0])[0])
-                    for r in all_candidates
-                }
-                try:
-                    kw_resp = code_keyword_response(self.root, sym)
-                    if kw_resp.get("status") == "ok":
-                        sym_injected = 0
-                        for r in kw_resp["data"]["results"][:2]:
-                            key = (r.get("path", ""), r.get("line", 0))
-                            if key not in existing_keys:
-                                all_candidates.append({
-                                    "path": r.get("path", ""),
-                                    "text": r.get("snippet", ""),
-                                    "score": 0.0,
-                                    "kind": "code",
-                                    "lines": [r.get("line", 1), r.get("line", 1)],
-                                    "_sym_injected": True,
-                                })
-                                existing_keys.add(key)
-                                sym_injected += 1
-                        if sym_injected > 0:
-                            definition_boosted.append(f"symbol:{sym}")
-                except Exception:
-                    pass
+                exact_definition_candidate = self._published_exact_definition_candidate(sym)
+                if exact_definition_candidate is not None:
+                    exact_key = (
+                        exact_definition_candidate.get("path", ""),
+                        (exact_definition_candidate.get("lines") or [0])[0],
+                    )
+                    # Never transfer structural authority to a semantic chunk by
+                    # path/start alone: a whole-file code-summary can begin on
+                    # the declaration line.  Keep the verified graph-built
+                    # candidate and remove every same-location collision.
+                    all_candidates = [
+                        candidate
+                        for candidate in all_candidates
+                        if (
+                            candidate.get("path", ""),
+                            (candidate.get("lines") or [0])[0],
+                        ) != exact_key
+                    ]
+                    all_candidates.append(exact_definition_candidate)
+                    definition_boosted.append(f"symbol:{sym}")
 
         # --- Rerank / RRF phase (timed) ---
         t_rerank = time.monotonic()
@@ -2211,8 +2310,30 @@ class WaveIndex:
             symbol_extraction_method = "graph"
         if question_type == "explanatory":
             results = _partition_infra(results)
+        if exact_definition_candidate is not None:
+            # A finite score bonus cannot guarantee ownership against an
+            # adversarial reranker.  Stable-pin the one structurally confirmed
+            # declaration after every selection/partition step, reinserting it
+            # if the bounded selector dropped it while preserving result count.
+            result_count = len(results)
+            exact_key = (
+                exact_definition_candidate.get("path", ""),
+                (exact_definition_candidate.get("lines") or [0])[0],
+            )
+            exact_definition_candidate.setdefault("source", "code")
+            exact_definition_candidate.setdefault("sources", ["code"])
+            results = [exact_definition_candidate] + [
+                result
+                for result in results
+                if (
+                    result.get("path", ""),
+                    (result.get("lines") or [0])[0],
+                ) != exact_key
+            ]
+            if result_count:
+                results = results[:result_count]
         for r in results:
-            r.pop("_sym_injected", None)
+            r.pop("_sym_definition", None)
             r.pop("_graph_kind", None)
             r.pop("_lex_rank", None)
         rerank_ms = round((time.monotonic() - t_rerank) * 1000)
@@ -28687,9 +28808,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def code_ask(question: str, rerank: str = "agent", **kwargs: Any) -> dict[str, Any]:
         """Ask a natural-language question about the codebase and receive a grounded, cited answer.
 
-        Prefer when: the question spans multiple files or layers ("how does X work end-to-end?",
-        "what calls Y?", "where is Z implemented?"). Use code_search or docs_search directly when
-        you want raw result lists to browse rather than a pre-assembled answer.
+        Prefer when the question spans multiple files or layers ("how does X work end-to-end?"
+        or "what calls Y?"). A broader question that names one graph-resolvable symbol defensively
+        places its exact declaration first, but a direct known-symbol lookup still belongs in
+        code_definition. Use code_search or docs_search directly when you want raw result lists to
+        browse rather than a pre-assembled answer.
 
         Performs mechanical retrieval routing: broad semantic pass (code_search + docs_search) followed by
         targeted keyword pass. Returns a structured response with citations, confidence, and gaps.

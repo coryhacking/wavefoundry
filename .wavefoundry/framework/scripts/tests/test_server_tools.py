@@ -4,7 +4,6 @@ import ast
 import asyncio
 import contextlib
 import hashlib
-import hashlib
 import importlib.util
 import inspect
 import json
@@ -19062,6 +19061,12 @@ class HarnessCoverageAuditTests(unittest.TestCase):
 
 
 class RerankerTests(unittest.TestCase):
+    CODE_ASK_BASE_DATA_KEYS = {
+        "question", "question_type", "answer", "citations", "confidence", "gaps",
+        "index_freshness", "search_mode", "fallback_reason", "reranked", "rerank_mode",
+        "partition_applied", "demotion_count", "total_ms", "vector_ms", "rerank_ms",
+    }
+
     """12mha-enh: cross-encoder reranker integration tests."""
 
     def setUp(self):
@@ -20117,7 +20122,7 @@ class RerankerTests(unittest.TestCase):
         data = result.get("data", {})
         self.assertNotIn("definition_boosted", data)
 
-    # --- Symbol injection boost (12q63 pre-slice boost inside _rerank) ---
+    # --- Structurally confirmed symbol-definition preference ---
 
     def _reranker_with_logits(self, logits):
         """Mock reranker whose rerank() returns the given raw logits, aligned to the passages."""
@@ -20174,14 +20179,14 @@ class RerankerTests(unittest.TestCase):
         self.assertFalse(ran)
         self.assertEqual([c["score"] for c in candidates], [0.5, 0.5])  # untouched
 
-    def test_symbol_injection_boost_raises_low_score(self):
-        """A symbol-injected code chunk gets _SYMBOL_INJECTION_BOOST on top of its sigmoid score —
+    def test_symbol_definition_boost_raises_low_score(self):
+        """A confirmed definition gets _SYMBOL_DEFINITION_BOOST on top of its sigmoid score —
         asserted through real _agent_rerank (not re-implemented test arithmetic)."""
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
-        boost = self.srv._SYMBOL_INJECTION_BOOST
+        boost = self.srv._SYMBOL_DEFINITION_BOOST
         candidates = [
             {"path": "docs/foo.md", "kind": "doc", "text": "", "score": 0.0},
-            {"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_injected": True},
+            {"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_definition": True},
         ]
         # Equal logits (sigmoid(0)=0.5) isolate the boost: only the code+sym chunk should rise.
         with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([0.0, 0.0])):
@@ -20189,9 +20194,9 @@ class RerankerTests(unittest.TestCase):
         self.assertAlmostEqual(candidates[0]["score"], 0.5)                    # doc: no boost
         self.assertAlmostEqual(candidates[1]["score"], min(0.5 + boost, 1.0))  # code+sym: boosted
 
-    def test_symbol_injection_boost_helps_mid_scoring_impl(self):
+    def test_symbol_definition_boost_helps_mid_scoring_impl(self):
         """A reranker-relevant impl chunk (score >= 0.35) beats the worst-case demoted wave doc after boost."""
-        boost = self.srv._SYMBOL_INJECTION_BOOST
+        boost = self.srv._SYMBOL_DEFINITION_BOOST
         max_wave_demoted = 1.0 * self.srv._DEMOTION_WAVES  # 0.75
         # A chunk the reranker considers genuinely relevant (score > 0.35) should win
         mid_score = 0.36
@@ -20202,34 +20207,338 @@ class RerankerTests(unittest.TestCase):
         self.assertLessEqual(low_score + boost, max_wave_demoted,
             f"Low-relevance chunk ({low_score} + {boost} = {low_score + boost}) should NOT beat demoted wave ({max_wave_demoted})")
 
-    def test_symbol_injection_boost_capped_at_one(self):
+    def test_symbol_definition_boost_capped_at_one(self):
         """Boosted score is capped at 1.0 — asserted through real _agent_rerank."""
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
-        candidates = [{"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_injected": True}]
+        candidates = [{"path": "server.py", "kind": "code", "text": "", "score": 0.0, "_sym_definition": True}]
         # sigmoid(8) ≈ 0.9997; + boost would exceed 1.0 → must clamp.
         with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([8.0])):
             idx._agent_rerank("q", candidates)
         self.assertEqual(candidates[0]["score"], 1.0)
 
-    def test_symbol_injection_boost_not_applied_to_doc_kind(self):
-        """Boost only applies to kind='code'; a _sym_injected doc chunk is not boosted — real _agent_rerank."""
+    def test_symbol_definition_boost_not_applied_to_doc_kind(self):
+        """Boost only applies to kind='code'; a marked doc chunk is not boosted."""
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")])
-        candidates = [{"path": "docs/foo.md", "kind": "doc", "text": "", "score": 0.0, "_sym_injected": True}]
+        candidates = [{"path": "docs/foo.md", "kind": "doc", "text": "", "score": 0.0, "_sym_definition": True}]
         with patch.object(idx, "_get_reranker", return_value=self._reranker_with_logits([0.0])):
             idx._agent_rerank("q", candidates)
         self.assertAlmostEqual(candidates[0]["score"], 0.5)  # sigmoid(0), no boost
 
-    def test_symbol_injection_marker_stripped_from_results(self):
-        """_sym_injected marker is popped from every result dict before search_combined returns."""
+    def test_symbol_definition_marker_stripped_from_results(self):
+        """The private definition marker is absent from public results."""
         # Simulate the stripping step that runs after _rerank in search_combined
         results = [
             {"path": "docs/foo.md", "score": 0.75, "kind": "doc"},
-            {"path": "server.py", "score": 1.0, "kind": "code", "_sym_injected": True},
+            {"path": "server.py", "score": 1.0, "kind": "code", "_sym_definition": True},
         ]
         for r in results:
-            r.pop("_sym_injected", None)
+            r.pop("_sym_definition", None)
         for r in results:
-            self.assertNotIn("_sym_injected", r)
+            self.assertNotIn("_sym_definition", r)
+
+    def _published_graph_module(self, nodes, *, builder_version="45", present=True):
+        graph_indexer = MagicMock()
+        graph_indexer.GRAPH_BUILDER_VERSION = "45"
+        graph_indexer.DECLARATION_NODE_KINDS = frozenset({
+            "class", "constant", "function", "property", "type", "variable"
+        })
+        graph_indexer.read_graph_payload.return_value = {
+            "present": present,
+            "layer": "project",
+            "builder_version": builder_version,
+            "nodes": nodes,
+            "edges": [],
+        }
+        def bound_receipt(root, source_path, layer):
+            source_text = (Path(root) / source_path).read_bytes().decode(
+                "utf-8", errors="replace"
+            )
+            return {
+                "payload": graph_indexer.read_graph_payload.return_value,
+                "source_hash": hashlib.sha256(
+                    source_text.encode("utf-8", errors="replace")
+                ).hexdigest(),
+            }
+        graph_indexer.read_bound_graph_payload_source_hash.side_effect = bound_receipt
+        graph_query = MagicMock()
+        graph_query._get_graph_indexer.return_value = graph_indexer
+        return graph_query, graph_indexer
+
+    def _adversarial_symbol_reranker(self):
+        reranker = MagicMock()
+        reranker.rerank.side_effect = lambda query, docs: [
+            5.0 if "USAGE_HIT" in text else -5.0 if "DECLARATION_HIT" in text else 0.0
+            for text in docs
+        ]
+        return reranker
+
+    def test_code_ask_pins_published_language_neutral_definitions(self):
+        """AC-1/3: representative graph languages share one routing-neutral
+        declaration pin even when a usage gets the higher reranker score."""
+        cases = (
+            ("target_symbol", "src/defs.py", "def target_symbol():\n    return 'DECLARATION_HIT'\n", "src/use.py", "USAGE_HIT = target_symbol()\n"),
+            ("renderWidget", "web/widget.js", "function renderWidget() { return 'DECLARATION_HIT'; }\n", "web/use.js", "const USAGE_HIT = renderWidget();\n"),
+            ("renderPanel", "web/panel.ts", "export function renderPanel() { return 'DECLARATION_HIT'; }\n", "web/use.ts", "const USAGE_HIT = renderPanel();\n"),
+            ("renderJava", "src/Widget.java", "class Widget { void renderJava() { /* DECLARATION_HIT */ } }\n", "src/Use.java", "class Use { void x() { renderJava(); /* USAGE_HIT */ } }\n"),
+            ("RenderCSharp", "src/Widget.cs", "class Widget { void RenderCSharp() { var x = \"DECLARATION_HIT\"; } }\n", "src/Use.cs", "class Use { void X() { RenderCSharp(); /* USAGE_HIT */ } }\n"),
+            ("render_cpp", "src/widget.cpp", "void render_cpp() { /* DECLARATION_HIT */ }\n", "src/use.cpp", "void use() { render_cpp(); /* USAGE_HIT */ }\n"),
+            ("renderGo", "src/widget.go", "func renderGo() string { return \"DECLARATION_HIT\" }\n", "src/use.go", "func use() { renderGo() /* USAGE_HIT */ }\n"),
+            ("renderRust", "src/widget.rs", "fn renderRust() { /* DECLARATION_HIT */ }\n", "src/use.rs", "fn use_it() { renderRust(); /* USAGE_HIT */ }\n"),
+            ("renderKotlin", "src/Widget.kt", "fun renderKotlin() = \"DECLARATION_HIT\"\n", "src/Use.kt", "fun useIt() = renderKotlin() // USAGE_HIT\n"),
+            ("renderSwift", "src/Widget.swift", "func renderSwift() { /* DECLARATION_HIT */ }\n", "src/Use.swift", "func useIt() { renderSwift() /* USAGE_HIT */ }\n"),
+        )
+        for symbol, def_path, def_source, usage_path, usage_source in cases:
+            with self.subTest(symbol=symbol):
+                chunks = [
+                    {"id": f"{symbol}-usage", "path": usage_path, "kind": "code", "language": "javascript", "text": usage_source, "lines": [1, 1]},
+                    {"id": f"{symbol}-definition", "path": def_path, "kind": "code", "language": "python", "text": def_source, "lines": [1, 2]},
+                ]
+                idx = self._make_index_with_docs([self._fake_doc_chunk("context")], chunks)
+                for path, source in ((def_path, def_source), (usage_path, usage_source)):
+                    target = idx.root / path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(source, encoding="utf-8")
+                graph_query, _ = self._published_graph_module([{
+                    "id": f"{def_path}::{symbol}",
+                    "label": symbol,
+                    "kind": "function",
+                    "source_file": def_path,
+                    "source_location": "1:0",
+                }])
+                with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+                     patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+                     patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+                    response = self.srv.code_ask_response(idx, idx.root, f"where is {symbol}?")
+                self.assertEqual(response["status"], "ok")
+                citations = response["data"]["citations"]
+                self.assertGreaterEqual(len(citations), 2)
+                self.assertEqual(citations[0]["path"], def_path)
+                self.assertTrue(any(citation["path"] == usage_path for citation in citations[1:]))
+                self.assertNotIn("_sym_definition", citations[0])
+                self._tmp.cleanup()
+                del self._tmp
+
+    def test_code_ask_pins_verified_candidate_over_line_one_summary(self):
+        """AC-3: a line-one code summary cannot inherit graph authority."""
+        symbol = "target_symbol"
+        def_path = "src/defs.py"
+        def_source = "def target_symbol():\n    return 'DECLARATION_HIT'\n"
+        chunks = [
+            {"id": "summary", "path": def_path, "kind": "code-summary", "language": "python", "text": "Symbols: target_symbol, helper USAGE_HIT", "lines": [1, 20]},
+            {"id": "usage", "path": "src/use.py", "kind": "code", "language": "python", "text": "USAGE_HIT = target_symbol()", "lines": [1, 1]},
+        ]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("context")], chunks)
+        for path, source in ((def_path, def_source), ("src/use.py", chunks[1]["text"])):
+            target = idx.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+        graph_query, _ = self._published_graph_module([{
+            "id": f"{def_path}::{symbol}", "label": symbol, "kind": "function",
+            "source_file": def_path, "source_location": "1:0",
+        }])
+        with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+             patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+             patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+            response = self.srv.code_ask_response(idx, idx.root, f"where is {symbol}?")
+        first = response["data"]["citations"][0]
+        self.assertEqual(first["path"], def_path)
+        self.assertEqual(first["kind"], "code")
+        self.assertIn("def target_symbol", first["excerpt"])
+        self.assertNotIn("Symbols:", first["excerpt"])
+
+    def test_graph_definition_candidate_uses_inclusive_two_line_range(self):
+        idx = self._make_index_with_docs([self._fake_doc_chunk("context")])
+        candidate = idx._node_def_candidate(
+            {"label": "target_symbol", "kind": "function", "source_file": "src/defs.py", "source_location": "1:0"},
+            source_text="def target_symbol():\n    return 1\n",
+        )
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["lines"], [1, 2])
+
+    def test_code_ask_hashes_and_renders_one_source_read(self):
+        symbol = "target_symbol"
+        def_path = "src/defs.py"
+        def_source = "def target_symbol():\n    return 'DECLARATION_HIT'\n"
+        usage = {"id": "usage", "path": "src/use.py", "kind": "code", "language": "python", "text": "USAGE_HIT = target_symbol()", "lines": [1, 1]}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("context")], [usage])
+        for path, source in ((def_path, def_source), (usage["path"], usage["text"])):
+            target = idx.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+        graph_query, _ = self._published_graph_module([{
+            "id": f"{def_path}::{symbol}", "label": symbol, "kind": "function",
+            "source_file": def_path, "source_location": "1:0",
+        }])
+        original_read_text = Path.read_text
+        reads = []
+
+        def counted_read_text(path, *args, **kwargs):
+            if path == idx.root / def_path:
+                reads.append(path)
+            return original_read_text(path, *args, **kwargs)
+
+        with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+             patch.object(Path, "read_text", counted_read_text), \
+             patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+             patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+            response = self.srv.code_ask_response(idx, idx.root, f"where is {symbol}?")
+        self.assertEqual(response["data"]["citations"][0]["path"], def_path)
+        self.assertEqual(reads, [idx.root / def_path])
+
+    def test_code_ask_source_hash_mismatch_keeps_hybrid_fallback(self):
+        symbol = "target_symbol"
+        def_path = "src/defs.py"
+        usage = {"id": "usage", "path": "src/use.py", "kind": "code", "language": "python", "text": "USAGE_HIT = target_symbol()", "lines": [1, 1]}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("context")], [usage])
+        for path, source in ((def_path, "def other_symbol():\n    return 1\n"), (usage["path"], usage["text"])):
+            target = idx.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+        graph_query, graph_indexer = self._published_graph_module([{
+            "id": f"{def_path}::{symbol}", "label": symbol, "kind": "function",
+            "source_file": def_path, "source_location": "1:0",
+        }])
+        graph_indexer.read_bound_graph_payload_source_hash.side_effect = None
+        graph_indexer.read_bound_graph_payload_source_hash.return_value = {
+            "payload": graph_indexer.read_graph_payload.return_value,
+            "source_hash": hashlib.sha256(
+                b"def target_symbol():\n    return 1\n"
+            ).hexdigest(),
+        }
+        embed_query = MagicMock(side_effect=idx._embed_query)
+        with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+             patch(f"{self.srv.__name__}.code_definition_response") as public_definition, \
+             patch(f"{self.srv.__name__}.index_build_response") as index_build, \
+             patch(f"{self.srv.__name__}.code_keyword_response") as keyword_scan, \
+             patch(f"{self.srv.__name__}._python_definitions") as python_scan, \
+             patch(f"{self.srv.__name__}._treesitter_definition_results") as tree_scan, \
+             patch(f"{self.srv.__name__}._regex_definitions") as regex_scan, \
+             patch(f"{self.srv.__name__}._css_definitions") as css_scan, \
+             patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+             patch.object(idx, "_embed_query", embed_query), \
+             patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+            response = self.srv.code_ask_response(idx, idx.root, f"where is {symbol}?")
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(response["data"]["citations"][0]["path"], usage["path"])
+        self.assertEqual(set(response["data"]), self.CODE_ASK_BASE_DATA_KEYS)
+        self.assertEqual(embed_query.call_count, 2)
+        public_definition.assert_not_called()
+        index_build.assert_not_called()
+        keyword_scan.assert_not_called()
+        graph_query.get_query_index.assert_not_called()
+        graph_query.invalidate_query_index_cache.assert_not_called()
+        graph_indexer.GraphStateStore.assert_not_called()
+        python_scan.assert_not_called()
+        tree_scan.assert_not_called()
+        regex_scan.assert_not_called()
+        css_scan.assert_not_called()
+
+    def test_definition_lookup_has_no_language_or_extension_allowlist(self):
+        source = inspect.getsource(self.srv.WaveIndex._published_exact_definition_candidate)
+        self.assertNotIn("suffix", source)
+        self.assertNotIn("extension", source)
+        self.assertNotIn("_TS_LANGUAGE", source)
+
+    def test_code_ask_compound_symbol_question_keeps_broader_context(self):
+        """AC-2: final pinning does not turn a broad question into a lookup-only response."""
+        symbol = "target_symbol"
+        def_path = "src/defs.py"
+        def_source = "def target_symbol():\n    return 'DECLARATION_HIT'\n"
+        context_path = "src/workflow.py"
+        context_source = "def run_workflow():\n    return target_symbol()  # USAGE_HIT broader workflow\n"
+        chunks = [
+            {"id": "workflow", "path": context_path, "kind": "code", "language": "python", "text": context_source, "lines": [1, 2]},
+            {"id": "definition", "path": def_path, "kind": "code", "language": "python", "text": def_source, "lines": [1, 2]},
+        ]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("context", "broader workflow context")], chunks)
+        for path, source in ((def_path, def_source), (context_path, context_source)):
+            target = idx.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+        graph_query, _ = self._published_graph_module([{
+            "id": f"{def_path}::{symbol}", "label": symbol, "kind": "function",
+            "source_file": def_path, "source_location": "1:0",
+        }])
+        with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+             patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+             patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+            response = self.srv.code_ask_response(
+                idx, idx.root, "how does target_symbol connect to the broader workflow?"
+            )
+        citations = response["data"]["citations"]
+        self.assertEqual(citations[0]["path"], def_path)
+        self.assertTrue(any(citation["path"] == context_path for citation in citations[1:]))
+
+    def test_code_ask_stale_or_ambiguous_graph_keeps_hybrid_path_read_only(self):
+        """AC-4: stale and ambiguous snapshots do not invoke mutation-capable
+        definition seams, keyword confirmation, or an extra model pass."""
+        symbol = "target_symbol"
+        usage = {"id": "usage", "path": "src/use.py", "kind": "code", "language": "python", "text": "USAGE_HIT = target_symbol()", "lines": [1, 1]}
+        for label, question, present, builder, nodes, receipt_ok in (
+            ("absent", "where is target_symbol?", False, "45", [], True),
+            ("stale", "where is target_symbol?", True, "44", [{"id": "src/defs.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/defs.py", "source_location": "1:0"}], True),
+            ("ambiguous", "where is target_symbol?", True, "45", [
+                {"id": "src/a.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/a.py", "source_location": "1:0"},
+                {"id": "src/b.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/b.py", "source_location": "1:0"},
+            ], True),
+            ("duplicate-identity", "where is target_symbol?", True, "45", [
+                {"id": "src/defs.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/defs.py", "source_location": "1:0"},
+                {"id": "src/defs.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/defs.py", "source_location": "1:0"},
+            ], True),
+            ("unresolved", "where is target_symbol?", True, "45", [
+                {"id": "src/other.py::other_symbol", "label": "other_symbol", "kind": "function", "source_file": "src/other.py", "source_location": "1:0"},
+            ], True),
+            ("non-declaration", "where is target_symbol?", True, "45", [
+                {"id": "src/defs.py::target_symbol", "label": symbol, "kind": "module", "source_file": "src/defs.py", "source_location": "1:0"},
+            ], True),
+            ("receipt-refused", "where is target_symbol?", True, "45", [
+                {"id": "src/defs.py::target_symbol", "label": symbol, "kind": "function", "source_file": "src/defs.py", "source_location": "1:0"},
+            ], False),
+            ("no-symbol", "how does this work?", True, "45", [], True),
+        ):
+            with self.subTest(case=label):
+                idx = self._make_index_with_docs([self._fake_doc_chunk("context")], [usage])
+                (idx.root / "src").mkdir(parents=True, exist_ok=True)
+                (idx.root / "src" / "use.py").write_text(usage["text"], encoding="utf-8")
+                for node in nodes:
+                    target = idx.root / node["source_file"]
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("def target_symbol(): pass\n", encoding="utf-8")
+                graph_query, graph_indexer = self._published_graph_module(
+                    nodes, builder_version=builder, present=present
+                )
+                if not receipt_ok:
+                    graph_indexer.read_bound_graph_payload_source_hash.side_effect = None
+                    graph_indexer.read_bound_graph_payload_source_hash.return_value = None
+                embed_query = MagicMock(side_effect=idx._embed_query)
+                with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
+                     patch(f"{self.srv.__name__}.code_definition_response") as public_definition, \
+                     patch(f"{self.srv.__name__}.index_build_response") as index_build, \
+                     patch(f"{self.srv.__name__}.code_keyword_response") as keyword_scan, \
+                     patch(f"{self.srv.__name__}._python_definitions") as python_scan, \
+                     patch(f"{self.srv.__name__}._treesitter_definition_results") as tree_scan, \
+                     patch(f"{self.srv.__name__}._regex_definitions") as regex_scan, \
+                     patch(f"{self.srv.__name__}._css_definitions") as css_scan, \
+                     patch.object(idx, "_graph_signal_candidates", return_value=[]), \
+                     patch.object(idx, "_embed_query", embed_query), \
+                     patch.object(idx, "_get_reranker", return_value=self._adversarial_symbol_reranker()):
+                    response = self.srv.code_ask_response(idx, idx.root, question)
+                self.assertEqual(response["status"], "ok")
+                self.assertEqual(response["data"]["citations"][0]["path"], "src/use.py")
+                public_definition.assert_not_called()
+                index_build.assert_not_called()
+                keyword_scan.assert_not_called()
+                graph_query.get_query_index.assert_not_called()
+                graph_query.invalidate_query_index_cache.assert_not_called()
+                graph_indexer.GraphStateStore.assert_not_called()
+                python_scan.assert_not_called()
+                tree_scan.assert_not_called()
+                regex_scan.assert_not_called()
+                css_scan.assert_not_called()
+                self.assertEqual(embed_query.call_count, 2)
+                self.assertEqual(set(response["data"]), self.CODE_ASK_BASE_DATA_KEYS)
+                self._tmp.cleanup()
+                del self._tmp
 
     # Wave 1p4wz: the lexical symbol-extraction chain (`_extract_symbols_from_citations` +
     # `_extract_symbols_ts`/`_python`/`_regex`) and its unit tests were REMOVED. It powered the old
