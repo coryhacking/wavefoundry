@@ -150,3 +150,34 @@ re-embedded both layers on every GPU host for a defect they never had.
   Limits on that evidence: five queries, one pool, one shuffle seed, and passages assembled from
   repository text rather than drawn through the live retrieval pipeline. The direction and the cause
   are established; the rates are not calibrated frequencies.
+
+  **Decision 2026-08-12: confirmed, measured, and deliberately NOT fixed.** Change `1v455` (wave
+  `1v4ms`) was planned, readied, reviewed, implemented as far as a failing reproduction, and then
+  withdrawn on measurement. Do not re-open it without reading this paragraph: the remedy space was
+  priced, not overlooked.
+
+  The deciding measurement used a single unsplit batch as ground truth, since one batch means one
+  activation regime and no cross-batch comparison. Against that reference, **today's split misses
+  1 of 60 top-10 slots** while **capping the pool at `RERANK_STATIC_BATCH` misses 17 of 70**. The
+  defect is therefore real in mechanism but nearly benign in delivered results, and the cheapest
+  remedy is roughly seventeen times more damaging than the defect.
+
+  Why it is benign: the pool arrives with each index internally cosine-sorted, so the strongest
+  candidates already sit in the unpadded first batch and the padded remainder's score inflation
+  rarely promotes anything past them. Globally merge-ranking docs and code by cosine before batching
+  (now meaningful for the first time, since both share one embedder) was measured and changed
+  nothing here: 1 of 60 either way.
+
+  Every remedy priced and rejected: **cap at 40** loses 17/70; **single-row scoring** costs roughly
+  35x the query-time inference calls; **batch 60** costs +43% peak RSS (2954 to 4220 MiB) and +12%
+  latency while still splitting the ~140-candidate worst case; **batch 140** reaches ~6 GB peak and
+  is slower than today; **canonical ordering** addresses a trigger that is probably latent, because
+  retrieval order is deterministic for a fixed index, and leaves the cross-batch comparison intact.
+
+  What would actually fix it is the calibrated static-quantization export named under **Alternatives
+  Considered**. It removes the runtime activation scale for the embedder and the reranker together
+  and would let batching stay exactly as it is. The 1-of-60 measurement says it is not urgent.
+
+  Standing constraint that survives this decision: `AGENT_CANDIDATE_MAX` is a post-rerank selection
+  backstop, not a cap on what reaches the reranker, so any future change that shrinks the reranked
+  pool to fix batching must first re-run the 17-of-70 recall measurement.

@@ -68,6 +68,8 @@ Tag `v1.16.0`, stamp commit `0324f9ee` (`1.16.0+pig9`), suite 7181 across 62 fil
 
 **Asymmetry worth knowing:** `seed-180:130` already teaches the complement, that graph queries miss non-code mentions so impact analysis should also run `code_keyword`. Nothing taught the reverse direction until now.
 
+**REFINED 2026-08-12, same waiver and gate cycle, before the text ever shipped.** The first version ranked the instruments: it told authors to close a value-flow universe with `code_references` and described identifier search as a complement for non-code mentions. Running the very next census, for wave `1v4ms`, produced the opposite failure: `code_references` on `rerank` missed both consumer sites in `server_impl` (calls through an instance attribute, `reranker.rerank(...)`), while `code_keyword` found them in one call. The rule now says no single instrument closes every universe, names both observed blind spots, requires crossing with at least two whose blind spots differ, requires reconciling disagreement rather than unioning, and requires recording which instrument closed which part of the claim. That matches what `seed-180` already teaches about chaining tools; the first draft had drifted from it by trying to name a winner.
+
 ### Stage-gate waiver — operator-approved, named scope
 
 **Scope:** comment-only corrections in `.wavefoundry/framework/scripts/accel_embedder.py`. No behavioral change, no contract change, no test change.

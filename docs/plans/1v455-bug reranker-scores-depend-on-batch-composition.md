@@ -1,11 +1,23 @@
 # Reranker Scores Depend On Batch Composition
 
 Change ID: `1v455-bug reranker-scores-depend-on-batch-composition`
-Change Status: `planned`
+Change Status: `withdrawn`
 Owner: Engineering
 Status: planned
 Last verified: 2026-08-12
 Wave: 1v4ms reranker-order-invariance
+
+> **WITHDRAWN 2026-08-12 by operator direction, carrying its findings.** The defect is real,
+> confirmed and measured; it is deliberately NOT being fixed because every available remedy costs
+> more than the defect. Measured against a single unsplit batch as ground truth, today's behaviour
+> misses **1 of 60** top-10 slots while the cheapest remedy misses **17 of 70**. Do not re-attempt
+> without reading the Progress Log: the remedy space was priced, not overlooked.
+>
+> Acceptance criteria are marked `[~]` rather than `[x]`: none was met, and none should be read as
+> satisfied. The reproduction tests written during implementation were REMOVED with this
+> withdrawal, because they assert an order-invariance property the code deliberately does not
+> provide and would otherwise fail the suite forever. ADR `1v22e` carries the durable record.
+
 
 ## Rationale
 
@@ -83,23 +95,23 @@ retrieval pool rather than on relevance alone.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Reranking the same candidate set in different input orders produces identical scores, asserted on a pool larger than `RERANK_STATIC_BATCH`.
-- [ ] AC-2: Reranking the same candidate set in different input orders produces an identical ranking, asserted on the same oversized pool.
-- [ ] AC-3: Every score that is compared against another score is produced under the same batch composition, or the comparison sites are shown not to compare across compositions.
-- [ ] AC-4: The GPU / FP16 reranker path is unchanged, asserted by a test that fails if its batching or graph selection changes.
-- [ ] AC-5: A regression test fails if reranker output becomes order-dependent again, using the oversized-pool oracle from AC-1.
-- [ ] AC-6: The retrieval-quality effect of the chosen remedy is measured against the current behaviour on a pool of realistic size, with the query set, pool construction, and per-query results recorded in the Progress Log. If the remedy drops candidates, the recall cost is stated explicitly.
-- [ ] AC-7: Reranker latency before and after is measured and recorded, since the remedy may change the number of inference calls per query.
+- [~] AC-1: Reranking the same candidate set in different input orders produces identical scores, asserted on a pool larger than `RERANK_STATIC_BATCH`. **Not met (withdrawn).** Reproduction existed and failed 60/60; no remedy adopted.
+- [~] AC-2: Reranking the same candidate set in different input orders produces an identical ranking, asserted on the same oversized pool. **Not met (withdrawn).** Order-dependence is real but its trigger is likely latent, since retrieval order is deterministic for a fixed index.
+- [~] AC-3: Every score that is compared against another score is produced under the same batch composition, or the comparison sites are shown not to compare across compositions. **Not achievable in scope.** Two batches never share an activation range under per-tensor dynamic quantization, so only a single-batch-for-the-whole-pool or a calibrated export satisfies this. Both were priced and rejected.
+- [~] AC-4: The GPU / FP16 reranker path is unchanged, asserted by a test that fails if its batching or graph selection changes. **Not met (withdrawn).** No change was made, so the GPU path is untouched by construction.
+- [~] AC-5: A regression test fails if reranker output becomes order-dependent again, using the oversized-pool oracle from AC-1. **Not met (withdrawn).** The regression test was removed; it asserted a property the code deliberately does not provide.
+- [~] AC-6: The retrieval-quality effect of the chosen remedy is measured against the current behaviour on a pool of realistic size, with the query set, pool construction, and per-query results recorded in the Progress Log. If the remedy drops candidates, the recall cost is stated explicitly. **Met as a measurement, and it is what killed the change.** Cap-at-40 misses 17/70 top-10 slots against ground truth; today's split misses 1/60.
+- [~] AC-7: Reranker latency before and after is measured and recorded, since the remedy may change the number of inference calls per query. **Measured anyway.** Batch 60 costs +43% peak RSS (2954 -> 4220 MiB) and +12% latency; batch 140 reaches ~6 GB.
 
 ## Tasks
 
-- [ ] Reproduce order-dependence as a failing test before changing behaviour, using an oversized pool and the shuffle oracle from the Rationale.
-- [ ] Enumerate every consumer of reranker scores and record which ones compare scores across batch boundaries. Use `code_references` on the scoring seam rather than an identifier grep, per the census-instrument rule in seed 209.
-- [ ] Choose the remedy and record the decision with its measured tradeoff.
-- [ ] Implement the remedy and make the reproduction test pass.
-- [ ] Add the GPU-path pin required by AC-4.
-- [ ] Measure retrieval quality and latency before and after; record both.
-- [ ] Update ADR `1v22e`'s reranker section from confirmed-open to resolved, retaining the measurements.
+- [~] Reproduce order-dependence as a failing test before changing behaviour, using an oversized pool and the shuffle oracle from the Rationale.
+- [~] Enumerate every consumer of reranker scores and record which ones compare scores across batch boundaries. Use `code_references` on the scoring seam rather than an identifier grep, per the census-instrument rule in seed 209.
+- [~] Choose the remedy and record the decision with its measured tradeoff.
+- [~] Implement the remedy and make the reproduction test pass.
+- [~] Add the GPU-path pin required by AC-4.
+- [~] Measure retrieval quality and latency before and after; record both.
+- [~] Update ADR `1v22e`'s reranker section from confirmed-open to resolved, retaining the measurements.
 
 ## Agent Execution Graph
 
@@ -148,6 +160,10 @@ determinism that this change makes true or false.
 
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
+| 2026-08-12 | **Reproduction landed before any behaviour change.** `test_rerank_is_order_invariant_on_a_pool_larger_than_one_batch` fails 60/60 on a 60-candidate pool, with `test_rerank_order_invariance_oracle_is_not_vacuous` proving the fake session is genuinely composition-sensitive. The fake reproduces the `DynamicQuantizeLinear` mechanism (each row's output carries a batch-spanning term), so it asserts the property rather than a remedy and needs no model or hardware. | `tests/test_accel_embedder.py`. |
+| 2026-08-12 | **Consumer census, two instruments, and they disagreed.** `code_references` on `rerank` returned only `accel_embedder`-internal call sites and MISSED both consumers; `code_keyword` found `server_impl` 1340 and 1357 in one call. Recorded per the seed 209 census-instrument rule, which was refined the same day BECAUSE of this disagreement: the first draft ranked references above identifier search, and this is the opposite failure. Consumers confirmed: `_rerank` min-max normalizes across all scores, `_agent_rerank` sigmoids into the relevance floor, drop-off and confidence band. | `code_references`, `code_keyword`; seed 209 refinement. |
+| 2026-08-12 | **Remedy search: every in-scope option measured and rejected.** Cap at 40 restores invariance but loses recall. Single-row costs ~35x inference calls at query time. Batch 60, measured per-process for clean peak RSS: **+43% memory (2954 -> 4220 MiB) and +12% latency (1198 -> 1341 ms)** despite computing fewer rows, and it still splits at the 140-candidate worst case. Batch 140 reaches ~6 GB peak and is slower than today. An earlier single-process run suggesting batch 60 was FASTER was confounded by cumulative `ru_maxrss`; isolated runs reverse it. | Isolated-process benchmarks; `VECTOR_TOP_K` 30/index, `VECTOR_TOP_K_EXPLANATORY` 50/index, `LEXICAL_TOP_K` 20/table give a ~140 worst-case pool. |
+| 2026-08-12 | **AC-6 decisive: the cure is worse than the disease.** Measured against a single unsplit batch as ground truth (one regime, no cross-batch comparison), **today's split misses 1 of 70 top-10 slots** while **cap-at-40 misses 17 of 70**. The defect is real mechanically but nearly benign in delivered results, because the pool arrives cosine-sorted so batch 1 already holds the strongest candidates and the padded remainder's inflation rarely promotes past them. That protection exists only because docs and code now share one embedder, making cosine comparable across indexes. Every remedy costs an order of magnitude more than the defect. Limits: top-10 membership rather than intra-top-10 ordering; seven queries, one corpus. | Reference-vs-split-vs-cap comparison on real repository passages. |
 | 2026-08-12 | Defect confirmed and measured during the 1v454 close-out, no code changed. 26 `DynamicQuantizeLinear` operators in the reranker INT8 export and none in its FP16 export; batch position alone moved a passage score `+1.4068` to `+1.5228`; pool reordering changed top-5 ordering in 3 of 5 queries and top-10 membership in 1 of 5, with top-1 stable in all 5; pools of 40 and 35 (no split) were order-identical in 5 of 5. | Session probe transcripts; ADR `1v22e` **Related** section. |
 
 
@@ -175,3 +191,35 @@ determinism that this change makes true or false.
 ## Session Handoff
 
 See `docs/agents/session-handoff.md` for current session state.
+
+## Readiness Review (wave `1v4ms`, withdrawn 2026-08-12)
+
+This change was admitted to wave `1v4ms reranker-order-invariance`, readied, and reviewed before
+being withdrawn on measurement. That wave directory was removed once empty, because closing it would
+have required recording delivery-lane and operator approvals for zero delivered changes, which would
+have put untrue statements in an append-only ledger. The review's substantive findings are preserved
+here so the container's removal loses nothing.
+
+**Prepare-phase Wave Council — PASS.** Moderator wave-council; seats red-team (fixed) and
+docs-contract-reviewer (rotating); receipt `review-policy-eb76616eafe00dd7843a`; lanes code-reviewer
+and qa-reviewer both approved at readiness.
+
+- **red-team** attacked the premise whose falsity would have killed the change: that production
+  pools exceed `RERANK_STATIC_BATCH`. Verified against the tree rather than the plan, and found the
+  opposite of a refutation. The shipped comment at the `_agent_rerank` call site states the
+  cross-encoder scores "the full retrieved pool on ONE unified relevance scale ... BEFORE selection",
+  confirming there is no pre-rerank cap and raising severity, because the split violates a documented
+  design invariant rather than merely perturbing numbers. Also confirmed 26 `DynamicQuantizeLinear`
+  operators in the reranker INT8 export and zero in FP16 (CPU-only blast radius), the conditional
+  padding, and that the cross-batch comparison is real via `_rerank`'s min-max normalization and
+  `_agent_rerank`'s sigmoid floor, drop-off and confidence band.
+- **docs-contract-reviewer** recorded no finding. `docs/specs/mcp-tool-surface.md` makes no
+  determinism or stable-ordering promise about the rerank path, so no shipped documentation was
+  false, and no new ADR was warranted because the constraint is ADR `1v22e`'s applied to a second
+  graph.
+
+**What the review did not catch, and could not have.** Both council rounds and both lanes accepted
+the premise that a cheap remedy existed. That premise was only falsified later, by the AC-6
+measurement during implementation. This is the intended shape: readiness review checks that a plan's
+claims about the *current tree* hold, not that its proposed remedy will prove affordable. The AC that
+required measuring before adopting is what caught it.
