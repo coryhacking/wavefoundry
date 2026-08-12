@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -37,3 +37,4 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1p92d-adr](1p92d-adr%20embedding-precision-policy.md) | FP16 end-to-end on GPU machines, INT8 end-to-end on CPU-bound machines (embed + rerank); queries on CPU; precision folded into model_versions | accepted |
 | [1p9qj-adr](1p9qj-adr%20lifecycle-id-v2-daily-entropy-scheme.md) | Lifecycle-ID scheme v2: daily time index + 12-bit deterministic entropy, provisioning-time epoch/offset, graceful 6-char overflow | accepted |
 | [1tsbu-adr](1tsbu-adr%20review-policy-and-upgrade-protocol.md) | Review-policy authority and upgrade protocol 2 | accepted |
+| [1v22e-adr](1v22e-adr%20int8-encoding-is-batch-composition-sensitive.md) | INT8 activation scales are per-tensor across the batch, so the INT8 path encodes one row per call; batch shape is part of the vector contract, not an implementation detail | accepted |

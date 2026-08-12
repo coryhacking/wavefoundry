@@ -2541,6 +2541,29 @@ def _semantic_epoch_matches_active_models(
     if not isinstance(versions, dict):
         return False
     docs_model, code_model, fingerprint = authority
+    # Wave 1v454: the recorded identity fingerprint is CLASS-SCOPED. An int8 layer carries the
+    # single-row encoding revision appended to the model-set fingerprint, because int8 vectors
+    # changed with that encoding while full-class vectors did not. Comparing every layer against
+    # the bare manifest fingerprint would therefore reject a perfectly current int8 epoch, and
+    # this predicate gates the retired-model cleanup -- so a CPU-bound host would silently keep
+    # the retired components forever. Derive the expectation per class through the indexer helper
+    # that writes it, never a second copy of the rule. A framework that predates the helper keeps
+    # the old bare comparison, which is correct for the identities that code writes.
+    try:
+        import indexer
+
+        int8_revision = str(indexer.INT8_ENCODING_REVISION)
+    except (AttributeError, ImportError):
+        int8_revision = ""
+
+    def expected_fingerprint_for(precision_class: str) -> str:
+        # Derived from the AUTHORITY fingerprint (already verified equal to the indexer constant
+        # by _verified_active_model_authority) rather than re-reading the constant, so this stays
+        # correct for any authority the caller established. Only the revision token comes from
+        # indexer, keeping one source of truth for it.
+        if precision_class == "int8" and int8_revision:
+            return f"{fingerprint}-{int8_revision}"
+        return fingerprint
     for layer, expected_model in (("docs", docs_model), ("code", code_model)):
         value = versions.get(layer)
         if not isinstance(value, str):
@@ -2550,7 +2573,7 @@ def _semantic_epoch_matches_active_models(
             len(parts) != 3
             or parts[0] != expected_model
             or parts[1] not in {"full", "int8"}
-            or parts[2] != fingerprint
+            or parts[2] != expected_fingerprint_for(parts[1])
         ):
             return False
     return True

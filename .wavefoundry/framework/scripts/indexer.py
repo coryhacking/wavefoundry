@@ -3447,6 +3447,29 @@ def _model_set_fingerprint_from_version(value: Optional[str]) -> str:
     return value.split("@", 2)[2] if value and value.count("@") >= 2 else ""
 
 
+# Wave 1v454: the INT8 encoding policy is part of what a stored int8 vector MEANS. Single-row
+# encoding changed those vectors (the old batched path let a row's per-tensor activation scale
+# depend on its batch neighbours), so an existing int8 index must re-embed exactly once.
+# A full-class index must NOT: the FP graphs carry no quantization ops and were measured
+# composition-invariant, so their vectors did not move. EMBEDDING_MODEL_SET_FINGERPRINT is
+# deliberately an ALL-LAYER compatibility boundary (see the scoped-update guard in build_index),
+# so bumping it would re-embed every GPU host for a defect they never had. Scoping the revision to
+# the int8 class keeps the one-time cost on the pipeline that actually changed.
+INT8_ENCODING_REVISION = "int8enc2"
+
+
+def _identity_fingerprint_for_class(precision_class: str) -> str:
+    """Return the model-set fingerprint recorded for a layer at ``precision_class``.
+
+    Compare sites and the write site MUST both route through this helper, or a same-machine
+    incremental build would perpetually re-embed (the compare would keep seeing a mismatch it
+    just wrote) -- the same invariant `_predicted_precision_class` documents for the class token.
+    """
+    if precision_class == "int8":
+        return f"{EMBEDDING_MODEL_SET_FINGERPRINT}-{INT8_ENCODING_REVISION}"
+    return EMBEDDING_MODEL_SET_FINGERPRINT
+
+
 def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
     """The precision class the embedder pipeline resolves for ``model_name`` on the CURRENT machine
     (wave 1p936). Provider AVAILABILITY only, no ONNX session build — a full resolve-and-probe here
@@ -4059,7 +4082,9 @@ def _build_index_locked(
             _value = old_model_versions.get(_layer)
             _fingerprint_stale = (
                 _model_set_fingerprint_from_version(_value)
-                != EMBEDDING_MODEL_SET_FINGERPRINT
+                != _identity_fingerprint_for_class(
+                    _predicted_precision_class(_expected_model, _active_providers)
+                )
             )
             _untouched_identity_stale = _layer != content and (
                 (_value or "").split("@", 1)[0] != _expected_model
@@ -4107,7 +4132,9 @@ def _build_index_locked(
         model_changed = model_changed or _precision_class_from_version(old_docs_value) != (
             _predicted_precision_class(DOCS_MODEL, _onnx_providers())
         )
-        model_changed = model_changed or _model_set_fingerprint_from_version(old_docs_value) != EMBEDDING_MODEL_SET_FINGERPRINT
+        model_changed = model_changed or _model_set_fingerprint_from_version(old_docs_value) != (
+            _identity_fingerprint_for_class(_predicted_precision_class(DOCS_MODEL, _onnx_providers()))
+        )
         docs_index_exists = (
             (index_dir / "docs.lance").is_dir()
             or "docs" in previously_built_content
@@ -4122,7 +4149,9 @@ def _build_index_locked(
         model_changed = model_changed or _precision_class_from_version(old_code_value) != (
             _predicted_precision_class(CODE_MODEL, _onnx_providers())
         )
-        model_changed = model_changed or _model_set_fingerprint_from_version(old_code_value) != EMBEDDING_MODEL_SET_FINGERPRINT
+        model_changed = model_changed or _model_set_fingerprint_from_version(old_code_value) != (
+            _identity_fingerprint_for_class(_predicted_precision_class(CODE_MODEL, _onnx_providers()))
+        )
         code_index_exists = (
             (index_dir / "code.lance").is_dir()
             or "code" in previously_built_content
@@ -5081,14 +5110,18 @@ def _build_index_locked(
             if docs_embedder is not None
             else _precision_class_from_version(old_model_versions.get("docs"))
         )
-        new_model_versions["docs"] = f"{DOCS_MODEL}@{docs_class}@{EMBEDDING_MODEL_SET_FINGERPRINT}"
+        new_model_versions["docs"] = (
+            f"{DOCS_MODEL}@{docs_class}@{_identity_fingerprint_for_class(docs_class)}"
+        )
     if build_code:
         code_class = (
             _predicted_precision_class(CODE_MODEL, build_providers)
             if code_embedder is not None
             else _precision_class_from_version(old_model_versions.get("code"))
         )
-        new_model_versions["code"] = f"{CODE_MODEL}@{code_class}@{EMBEDDING_MODEL_SET_FINGERPRINT}"
+        new_model_versions["code"] = (
+            f"{CODE_MODEL}@{code_class}@{_identity_fingerprint_for_class(code_class)}"
+        )
     new_chunker_versions = dict(old_chunker_versions)
     if build_docs and current_chunker_version:
         new_chunker_versions["docs"] = current_chunker_version

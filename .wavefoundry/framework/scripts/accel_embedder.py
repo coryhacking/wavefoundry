@@ -228,7 +228,7 @@ def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:
 def _ensure_fastembed_model_cached(model_name: str) -> None:
     """Cold-cache safety: download the model's fastembed-resident ONNX if it isn't cached yet.
 
-    Without this, a model whose resident graph we use directly (e.g. arctic — no
+    Without this, a model whose resident graph we use directly (any model with no
     ``CLEAN_ONNX_SOURCES`` entry, so no self-downloading ``hf_hub_download`` path) silently
     fails the static-shape build whenever a launcher spawns the indexer WITHOUT first running
     ``setup_index.prewarm_models`` — most notably the dashboard's file-watcher, which spawns
@@ -268,8 +268,14 @@ def _resolve_model_files(model_name: str) -> Optional[tuple[str, str]]:
     """Return (onnx_path, tokenizer_json_path) for the embedder.
 
     Prefers a CoreML-friendly clean export (``CLEAN_ONNX_SOURCES``) when one is registered;
-    otherwise uses the model's fastembed-resident ONNX (arctic's resident graph is already clean),
-    downloading it on a cold cache so the GPU path doesn't degrade to CPU when prewarm was skipped.
+    otherwise uses the model's fastembed-resident ONNX, downloading it on a cold cache so the GPU
+    path doesn't degrade to CPU when prewarm was skipped.
+
+    Since wave 1v0r0 registered arctic (``:72``), BOTH shipped models resolve through the clean
+    export, so the resident-graph branch below is unreachable for the current model set and only
+    runs for an unregistered model. This does not make the fastembed cache redundant:
+    ``indexer._get_embedder`` reaches fastembed by its own path for small incremental runs and
+    when accel is unavailable on a GPU host.
     """
     clean = _resolve_clean_onnx(model_name)
     if clean is not None:
@@ -450,15 +456,23 @@ class StaticShapeEmbedder:
             provs.append("CPUExecutionProvider")
             self.provider = gpu
         else:
-            # CPU INT8 path (wave 1p935). Distinct cache-key filename (`cpu_int8_static_…`) so it
-            # never collides with the FP16 GPU graph cache above.
+            # CPU INT8 path (wave 1p935), running the DYNAMIC clean export rather than a
+            # batch-pinned graph (wave 1v454).
+            #
+            # The INT8 export quantizes activations with DynamicQuantizeLinear, whose scale is a
+            # per-tensor scalar derived from ReduceMin/ReduceMax over the whole input tensor --
+            # batch dimension included. A row's quantized values therefore depend on its batch
+            # neighbours, so pinning the batch to STATIC_BATCH and padding with empty rows made a
+            # chunk's stored vector a function of whichever chunks shared its batch. ``embed``
+            # now submits exactly one real row per call on this path, which requires a graph whose
+            # batch dimension is free, so we load the shipped dynamic export directly instead of
+            # building a pinned derivative. That also drops a locally generated artifact that was
+            # never hash-verified in favour of one the model-set manifest covers.
             files = _resolve_embedder_cpu_files(model_name)
             if files is None:
                 raise FileNotFoundError(f"No cached INT8 ONNX/tokenizer for embedder {model_name!r}")
             src_onnx, tok_path = files
-            static_path = _ONNX_CACHE / _safe(model_name) / f"cpu_int8_static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
-            if not static_path.exists():
-                build_static_onnx(src_onnx, str(static_path))
+            static_path = Path(src_onnx)
             provs = ["CPUExecutionProvider"]
             self.provider = "CPUExecutionProvider"
 
@@ -473,11 +487,27 @@ class StaticShapeEmbedder:
         import numpy as np
 
         items = [t if isinstance(t, str) else str(t) for t in texts]
-        for start in range(0, len(items), STATIC_BATCH):
-            chunk = items[start:start + STATIC_BATCH]
+        # Wave 1v454: on the INT8/CPU path a row's quantized values depend on its batch
+        # neighbours (see __init__), so encode exactly one real row per call and never pad the
+        # batch dimension. That makes each vector a function of its own text, which is what lets
+        # a query match the index it searches and makes re-indexing reproducible. Measured on
+        # 512-token chunks, single-row CPU throughput is 0.96x of batched -- the pinned batch was
+        # not buying speed here, because the graph pads every row to STATIC_SEQ regardless.
+        #
+        # The GPU FP16 graph carries no quantization ops and was measured composition-invariant
+        # (cos 1.0), and the GPU genuinely amortizes its fixed dispatch cost over a full batch, so
+        # that path keeps STATIC_BATCH unchanged.
+        single_row = self.provider == "CPUExecutionProvider"
+        stride = 1 if single_row else STATIC_BATCH
+        for start in range(0, len(items), stride):
+            chunk = items[start:start + stride]
             real = len(chunk)
             # Pad the batch dim to the fixed STATIC_BATCH (empty strings; sliced off below).
-            padded = chunk + [""] * (STATIC_BATCH - real) if real < STATIC_BATCH else chunk
+            # Never on the single-row path: a padding row would change the activation range.
+            if single_row:
+                padded = chunk
+            else:
+                padded = chunk + [""] * (STATIC_BATCH - real) if real < STATIC_BATCH else chunk
             enc = self.tokenizer.encode_batch(padded)
             feats = {
                 "input_ids": np.array([e.ids for e in enc], dtype=np.int64),

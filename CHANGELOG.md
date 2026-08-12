@@ -6,6 +6,26 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - unreleased
+
+### Fixed
+
+- **INT8 embedding vectors no longer depend on which other chunks shared their inference
+  batch.** This affects CPU-bound hosts only. The INT8 export derives one activation scale per
+  tensor across the whole batch, so a chunk's stored vector shifted depending on its neighbours.
+  Two things followed: re-indexing the same corpus was not reproducible, because chunk ordering or
+  a change in chunk count moved batch boundaries and reassigned neighbours; and every query was
+  encoded in a different regime from the bulk index, because a full batch carries no padding rows
+  while a query is one row plus 31 of them. Measured against the index it searched, a query sat at
+  cos 0.996160. The INT8 path now encodes one row per inference call, so a vector is a function of
+  its own text alone and query and index agree exactly. Throughput is unchanged (0.96x of the
+  previous batched path) because the graph padded every row to 512 tokens regardless, so batching
+  was buying nothing here, and the CPU-bound query path's peak resident memory drops from roughly
+  1353 MiB to 245 MiB. **Upgrade cost: CPU-bound repositories re-embed both semantic layers once
+  on this upgrade. GPU-class repositories re-embed nothing** and are unaffected, because the FP16
+  graph carries no quantization operators and its vectors did not move. Wave 1v454 / change 1v453;
+  rationale and the constraints it imposes are recorded in ADR `1v22e`.
+
 ## [1.16.0] - 2026-08-11
 
 ### Changed

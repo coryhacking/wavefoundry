@@ -56,6 +56,17 @@ class _FakeSession:
         return [self._hidden[:b]]
 
 
+class _RecordingSession(_FakeSession):
+    """_FakeSession that records the batch dimension submitted on every run() call."""
+    def __init__(self, hidden):
+        super().__init__(hidden)
+        self.submitted_batches = []
+
+    def run(self, _outputs, feed):
+        self.submitted_batches.append(int(feed["input_ids"].shape[0]))
+        return super().run(_outputs, feed)
+
+
 def _make_embedder(ae, hidden):
     """Build a StaticShapeEmbedder bypassing __init__ (no real ONNX/CoreML)."""
     emb = ae.StaticShapeEmbedder.__new__(ae.StaticShapeEmbedder)
@@ -101,6 +112,41 @@ def _make_reranker(ae):
 class AccelEmbedderTests(unittest.TestCase):
     def setUp(self):
         self.ae = load_accel()
+
+    def _recording_embedder(self, provider):
+        hidden = np.zeros((self.ae.STATIC_BATCH, 4, 3), dtype=np.float32)
+        hidden[:, 0, 0] = 1.0
+        emb = _make_embedder(self.ae, hidden)
+        emb.provider = provider
+        emb.session = _RecordingSession(hidden)
+        return emb
+
+    def test_int8_cpu_embed_submits_one_real_row_per_call(self):
+        # Wave 1v454 (AC-1/AC-2). The INT8 export quantizes activations with 48
+        # DynamicQuantizeLinear ops, and that operator emits a per-tensor scalar scale derived
+        # from ReduceMin/ReduceMax over the WHOLE input tensor — batch dimension included. So a
+        # row's quantized values depend on its batch neighbours: measured on the shipped graph,
+        # the same text drifts to cos 0.99630791 when 30 real neighbours replace empty padding
+        # rows, and the query shape (1 real + 31 empty) differs from the bulk-index shape
+        # (32 real, no empties) at cos 0.996160.
+        #
+        # Submitting exactly one real row per call is what makes a vector a function of its own
+        # text alone. Asserting on the submitted batch dimension is the CI-safe form of that
+        # property: if any call carries more than one row, composition can influence the result.
+        # (The real cos-equivalence is validated on the operator's machine, per this module's
+        # header note.)
+        emb = self._recording_embedder("CPUExecutionProvider")
+        list(emb.embed([f"text {i}" for i in range(5)]))
+        self.assertEqual(emb.session.submitted_batches, [1, 1, 1, 1, 1])
+
+    def test_gpu_path_still_batches_to_static_batch(self):
+        # Wave 1v454 (AC-5). The FP16 graph carries NO quantization ops and was measured
+        # composition-invariant (cos 1.0), so the GPU path keeps its batching, where the GPU
+        # genuinely amortizes its fixed dispatch cost. This test fails if the INT8 fix leaks
+        # into the GPU path.
+        emb = self._recording_embedder("CoreMLExecutionProvider")
+        list(emb.embed([f"text {i}" for i in range(5)]))
+        self.assertEqual(emb.session.submitted_batches, [self.ae.STATIC_BATCH])
 
     def test_make_embedder_int8_cpu_when_no_gpu_registered_model(self):
         # Wave 1p935: no GPU (CPU-bound machine) + a model with an INT8 clean-export source

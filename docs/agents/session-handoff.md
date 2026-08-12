@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-12
 
 ## Wave `1uwpf receipt-and-citation-contract-followups` — CLOSED 2026-08-10 (uncommitted)
 
@@ -51,3 +51,19 @@ All four lanes returned CHANGES REQUESTED; every finding is folded and re-verifi
 ## Current Session
 
 **Active wave:** *(none)*
+
+### 1.16.0 released 2026-08-11
+
+Tag `v1.16.0`, stamp commit `0324f9ee` (`1.16.0+pig9`), suite 7181 across 62 files, docs-lint ok. Model set v2 published at the permanent `models` tag as `wavefoundry-models-2.zip`. Set 1 stays unpublished (it carries the components the supplier-lineage policy removed), so 1.15.x and earlier have no distributed offline model set.
+
+### Stage-gate waiver — operator-approved, named scope
+
+**Scope:** comment-only corrections in `.wavefoundry/framework/scripts/accel_embedder.py`. No behavioral change, no contract change, no test change.
+
+**Granted by:** operator, in-session, 2026-08-11 ("Also, let's fix the out of date comment").
+
+**Why a waiver rather than a wave:** the edits touch only docstring prose in a framework script, which affects no shipped or verified behavior. Recorded here per the `AGENTS.md` **Stage Gate** exclusion for operator-approved waivers on a named scope.
+
+**What was corrected:** two comments described arctic as having no `CLEAN_ONNX_SOURCES` entry. Wave 1v0r0 registered it at `accel_embedder.py:72`, so both statements inverted the truth.
+
+**Finding surfaced while correcting, NOT acted on:** `_resolve_model_files` returns the clean export first (`:274-276`), so the resident-graph branch at `:277-283` and its `_ensure_fastembed_model_cached` call are now unreachable for every model this set ships. Both arctic and MiniLM L6 are registered in `CLEAN_ONNX_SOURCES`; the branch only runs for an unregistered model. This is dead-for-shipped-models code, not a stale comment, and removing it needs its own change doc and wave. Note it does **not** make the `embedding-fastembed` bundle component redundant: `indexer._get_embedder` reaches fastembed through a different path (`indexer.py:3574-3586`) for small incremental runs and for accel failure on a GPU host.

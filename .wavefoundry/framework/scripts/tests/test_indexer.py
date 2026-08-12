@@ -1527,13 +1527,15 @@ class IncrementalBuildTests(unittest.TestCase):
         code_class = self.bi._predicted_precision_class(
             self.bi.CODE_MODEL, self.bi._onnx_providers()
         )
+        # Wave 1v454: the recorded fingerprint is class-scoped, so seed it through the same
+        # helper the writer uses. Hardcoding the bare constant would look stale on a CPU-bound
+        # machine (class int8) and trigger a re-embed this test is not about.
+        code_fingerprint = self.bi._identity_fingerprint_for_class(code_class)
         meta.setdefault("model_versions", {})["docs"] = (
-            f"old-docs-model@{code_class}@"
-            f"{self.bi.EMBEDDING_MODEL_SET_FINGERPRINT}"
+            f"old-docs-model@{code_class}@{code_fingerprint}"
         )
         meta["model_versions"]["code"] = (
-            f"{self.bi.CODE_MODEL}@{code_class}@"
-            f"{self.bi.EMBEDDING_MODEL_SET_FINGERPRINT}"
+            f"{self.bi.CODE_MODEL}@{code_class}@{code_fingerprint}"
         )
         _seed_meta_store(index_dir, meta)
 
@@ -1590,13 +1592,18 @@ class IncrementalBuildTests(unittest.TestCase):
 
         self.assertFalse(result.get("up_to_date", False))
         published = _read_meta_store(index_dir)["model_versions"]
+        # Wave 1v454: expected fingerprint is class-scoped (int8 layers carry the encoding
+        # revision), so derive it rather than pinning the bare constant.
+        _expected_fp = self.bi._identity_fingerprint_for_class(
+            self.bi._predicted_precision_class(self.bi.DOCS_MODEL, self.bi._onnx_providers())
+        )
         self.assertEqual(
             self.bi._model_set_fingerprint_from_version(published["docs"]),
-            self.bi.EMBEDDING_MODEL_SET_FINGERPRINT,
+            _expected_fp,
         )
         self.assertEqual(
             self.bi._model_set_fingerprint_from_version(published["code"]),
-            self.bi.EMBEDDING_MODEL_SET_FINGERPRINT,
+            _expected_fp,
         )
         self.assertEqual(
             self.bi._model_set_fingerprint_from_version(published["docs"]),
@@ -2550,6 +2557,46 @@ class PrecisionClassVersionTests(unittest.TestCase):
             _seed_meta_store(_idx, meta)
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
         self.assertFalse(result.get("up_to_date", False), "missing model-set identity must rebuild")
+
+    def test_int8_encoding_revision_scopes_reembed_to_int8_layers(self):
+        # Wave 1v454 (AC-6/AC-10). Single-row INT8 encoding changed int8 vectors, so an existing
+        # int8 index must re-embed exactly once. A full-class index must NOT: the FP graphs carry
+        # no quantization ops and their vectors did not move.
+        #
+        # The obvious implementation -- bumping EMBEDDING_MODEL_SET_FINGERPRINT -- would have
+        # re-embedded BOTH layers on every GPU host, because that constant is an all-layer
+        # compatibility boundary. This asserts the scoping in both directions, so reverting to the
+        # all-layer lever fails here rather than silently costing every GPU operator a full
+        # re-embed.
+        bare = self.bi.EMBEDDING_MODEL_SET_FINGERPRINT
+        self.assertEqual(
+            self.bi._identity_fingerprint_for_class("full"),
+            bare,
+            "a full-class layer must keep the unsuffixed fingerprint, or GPU hosts re-embed",
+        )
+        int8_fp = self.bi._identity_fingerprint_for_class("int8")
+        self.assertNotEqual(
+            int8_fp, bare, "an int8 layer must carry a distinct fingerprint, or it never re-embeds"
+        )
+        self.assertTrue(int8_fp.startswith(f"{bare}-"))
+        self.assertIn(self.bi.INT8_ENCODING_REVISION, int8_fp)
+        # Round-trips through the parser the compare sites use, for both classes.
+        for cls in ("full", "int8"):
+            expected = self.bi._identity_fingerprint_for_class(cls)
+            self.assertEqual(
+                self.bi._model_set_fingerprint_from_version(f"MODEL@{cls}@{expected}"),
+                expected,
+            )
+        # An index recorded under the OLD int8 identity reads as stale against the new one,
+        # while a full-class index recorded under the old identity does not.
+        self.assertNotEqual(
+            self.bi._model_set_fingerprint_from_version(f"MODEL@int8@{bare}"),
+            self.bi._identity_fingerprint_for_class("int8"),
+        )
+        self.assertEqual(
+            self.bi._model_set_fingerprint_from_version(f"MODEL@full@{bare}"),
+            self.bi._identity_fingerprint_for_class("full"),
+        )
 
     def test_model_set_fingerprint_is_parsed_and_required(self):
         fingerprint = self.bi.EMBEDDING_MODEL_SET_FINGERPRINT

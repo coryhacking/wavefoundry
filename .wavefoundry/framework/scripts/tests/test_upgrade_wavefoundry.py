@@ -1925,12 +1925,20 @@ class RetiredModelCleanupTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
         self.assertFalse((moved_cache / component).exists())
 
+    def mod_int8_revision(self) -> str:
+        """The int8 encoding-revision token, read from its single source of truth (wave 1v454)."""
+        import indexer
+
+        return str(indexer.INT8_ENCODING_REVISION)
+
     def test_stable_epoch_requires_both_layers_and_canonical_composites(self):
+        # Wave 1v454: an int8 layer records the single-row encoding revision appended to the
+        # model-set fingerprint; a full layer records the bare one. Both shapes must validate.
         summary = {
             "content": ["docs", "code"],
             "model_versions": {
                 "docs": "Snowflake/snowflake-arctic-embed-s@full@fp-v2",
-                "code": "Snowflake/snowflake-arctic-embed-s@int8@fp-v2",
+                "code": f"Snowflake/snowflake-arctic-embed-s@int8@fp-v2-{self.mod_int8_revision()}",
             },
         }
         fake_store = MagicMock()
@@ -1952,7 +1960,7 @@ class RetiredModelCleanupTests(unittest.TestCase):
             "content": ["docs", "code"],
             "model_versions": {
                 "docs": "future/docs@full@fp-v3",
-                "code": "future/code@int8@fp-v3",
+                "code": f"future/code@int8@fp-v3-{self.mod_int8_revision()}",
             },
         }
         with patch.dict(sys.modules, {"index_state_store": fake_store}):
@@ -1960,6 +1968,25 @@ class RetiredModelCleanupTests(unittest.TestCase):
                 self.mod._semantic_epoch_matches_active_models(
                     self.root, ("future/docs", "future/code", "fp-v3")
                 )
+            )
+        # Wave 1v454: an int8 layer still carrying the PRE-revision bare fingerprint is a stale
+        # epoch. It must be rejected, or the retired-model cleanup would run against vectors
+        # produced by the old batched encoding. This is the guard that forces the one-time
+        # re-embed on a CPU-bound host before cleanup is allowed to proceed.
+        fake_store.build_epoch_token.side_effect = [("v3", 7), ("v3", 7)]
+        fake_store.read_build_summary.return_value = {
+            "content": ["docs", "code"],
+            "model_versions": {
+                "docs": "future/docs@full@fp-v3",
+                "code": "future/code@int8@fp-v3",
+            },
+        }
+        with patch.dict(sys.modules, {"index_state_store": fake_store}):
+            self.assertFalse(
+                self.mod._semantic_epoch_matches_active_models(
+                    self.root, ("future/docs", "future/code", "fp-v3")
+                ),
+                "a pre-revision int8 identity must not satisfy the active-model epoch",
             )
         fake_store.build_epoch_token.side_effect = [None, None]
         with patch.dict(sys.modules, {"index_state_store": fake_store}):
