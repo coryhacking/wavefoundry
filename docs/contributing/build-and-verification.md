@@ -2,13 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-13
 
 ## Verification Commands
 
 Run these from the repository root to verify the Wavefoundry self-hosted surface is healthy:
 
 **Agents (MCP attached):** Prefer **`wf_garden_docs`** then **`wf_validate_docs`** (or **`wf_audit`** for a combined wave + lint + index snapshot) instead of shelling out to the bin launchers. Use the tools’ structured results to fix failures.
+
+**Cadence:** routine documentation edits receive automatic incremental changed-set lint from hooks and documentation-writing MCP tools. Run this full docs gate at explicit validation or handoff boundaries and at lifecycle, install, and upgrade gates—not after every edit. Use an explicit gardener path for an untracked document that needs a timestamp refresh.
 
 **Operators / CI / no MCP:** Use the shell sequence below.
 

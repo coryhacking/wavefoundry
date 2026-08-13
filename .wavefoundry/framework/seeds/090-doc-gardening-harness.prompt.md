@@ -11,6 +11,7 @@ Tasks:
 3. Ensure gardener output can refresh metadata, write reports, and surface drift candidates.
 4. Ensure linting can validate key docs metadata and key prompt-surface files.
 5. Document the split: **agents** with Wavefoundry MCP should prefer **`wf_garden_docs`** / **`wf_validate_docs`** / **`wf_audit`**; **hooks and CI** invoke **`wf docs-gardener`** and **`wf docs-lint`** because they cannot call MCP.
+6. Document the two-tier docs-feedback cadence: automatic changed-set lint for routine edits, full-corpus validation only at explicit integrity boundaries (agent handoff/validation and lifecycle, install, or upgrade gates).
 
 Required semantics:
 
@@ -19,6 +20,7 @@ Required semantics:
 - validation scope
 - failure signaling expectations
 - MCP vs bin entrypoints (per `seed-050` / `seed-080`)
+- incremental-feedback versus full-gate boundaries, including gardener's explicit-path mode for untracked docs
 
 Guardrails:
 

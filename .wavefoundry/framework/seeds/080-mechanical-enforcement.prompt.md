@@ -34,6 +34,12 @@ Minimum docs gate:
 - **Agents (MCP attached):** **`wf_garden_docs`** when metadata needs refresh, then **`wf_validate_docs`** (or **`wf_audit`** for a combined readout); follow each tool’s parameter contract.
 - **Operators / CI / hooks / no MCP:** **`wf docs-gardener && wf docs-lint`** (pass `--date <YYYY-MM-DD>` only when overriding today's date; use `--paths <doc>` or `--all-docs` to target specific files instead of git-changed docs)
 
+Docs-feedback cadence:
+
+- **Routine edit feedback:** hooks and successful documentation-writing MCP operations use incremental changed-set lint. This is the default fast path; agents do not manually run a full lint after every edit.
+- **Integrity boundaries:** a full docs gate is required for explicit validation or handoff and for Prepare, Review, Close, installation, and upgrade. `wf_validate_docs` and `wf_audit` always provide that full-corpus result.
+- **Safe escalation:** changing `docs/workflow-config.json`, `docs/prompts/prompt-surface-manifest.json`, or `docs/repo-profile.json` automatically turns incremental lint into a full scan because their contracts are cross-file.
+
 Validation targets to cover:
 
 - required prompt docs

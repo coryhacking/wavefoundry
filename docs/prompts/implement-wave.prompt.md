@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-13
 
 Shortcut: **`Implement wave`**
 
@@ -46,7 +46,7 @@ When `wave_review.enabled` is true, implementation starts only after `wave-counc
 
 After any framework script change:
 1. `python3 .wavefoundry/framework/scripts/run_tests.py`
-2. **Docs gate:** With MCP attached, run **`wf_validate_docs`** (use **`wf_garden_docs`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
+2. **Docs gate:** Routine documentation edits already receive automatic incremental changed-set lint. Before declaring implementation complete, with MCP attached run the full **`wf_validate_docs`** (use **`wf_garden_docs`** first if metadata timestamps need refresh). **CLI fallback (no MCP):** `wf docs-gardener && wf docs-lint`
 
 Fix any failures before declaring the implementation complete.
 

@@ -172,7 +172,7 @@ Run framework tests without writing bytecode:
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
-After edits under `docs/`, agents with MCP should run `**wf_validate_docs**` (and fix failures) before handoff; use `**wf_garden_docs**` when metadata timestamps need refresh. The post-edit hook still runs docs-lint automatically — via the rendered hook `.py` body, which invokes `docs_lint.py` directly (not a bin wrapper) — that is not a substitute for MCP-first verification when the server is available. Manual CLI fallback: POSIX `**./.wavefoundry/bin/wf docs-lint**`; native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**`.
+During routine `docs/` edits, the post-edit hook automatically runs incremental changed-set lint via `docs_lint.py --changed`; MCP documentation-writing tools report the same advisory result. Use that fast feedback while editing rather than manually running full lint after every change. At an explicit validation or handoff boundary, agents with MCP must run full **`wf_validate_docs`** (and fix failures); use **`wf_garden_docs`** when metadata timestamps need refresh. Manual CLI fallback: POSIX `**./.wavefoundry/bin/wf docs-lint**`; native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**`.
 
 Or: `python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests`
 
@@ -320,6 +320,8 @@ Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resource
 ### Docs validation and gardening (agents)
 
 **Prefer MCP over shell launchers.** Use `**wf_validate_docs`** for docs lint results, `**wf_garden_docs**` for metadata gardening (follow the tool’s `mode` contract), and `**wf_audit**` when you need wave state + validation + index health in one structured response. Treat the no-PATH dispatcher forms as **CLI fallbacks** for hooks, CI, terminals, or any host where MCP is not attached — POSIX `**./.wavefoundry/bin/wf docs-lint**` / `**./.wavefoundry/bin/wf docs-gardener**`, native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**` / `**.\\.wavefoundry\\bin\\wf.cmd docs-gardener**` — not the default path for agent instructions. More broadly: **before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, check the MCP tool list first** — `wf_list_plans`, `wf_list_waves`, `wf_current_wave`, `wf_get_change`, and related tools return structured answers directly without shell round-trips.
+
+Incremental changed-set lint is the routine edit-feedback path; workflow-config, manifest, or repo-profile changes automatically escalate it to a full scan. `wf_garden_docs` targets Git-changed markdown by default, so use explicit paths for untracked docs that need stamping. Do not treat the automatic incremental result as an integrity-boundary result: use the full tools above for validation, handoff, Prepare, Review, Close, installation, and upgrade.
 
 ## Repository Shape and Ownership
 
