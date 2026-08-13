@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-12
 
 ---
 
@@ -53,7 +53,7 @@ Create wave        → Open a delivery unit and admit the change
 Prepare wave       → Run a readiness check; the gate must pass before any code is touched
 Implement wave     → Execute the admitted changes under coordinator oversight
 Review wave        → Run required reviewer lanes; record structured verdicts with severity
-Close wave         → Seal with operator signoff; distill journal lessons; promote durable memory
+Close wave         → Seal with operator signoff; validate memory candidates; promote durable memory
 ```
 
 Each step has a gate. Gates are enforced by the server — not by agent instruction, not by convention, and not by hoping the agent remembers. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: docs-contract-reviewer
 Category: review
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -57,7 +57,7 @@ A good docs-contract review output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - the same prompt-surface drift reappears after refresh
 - a seed/local-surface boundary keeps leaking project-specific behavior
 - a doc contract repeatedly hides reader confusion until late review

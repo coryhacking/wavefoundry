@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: mobile-app-builder
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good mobile app builder output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a native module or bridge is introduced without documenting the iOS/Android build impact
 - a permission is requested without a user-visible explanation
 - the same OS-version regression recurs across multiple releases

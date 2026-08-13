@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: database-optimizer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good database optimizer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a migration adds a NOT NULL column to a large table without a default or backfill strategy
 - a new query path has no EXPLAIN analysis and touches a table over 1M rows
 - the same N+1 pattern recurs in new ORM-generated query paths

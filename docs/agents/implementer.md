@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-07-22
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -34,7 +34,7 @@ See `docs/agents/guru.md` for the full retrieval loop. These tools apply at impl
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - A pattern problem is severe enough to warrant deviation but isn't obvious from the code
 - A tool or environment failure causes significant lost time
 - An invalidated assumption forces scope change

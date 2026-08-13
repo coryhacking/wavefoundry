@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-council
 Category: specialist
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -88,7 +88,7 @@ A good wave-council output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 
 - multiple seats repeat the same mistaken assumption independently
 - the same rotating-seat dispute recurs across waves

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-08-03
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -22,7 +22,7 @@ The wave-coordinator owns wave lifecycle execution. Stance: evaluate admitted ch
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - An admitted change's scope expands beyond what was planned
 - A previously frozen assumption is invalidated
 - A blocking finding arrives that requires re-Prepare or replanning (Level 3 trigger)

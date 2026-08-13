@@ -6,6 +6,80 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2026-08-12
+
+### Fixed
+
+- **A broken review-protocol marker now fails the docs gate instead of silently freezing the
+  content it guards.** Reviewer role docs carry a framework-rendered `wave:executable-review-evidence`
+  region. When its begin and end markers were not properly paired, the renderer left the file
+  untouched and printed one line to stderr, while `docs-lint` reported ok and the docs gate passed.
+  Downstream this went unnoticed across four role docs and a full upgrade cycle: those docs stopped
+  receiving review-protocol updates and nothing reported it. The sibling `wavefoundry:review-policy`
+  family already treated a malformed marker pair as a failure; both families now share one
+  implementation of that rule, so they cannot drift apart again. **Operator-visible change: a
+  repository whose markers are already broken will fail its next docs gate rather than pass
+  quietly.** Adopting the shared rule also brings the second half the review-policy family already
+  had: a well-formed region whose content no longer matches its registered source now fails too,
+  in either drift direction. That case is largely self-correcting during an upgrade, because the
+  render runs before the docs gate and re-renders the region; it bites when a region is hand-edited
+  and linted without re-rendering, which is what it is for. The failure names the file and the
+  specific condition. Nothing is auto-repaired; repair the markers and re-render.
+  Wave 1v4mw / change 1v4mt.
+- **The upgrade summary reports carriers the render skipped, as `renderer_warnings`.** This finding
+  previously existed only as a stderr line among roughly 90 others, absent from the structured
+  summary, on a run that reported `failed_phase: null`. It now sits beside `reconciliation` and
+  `host_permission_flags`, and prints in the operator summary on every run that produces one,
+  including patch upgrades and failed phases. Unlike `renderer_provenance_flags`, these do not
+  self-heal. Wave 1v4mw / change 1v4mt.
+- **A rejected CoreML probe now says why it was rejected.** The probe runs the production graph in
+  a crash-isolated child and captured that child's stderr, then reported only that it had failed.
+  Diagnosing one field occurrence cost a full reverse-engineering session and still did not find
+  the cause. The warning now carries the child's return code and a bounded, path-scrubbed tail of
+  its stderr; absolute paths collapse to basenames so a traceback stays readable without publishing
+  the host's filesystem layout. A passing probe stays silent. What the probe decides, and when it
+  runs, are unchanged. Wave 1v4mw / change 1v4mu.
+
+- **The upgrade no longer instructs a retired step on every run.** The editing-pass output told
+  operators to perform "Journal reconciliation (seed-160 step 0 / Reconcile journals)", which was
+  wrong twice over: the journal system is retired, and seed-160's step 0 is pack adoption, not
+  journal work. The step is removed and the remaining steps renumbered. Wave 1v4mx / change 1v4mv.
+- **The retired-surface reconciliation scan now reports two more surfaces.** Migrations move files
+  but nothing reconciled the instructions pointing at them, so a repository that ran every
+  prescribed migration still carried instructions naming things that no longer exist. The scan now
+  reports references to the retired journal system, and `.md` references to prompt files that now
+  carry `.prompt.md`. The prompt check resolves against your tree rather than matching text, so a
+  prompt doc that genuinely ends in `.md` is never flagged, and every stale reference on a line is
+  reported rather than the first. Findings stay **report-only**: the scan never edits your files,
+  and a repository with no stale references reports none. Wave 1v4mx / change 1v4mv.
+
+- **The generated-surface manifest now reconciles against the framework default instead of freezing
+  at install time.** `docs/prompts/prompt-surface-manifest.json` is renderer-managed, so the
+  reconciliation scan excludes it, and the gardener only ever stamped a date onto an existing file.
+  Nothing reconciled it, so its generated-artifact list drifted permanently. The drift runs in both
+  directions and the second one is the more consequential: entries retired from the framework
+  lingered forever, **and** entries added to the framework never reached a repository installed
+  before they existed, leaving the framework's own record of what it generates incomplete. The
+  gardening pass now reconciles that list. Keys the default does not model are untouched, a manifest
+  that already matches is not rewritten, and a retired `agent_journals` feature entry is pruned.
+  Wave 1v79z / change 1v7a0.
+- **A reconciliation finding that is correct as written can now be settled once.** The scan had one
+  disposition, unresolved, so a sentence *recording* that something was retired could be silenced
+  only by rewriting that sentence — which the framework's own seeded policy forbids: seed-160 and
+  seed-220 both state that retiring a file removes the file, not the historical record of it. Mark
+  such a finding as a historical record in `docs/reconcile-dispositions.json` and it stops being
+  reported. The marking is **per finding, not per file**, so a live stale reference in the same file
+  still reports; and it is keyed to the matched text, so changing that text reports the new text as a
+  new finding rather than inheriting the old judgment. A repository that marks nothing is unaffected.
+  Wave 1v79z / change 1v7a1.
+
+### Changed
+
+- **The small-batch CPU routing message no longer reads like a failure.** Routing a sub-batch-sized
+  incremental run to the CPU embedder is a deliberate optimization, but printed next to a GPU
+  degradation warning it was read as a second fault. It now states that it is an optimization, not
+  a failure, and that GPU use is unchanged for larger runs. Wave 1v4mw / change 1v4mu.
+
 ## [1.16.1] - 2026-08-12
 
 ### Fixed

@@ -90,7 +90,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
   │                    │  required lane signoffs must be recorded.
   │                    │  Disposition of every change is explicit:
   │                    │  complete / deferred / moved / retried.
-  │                    │  Distill journal lessons. Promote memory.
+  │                    │  Validate memory candidates. Promote memory.
   └─────────┬──────────┘
             │
             ▼

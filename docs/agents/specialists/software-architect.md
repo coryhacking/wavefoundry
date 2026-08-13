@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: software-architect
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -53,7 +53,7 @@ A good software architect output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new integration edge has no clear architectural home
 - two modules are sharing data without an explicit contract
 - the same boundary exception recurs across multiple waves

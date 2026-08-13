@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: framework-operator
 Category: persona
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Who
 
@@ -76,7 +76,7 @@ Last verified: 2026-07-31
 - **Medium:** A change breaks the generated operator summary or makes it incomplete.
 - **Low:** A lifecycle ID format or epoch change that would confuse an operator without a clear explanation.
 
-## Associated journal
+## Associated memory record
 
 - a typed memory record
 

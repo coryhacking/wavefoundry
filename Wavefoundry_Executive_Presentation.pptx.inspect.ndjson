@@ -1,0 +1,171 @@
+{"kind":"deck","id":"pr/7cehlw","name":"Deck"}
+{"kind":"layout","layoutId":"fccd668e-3df4-42a9-8cf7-12cf7fa25356","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"2c69f315-91fb-4de5-a15a-59bdf5600ef4","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/lx5bw5","slide":1,"title":"WAVEFOUNDRY","textShapes":5}
+{"kind":"shape","id":"sh/7mhob6hk","slide":1,"bbox":[0,0,24,720]}
+{"kind":"shape","id":"sh/8nqp4byp","slide":1,"bbox":[830,0,450,720]}
+{"kind":"shape","id":"sh/9oz6dgza","slide":1,"bbox":[895,118,160,10]}
+{"kind":"shape","id":"sh/yx8ny1gn","slide":1,"bbox":[955,168,230,3]}
+{"kind":"shape","id":"sh/zyho76h8","slide":1,"bbox":[949,176,160,10]}
+{"kind":"shape","id":"sh/kjq50byt","slide":1,"bbox":[991,223,230,3]}
+{"kind":"shape","id":"sh/lkz69gze","slide":1,"bbox":[1003,234,160,10]}
+{"kind":"shape","id":"sh/its7a5g7","slide":1,"bbox":[1027,278,230,3]}
+{"kind":"shape","id":"sh/je1ojqxc","slide":1,"bbox":[1057,292,160,10]}
+{"kind":"shape","id":"sh/be1sj65o","slide":1,"bbox":[1063,333,230,3]}
+{"kind":"shape","id":"sh/adsrq1o3","slide":1,"bbox":[1111,350,160,10]}
+{"kind":"shape","id":"sh/xgjalgne","slide":1,"bbox":[1099,388,230,3]}
+{"kind":"shape","id":"sh/wfa9sb6t","slide":1,"bbox":[1165,408,160,10]}
+{"kind":"shape","id":"sh/jilsnq5k","slide":1,"bbox":[1135,443,230,3]}
+{"kind":"textbox","id":"sh/yhcruloz","slide":1,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,84,260,22]}
+{"kind":"textbox","id":"sh/5k3apgnq","slide":1,"text":"The operating framework for trustworthy AI-assisted delivery","textPreview":"The operating framework for trustworthy AI-assisted delivery","textChars":60,"textLines":1,"bbox":[72,152,690,160]}
+{"kind":"textbox","id":"sh/kju9wv65","slide":1,"text":"A local-first operating layer that gives AI agents the context, controls, verification, continuity, and accountability needed to work at enterprise scale.","textPreview":"A local-first operating layer that gives AI agents the context, controls, verification, continuity, and accountability needed to work at ...","textChars":154,"textLines":1,"bbox":[72,344,630,90]}
+{"kind":"shape","id":"sh/7mlsrq5g","slide":1,"bbox":[72,502,448,0]}
+{"kind":"textbox","id":"sh/6lcrylob","slide":1,"text":"Executive perspective","textPreview":"Executive perspective","textChars":21,"textLines":1,"bbox":[72,526,300,26]}
+{"kind":"textbox","id":"sh/2d036tcf","slide":1,"text":"AI coding capability is not the limiting factor. The operating system around the agent is.","textPreview":"AI coding capability is not the limiting factor. The operating system around the agent is.","textChars":90,"textLines":1,"bbox":[72,580,650,46]}
+{"kind":"notes","id":"nt/lx5bw5","slide":1,"text":""}
+{"kind":"slide","id":"sl/i2y86v","slide":2,"title":"WAVEFOUNDRY","textShapes":19}
+{"kind":"textbox","id":"sh/cbeh4nyh","slide":2,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/ba5gvixw","slide":2,"text":"THE CHALLENGE","textPreview":"THE CHALLENGE","textChars":13,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/q9wz2dgb","slide":2,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/l07y1sfy","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/kzeh8nyd","slide":2,"text":"THE ENTERPRISE GAP","textPreview":"THE ENTERPRISE GAP","textChars":18,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/ze5gzix8","slide":2,"text":"Capable agents still fail without a reliable operating context","textPreview":"Capable agents still fail without a reliable operating context","textChars":62,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"textbox","id":"sh/ydwz6dgn","slide":2,"text":"The constraint is no longer code generation. It is governing how work is understood, verified, and carried forward.","textPreview":"The constraint is no longer code generation. It is governing how work is understood, verified, and carried forward.","textChars":115,"textLines":1,"bbox":[72,230,920,52]}
+{"kind":"shape","id":"sh/143yp8fu","slide":2,"bbox":[72,340,240,188]}
+{"kind":"textbox","id":"sh/g3uxw3y9","slide":2,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[94,364,45,20]}
+{"kind":"textbox","id":"sh/e5knah0r","slide":2,"text":"Context loss","textPreview":"Context loss","textChars":12,"textLines":1,"bbox":[94,403,196,32]}
+{"kind":"textbox","id":"sh/z6tojm1c","slide":2,"text":"The next session or agent must rediscover intent, constraints, and decisions.","textPreview":"The next session or agent must rediscover intent, constraints, and decisions.","textChars":77,"textLines":1,"bbox":[94,448,196,58]}
+{"kind":"shape","id":"sh/0725c7ix","slide":2,"bbox":[360,340,240,188]}
+{"kind":"textbox","id":"sh/18b6lcji","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[382,364,45,20]}
+{"kind":"textbox","id":"sh/m9kneh03","slide":2,"text":"Control gaps","textPreview":"Control gaps","textChars":12,"textLines":1,"bbox":[382,403,196,32]}
+{"kind":"textbox","id":"sh/natonm1o","slide":2,"text":"Architecture, security, and quality expectations depend on an agent remembering them.","textPreview":"Architecture, security, and quality expectations depend on an agent remembering them.","textChars":85,"textLines":1,"bbox":[382,448,196,58]}
+{"kind":"shape","id":"sh/obmpgri9","slide":2,"bbox":[648,340,240,188]}
+{"kind":"textbox","id":"sh/9cv6pwje","slide":2,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[670,364,45,20]}
+{"kind":"textbox","id":"sh/ax47i10z","slide":2,"text":"Evidence gaps","textPreview":"Evidence gaps","textChars":13,"textLines":1,"bbox":[670,403,196,32]}
+{"kind":"textbox","id":"sh/bydor61k","slide":2,"text":"An agent can report a review without preserving what was actually checked.","textPreview":"An agent can report a review without preserving what was actually checked.","textChars":74,"textLines":1,"bbox":[670,448,196,58]}
+{"kind":"shape","id":"sh/72x4f6xs","slide":2,"bbox":[936,340,240,188]}
+{"kind":"textbox","id":"sh/614n61g7","slide":2,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[958,364,45,20]}
+{"kind":"textbox","id":"sh/t4f6hwfy","slide":2,"text":"Continuity gaps","textPreview":"Continuity gaps","textChars":15,"textLines":1,"bbox":[958,403,196,32]}
+{"kind":"textbox","id":"sh/83658byd","slide":2,"text":"Handoffs leave unclear ownership, remaining risk, and next actions.","textPreview":"Handoffs leave unclear ownership, remaining risk, and next actions.","textChars":67,"textLines":1,"bbox":[958,448,196,58]}
+{"kind":"textbox","id":"sh/jed4bmxw","slide":2,"text":"The consequence: adoption risk rises as work becomes more distributed, autonomous, and consequential.","textPreview":"The consequence: adoption risk rises as work becomes more distributed, autonomous, and consequential.","textChars":101,"textLines":1,"bbox":[72,635,1000,22]}
+{"kind":"notes","id":"nt/i2y86v","slide":2,"text":""}
+{"kind":"slide","id":"sl/ku7cqh","slide":3,"title":"WAVEFOUNDRY","textShapes":15}
+{"kind":"textbox","id":"sh/rilc7et0","slide":3,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/sjutgju5","slide":3,"text":"THE MODEL","textPreview":"THE MODEL","textChars":9,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/dk3u9obq","slide":3,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/elcvitcb","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/fmlcbytw","slide":3,"text":"THE ANSWER","textPreview":"THE ANSWER","textChars":10,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/0nudk3uh","slide":3,"text":"Wavefoundry makes the operating layer explicit","textPreview":"Wavefoundry makes the operating layer explicit","textChars":46,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"textbox","id":"sh/1o3ud8b2","slide":3,"text":"An agent harness is the operating layer that makes AI work reliable across time and teams.","textPreview":"An agent harness is the operating layer that makes AI work reliable across time and teams.","textChars":90,"textLines":1,"bbox":[72,220,830,36]}
+{"kind":"shape","id":"sh/up8b6pc7","slide":3,"bbox":[300,442,124,0]}
+{"kind":"shape","id":"sh/vqhczuts","slide":3,"bbox":[645,442,123,0]}
+{"kind":"shape","id":"sh/nmhsjyp0","slide":3,"bbox":[989,442,123,0]}
+{"kind":"shape","id":"sh/ml8radof","slide":3,"bbox":[72,340,257,204]}
+{"kind":"textbox","id":"sh/9ozal876","slide":3,"text":"Repository intelligence","textPreview":"Repository intelligence","textChars":23,"textLines":1,"bbox":[92,370,216,52]}
+{"kind":"textbox","id":"sh/8nq9c36l","slide":3,"text":"Semantic + full-text search, code graph, navigation, secret scanning, audit.","textPreview":"Semantic + full-text search, code graph, navigation, secret scanning, audit.","textChars":76,"textLines":1,"bbox":[92,438,216,64]}
+{"kind":"shape","id":"sh/zix8fyp4","slide":3,"bbox":[365,340,257,204]}
+{"kind":"textbox","id":"sh/yhor6toj","slide":3,"text":"Persistent operating context","textPreview":"Persistent operating context","textChars":28,"textLines":1,"bbox":[385,370,216,52]}
+{"kind":"textbox","id":"sh/lkzqh87u","slide":3,"text":"Plans, architecture, decisions, wave records, and durable memory.","textPreview":"Plans, architecture, decisions, wave records, and durable memory.","textChars":65,"textLines":1,"bbox":[385,438,216,64]}
+{"kind":"shape","id":"sh/0jq9836p","slide":3,"bbox":[658,340,257,204]}
+{"kind":"textbox","id":"sh/bex8beps","slide":3,"text":"Evidence-driven delivery","textPreview":"Evidence-driven delivery","textChars":24,"textLines":1,"bbox":[678,370,216,52]}
+{"kind":"textbox","id":"sh/qtor2to7","slide":3,"text":"Readiness gates, sensors, specialist reviews, closure evidence.","textPreview":"Readiness gates, sensors, specialist reviews, closure evidence.","textChars":63,"textLines":1,"bbox":[678,438,216,64]}
+{"kind":"shape","id":"sh/ep4ru98f","slide":3,"bbox":[951,340,257,204]}
+{"kind":"textbox","id":"sh/fqdsne9k","slide":3,"text":"Human judgment","textPreview":"Human judgment","textChars":14,"textLines":1,"bbox":[971,370,216,52]}
+{"kind":"textbox","id":"sh/gr69wjq5","slide":3,"text":"Operators focus on trade-offs, risk acceptance, and decisions that matter.","textPreview":"Operators focus on trade-offs, risk acceptance, and decisions that matter.","textChars":74,"textLines":1,"bbox":[971,438,216,64]}
+{"kind":"textbox","id":"sh/1sfaporq","slide":3,"text":"The framework does not replace engineering judgment—it makes the work reaching judgment more complete and inspectable.","textPreview":"The framework does not replace engineering judgment—it makes the work reaching judgment more complete and inspectable.","textChars":118,"textLines":1,"bbox":[72,635,1000,22]}
+{"kind":"notes","id":"nt/ku7cqh","slide":3,"text":""}
+{"kind":"slide","id":"sl/fvwblc","slide":4,"title":"WAVEFOUNDRY","textShapes":14}
+{"kind":"textbox","id":"sh/m10ba94j","slide":4,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/94ra5ona","slide":4,"text":"OUTCOMES","textPreview":"OUTCOMES","textChars":8,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/o3itcjmp","slide":4,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/zypszu58","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/edgb6pon","slide":4,"text":"BETTER OUTCOMES","textPreview":"BETTER OUTCOMES","textChars":15,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/107a14ny","slide":4,"text":"Improvement shows up in the quality of delivery—not just output volume","textPreview":"Improvement shows up in the quality of delivery—not just output volume","textChars":70,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"shape","id":"sh/0zyt8z6d","slide":4,"bbox":[72,255,5,54]}
+{"kind":"textbox","id":"sh/jutcby5c","slide":4,"text":"Less drift and rework","textPreview":"Less drift and rework","textChars":21,"textLines":1,"bbox":[92,255,485,28]}
+{"kind":"textbox","id":"sh/y9kbit4r","slide":4,"text":"Scoped change documents and durable context reduce rediscovery and help keep work aligned with stated intent.","textPreview":"Scoped change documents and durable context reduce rediscovery and help keep work aligned with stated intent.","textChars":109,"textLines":1,"bbox":[92,288,485,58]}
+{"kind":"shape","id":"sh/knq9gjex","slide":4,"bbox":[72,365,5,54]}
+{"kind":"textbox","id":"sh/lozapovi","slide":4,"text":"Earlier risk discovery","textPreview":"Earlier risk discovery","textChars":22,"textLines":1,"bbox":[92,365,485,28]}
+{"kind":"textbox","id":"sh/yl8re9wr","slide":4,"text":"Sensors and specialist review lanes surface architecture, security, QA, and performance concerns before closure.","textPreview":"Sensors and specialist review lanes surface architecture, security, QA, and performance concerns before closure.","textChars":112,"textLines":1,"bbox":[92,398,485,58]}
+{"kind":"shape","id":"sh/jmhsnedc","slide":4,"bbox":[650,255,5,54]}
+{"kind":"textbox","id":"sh/wj69czel","slide":4,"text":"More consistent standards","textPreview":"More consistent standards","textChars":25,"textLines":1,"bbox":[670,255,485,28]}
+{"kind":"textbox","id":"sh/xkfal4v6","slide":4,"text":"Required lanes and structural gates make quality expectations repeatable across agents, sessions, and teams.","textPreview":"Required lanes and structural gates make quality expectations repeatable across agents, sessions, and teams.","textChars":108,"textLines":1,"bbox":[670,288,485,58]}
+{"kind":"shape","id":"sh/axorapwv","slide":4,"bbox":[650,365,5,54]}
+{"kind":"textbox","id":"sh/byxsjud0","slide":4,"text":"Better use of expert attention","textPreview":"Better use of expert attention","textChars":30,"textLines":1,"bbox":[670,365,485,28]}
+{"kind":"textbox","id":"sh/ov698zep","slide":4,"text":"Leaders and senior engineers can focus on material trade-offs rather than verifying routine process completion.","textPreview":"Leaders and senior engineers can focus on material trade-offs rather than verifying routine process completion.","textChars":111,"textLines":1,"bbox":[670,398,485,58]}
+{"kind":"textbox","id":"sh/9wfahkva","slide":4,"text":"Expected benefit: higher-confidence delivery; measure impact with baseline-versus-assisted quality, rework, and cycle-time signals.","textPreview":"Expected benefit: higher-confidence delivery; measure impact with baseline-versus-assisted quality, rework, and cycle-time signals.","textChars":131,"textLines":1,"bbox":[72,635,1000,22]}
+{"kind":"notes","id":"nt/fvwblc","slide":4,"text":""}
+{"kind":"slide","id":"sl/aepkpa","slide":5,"title":"WAVEFOUNDRY","textShapes":19}
+{"kind":"textbox","id":"sh/yhgf2hsr","slide":5,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/l47excbi","slide":5,"text":"EFFICIENCY","textPreview":"EFFICIENCY","textChars":10,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/k3yx47ax","slide":5,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/bepwr2tg","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/adwvyxcv","slide":5,"text":"MORE EFFICIENT AGENT OPERATION","textPreview":"MORE EFFICIENT AGENT OPERATION","textChars":30,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/xg7etcbm","slide":5,"text":"Targeted retrieval replaces broad re-exploration","textPreview":"Targeted retrieval replaces broad re-exploration","textChars":48,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"textbox","id":"sh/cfyd07a1","slide":5,"text":"An agent can locate the smallest useful slice of repository knowledge before deciding or acting.","textPreview":"An agent can locate the smallest useful slice of repository knowledge before deciding or acting.","textChars":96,"textLines":1,"bbox":[72,220,860,34]}
+{"kind":"shape","id":"sh/va9w36tk","slide":5,"bbox":[72,292,1075,55]}
+{"kind":"textbox","id":"sh/u90fa1sz","slide":5,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[92,309,25,22]}
+{"kind":"textbox","id":"sh/sjat87et","slide":5,"text":"Semantic search","textPreview":"Semantic search","textChars":15,"textLines":1,"bbox":[133,305,245,25]}
+{"kind":"textbox","id":"sh/dkju1cfe","slide":5,"text":"Find relevant code, documents, plans, and decisions by meaning.","textPreview":"Find relevant code, documents, plans, and decisions by meaning.","textChars":63,"textLines":1,"bbox":[398,307,710,24]}
+{"kind":"shape","id":"sh/qxsb6xg3","slide":5,"bbox":[72,365,1075,55]}
+{"kind":"textbox","id":"sh/ry1cz2xo","slide":5,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[92,382,25,22]}
+{"kind":"textbox","id":"sh/4vqt47yx","slide":5,"text":"Full-text / BM25","textPreview":"Full-text / BM25","textChars":16,"textLines":1,"bbox":[133,378,245,25]}
+{"kind":"textbox","id":"sh/5wzuxsfi","slide":5,"text":"Resolve exact identifiers, error strings, and rare terms.","textPreview":"Resolve exact identifiers, error strings, and rare terms.","textChars":57,"textLines":1,"bbox":[398,380,710,24]}
+{"kind":"shape","id":"sh/it8b2xgr","slide":5,"bbox":[72,438,1075,55]}
+{"kind":"textbox","id":"sh/juhsv2xc","slide":5,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[92,455,25,22]}
+{"kind":"textbox","id":"sh/wrqt0ny1","slide":5,"text":"Structural code graph","textPreview":"Structural code graph","textChars":21,"textLines":1,"bbox":[133,451,245,25]}
+{"kind":"textbox","id":"sh/hszatsf6","slide":5,"text":"Trace callers, dependencies, impact radius, and paths through the system.","textPreview":"Trace callers, dependencies, impact radius, and paths through the system.","textChars":73,"textLines":1,"bbox":[398,453,710,24]}
+{"kind":"shape","id":"sh/xc7ihk3y","slide":5,"bbox":[72,511,1075,55]}
+{"kind":"textbox","id":"sh/cbyh8fmd","slide":5,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[92,528,25,22]}
+{"kind":"textbox","id":"sh/bap0fals","slide":5,"text":"Durable memory","textPreview":"Durable memory","textChars":14,"textLines":1,"bbox":[133,524,245,25]}
+{"kind":"textbox","id":"sh/a9gz6547","slide":5,"text":"Reuse validated learning across sessions rather than rediscovering it.","textPreview":"Reuse validated learning across sessions rather than rediscovering it.","textChars":70,"textLines":1,"bbox":[398,526,710,24]}
+{"kind":"textbox","id":"sh/p8nidk32","slide":5,"text":"Measured today: conservative retrieval-efficiency accounting. Separate estimate: bounded, clearly labeled avoided re-exploration.","textPreview":"Measured today: conservative retrieval-efficiency accounting. Separate estimate: bounded, clearly labeled avoided re-exploration.","textChars":129,"textLines":1,"bbox":[72,635,1000,22]}
+{"kind":"notes","id":"nt/aepkpa","slide":5,"text":""}
+{"kind":"slide","id":"sl/hhl7jt","slide":6,"title":"WAVEFOUNDRY","textShapes":21}
+{"kind":"textbox","id":"sh/jel4n2dw","slide":6,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/kfu5g7eh","slide":6,"text":"GOVERNANCE","textPreview":"GOVERNANCE","textChars":10,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/5g3mpcv2","slide":6,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/6hcnihwn","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/7ilor2d8","slide":6,"text":"TRUST AT SCALE","textPreview":"TRUST AT SCALE","textChars":14,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/sju5k7ed","slide":6,"text":"Governance is designed into the delivery record","textPreview":"Governance is designed into the delivery record","textChars":47,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"textbox","id":"sh/tk36tcvy","slide":6,"text":"Wavefoundry turns intent into evidence and makes the record inspectable in ordinary repository files.","textPreview":"Wavefoundry turns intent into evidence and makes the record inspectable in ordinary repository files.","textChars":101,"textLines":1,"bbox":[72,220,850,34]}
+{"kind":"shape","id":"sh/ulwnmhwj","slide":6,"bbox":[72,325,210,170]}
+{"kind":"textbox","id":"sh/f65ovmd4","slide":6,"text":"Plan","textPreview":"Plan","textChars":4,"textLines":1,"bbox":[90,351,174,27]}
+{"kind":"textbox","id":"sh/j2po7ih8","slide":6,"text":"Rationale, scope, acceptance criteria, risks","textPreview":"Rationale, scope, acceptance criteria, risks","textChars":44,"textLines":1,"bbox":[90,397,174,64]}
+{"kind":"textbox","id":"sh/i1g7ydgn","slide":6,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[284,387,12,25]}
+{"kind":"shape","id":"sh/54r69szy","slide":6,"bbox":[296,325,210,170]}
+{"kind":"textbox","id":"sh/43ip0nyd","slide":6,"text":"Ready","textPreview":"Ready","textChars":5,"textLines":1,"bbox":[314,351,174,27]}
+{"kind":"textbox","id":"sh/vypo3yhw","slide":6,"text":"Readiness gate before implementation","textPreview":"Readiness gate before implementation","textChars":36,"textLines":1,"bbox":[314,397,174,64]}
+{"kind":"textbox","id":"sh/uxgnutgb","slide":6,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[508,387,12,25]}
+{"kind":"shape","id":"sh/h07658z2","slide":6,"bbox":[520,325,210,170]}
+{"kind":"textbox","id":"sh/wzypw3yh","slide":6,"text":"Implement","textPreview":"Implement","textChars":9,"textLines":1,"bbox":[538,351,174,27]}
+{"kind":"textbox","id":"sh/fu9of2h0","slide":6,"text":"Coordinated work under declared constraints","textPreview":"Coordinated work under declared constraints","textChars":43,"textLines":1,"bbox":[538,397,174,64]}
+{"kind":"textbox","id":"sh/et076xgv","slide":6,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[732,387,12,25]}
+{"kind":"shape","id":"sh/ap4re103","slide":6,"bbox":[744,325,210,170]}
+{"kind":"textbox","id":"sh/bqds7618","slide":6,"text":"Review","textPreview":"Review","textChars":6,"textLines":1,"bbox":[762,351,174,27]}
+{"kind":"textbox","id":"sh/crm9gbit","slide":6,"text":"Sensors + architecture, security, QA, performance, docs, code","textPreview":"Sensors + architecture, security, QA, performance, docs, code","textChars":61,"textLines":1,"bbox":[762,397,174,64]}
+{"kind":"textbox","id":"sh/xsva9gje","slide":6,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[956,387,12,25]}
+{"kind":"shape","id":"sh/yt4ri10z","slide":6,"bbox":[968,325,210,170]}
+{"kind":"textbox","id":"sh/zuxsb61k","slide":6,"text":"Close","textPreview":"Close","textChars":5,"textLines":1,"bbox":[986,351,174,27]}
+{"kind":"textbox","id":"sh/kv69kbi5","slide":6,"text":"Required signoffs and operator-approved closure","textPreview":"Required signoffs and operator-approved closure","textChars":47,"textLines":1,"bbox":[986,397,174,64]}
+{"kind":"textbox","id":"sh/lwfadgjq","slide":6,"text":"A closed wave answers: what changed, why, what was checked, what was accepted, and what risk remains.","textPreview":"A closed wave answers: what changed, why, what was checked, what was accepted, and what risk remains.","textChars":101,"textLines":1,"bbox":[72,635,1000,22]}
+{"kind":"notes","id":"nt/hhl7jt","slide":6,"text":""}
+{"kind":"slide","id":"sl/efbbge","slide":7,"title":"WAVEFOUNDRY","textShapes":13}
+{"kind":"textbox","id":"sh/7m9s7i5o","slide":7,"text":"WAVEFOUNDRY","textPreview":"WAVEFOUNDRY","textChars":11,"textLines":1,"bbox":[72,34,220,20]}
+{"kind":"textbox","id":"sh/8ni9gnm9","slide":7,"text":"ADOPTION","textPreview":"ADOPTION","textChars":8,"textLines":1,"bbox":[930,34,220,20]}
+{"kind":"shape","id":"sh/9ora9snu","slide":7,"bbox":[72,62,1136,0]}
+{"kind":"textbox","id":"sh/yhgrad47","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[72,676,60,18]}
+{"kind":"textbox","id":"sh/zi9s3i5c","slide":7,"text":"ADOPTION THESIS","textPreview":"ADOPTION THESIS","textChars":15,"textLines":1,"bbox":[72,92,1136,22]}
+{"kind":"textbox","id":"sh/kji9cnmx","slide":7,"text":"Start where AI delivery needs the most trust—and measure the delta","textPreview":"Start where AI delivery needs the most trust—and measure the delta","textChars":66,"textLines":1,"bbox":[72,124,1100,88]}
+{"kind":"textbox","id":"sh/lkra58ni","slide":7,"text":"Begin with high-value, high-governance workflows. Prove the operating model before expanding it.","textPreview":"Begin with high-value, high-governance workflows. Prove the operating model before expanding it.","textChars":96,"textLines":1,"bbox":[72,220,820,34]}
+{"kind":"shape","id":"sh/atgr6t4v","slide":7,"bbox":[72,300,1070,64]}
+{"kind":"textbox","id":"sh/bupszy5g","slide":7,"text":"1. Select","textPreview":"1. Select","textChars":9,"textLines":1,"bbox":[98,318,180,25]}
+{"kind":"textbox","id":"sh/bedw32p8","slide":7,"text":"Choose a change class where quality, security, or continuity matter.","textPreview":"Choose a change class where quality, security, or continuity matter.","textChars":68,"textLines":1,"bbox":[310,320,800,22]}
+{"kind":"shape","id":"sh/adkvuxo3","slide":7,"bbox":[72,390,1070,64]}
+{"kind":"textbox","id":"sh/xgve5c7e","slide":7,"text":"2. Instrument","textPreview":"2. Instrument","textChars":13,"textLines":1,"bbox":[98,408,180,25]}
+{"kind":"textbox","id":"sh/wfmdw76t","slide":7,"text":"Establish baseline measures and use Wavefoundry’s delivery record.","textPreview":"Establish baseline measures and use Wavefoundry’s delivery record.","textChars":66,"textLines":1,"bbox":[310,410,800,22]}
+{"kind":"shape","id":"sh/jidw7m5k","slide":7,"bbox":[72,480,1070,64]}
+{"kind":"textbox","id":"sh/yh4vyhoz","slide":7,"text":"3. Expand","textPreview":"3. Expand","textChars":9,"textLines":1,"bbox":[98,498,180,25]}
+{"kind":"textbox","id":"sh/lkve9wnq","slide":7,"text":"Compare outcomes, refine controls, then scale to adjacent workflows.","textPreview":"Compare outcomes, refine controls, then scale to adjacent workflows.","textChars":68,"textLines":1,"bbox":[310,500,800,22]}
+{"kind":"textbox","id":"sh/kjmd0r65","slide":7,"text":"Wavefoundry does not try to replace engineering judgment. It makes AI-assisted delivery easier to trust, easier to govern, and easier to improve.","textPreview":"Wavefoundry does not try to replace engineering judgment. It makes AI-assisted delivery easier to trust, easier to govern, and easier to ...","textChars":145,"textLines":1,"bbox":[72,602,1060,48]}
+{"kind":"notes","id":"nt/efbbge","slide":7,"text":""}

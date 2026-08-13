@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: ai-engineer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -55,7 +55,7 @@ A good AI engineer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a prompt change ships without an eval run on a representative input set
 - retrieval quality degrades after an embedding model or chunk-size change
 - a model call path has no timeout, retry, or fallback behavior

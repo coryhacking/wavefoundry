@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: technical-writer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -53,7 +53,7 @@ A good technical writer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - the same question about a documented area recurs across sessions
 - a behavior change ships without a corresponding doc update
 - an operator-facing contract exists only in code comments or inline tool strings

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: apple-platform-engineer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good Apple platform engineer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new entitlement is added without a documented justification for the App Store review team
 - a retain cycle is found in a view controller or delegate pattern
 - a Swift concurrency change introduces actor isolation violations or data races

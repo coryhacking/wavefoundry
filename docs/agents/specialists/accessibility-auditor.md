@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: accessibility-auditor
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good accessibility audit output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new interaction pattern (modal, autocomplete, drag-and-drop) ships without a keyboard path
 - color tokens are changed without a contrast verification pass
 - the same ARIA misuse pattern recurs across multiple components

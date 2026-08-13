@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: workflow-engineer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -59,7 +59,7 @@ A good workflow engineer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a process definition has no error boundary on a service task that calls an external system
 - an in-flight process instance would be orphaned by a definition migration
 - the audit trail for an approval step does not capture the approver identity and timestamp

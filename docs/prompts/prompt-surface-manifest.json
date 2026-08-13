@@ -1,17 +1,19 @@
 {
   "enabled_internal_features": [
-    "agent_journals",
     "project_personas",
     "factor_review",
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "1.16.1+pimb",
+  "framework_revision": "1.16.2+pip8",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
     "docs/waves/",
-    "docs/agents/personas/"
+    "docs/waves/README.md",
+    "docs/agents/personas/",
+    "docs/agents/personas/README.md",
+    "docs/reports/"
   ],
   "generated_at": "2026-05-13",
   "generated_personas": [

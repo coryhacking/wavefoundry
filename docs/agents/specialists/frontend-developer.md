@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: frontend-developer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good frontend developer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a component renders correctly but has no test coverage for its data contract
 - a state management pattern is being duplicated inconsistently across the app
 - the same rendering performance regression recurs across waves

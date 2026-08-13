@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: devops-automator
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good devops automator output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a deploy step is documented only in a Slack message or runbook no one has tested
 - a pipeline failure produces a cryptic error rather than a named diagnostic
 - the same environment drift recurs between staging and production deployments

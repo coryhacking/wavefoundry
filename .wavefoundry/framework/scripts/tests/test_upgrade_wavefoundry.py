@@ -1138,7 +1138,13 @@ class OperatorSummaryGateLineTests(unittest.TestCase):
     def test_next_steps_defers_to_seed_160(self):  # wave 1p454
         out = self._capture_summary()
         self.assertIn("See seed-160 for the full editing-pass sequence", out)  # AC-1
-        self.assertIn("seed-160 step 0 / Reconcile journals", out)             # AC-2
+        # Wave 1p454's AC-2 pinned a "seed-160 step 0 / Reconcile journals"
+        # step here. Wave 1v4mv REMOVED it: the journal system is retired
+        # (seed-120, seed-160) and seed-160's step 0 is pack adoption, not
+        # journal work, so the line was wrong on both counts. The absence is
+        # pinned by EditingPassStepsAreCurrentTests; this assertion is inverted
+        # rather than deleted so the reversal is visible at the original site.
+        self.assertNotIn("Reconcile journals", out)
         self.assertNotIn("step 0e", out)                                        # AC-2
         self.assertIn("docs/scan-findings.json", out)                           # AC-3
         self.assertIn("seed-213", out)                                          # AC-3
@@ -9563,6 +9569,180 @@ class PermissionsRenderConsentTests(unittest.TestCase):
         # Not folded into the generic surfaces-rendered line.
         surfaces_line = next(l for l in lines if str(l).startswith("Surfaces rendered:"))
         self.assertNotIn("permission", str(surfaces_line).lower())
+
+
+class EditingPassStepsAreCurrentTests(unittest.TestCase):
+    """1v4mv AC-1: the editing-pass output must not instruct a retired step.
+
+    It shipped through 1.16.1 telling every operator to run "Journal
+    reconciliation (seed-160 step 0 / Reconcile journals)", which was wrong
+    twice: the journal system is retired per seed-120 and seed-160, and
+    seed-160's step 0 is pack adoption, not journal work.
+    """
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+
+    def _steps(self) -> list[str]:
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.16.1",
+                to_version="1.16.2",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                root=None,
+            )
+        return [str(line) for line in lines]
+
+    def test_editing_pass_does_not_instruct_the_retired_journal_step(self):
+        joined = "\n".join(self._steps())
+        # Non-vacuous: the block itself must still be emitted, or the absence
+        # assertion below would pass on an empty output.
+        self.assertIn("Next steps for agent editing pass:", joined)
+        self.assertNotIn("Journal reconciliation", joined)
+        self.assertNotIn("Reconcile journals", joined)
+
+    def test_editing_pass_steps_are_contiguously_numbered(self):
+        """Removing a step must renumber, not leave a gap."""
+        numbers = [
+            int(match.group(1))
+            for line in self._steps()
+            if (match := re.match(r"\s+(\d+)\.\s", line))
+        ]
+        self.assertTrue(numbers, "no numbered steps found")
+        self.assertEqual(numbers, list(range(1, len(numbers) + 1)), numbers)
+
+
+class RendererWarningsReachTheSummaryTests(unittest.TestCase):
+    """1v4mt AC-4: the renderer's warn-and-skip finding must appear in the
+    structured summary, not on stderr alone.
+
+    The field signal was invisible for exactly that reason: one stderr line
+    among roughly 90 gardener lines, absent from `data.summary`, with
+    `failed_phase: null`. Four reviewer role docs then silently received no
+    protocol updates across releases 1.13.0 through 1.16.1.
+    """
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.root = Path(tempfile.mkdtemp(prefix="renderer-warnings-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def _carrier_with_half_paired_markers(self) -> str:
+        import render_agent_surfaces as ras
+
+        carrier = next(iter(ras.review_protocol_carriers(self.root)))
+        path = self.root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rendered = ras._upsert_review_protocol_region(
+            "# Role doc\n\nProse.\n", ras._carrier_protocol_block(carrier)
+        )
+        path.write_text(
+            rendered.replace(ras.REVIEW_PROTOCOL_MARKER_BEGIN, "", 1), encoding="utf-8"
+        )
+        return carrier.destination
+
+    def test_summary_carries_the_warning_on_an_otherwise_successful_run(self):
+        destination = self._carrier_with_half_paired_markers()
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.16.1",
+                to_version="1.16.2",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                # The precise field shape: the run reports success.
+                failed_phase=None,
+                root=self.root,
+            )
+        joined = "\n".join(str(item) for item in lines)
+        sentinel = next(
+            line for line in lines if str(line).startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+        )
+        summary = json.loads(str(sentinel)[len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+        self.assertTrue(summary["renderer_warnings"], summary)
+        self.assertIn(
+            destination,
+            json.dumps(summary["renderer_warnings"]),
+            "the machine-readable field must name the skipped carrier",
+        )
+        self.assertIsNone(summary["failed_phase"])
+        # And the operator prose says it, distinguishing it from the
+        # self-healing renderer_provenance_flags class right above it.
+        self.assertIn("Renderer warnings", joined)
+        self.assertIn(destination, joined)
+        self.assertIn("do NOT self-heal", joined)
+
+    def test_warning_still_emitted_on_a_failed_phase(self):
+        """Review finding: the code deliberately scans OUTSIDE the
+        `not failed_phase` guard and outside the major/minor gate that wraps the
+        reconciliation prose, and that claim was recorded in the Decision Log
+        but never asserted. A malformed marker pair is what a half-finished
+        render leaves behind, so the failed-phase run is the one most likely to
+        produce this finding."""
+        destination = self._carrier_with_half_paired_markers()
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.16.1",
+                to_version="1.16.2",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=False,
+                failed_phase="docs_gate",
+                root=self.root,
+            )
+        joined = "\n".join(str(item) for item in lines)
+        sentinel = next(
+            line
+            for line in lines
+            if str(line).startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+        )
+        summary = json.loads(
+            str(sentinel)[len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):]
+        )
+        self.assertEqual(summary["failed_phase"], "docs_gate")
+        self.assertTrue(summary["renderer_warnings"], summary)
+        self.assertIn(destination, json.dumps(summary["renderer_warnings"]))
+        self.assertIn("Renderer warnings", joined)
+        # Polarity: the reconciliation prose IS suppressed on a failed phase, so
+        # this is not passing merely because everything prints.
+        self.assertNotIn("Retired-surface", joined)
+
+    def test_healthy_tree_reports_no_renderer_warnings(self):
+        # Non-vacuous: an empty tree would pass by having no carriers at all.
+        # Render a WELL-FORMED region, then assert silence.
+        import render_agent_surfaces as ras
+
+        carrier = next(iter(ras.review_protocol_carriers(self.root)))
+        path = self.root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rendered = ras._upsert_review_protocol_region(
+            "# Role doc\n\nProse.\n", ras._carrier_protocol_block(carrier)
+        )
+        path.write_text(rendered, encoding="utf-8")
+        self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, rendered)
+        lines: list[str] = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(
+                from_version="1.16.1",
+                to_version="1.16.2",
+                zip_path=None,
+                pruned_count=0,
+                ran_index_rebuild=True,
+                failed_phase=None,
+                root=self.root,
+            )
+        sentinel = next(
+            line for line in lines if str(line).startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)
+        )
+        summary = json.loads(str(sentinel)[len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+        self.assertEqual(summary["renderer_warnings"], [])
+        self.assertNotIn("Renderer warnings", "\n".join(str(x) for x in lines))
 
 
 class PermissionsConsentCrossesTheProcessBoundaryTests(unittest.TestCase):

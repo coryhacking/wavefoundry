@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -85,7 +85,7 @@ A good QA review output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - the same verification gap recurs across multiple waves
 - the team repeatedly claims behavior that tests do not actually cover
 - a bug fix required more stateful or multi-step coverage than the original plan recognized

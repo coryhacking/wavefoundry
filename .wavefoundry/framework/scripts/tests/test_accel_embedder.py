@@ -192,6 +192,106 @@ class AccelEmbedderTests(unittest.TestCase):
                 )
             )
 
+    def _probe_stderr(self, completed) -> str:
+        """Run one probe against a fake child and return what it wrote to stderr."""
+        import contextlib
+
+        buffer = io.StringIO()
+        with patch.object(
+            self.ae.subprocess_util, "isolated_run", return_value=completed
+        ), contextlib.redirect_stderr(buffer):
+            self.ae._coreml_static_probe_passes(
+                "Snowflake/snowflake-arctic-embed-s", "embedder"
+            )
+        return buffer.getvalue()
+
+    def test_probe_rejection_reports_return_code_and_stderr_tail(self):
+        """1v4mu AC-1. The probe captured `completed.stderr` and branched only on
+        `returncode`, discarding the cause; a field diagnosis cost a full
+        reverse-engineering session and still did not find the reason."""
+        message = self._probe_stderr(
+            MagicMock(
+                returncode=-11,
+                stdout="",
+                stderr="Traceback\nRuntimeError: static CoreML graph did not offload\n",
+            )
+        )
+        self.assertIn("exit code -11", message)
+        self.assertIn("static CoreML graph did not offload", message)
+
+    def test_probe_rejection_stderr_tail_is_bounded(self):
+        """1v4mu AC-2: an unbounded dump on a warning path is its own problem.
+        The TAIL is kept, since the terminating exception identifies the cause."""
+        noise = "x" * 40_000
+        message = self._probe_stderr(
+            MagicMock(
+                returncode=1,
+                stdout="",
+                stderr=f"{noise}\nRuntimeError: the actual cause\n",
+            )
+        )
+        self.assertLess(len(message), self.ae._PROBE_STDERR_TAIL_CHARS + 400)
+        self.assertIn("...", message)
+        self.assertIn("RuntimeError: the actual cause", message)
+        self.assertNotIn(noise, message)
+
+    def test_probe_rejection_message_is_path_free(self):
+        """1v4mu AC-3: child stderr is arbitrary third-party output, so it is
+        scrubbed. Basenames survive (a traceback is unreadable without them);
+        the operator's filesystem layout does not."""
+        absolute = "/Users/someone/Developer/target/.wavefoundry/framework/scripts/accel_embedder.py"
+        message = self._probe_stderr(
+            MagicMock(
+                returncode=1,
+                stdout="",
+                stderr=f'  File "{absolute}", line 42, in embed\nOSError: boom\n',
+            )
+        )
+        self.assertNotIn(absolute, message)
+        self.assertNotIn("/Users/someone", message)
+        self.assertIn("accel_embedder.py", message)
+        self.assertIn("OSError: boom", message)
+
+    def test_probe_rejection_keeps_prose_slashes(self):
+        """Review finding: the path scrubber must not eat ordinary slashes.
+        A naive absolute-path regex matches the `/` inside `GPU/CPU` and takes
+        the rest of the token with it, mangling the diagnostic it exists to
+        make readable."""
+        message = self._probe_stderr(
+            MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="RuntimeError: GPU/CPU parity failed; N/A partitions\n",
+            )
+        )
+        self.assertIn("GPU/CPU parity failed", message)
+        self.assertIn("N/A partitions", message)
+
+    def test_probe_rejection_names_the_class_when_the_child_never_completes(self):
+        """A TimeoutExpired's own str embeds the command, and the command embeds
+        the entire probe source. Name the class only."""
+        import contextlib
+        import subprocess
+
+        buffer = io.StringIO()
+        with patch.object(
+            self.ae.subprocess_util,
+            "isolated_run",
+            side_effect=subprocess.TimeoutExpired(cmd=["python", "-c", "SECRET_PROBE_SOURCE"], timeout=300),
+        ), contextlib.redirect_stderr(buffer):
+            self.assertFalse(
+                self.ae._coreml_static_probe_passes(
+                    "Snowflake/snowflake-arctic-embed-s", "embedder"
+                )
+            )
+        self.assertIn("TimeoutExpired", buffer.getvalue())
+        self.assertNotIn("SECRET_PROBE_SOURCE", buffer.getvalue())
+
+    def test_passing_probe_stays_silent(self):
+        """1v4mu AC-4: healthy hosts gain no noise."""
+        message = self._probe_stderr(MagicMock(returncode=0, stdout="", stderr=""))
+        self.assertEqual(message, "")
+
     def test_rejected_coreml_embedder_probe_precedes_parent_graph_resolution(self):
         with patch.object(
             self.ae, "_coreml_static_probe_passes", return_value=False

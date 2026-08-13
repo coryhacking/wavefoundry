@@ -166,6 +166,49 @@ def default_manifest_payload(date_value: str) -> dict:
     }
 
 
+# 1v7a0: keys whose CONTENT the framework owns, so an existing manifest is
+# reconciled against `default_manifest_payload` rather than left as installed.
+# Scoped deliberately: every other key in a real manifest has a live consumer
+# outside this module (`wave_root` is read by wave_lint_lib, so clobbering it
+# breaks docs-lint itself; `framework_revision` is read by check_version and
+# dashboard_lib; `upgrade_merge_notes` is why reconcile_scan excludes this
+# file), and a wholesale payload replacement would be a working-behaviour
+# regression rather than a metadata refresh.
+_FRAMEWORK_OWNED_MANIFEST_KEYS: tuple[str, ...] = ("generated_artifacts",)
+
+# Entries retired from the framework that linger in installed manifests. The
+# key itself is NOT removed: nothing in this repository reads
+# `enabled_internal_features`, but a target repo or host integration might, and
+# a manifest is the wrong place to prove a negative about out-of-tree readers.
+# Pruning the retired VALUE fixes what is demonstrably wrong (the journal
+# system is retired) without asserting more than was verified.
+_RETIRED_MANIFEST_FEATURES: frozenset[str] = frozenset({"agent_journals"})
+
+
+def reconcile_manifest_payload(data: dict, default: dict) -> dict:
+    """Reconcile framework-owned manifest keys against *default*, in place.
+
+    Drift runs in BOTH directions and both matter: an entry retired from the
+    default lingers forever (the reported symptom), and an entry ADDED to the
+    default never reaches a repository installed before it existed, which
+    leaves the framework's own record of what it generates wrong. Assignment
+    rather than a union fixes both; a union would only ever grow the list and
+    could never retire an entry.
+
+    Keys the default does not model are untouched.
+    """
+
+    for key in _FRAMEWORK_OWNED_MANIFEST_KEYS:
+        if key in default:
+            data[key] = default[key]
+    features = data.get("enabled_internal_features")
+    if isinstance(features, list):
+        pruned = [f for f in features if f not in _RETIRED_MANIFEST_FEATURES]
+        if pruned != features:
+            data["enabled_internal_features"] = pruned
+    return data
+
+
 def normalize_manifest_json(data: dict) -> str:
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
@@ -182,15 +225,28 @@ def ensure_manifest(
         payload = default_manifest_payload(date_value)
         path.write_text(normalize_manifest_json(payload), encoding="utf-8")
         return path, True
-    if not bump_last_gardened:
-        return path, False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         data = {}
     data.setdefault("schema_version", 1)
     data.setdefault("seed_framework_source", ".wavefoundry/framework")
-    data["last_gardened_at"] = date_value
+    # 1v7a0: reconcile the framework-owned keys on EVERY run, not only when the
+    # caller is bumping the date. `bump_last_gardened` is False precisely when
+    # no doc needed stamping, which is the steady state of a well-gardened
+    # repository — gating reconciliation on it meant the manifest healed only on
+    # runs that happened to stamp something else, so a healthy repo drifted
+    # forever. Found by a post-implementation review pass through the real
+    # `gardener_run` entry point; the first implementation returned early here
+    # and its AC-5 evidence came from calling `ensure_manifest` directly, which
+    # bypassed that gate.
+    #
+    # The date stamp stays gated, so a non-bumping run still does not churn
+    # `last_gardened_at`, and the change-only write below means a manifest that
+    # needs neither reconciliation nor a stamp is not rewritten at all.
+    reconcile_manifest_payload(data, default_manifest_payload(date_value))
+    if bump_last_gardened:
+        data["last_gardened_at"] = date_value
     new_text = normalize_manifest_json(data)
     old_text = path.read_text(encoding="utf-8")
     if new_text == old_text:

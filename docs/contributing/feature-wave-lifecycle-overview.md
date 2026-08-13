@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-12
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -41,7 +41,7 @@ Review wave
 
 Close wave / Finalize feature
   → mark all changes complete or deferred with rationale
-  → distill journals; promote durable lessons to project-context-memory.md
+  → validate memory candidates; promote durable lessons to project-context-memory.md
   → clear or refresh docs/agents/session-handoff.md
   → docs-contract review if docs/specs/*.md changed (or record N/A with rationale)
 ```

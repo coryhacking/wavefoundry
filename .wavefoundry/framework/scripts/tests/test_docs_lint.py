@@ -3399,6 +3399,135 @@ class ReviewPolicyCarrierParityTests(unittest.TestCase):
         path.write_text("# Fixture carrier\n\nNo markers at all.\n", encoding="utf-8")
         self.assertEqual(check(root), [])
 
+    def test_protocol_family_half_paired_markers_fail(self) -> None:
+        """1v4mt AC-1: the SECOND rendered marker family gets the same
+        disposition as the first.
+
+        Field-observed (downstream, 1.13.0 to 1.16.1): a broken begin marker
+        left four reviewer role docs half-paired through a full upgrade cycle,
+        silently receiving no review-protocol updates, while docs-lint reported
+        ok and the docs gate PASSED every run. The renderer's warn-and-skip is
+        correct for a reconciler; a gate must not share it.
+
+        The exact reported shape is used: end marker present, begin removed.
+        """
+        import render_agent_surfaces as ras
+        from wave_lint_lib.core_validators import (
+            check_review_protocol_carrier_parity,
+        )
+
+        root = Path(tempfile.mkdtemp(prefix="protocol-parity-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        carrier = next(iter(ras.review_protocol_carriers(root)))
+        path = root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        block = ras._carrier_protocol_block(carrier)
+        rendered = ras._upsert_review_protocol_region(
+            "# Fixture role doc\n\nRole prose stays untouched.\n", block
+        )
+        self.assertIsNotNone(rendered)
+        path.write_text(rendered, encoding="utf-8")
+        self.assertEqual(check_review_protocol_carrier_parity(root), [],
+                         "a well-formed region must pass (AC-3)")
+
+        half_paired = rendered.replace(ras.REVIEW_PROTOCOL_MARKER_BEGIN, "", 1)
+        self.assertIn(ras.REVIEW_PROTOCOL_MARKER_END, half_paired)
+        self.assertNotIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, half_paired)
+        path.write_text(half_paired, encoding="utf-8")
+
+        failures = check_review_protocol_carrier_parity(root)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(carrier.destination, failures[0], "AC-2: name the file")
+        self.assertIn("marker", failures[0].lower(), "AC-2: name the condition")
+
+    def test_protocol_family_registered_on_full_and_incremental_paths(self) -> None:
+        """1v4mt AC-1, registration half: an unregistered gate is the exact
+        defect class here, so assert the half-paired carrier fails through
+        `cli._run_full_checks` and through the incremental hook."""
+        import argparse
+        import unittest.mock as mock
+
+        import render_agent_surfaces as ras
+        import wave_lint_lib.cli as cli
+
+        root = Path(tempfile.mkdtemp(prefix="protocol-registration-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shutil.copytree(FIXTURE_ROOT, root, dirs_exist_ok=True)
+        carrier = next(iter(ras.review_protocol_carriers(root)))
+        path = root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rendered = ras._upsert_review_protocol_region(
+            "# Fixture role doc\n\nRole prose.\n", ras._carrier_protocol_block(carrier)
+        )
+        path.write_text(
+            rendered.replace(ras.REVIEW_PROTOCOL_MARKER_BEGIN, "", 1), encoding="utf-8"
+        )
+        args = argparse.Namespace(
+            scan_all=False,
+            write_migration_audit=False,
+            migration_audit_path="docs/reports/wave-migration-audit.md",
+            changed=False,
+        )
+        full_failures, _warnings, _infos = cli._run_full_checks(root, args)
+        self.assertTrue(
+            any(
+                "reconcile_review_protocol_surfaces" in item for item in full_failures
+            ),
+            full_failures,
+        )
+        with mock.patch.object(cli, "_get_changed_files", return_value=[path]):
+            incremental = cli._run_incremental_checks(root)
+        self.assertIsNotNone(incremental)
+        inc_failures, _inc_warnings = incremental
+        self.assertTrue(
+            any("reconcile_review_protocol_surfaces" in item for item in inc_failures),
+            inc_failures,
+        )
+
+    def test_protocol_family_live_corpus_passes(self) -> None:
+        """1v4mt AC-3: the new gate must not fire on this repository's 21
+        rendered role docs. Guarded against vacuity the same way the
+        review-policy corpus test is: assert a probe carrier really carries a
+        region, or an empty carrier set would pass trivially."""
+        import render_agent_surfaces as ras
+        from wave_lint_lib.core_validators import (
+            check_review_protocol_carrier_parity,
+        )
+
+        repo_root = SCRIPTS_ROOT.parents[1].parent
+        if not (repo_root / "docs" / "agents").is_dir():
+            self.skipTest("self-hosted docs corpus absent (target repo)")
+        carriers = [
+            carrier
+            for carrier in ras.review_protocol_carriers(repo_root)
+            if (repo_root / carrier.destination).is_file()
+        ]
+        self.assertGreaterEqual(len(carriers), 10, "corpus scan would be thin")
+        probe = repo_root / "docs" / "agents" / "code-reviewer.md"
+        self.assertIn(
+            ras.REVIEW_PROTOCOL_MARKER_BEGIN,
+            probe.read_text(encoding="utf-8"),
+            "corpus probe carrier lost its rendered region; the scan below "
+            "would be vacuous",
+        )
+        self.assertEqual(check_review_protocol_carrier_parity(repo_root), [])
+
+    def test_protocol_family_regionless_carrier_is_skipped(self) -> None:
+        """1v4mt AC-3, negative direction: an unadopted carrier must not fail,
+        or the new gate blocks every repository that has not rendered one."""
+        import render_agent_surfaces as ras
+        from wave_lint_lib.core_validators import (
+            check_review_protocol_carrier_parity,
+        )
+
+        root = Path(tempfile.mkdtemp(prefix="protocol-parity-none-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        carrier = next(iter(ras.review_protocol_carriers(root)))
+        path = root / carrier.destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Fixture role doc\n\nNo markers at all.\n", encoding="utf-8")
+        self.assertEqual(check_review_protocol_carrier_parity(root), [])
+
     def test_malformed_markers_fail_instead_of_warn_and_skip(self) -> None:
         """The reconciler warns-and-skips on malformed markers; a gate must
         not."""

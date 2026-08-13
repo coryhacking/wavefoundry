@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: security-engineer
 Category: specialist
-Last verified: 2026-07-15
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good security engineer output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new external input surface appears without explicit validation
 - a trust boundary change introduces a new override or recovery path
 - the same class of vulnerability recurs across multiple changes

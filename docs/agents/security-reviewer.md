@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: security-reviewer
 Category: review
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -94,7 +94,7 @@ A good security review output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a safety control relies on user convention instead of enforceable code
 - a trust-boundary change introduced a new recovery or override path
 - the same class of security drift recurs across multiple waves

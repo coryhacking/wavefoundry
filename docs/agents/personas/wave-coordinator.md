@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: persona
-Last verified: 2026-07-22
+Last verified: 2026-08-12
 
 ## Who
 
@@ -71,7 +71,7 @@ Last verified: 2026-07-22
 - **Medium:** A shortcut phrase change creates confusion between similar-sounding commands.
 - **Low:** AC priority category definitions are unclear, preventing confident recording at Prepare wave.
 
-## Associated journal
+## Associated memory record
 
 - a typed memory record
 

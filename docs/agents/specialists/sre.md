@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: sre
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good SRE output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a critical code path has no associated metric, log, or trace coverage
 - an alert fires consistently but produces no actionable signal
 - a service change extends the blast radius of an existing SPOF without mitigation

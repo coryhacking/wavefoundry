@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: codebase-onboarding-engineer
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -53,7 +53,7 @@ A good onboarding output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new agent repeatedly asks the same orientation questions across sessions
 - a module has no clear owner and no docs explaining its role
 - structural changes have made the existing orientation materials misleading

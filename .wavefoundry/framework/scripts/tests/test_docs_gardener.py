@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -45,14 +46,29 @@ class DocsGardenerTests(unittest.TestCase):
         return p
 
     def _minimal_manifest(self) -> None:
+        # 1v7a0: carries the CURRENT default `generated_artifacts`. Before
+        # reconciliation existed, omitting it was harmless; now an incomplete
+        # list is real work, so a fixture without it would make an "empty run"
+        # non-empty and assert the wrong thing. The framework-owned list is
+        # sourced from `default_manifest_payload` rather than hardcoded, so this
+        # fixture cannot drift from the default the way a real manifest did.
         mp = self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
         mp.parent.mkdir(parents=True, exist_ok=True)
-        mp.write_text(
-            '{"schema_version": 1, "framework_revision": "2099-01-01a", '
-            '"last_gardened_at": "1999-01-01", '
-            '"public_prompt_surface": [], "seed_framework_source": "test"}\n',
-            encoding="utf-8",
-        )
+        payload = {
+            "schema_version": 1,
+            "framework_revision": "2099-01-01a",
+            "last_gardened_at": "1999-01-01",
+            "public_prompt_surface": [],
+            "seed_framework_source": "test",
+            "generated_artifacts": dg.default_manifest_payload("1999-01-01")[
+                "generated_artifacts"
+            ],
+        }
+        # Written through the gardener's OWN normalizer, so the fixture is
+        # byte-identical to what a real gardened manifest looks like. Hand-rolled
+        # json.dumps would differ by key order alone (`sort_keys=True`) and make
+        # every run report a rewrite — a fixture artefact, not behaviour.
+        mp.write_text(dg.normalize_manifest_json(payload), encoding="utf-8")
 
     def _ensure_session_handoff(self) -> None:
         sh = self.root / "docs" / "agents" / "session-handoff.md"
@@ -200,3 +216,163 @@ class DocsGardenerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManifestReconciliationTests(unittest.TestCase):
+    """1v7a0: an existing manifest reconciles against `default_manifest_payload`.
+
+    Before this change, `ensure_manifest` on an existing file only performed two
+    `setdefault` calls and stamped `last_gardened_at`, so the generated-artifact
+    list froze at install time. Because the file is renderer-managed it is also
+    excluded from the reconciliation scan by basename, so nothing surfaced the
+    drift either. Field-reported downstream on 1.16.2.
+    """
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="manifest-reconcile-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.path = self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _write(self, payload: dict) -> None:
+        self.path.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _read(self) -> dict:
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def _drifted_payload(self) -> dict:
+        """Drifted in BOTH directions, plus non-default keys with live consumers."""
+        return {
+            "schema_version": 1,
+            # Carries a retired entry; missing several current default entries.
+            "generated_artifacts": [
+                "docs/agents/journals/",
+                "docs/prompts/prompt-surface-manifest.json",
+            ],
+            "enabled_internal_features": ["agent_journals", "wave_lifecycle"],
+            "last_gardened_at": "2026-01-01",
+            "public_prompt_surface": [],
+            "seed_framework_source": ".wavefoundry/framework",
+            # NOT in default_manifest_payload, and each has a real consumer:
+            # wave_root is read by wave_lint_lib, framework_revision by
+            # check_version/dashboard_lib, upgrade_merge_notes by reconcile_scan.
+            "wave_root": "docs/waves",
+            "framework_revision": "1.16.1+pimb",
+            "upgrade_merge_notes": ["kept"],
+        }
+
+    def test_retired_entry_is_removed(self) -> None:
+        """AC-1, using the field-reported entry."""
+        self._write(self._drifted_payload())
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        self.assertNotIn("docs/agents/journals/", self._read()["generated_artifacts"])
+
+    def test_entry_added_to_the_default_arrives(self) -> None:
+        """AC-2: the direction the field report did not observe. A repository
+        installed before an entry was added never receives it, which leaves the
+        framework's own record of what it generates wrong."""
+        self._write(self._drifted_payload())
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        current = dg.default_manifest_payload("2026-08-12")["generated_artifacts"]
+        self.assertEqual(self._read()["generated_artifacts"], current)
+
+    def test_keys_the_default_does_not_own_survive(self) -> None:
+        """AC-3, and this is a regression guard rather than hygiene: clobbering
+        `wave_root` would break docs-lint, which reads it through
+        wave_lint_lib."""
+        self._write(self._drifted_payload())
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        data = self._read()
+        self.assertEqual(data["wave_root"], "docs/waves")
+        self.assertEqual(data["framework_revision"], "1.16.1+pimb")
+        self.assertEqual(data["upgrade_merge_notes"], ["kept"])
+
+    def test_retired_feature_pruned_but_key_kept(self) -> None:
+        """The retired VALUE goes; the key stays. Nothing in this repository
+        reads `enabled_internal_features`, but a target repo or host might, and
+        a manifest is the wrong place to prove a negative about out-of-tree
+        readers."""
+        self._write(self._drifted_payload())
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        data = self._read()
+        self.assertIn("enabled_internal_features", data)
+        self.assertEqual(data["enabled_internal_features"], ["wave_lifecycle"])
+
+    def test_matching_manifest_is_not_rewritten(self) -> None:
+        """AC-4: no churn for healthy repositories. Asserted on bytes AND on the
+        returned wrote-flag, so a rewrite that happened to be byte-identical
+        would still be caught."""
+        self._write(self._drifted_payload())
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        before = self.path.read_bytes()
+        _path, wrote = dg.ensure_manifest(
+            self.root, "2026-08-12", bump_last_gardened=True
+        )
+        self.assertFalse(wrote)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_partial_manifest_gains_the_default_without_losing_content(self) -> None:
+        """AC-6: the gardener runs inside the docs gate, so a partial manifest
+        must not crash it or discard project content."""
+        self._write({"wave_root": "docs/waves"})
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        data = self._read()
+        self.assertEqual(
+            data["generated_artifacts"],
+            dg.default_manifest_payload("2026-08-12")["generated_artifacts"],
+        )
+        self.assertEqual(data["wave_root"], "docs/waves")
+
+    def test_reconcile_is_a_no_op_when_default_omits_the_key(self) -> None:
+        """Polarity: the reconciler assigns only keys the default actually
+        carries, so a default without a framework-owned key leaves the
+        repository's value alone rather than deleting it."""
+        payload = self._drifted_payload()
+        original = list(payload["generated_artifacts"])
+        result = dg.reconcile_manifest_payload(payload, {"schema_version": 1})
+        self.assertEqual(result["generated_artifacts"], original)
+
+    def test_reconciles_through_the_real_entry_point_with_nothing_to_stamp(self) -> None:
+        """The defect a post-implementation review caught, pinned at the PUBLIC path.
+
+        `gardener_run` computes `bump_last_gardened = bool(updated_paths)`, so it
+        is False exactly when no doc needed stamping — the steady state of a
+        well-gardened repository. The first implementation returned early on
+        that flag, so the manifest healed only on runs that happened to stamp
+        something else. Asserting through `ensure_manifest` alone missed it
+        entirely, because that call site passes the flag directly.
+        """
+        import argparse
+
+        self._write({
+            "schema_version": 1,
+            "generated_artifacts": ["docs/agents/journals/"],
+            "last_gardened_at": "2026-08-12",
+            "seed_framework_source": ".wavefoundry/framework",
+        })
+        # Already current, so nothing needs a stamp and bump_last_gardened is False.
+        (self.root / "docs" / "fresh.md").write_text(
+            "# T\n\nOwner: Engineering\nStatus: draft\nLast verified: 2026-08-12\n",
+            encoding="utf-8",
+        )
+        dg.gardener_run(
+            self.root,
+            argparse.Namespace(date="2026-08-12", paths=None, all_docs=True),
+        )
+        artifacts = self._read()["generated_artifacts"]
+        self.assertNotIn("docs/agents/journals/", artifacts)
+        self.assertIn("docs/reports/", artifacts)
+
+    def test_non_bumping_run_does_not_stamp_the_date(self) -> None:
+        """The gating that must SURVIVE the fix: reconciliation runs always, but
+        a non-bumping caller still must not churn `last_gardened_at`."""
+        self._write({
+            "schema_version": 1,
+            "generated_artifacts": dg.default_manifest_payload("x")["generated_artifacts"],
+            "last_gardened_at": "2026-01-01",
+            "seed_framework_source": ".wavefoundry/framework",
+        })
+        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=False)
+        self.assertEqual(self._read()["last_gardened_at"], "2026-01-01")

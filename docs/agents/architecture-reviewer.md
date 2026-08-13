@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: architecture-reviewer
 Category: review
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -65,7 +65,7 @@ A good architecture review output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new integration edge appears without an obvious architectural home
 - the same layering exception keeps recurring
 - architecture docs repeatedly lag behind working code in the same area

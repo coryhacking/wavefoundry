@@ -275,6 +275,132 @@ class NoLiveReferenceToRetiredWrapperTests(unittest.TestCase):
             self.assertEqual(findings[0].suggested, "wf docs-lint")
 
 
+class RetiredContentReferenceScanTests(unittest.TestCase):
+    """1v4mv: the scan covers two retired surfaces beyond the bin wrappers.
+
+    These need their own pattern family. The pre-existing families each match a
+    NAME inside a fixed literal shape (``.wavefoundry/bin/<name>``,
+    ``mcp__wavefoundry__<tool>``), so a retired SUBSYSTEM cannot be expressed by
+    adding an entry to the shared map — that would only search for
+    ``.wavefoundry/bin/journal``.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.scan = _load_reconcile_scan()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def _write(self, rel: str, body: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_journal_instruction_shapes_are_reported(self):
+        """AC-2, using the four shapes the field report named."""
+        self._write(
+            "docs/agents/reviewer.md",
+            "Stop and journal when:\n"
+            "- something\n"
+            "## Associated journal\n"
+            "Memory responsibility: journal the outcome\n"
+            "At close, distill journals.\n"
+            "See docs/agents/journals/reviewer.md for history.\n",
+        )
+        findings = self.scan.scan_repo(self.root)
+        matched = " | ".join(f.matched for f in findings)
+        self.assertIn("Stop and journal when:", matched)
+        self.assertIn("Associated journal", matched)
+        self.assertIn("Memory responsibility: journal", matched)
+        self.assertIn("distill journals", matched)
+        self.assertIn("docs/agents/journals/reviewer.md", matched)
+        for finding in findings:
+            self.assertIn("docs/agents/memory/", finding.suggested)
+
+    def test_stale_prompt_extension_reference_is_reported(self):
+        """AC-3: resolution-based, so the twin must exist for a hit to fire."""
+        self._write("docs/prompts/close-wave.prompt.md", "# Close wave\n")
+        self._write("docs/agents/guide.md", "See docs/prompts/close-wave.md for closure.\n")
+        findings = [
+            f for f in self.scan.scan_repo(self.root)
+            if f.retired_surface == "prompt .md extension"
+        ]
+        self.assertEqual(len(findings), 1, findings)
+        self.assertEqual(findings[0].matched, "docs/prompts/close-wave.md")
+        self.assertIn("docs/prompts/close-wave.prompt.md", findings[0].suggested)
+
+    def test_prompt_reference_without_a_prompt_md_twin_is_not_reported(self):
+        """AC-6 for this surface: a genuinely-.md prompt doc is not stale.
+        Textual matching alone would flag it; resolution is what makes the
+        pattern safe to run over a whole tree."""
+        self._write("docs/prompts/index.md", "# Index\n")
+        self._write("docs/agents/guide.md", "See docs/prompts/index.md for the catalog.\n")
+        self.assertEqual(
+            [f for f in self.scan.scan_repo(self.root)
+             if f.retired_surface == "prompt .md extension"],
+            [],
+        )
+
+    def test_every_stale_reference_on_one_line_is_reported(self):
+        """AC-4: per-line-first reporting would under-count, which is the
+        failure mode being fixed — one downstream line broke three at once."""
+        self._write("docs/prompts/a.prompt.md", "a\n")
+        self._write("docs/prompts/b.prompt.md", "b\n")
+        self._write("docs/prompts/c.prompt.md", "c\n")
+        self._write(
+            "docs/agents/guide.md",
+            "Read docs/prompts/a.md, docs/prompts/b.md and docs/prompts/c.md.\n",
+        )
+        findings = [
+            f for f in self.scan.scan_repo(self.root)
+            if f.retired_surface == "prompt .md extension"
+        ]
+        self.assertEqual(len(findings), 3, findings)
+        self.assertEqual({f.line for f in findings}, {1})
+        self.assertEqual(
+            sorted(f.matched for f in findings),
+            ["docs/prompts/a.md", "docs/prompts/b.md", "docs/prompts/c.md"],
+        )
+
+    def test_scan_mutates_nothing(self):
+        """AC-5: the report-only contract, asserted by comparing bytes."""
+        path = self._write(
+            "docs/agents/reviewer.md", "Stop and journal when:\n- something\n"
+        )
+        before = path.read_bytes()
+        self.assertTrue(self.scan.scan_repo(self.root), "fixture must produce findings")
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_clean_repository_reports_nothing(self):
+        """AC-6: a scan that cries wolf on clean repos gets ignored."""
+        self._write("docs/agents/reviewer.md", "Record a memory candidate when:\n- something\n")
+        self._write("docs/prompts/close-wave.prompt.md", "# Close wave\n")
+        self.assertEqual(self.scan.scan_repo(self.root), [])
+
+    def test_live_migrate_journals_alias_is_not_reported(self):
+        """Found by running the scan against this repository: `Distill journals`
+        is ALSO the documented legacy alias of the LIVE `Migrate journals`
+        command, so flagging it would tell operators to delete a working alias.
+        The exemption is line-scoped and must not silence a bare instruction."""
+        self._write(
+            "docs/prompts/index.md",
+            "| **Migrate journals** | one-time retirement "
+            "(legacy alias: **Distill journals**) | seed-210 |\n"
+            "At close, distill journals.\n",
+        )
+        findings = self.scan.scan_repo(self.root)
+        self.assertEqual([f.line for f in findings], [2], findings)
+
+    def test_wave_archives_are_not_reported(self):
+        """AC-8: historical records legitimately narrate the retired system."""
+        self._write("docs/waves/1abcd wave/wave.md", "Stop and journal when:\n")
+        self._write("docs/agents/memory/1abcd-mem note.md", "Associated journal\n")
+        self.assertEqual(self.scan.scan_repo(self.root), [])
+
+
 class NoRawCoveredScriptInvocationInOperatorDocsTests(unittest.TestCase):
     r"""Wave 1p88t AC-5: operator/agent-facing guidance must NOT show a runnable raw
     ``python3 .wavefoundry/framework/scripts/<script>.py`` command for a script that HAS a ``wf``
@@ -345,3 +471,141 @@ class NoRawCoveredScriptInvocationInOperatorDocsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoricalRecordDispositionTests(unittest.TestCase):
+    """1v7a1: a finding that is correct AS WRITTEN can be settled once.
+
+    The scan had one disposition, unresolved, so the only way to silence a
+    sentence recording that something was retired was to rewrite that sentence.
+    The framework's own seeded policy forbids exactly that: seed-160 and
+    seed-220 both state "retiring a file removes the file, not the historical
+    record of it". Field-reported downstream on 1.16.2.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.scan = _load_reconcile_scan()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def _write(self, rel: str, body: str) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def _mixed_file(self) -> Path:
+        """One file, one historical record AND one live instruction."""
+        return self._write(
+            "docs/agents/session-handoff.md",
+            "All 17 files under docs/agents/journals/ were pristine scaffolds.\n"
+            "Stop and journal when: something notable happens.\n",
+        )
+
+    def _disposition(self, ref) -> None:
+        import json as _json
+
+        path = self.root / self.scan.DISPOSITIONS_REL
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            _json.dumps([
+                {
+                    "key": self.scan.disposition_key(ref),
+                    "status": self.scan.HISTORICAL_RECORD,
+                    "file": ref.file,
+                    "matched": ref.matched,
+                }
+            ], indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _historical_ref(self):
+        return next(
+            r for r in self.scan.scan_repo(self.root)
+            if "journals/" in r.matched
+        )
+
+    def test_dispositioned_finding_stops_reporting(self):
+        """AC-1, asserted through the reported channel rather than the store."""
+        self._mixed_file()
+        self._disposition(self._historical_ref())
+        reconciliation, _host, _prov = self.scan.scan_repo_channels(self.root)
+        self.assertFalse(
+            [r for r in reconciliation if "journals/" in r.matched], reconciliation
+        )
+
+    def test_sibling_finding_in_the_same_file_still_reports(self):
+        """AC-2: per finding, not per file. File-level suppression would silence
+        real findings, which is worse than the recurrence it fixes."""
+        self._mixed_file()
+        self._disposition(self._historical_ref())
+        reconciliation, _host, _prov = self.scan.scan_repo_channels(self.root)
+        self.assertTrue(
+            [r for r in reconciliation if "Stop and journal when" in r.matched],
+            reconciliation,
+        )
+
+    def test_disposition_persists_across_runs(self):
+        """AC-3: the recurrence is upgrade-time, so an in-process marking fixes
+        nothing. Re-read from disk on a fresh scan."""
+        self._mixed_file()
+        self._disposition(self._historical_ref())
+        for _ in range(2):
+            reconciliation, _h, _p = self.scan.scan_repo_channels(self.root)
+            self.assertFalse([r for r in reconciliation if "journals/" in r.matched])
+
+    def test_disposition_does_not_survive_a_text_change(self):
+        """AC-4, the hard one. A disposition that outlives its finding is a
+        blanket suppression wearing a per-finding label."""
+        path = self._mixed_file()
+        self._disposition(self._historical_ref())
+        path.write_text(
+            "All 4 files under docs/agents/journals/older/ were pristine scaffolds.\n",
+            encoding="utf-8",
+        )
+        reconciliation, _h, _p = self.scan.scan_repo_channels(self.root)
+        self.assertTrue(
+            [r for r in reconciliation if "journals/" in r.matched],
+            "changed text must report as a NEW finding",
+        )
+
+    def test_line_movement_does_not_resurrect_a_disposition(self):
+        """The other half of AC-4's balance: editing prose ELSEWHERE in the file
+        moves the line but not the judgment, so a settled finding stays settled."""
+        path = self._mixed_file()
+        self._disposition(self._historical_ref())
+        path.write_text(
+            "A new leading paragraph.\n\n" + path.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        reconciliation, _h, _p = self.scan.scan_repo_channels(self.root)
+        self.assertFalse([r for r in reconciliation if "journals/" in r.matched])
+
+    def test_unmarked_repository_is_unaffected(self):
+        """AC-5: repositories that never disposition anything behave as before."""
+        self._mixed_file()
+        reconciliation, _h, _p = self.scan.scan_repo_channels(self.root)
+        self.assertEqual(len(reconciliation), 2, reconciliation)
+
+    def test_scan_repo_still_returns_dispositioned_findings(self):
+        """Suppression is at the reported-channel boundary only, so an audit can
+        still see what was dispositioned away rather than it vanishing."""
+        self._mixed_file()
+        self._disposition(self._historical_ref())
+        self.assertTrue(
+            [r for r in self.scan.scan_repo(self.root) if "journals/" in r.matched]
+        )
+
+    def test_malformed_store_fails_open(self):
+        """A corrupt store must not suppress anything. Fail-closed would turn a
+        broken file into an invisible gap, which is the failure this channel
+        exists to prevent."""
+        self._mixed_file()
+        path = self.root / self.scan.DISPOSITIONS_REL
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        reconciliation, _h, _p = self.scan.scan_repo_channels(self.root)
+        self.assertEqual(len(reconciliation), 2, reconciliation)

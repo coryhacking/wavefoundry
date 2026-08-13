@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: reality-checker
 Category: specialist
-Last verified: 2026-07-31
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -54,7 +54,7 @@ A good reality check output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a critical decision is framed as obvious when its dependencies are uncertain
 - the same unverified assumption has appeared in multiple waves without being resolved
 - a rollback path is described as available but has never been tested

@@ -3603,9 +3603,14 @@ def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
         )
         sys.exit(1)
     if small_run:
-        print(f"build_index: {n_chunks} chunk(s) on a GPU machine — below the batch threshold "
-              f"({INCREMENTAL_GPU_MIN_CHUNKS}), using the CPU embedder for {model_name} "
-              "(skips the GPU accel session for this small run)", flush=True)
+        # 1v4mu: worded as a deliberate optimization. Field-reported: read next to
+        # the CoreML degradation WARNING, the previous phrasing looked like a
+        # second GPU fault, and the reporter conflated the two.
+        print(f"build_index: OPTIMIZATION (not a failure): {n_chunks} chunk(s) is below the "
+              f"one-full-batch threshold ({INCREMENTAL_GPU_MIN_CHUNKS}), so this small run "
+              f"deliberately uses the CPU embedder for {model_name}. Constructing a GPU accel "
+              "session costs more than it saves at this size; GPU use is unchanged for "
+              "larger runs.", flush=True)
     embedder = _text_embedding_cached_first(TextEmbedding, model_name, providers)
     _EMBEDDER_CACHE[cache_key] = embedder
     return embedder

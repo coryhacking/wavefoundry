@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: agentic-identity-and-trust-architect
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -55,7 +55,7 @@ A good agentic identity and trust architect output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a new agent role is introduced without a documented trust level and authority scope
 - an orchestrator passes untrusted user content directly into a tool-calling prompt without sanitization
 - the same prompt-injection pattern recurs across multiple agent integration points

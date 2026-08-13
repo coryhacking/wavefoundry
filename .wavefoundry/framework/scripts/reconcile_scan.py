@@ -39,6 +39,8 @@ tool (operator decision 2026-06-27 — a reference only goes stale crossing a ve
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -117,6 +119,119 @@ _TOOL_BARE_PATTERN = re.compile(
     r"(?<![\w.])(" + _RENAMED_ALT_BARE + r")(?!\w)"
 )
 
+# ── Retired CONTENT references (wave 1v4mv) ──────────────────────────────────
+# A THIRD family, and it exists because the two above cannot express what it
+# matches. Both of those find a NAME inside a known literal shape
+# (`.wavefoundry/bin/<name>`, `mcp__wavefoundry__<tool>`), so retiring a
+# subsystem cannot be expressed by adding an entry to the shared map: that
+# would only make the scan look for `.wavefoundry/bin/journal`. A retired
+# SUBSYSTEM leaves behind prose instructions and directory paths, which is what
+# these patterns match. Same scan, same report-only contract, same findings
+# shape — no second scanner.
+#
+# Each entry is (pattern, retired_surface label, suggestion). Patterns are
+# ANCHORED to the retired system's own distinctive vocabulary rather than the
+# bare word "journal": prose may legitimately narrate history, and a scan that
+# fires on that trains operators to ignore the channel.
+_JOURNAL_SUGGESTION = (
+    "the journal system is retired; capture durable lessons as typed memory "
+    "records under docs/agents/memory/ (memory_add / memory_propose)"
+)
+
+# `Distill journals` is ALSO the documented legacy alias of the LIVE `Migrate
+# journals` command (seed-210), so the phrase is stale as a closure instruction
+# and correct as an alias entry. Found by running the scan against this
+# repository: `AGENTS.md` names the alias in its shortcut table, and flagging it
+# would tell operators to delete a working command's alias. The guard is
+# line-scoped and names the live command, so it cannot silence a bare
+# instruction that merely appears near one.
+_LIVE_JOURNAL_MIGRATION = re.compile(r"(?i)migrate journals|210-migrate-journals")
+
+# (pattern, retired_surface label, suggestion, line-scoped exemption or None)
+_RETIRED_CONTENT_PATTERNS: tuple[
+    tuple[re.Pattern[str], str, str, re.Pattern[str] | None], ...
+] = (
+    # The retired directory itself, including the placeholder forms docs use
+    # (`docs/agents/journals/<slug>.md`, `docs/agents/journals/**`).
+    (
+        re.compile(r"docs/agents/journals(?:/[\w.<>*-]*)*"),
+        "docs/agents/journals",
+        _JOURNAL_SUGGESTION,
+        _LIVE_JOURNAL_MIGRATION,
+    ),
+    # Instruction shapes reported from the field. Each is a directive telling an
+    # agent to write into the retired system, not a historical mention.
+    (
+        re.compile(r"(?i)stop and journal when\s*:?"),
+        "journal instruction",
+        _JOURNAL_SUGGESTION,
+        None,
+    ),
+    (
+        re.compile(r"(?i)distill journals?\b"),
+        "journal instruction",
+        _JOURNAL_SUGGESTION,
+        _LIVE_JOURNAL_MIGRATION,
+    ),
+    (
+        re.compile(r"(?i)associated journal\b"),
+        "journal instruction",
+        _JOURNAL_SUGGESTION,
+        None,
+    ),
+    (
+        re.compile(r"(?i)memory responsibility\s*:\s*journal"),
+        "journal instruction",
+        _JOURNAL_SUGGESTION,
+        None,
+    ),
+)
+
+
+def _line_text(text: str, position: int) -> str:
+    """Return the full line containing *position* (for line-scoped exemptions)."""
+    start = text.rfind("\n", 0, position) + 1
+    end = text.find("\n", position)
+    return text[start:] if end < 0 else text[start:end]
+
+# The `.md` to `.prompt.md` rename. Unlike every pattern above, this one cannot
+# be decided from the matched text alone: `docs/prompts/foo.md` is stale only
+# when `docs/prompts/foo.prompt.md` exists on disk. The resolver below performs
+# that check, so a reference to a genuinely-`.md` prompt file is never flagged.
+# The trailing guard is `(?!\w)`, NOT `(?![\w.])`. A sentence-ending period is
+# the single most common thing to follow a reference in prose, and excluding it
+# silently dropped the last reference on a line — the exact under-count AC-4
+# exists to prevent. Caught by the AC-4 fixture, not by inspection.
+_PROMPT_MD_REFERENCE = re.compile(r"(?<![\w.-])([\w./-]*docs/prompts/[\w.-]+?)\.md(?!\w)")
+_PROMPT_EXTENSION_SUGGESTION = (
+    "prompt files carry the .prompt.md extension; update the reference to {new}"
+)
+
+
+def _stale_prompt_extension_hits(
+    root: Path, text: str
+) -> Iterator[tuple[re.Match[str], str, str]]:
+    """Yield ``(match, matched_text, suggestion)`` for each stale prompt reference.
+
+    Resolution-based, not textual: a hit requires the ``.prompt.md`` twin to
+    exist under *root*. That keeps the pattern silent on prompt-adjacent docs
+    that legitimately end in ``.md`` and on a reference that is already correct.
+    """
+    for match in _PROMPT_MD_REFERENCE.finditer(text):
+        stem = match.group(1)
+        if stem.endswith(".prompt"):
+            continue
+        # Normalize a relative prefix (`../prompts/...`) down to the repo-rooted
+        # form the reference resolves to.
+        index = stem.find("docs/prompts/")
+        rooted = stem[index:] if index >= 0 else stem
+        if not (root / f"{rooted}.prompt.md").is_file():
+            continue
+        yield match, match.group(0), _PROMPT_EXTENSION_SUGGESTION.format(
+            new=f"{rooted}.prompt.md"
+        )
+
+
 # ── Exclusion set ─────────────────────────────────────────────────────────────
 # Directory exclusions matched on path COMPONENT/PREFIX (NOT raw substring) — mirrors
 # ``build_pack.should_exclude`` (``rel == d or rel.startswith(d + "/")``). Raw substring matching
@@ -143,7 +258,16 @@ _FRAMEWORK_ROLLBACK_DIR_PREFIX = "framework.rollback-"
 # `CHANGELOG.md` is release history wherever it lives (e.g. a nested `.wavefoundry/CHANGELOG.md`), and
 # `prompt-surface-manifest.json` is a renderer-managed generated manifest whose historical
 # `upgrade_merge_notes` cause false positives — like the generated index, it is not operator-authored.
-EXCLUDED_BASENAMES: tuple[str, ...] = ("CHANGELOG.md", "prompt-surface-manifest.json")
+# 1v7a1 adds the disposition store. It RECORDS the matched text of each settled
+# finding, so without this exclusion the act of dispositioning a finding creates
+# a new finding quoting it — self-defeating, and caught by the AC-1 fixture
+# rather than by inspection. Machine-managed like its two siblings here, never
+# operator prose.
+EXCLUDED_BASENAMES: tuple[str, ...] = (
+    "CHANGELOG.md",
+    "prompt-surface-manifest.json",
+    "reconcile-dispositions.json",
+)
 
 # History directories matched on a path COMPONENT (not substring): a file *under* `journals/` or
 # `snapshots/` is history. This no longer drops `src/snapshotter.py` (substring `snapshot`) or a doc
@@ -505,6 +629,36 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                         renderer_provenance=_provenance_flag(m),
                     )
                 )
+        # Retired CONTENT references (1v4mv): retired-subsystem paths and the
+        # instruction shapes that point at them. Every match is reported, not
+        # one per line — a single line legitimately carries several stale
+        # references, and per-line reporting would silently under-count.
+        for pat, retired, suggestion, exempt in _RETIRED_CONTENT_PATTERNS:
+            for m in pat.finditer(text):
+                if exempt is not None and exempt.search(_line_text(text, m.start())):
+                    continue
+                findings.append(
+                    StaleReference(
+                        file=rel,
+                        line=text.count("\n", 0, m.start()) + 1,
+                        retired_surface=retired,
+                        matched=m.group(0),
+                        suggested=suggestion,
+                        host_permission=host_perm,
+                    )
+                )
+        # The `.md` to `.prompt.md` rename, resolved against the tree.
+        for m, matched, suggestion in _stale_prompt_extension_hits(root, text):
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=text.count("\n", 0, m.start()) + 1,
+                    retired_surface="prompt .md extension",
+                    matched=matched,
+                    suggested=suggestion,
+                    host_permission=host_perm,
+                )
+            )
         # Renamed MCP tools (1.14.0): the fully-qualified form first; its match
         # spans are masked so the bare pattern cannot double-report the tool
         # name embedded inside `mcp__wavefoundry__<old>`.
@@ -544,6 +698,70 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
     return findings
 
 
+# ── Historical-record dispositions (wave 1v7a1) ──────────────────────────────
+# The scan has one disposition today — unresolved — so a finding that is CORRECT
+# AS WRITTEN can only be silenced by rewriting the record it reports on. That
+# collides with the framework's own seeded policy: seed-160 and seed-220 both
+# say "retiring a file removes the file, not the historical record of it". A
+# sentence recording that a directory was retired is exactly such a record, and
+# today it recurs on every upgrade forever.
+#
+# Modelled on the secrets scanner's ``docs/scan-findings.json``: a store of
+# per-finding judgments a human makes ONCE, persisted, consulted on later runs.
+# Same idiom deliberately — two differently-shaped disposition stores is how one
+# rule becomes two implementations.
+DISPOSITIONS_REL = "docs/reconcile-dispositions.json"
+HISTORICAL_RECORD = "historical-record"
+
+
+def disposition_key(ref: "StaleReference") -> str:
+    """Stable identity for one finding: file, surface, and the MATCHED TEXT.
+
+    Deliberately excludes the line number, and deliberately includes the matched
+    text. Excluding the line means editing prose elsewhere in the file does not
+    resurrect a settled judgment. Including the matched text means a disposition
+    CANNOT outlive the text it was made about: change what the line says and the
+    key changes, so the new text reports as a new finding. A key without it
+    would be a blanket file suppression wearing a per-finding label, hiding a
+    genuinely new stale reference on a line that once held a historical one.
+    """
+
+    payload = "\x1f".join((ref.file, ref.retired_surface, ref.matched))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def load_dispositions(root: Path | str) -> dict[str, str]:
+    """Return ``{disposition_key: status}``; ``{}`` when absent or unreadable.
+
+    Fail-open by design: an unreadable or malformed store must not suppress
+    findings, because silently hiding stale references is the failure this
+    channel exists to prevent. The opposite bias (fail-closed) would turn a
+    corrupt file into an invisible gap.
+    """
+
+    path = Path(root) / DISPOSITIONS_REL
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, list):
+        return {}
+    out: dict[str, str] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        key, status = entry.get("key"), entry.get("status")
+        if isinstance(key, str) and isinstance(status, str):
+            out[key] = status
+    return out
+
+
+def is_dispositioned(ref: "StaleReference", dispositions: dict[str, str]) -> bool:
+    """True when *ref* carries a settled historical-record judgment."""
+
+    return dispositions.get(disposition_key(ref)) == HISTORICAL_RECORD
+
+
 def scan_repo_channels(
     root: Path | str,
 ) -> tuple[list[StaleReference], list[StaleReference], list[StaleReference]]:
@@ -568,7 +786,14 @@ def scan_repo_channels(
     reconciliation: list[StaleReference] = []
     host_permission_flags: list[StaleReference] = []
     renderer_provenance_flags: list[StaleReference] = []
+    # 1v7a1: suppression happens HERE, at the reported-channel boundary, not in
+    # `scan_repo`. `scan_repo` stays the complete, unfiltered view so an audit
+    # can still see what was dispositioned away; only the reported channels
+    # honour the operator's settled judgments.
+    dispositions = load_dispositions(root)
     for ref in scan_repo(root):
+        if is_dispositioned(ref, dispositions):
+            continue
         if ref.renderer_provenance:
             renderer_provenance_flags.append(ref)
         elif ref.host_permission:

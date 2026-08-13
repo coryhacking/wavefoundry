@@ -3261,6 +3261,55 @@ def _run_reconciliation_scan(
         return [], [], []
 
 
+def _run_renderer_warning_scan(root: Path | None) -> list[dict]:
+    """1v4mt: surface the renderer's warn-and-skip findings in the summary.
+
+    ``reconcile_review_protocol_surfaces`` leaves a carrier untouched and prints
+    one stderr line when its ``wave:executable-review-evidence`` markers are
+    malformed. Downstream that line sat among roughly 90 gardener lines, absent
+    from ``data.summary``, with ``failed_phase: null``, and four reviewer role
+    docs silently received no protocol updates from 1.13.0 through 1.16.1.
+
+    The finding is RE-DERIVED here rather than scraped from the renderer
+    subprocess's stderr: the condition is a property of the tree, so a read-only
+    rescan reports it without any cross-process plumbing, exactly as
+    ``_run_reconciliation_scan`` above already does for its channels.
+
+    It is derived from ``render_agent_surfaces``, NOT from the docs-lint
+    validator that gates the same condition. This module is a mandatory feature
+    module under ``upgrade_protocol``, whose ``_validate_imports`` admits only
+    top-level pack modules, and ``wave_lint_lib`` is a package. Importing it
+    here fails the pack protocol, and the fix for that is to derive the finding
+    from an admitted module rather than to disguise the import. Both paths still
+    bottom out in one disposition: ``_upsert_review_protocol_region`` returning
+    ``None``.
+
+    Returns ``[]`` when *root* is None or any import/scan error occurs, so a
+    scanner fault never breaks the upgrade summary.
+    """
+    if root is None:
+        return []
+    try:
+        import render_agent_surfaces
+
+        return [
+            {
+                "channel": "review-protocol",
+                "file": destination,
+                "detail": (
+                    f"{destination}: review-protocol markers are malformed, so the "
+                    "render SKIPPED this carrier and its content did not update; "
+                    "repair the markers, then re-render"
+                ),
+            }
+            for destination in (
+                render_agent_surfaces.review_protocol_carriers_skipped_by_render(root)
+            )
+        ]
+    except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
+        return []
+
+
 def _reconciliation_recommendation_lines(
     from_version: str | None,
     to_version: str | None,
@@ -3366,6 +3415,7 @@ def _build_upgrade_summary(
     permissions_delta: dict | None = None,
     index_update_failed: bool = False,
     retired_model_cleanup: dict | None = None,
+    renderer_warnings: list[dict] | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -3430,6 +3480,11 @@ def _build_upgrade_summary(
         # 1u2az: stale allow rules inside the permissions renderer's provenance;
         # SELF-HEALING at the next upgrade/install permissions render.
         "renderer_provenance_flags": renderer_provenance_flags or [],
+        # 1v4mt: surfaces the renderer's warn-and-skip findings, which were
+        # previously stderr-only and therefore invisible to anything reading
+        # this summary. NOT self-healing — a malformed marker pair stays
+        # malformed until an operator repairs it.
+        "renderer_warnings": renderer_warnings or [],
         # 1u2az/1u2b0: this upgrade's rendered-permissions delta (the operator
         # consent point), FLATTENED so the response bounder pages the rule lists
         # instead of dropping a nested dict as one over-cap scalar.
@@ -3493,6 +3548,7 @@ def _emit_primary_phase_summary(
     reconciliation, host_permission_flags, renderer_provenance_flags = (
         _run_reconciliation_scan(root) if root is not None else ([], [], [])
     )
+    renderer_warnings = _run_renderer_warning_scan(root)
     summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
@@ -3509,6 +3565,7 @@ def _emit_primary_phase_summary(
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
         renderer_provenance_flags=renderer_provenance_flags,
+        renderer_warnings=renderer_warnings,
         index_update_failed=not index_published,
     )
     if degradation_marker is not None:
@@ -3712,6 +3769,7 @@ def _emit_delegated_summary(root: Path) -> int:
     reconciliation, host_permission_flags, renderer_provenance_flags = (
         _run_reconciliation_scan(root)
     )
+    renderer_warnings = _run_renderer_warning_scan(root)
     summary = _build_upgrade_summary(
         from_version=from_version if isinstance(from_version, str) else None,
         to_version=to_version if isinstance(to_version, str) else None,
@@ -3729,6 +3787,7 @@ def _emit_delegated_summary(root: Path) -> int:
             review_sidecar if isinstance(review_sidecar, dict) else None
         ),
         renderer_provenance_flags=renderer_provenance_flags,
+        renderer_warnings=renderer_warnings,
         permissions_delta=(
             permissions_delta if isinstance(permissions_delta, dict) else None
         ),
@@ -3773,6 +3832,10 @@ def _print_operator_summary(
         )
     else:
         reconciliation, host_permission_flags, renderer_provenance_flags = [], [], []
+    # 1v4mt: scanned even on a failed phase. The marker condition is exactly
+    # what a half-finished render leaves behind, so suppressing it there would
+    # withhold the finding in the run most likely to have caused it.
+    renderer_warnings = _run_renderer_warning_scan(root)
     summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
@@ -3784,6 +3847,7 @@ def _print_operator_summary(
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
         renderer_provenance_flags=renderer_provenance_flags,
+        renderer_warnings=renderer_warnings,
         permissions_delta=permissions_delta,
         index_update_failed=index_update_failed,
         retired_model_cleanup=retired_model_cleanup,
@@ -3877,6 +3941,20 @@ def _print_operator_summary(
             renderer_provenance_flags,
         ):
             _log(line)
+    # 1v4mt: NOT inside the `not failed_phase` guard and NOT inside the
+    # major/minor-gated reconciliation prose above. A malformed marker pair is
+    # what makes the renderer skip a carrier silently, so it must be visible on
+    # every run that produces one — including a patch upgrade and a failed
+    # phase, which are exactly the runs where it went unnoticed downstream.
+    if renderer_warnings:
+        _log("")
+        _log(
+            "  Renderer warnings (carriers the render SKIPPED, leaving their content "
+            "un-updated;"
+        )
+        _log("  these do NOT self-heal — repair the markers, then re-render):")
+        for warning in renderer_warnings:
+            _log(f"    {warning.get('detail') or warning}")
     # Set here, at the emit site, and never in `_build_upgrade_summary` or
     # `_emit_summary_line`: both are shared with the primary-phase degradation
     # fallback, whose invariant is that it carries NO token.
@@ -3885,17 +3963,21 @@ def _print_operator_summary(
     # data['summary'] (fail-safe). Rendered from the SAME dict as the prose above (one source).
     _emit_summary_line(summary)
     # Wave 1p454 — defer to seed-160 as the authoritative editing-pass checklist
-    # (do NOT enumerate its step-8 backfills here — they drift); fix the journal
-    # label; prepend a secrets-resolution step before the docs-gate re-run.
+    # (do NOT enumerate its step-8 backfills here — they drift); prepend a
+    # secrets-resolution step before the docs-gate re-run.
+    # 1v4mv: the journal-reconciliation step is GONE, not renamed. It was wrong
+    # twice over: the journal system is retired (seed-120, seed-160), and
+    # seed-160's step 0 is pack adoption, not journal work. Do not reintroduce a
+    # step here without checking the seed step it cites still means what the
+    # label claims.
     _log("Next steps for agent editing pass:")
     _log("  See seed-160 for the full editing-pass sequence; key steps:")
     _log("  1. Drift detection (seed-160 step 6)")
-    _log("  2. Journal reconciliation (seed-160 step 0 / Reconcile journals)")
-    _log("  3. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
-    _log("  4. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
-    _log("  5. Docs gate re-run after edits (wf_garden_docs → wf_validate_docs, or wf docs-lint)")
-    _log("  6. Index update: wf upgrade --update-index")
-    _log("  7. Cleanup lock after rebuild: wf upgrade --cleanup")
+    _log("  2. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
+    _log("  3. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
+    _log("  4. Docs gate re-run after edits (wf_garden_docs → wf_validate_docs, or wf docs-lint)")
+    _log("  5. Index update: wf upgrade --update-index")
+    _log("  6. Cleanup lock after rebuild: wf upgrade --cleanup")
     _log("")
 
 

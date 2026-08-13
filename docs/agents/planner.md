@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: planner
 Category: coordinate
-Last verified: 2026-07-22
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -20,7 +20,7 @@ The planner owns discovery and change document authoring. Stance: planning reque
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - A discovery finding invalidates a planning assumption that was shared in a prior session
 - A new architectural constraint is discovered that affects the Affected architecture docs section
 - The operator provides a directive that changes planning scope or approach

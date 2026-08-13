@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: terminal-integration-specialist
 Category: specialist
-Last verified: 2026-06-04
+Last verified: 2026-08-12
 
 ## Operating Identity
 
@@ -53,7 +53,7 @@ A good terminal integration specialist output contains:
 
 ## Salience Triggers
 
-Stop and journal when:
+Stop and record a memory candidate when:
 - a command is easy to run incorrectly under time pressure
 - output format changes risk breaking scripts or tooling
 - shell-specific behavior is leaking into a supposedly portable CLI path

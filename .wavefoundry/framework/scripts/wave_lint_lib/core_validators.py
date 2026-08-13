@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
@@ -401,47 +402,49 @@ def check_review_policy_carriers(root: Path) -> list[str]:
     return list(dict.fromkeys(failures))
 
 
-def check_review_policy_carrier_parity(
-    root: Path, only: set[Path] | None = None
+def _check_marker_family_parity(
+    root: Path,
+    only: set[Path] | None,
+    *,
+    family: str,
+    reconciler: str,
+    marker_begin: str,
+    marker_end: str,
+    upsert: Callable[[str, str], str | None],
+    entries: Iterable[tuple[str, str]],
 ) -> list[str]:
-    """1v1c5: a rendered review-policy region must equal its block source.
+    """The one disposition every rendered-content marker family gets.
 
-    The expected region is composed by the RENDERER'S OWN helper
-    (``_upsert_review_policy_region``), never a second implementation of the
-    region shape: ``1us4q``'s guard died of a parallel reimplementation, and
-    this check exists because nothing else compares content (the carrier check
-    above tests marker presence and obligation anchors; the renderer test
-    counts markers). Dispositions are deliberate:
+    Factored out by ``1v4mt`` because the two families had already drifted:
+    ``wavefoundry:review-policy`` was gated and ``wave:executable-review-evidence``
+    was not, so a half-paired marker in four reviewer role docs survived a full
+    upgrade cycle downstream while ``docs-lint`` reported ok. A second copy of
+    these rules is how that happens, so both families now call this. Dispositions
+    are deliberate:
 
     - missing file: skipped (presence stays the existing checks' business);
     - file exists with NEITHER marker: skipped (an unadopted carrier; base
       lint fixtures legitimately hold this state);
-    - a single or malformed marker pair: FAILURE (the reconciler
-      warns-and-skips there; a gate must not);
+    - a single or malformed marker pair: FAILURE (the reconcilers
+      warn-and-skip there; a gate must not);
     - a well-formed region differing from the block: FAILURE whichever side
       drifted (block edited without re-render, or a hand-edit inside the
       region).
+
+    ``upsert`` must be the RENDERER'S OWN region helper, never a second
+    implementation of the region shape: ``1us4q``'s guard died of exactly that
+    parallel reimplementation. ``entries`` supplies ``(destination, block)``
+    pairs already filtered to renderer-owned rows.
     """
 
-    from render_agent_surfaces import (
-        _contained_review_carrier_path,
-        _upsert_review_policy_region,
-    )
-    from review_policy import (
-        REVIEW_POLICY_CARRIER_REGISTRY,
-        REVIEW_POLICY_SURFACE_BLOCKS,
-        REVIEW_POLICY_SURFACE_MARKER_END,
-    )
+    from render_agent_surfaces import _contained_review_carrier_path
 
     only_resolved = (
         {path.resolve() for path in only} if only is not None else None
     )
     failures: list[str] = []
-    for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
-        block = REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination)
-        if carrier.owner != "renderer" or block is None:
-            continue
-        path = _contained_review_carrier_path(root, carrier.destination)
+    for destination, block in entries:
+        path = _contained_review_carrier_path(root, destination)
         if not path.is_file():
             continue
         if only_resolved is not None and path.resolve() not in only_resolved:
@@ -450,30 +453,120 @@ def check_review_policy_carrier_parity(
             with path.open("r", encoding="utf-8", newline="") as handle:
                 text = handle.read()
         except (OSError, UnicodeError) as exc:
-            failures.append(
-                f"{carrier.destination}: review-policy carrier unreadable ({exc})"
-            )
+            failures.append(f"{destination}: {family} carrier unreadable ({exc})")
             continue
-        has_begin = REVIEW_POLICY_SURFACE_MARKER_BEGIN in text
-        has_end = REVIEW_POLICY_SURFACE_MARKER_END in text
+        has_begin = marker_begin in text
+        has_end = marker_end in text
         if not has_begin and not has_end:
             continue
-        updated = _upsert_review_policy_region(text, block)
+        updated = upsert(text, block)
         if updated is None:
+            missing = (
+                "begin marker missing"
+                if has_end and not has_begin
+                else "end marker missing"
+                if has_begin and not has_end
+                # Both present and still rejected: duplicated, or end before
+                # begin. The region regex is anchored, so order counts.
+                else "unbalanced, duplicated, or out of order"
+            )
             failures.append(
-                f"{carrier.destination}: review-policy markers are malformed "
-                "(unbalanced or duplicated); repair the markers, then run "
-                "reconcile_review_policy_surfaces to re-render the region"
+                f"{destination}: {family} markers are malformed "
+                f"({missing}); repair the markers, then run "
+                f"{reconciler} to re-render the region"
             )
         elif updated != text:
             failures.append(
-                f"{carrier.destination}: rendered review-policy region differs "
-                "from its registered block source; run "
-                "reconcile_review_policy_surfaces to re-render it"
+                f"{destination}: rendered {family} region differs "
+                f"from its registered block source; run "
+                f"{reconciler} to re-render it"
             )
-    # The registry legitimately holds more than one renderer row per
+    # A registry legitimately holds more than one renderer row per
     # destination; one destination reports once.
     return list(dict.fromkeys(failures))
+
+
+def check_review_policy_carrier_parity(
+    root: Path, only: set[Path] | None = None
+) -> list[str]:
+    """1v1c5: a rendered review-policy region must equal its block source.
+
+    Nothing else compares this family's content: the carrier check above tests
+    marker presence and obligation anchors, and the renderer test counts
+    markers. Dispositions and their rationale live on
+    ``_check_marker_family_parity``.
+    """
+
+    from render_agent_surfaces import _upsert_review_policy_region
+    from review_policy import (
+        REVIEW_POLICY_CARRIER_REGISTRY,
+        REVIEW_POLICY_SURFACE_BLOCKS,
+        REVIEW_POLICY_SURFACE_MARKER_END,
+    )
+
+    # `.get() is not None`, not a membership test: the pre-1v4mt code skipped a
+    # registry row whose block VALUE was None, and a membership test would
+    # instead hand None to the upsert helper.
+    entries = [
+        (carrier.destination, block)
+        for carrier in REVIEW_POLICY_CARRIER_REGISTRY
+        if carrier.owner == "renderer"
+        and (block := REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination))
+        is not None
+    ]
+    return _check_marker_family_parity(
+        root,
+        only,
+        family="review-policy",
+        reconciler="reconcile_review_policy_surfaces",
+        marker_begin=REVIEW_POLICY_SURFACE_MARKER_BEGIN,
+        marker_end=REVIEW_POLICY_SURFACE_MARKER_END,
+        upsert=_upsert_review_policy_region,
+        entries=entries,
+    )
+
+
+def check_review_protocol_carrier_parity(
+    root: Path, only: set[Path] | None = None
+) -> list[str]:
+    """1v4mt: the SECOND rendered marker family gets the same disposition.
+
+    ``wave:executable-review-evidence`` is rendered into every reviewer role
+    doc by ``reconcile_review_protocol_surfaces``, which warns on stderr and
+    skips when the markers are malformed. That is right for a reconciler and
+    wrong for a gate: downstream, a broken begin marker left four role docs
+    half-paired across releases 1.13.0 through 1.16.1, receiving no protocol
+    updates, while the docs gate passed every run.
+
+    The carrier set is resolved through ``review_protocol_carriers(root)`` so
+    natively enabled wrappers (``.claude/agents/**``, ``.codex/skills/**``) are
+    covered exactly when the renderer owns them, and blocks come from
+    ``_carrier_protocol_block`` so destination-specific obligations are not
+    re-derived here.
+    """
+
+    from render_agent_surfaces import (
+        REVIEW_PROTOCOL_MARKER_BEGIN,
+        REVIEW_PROTOCOL_MARKER_END,
+        _carrier_protocol_block,
+        _upsert_review_protocol_region,
+        review_protocol_carriers,
+    )
+
+    entries = [
+        (carrier.destination, _carrier_protocol_block(carrier))
+        for carrier in review_protocol_carriers(root)
+    ]
+    return _check_marker_family_parity(
+        root,
+        only,
+        family="review-protocol",
+        reconciler="reconcile_review_protocol_surfaces",
+        marker_begin=REVIEW_PROTOCOL_MARKER_BEGIN,
+        marker_end=REVIEW_PROTOCOL_MARKER_END,
+        upsert=_upsert_review_protocol_region,
+        entries=entries,
+    )
 
 
 def check_prompt_surface_manifest(root: Path) -> list[str]:

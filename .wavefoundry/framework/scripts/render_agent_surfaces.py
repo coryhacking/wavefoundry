@@ -1161,6 +1161,44 @@ def reconcile_review_protocol_surfaces(repo_root: Path) -> list[str]:
     return written
 
 
+def review_protocol_carriers_skipped_by_render(repo_root: Path) -> list[str]:
+    """Return the carriers ``reconcile_review_protocol_surfaces`` would SKIP.
+
+    1v4mt: the upgrade summary reports this class, and it cannot reach the
+    docs-lint validator that gates it. ``upgrade_wavefoundry`` is a mandatory
+    feature module under ``upgrade_protocol``, whose ``_validate_imports``
+    admits only top-level pack modules; ``wave_lint_lib`` is a package and is
+    deliberately not importable from there, so the bridge bundle can run on its
+    own. Rather than obfuscate that import, the summary derives the finding from
+    this module, which the protocol does admit.
+
+    The DISPOSITION is still defined in exactly one place: a carrier is skipped
+    precisely when ``_upsert_review_protocol_region`` returns ``None``, the same
+    call the reconciler and the gate both make. Only the drift half of the
+    gate's judgment is absent here, and deliberately: a drifted region is
+    re-rendered by the run rather than skipped by it.
+    """
+
+    skipped: list[str] = []
+    for carrier in review_protocol_carriers(repo_root):
+        path = _contained_review_carrier_path(repo_root, carrier.destination)
+        if not path.is_file():
+            continue
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except (OSError, UnicodeError):
+            continue
+        if (
+            REVIEW_PROTOCOL_MARKER_BEGIN not in text
+            and REVIEW_PROTOCOL_MARKER_END not in text
+        ):
+            continue
+        if _upsert_review_protocol_region(text, _carrier_protocol_block(carrier)) is None:
+            skipped.append(carrier.destination)
+    return list(dict.fromkeys(skipped))
+
+
 def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
     """Materialize missing lifecycle baselines without replacing project prose."""
 

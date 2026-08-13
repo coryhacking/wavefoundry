@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
@@ -81,6 +82,40 @@ CLEAN_ONNX_SOURCES: dict[str, tuple[str, str, str]] = {
 _CLEAN_ONNX_CACHE = _HOME / "cache" / "onnx-src"
 _COREML_STATIC_PROBE_CHILD_ENV = "WAVEFOUNDRY_COREML_STATIC_PROBE_CHILD"
 _coreml_static_probe_cache: dict[tuple[str, str], bool] = {}
+
+# 1v4mu: the probe's rejection warning carries the child's cause. Bounded,
+# because arbitrary ONNX Runtime / CoreML stderr can run to many kilobytes and
+# this lands on a warning path; the TAIL is kept because the terminating
+# exception line is what identifies the cause.
+_PROBE_STDERR_TAIL_CHARS = 600
+# Absolute POSIX and Windows paths. Quote characters terminate the match so a
+# Python traceback's `File "/abs/path.py", line 3` reduces cleanly. The
+# lookbehind requires the path to START a token, so an ordinary prose slash is
+# left alone: without it, "GPU/CPU parity failed" scrubs to "GPUCPU parity
+# failed", mangling exactly the diagnostic this exists to make readable.
+_ABSOLUTE_PATH_RE = re.compile(r"(?<![^\s'\"])(?:[A-Za-z]:[\\/]|/)[^\s'\"]*")
+
+
+def _probe_failure_detail(returncode: int | None, stderr: str) -> str:
+    """Compose the probe's rejection cause: return code plus a bounded tail.
+
+    Child stderr is arbitrary third-party output, so it is SCRUBBED rather than
+    composed path-free at the source the way this codebase does for its own
+    exceptions (1v0ly). Absolute paths collapse to their basename, which keeps
+    the file identity that makes a traceback readable without publishing the
+    operator's filesystem layout. ASCII only: this text reaches Windows consoles
+    that are not UTF-8.
+    """
+
+    def _basename(match: re.Match[str]) -> str:
+        token = match.group(0).rstrip("\\/")
+        return re.split(r"[\\/]", token)[-1] or "<path>"
+
+    tail = " ".join(_ABSOLUTE_PATH_RE.sub(_basename, stderr or "").split())
+    if len(tail) > _PROBE_STDERR_TAIL_CHARS:
+        tail = "..." + tail[-_PROBE_STDERR_TAIL_CHARS:]
+    detail = f"exit code {returncode}"
+    return f"{detail}; stderr tail: {tail}" if tail else detail
 
 
 def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
@@ -151,13 +186,23 @@ else:
             check=False,
         )
         passed = completed.returncode == 0
-    except Exception:
+        detail = (
+            ""
+            if passed
+            else _probe_failure_detail(completed.returncode, completed.stderr or "")
+        )
+    except Exception as exc:
         passed = False
+        # The exception's own str embeds the command, and the command embeds the
+        # whole probe source. Name the class only; TimeoutExpired vs OSError is
+        # the distinction that matters here.
+        detail = f"probe did not complete: {type(exc).__name__}"
     _coreml_static_probe_cache[key] = passed
     if not passed:
         print(
             f"[wavefoundry][GPU] WARNING: isolated CoreML {workload} probe failed; "
-            "using the safe CPU/fallback path for this process.",
+            "using the safe CPU/fallback path for this process."
+            + (f" Cause: {detail}" if detail else ""),
             file=sys.stderr,
             flush=True,
         )
