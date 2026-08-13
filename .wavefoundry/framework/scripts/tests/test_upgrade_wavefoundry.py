@@ -2967,10 +2967,19 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 "CLAUDE_PROJECT_DIR",
                 claude["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
             )
+            # 1v7a2: the MCP stanza converges on the PATH form, while the hook
+            # assertion directly above still requires CLAUDE_PROJECT_DIR. That
+            # contrast is the point and is asserted in one place deliberately:
+            # hooks are invoked by the host from an unknown cwd and their
+            # failure was reproduced in 1tjjk-bug, whereas an MCP server is
+            # spawned once per session by a client that supplies the workspace
+            # root, and 1tjjl-bug recorded that exposure as latent. This is also
+            # the upgrade-side half of AC-5: an existing project carrying the
+            # inline launcher must converge on the first upgrade render.
             claude_mcp = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
-            self.assertIn(
-                "CLAUDE_PROJECT_DIR",
-                claude_mcp["mcpServers"]["wavefoundry"]["args"][1],
+            self.assertEqual(
+                claude_mcp["mcpServers"]["wavefoundry"]["args"],
+                [".wavefoundry/framework/scripts/server.py"],
             )
             copilot = json.loads((root / ".github" / "hooks" / "hooks.json").read_text(encoding="utf-8"))
             copilot_pre = copilot["hooks"]["preToolUse"][0]

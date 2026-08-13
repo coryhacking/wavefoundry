@@ -3,8 +3,7 @@
     "wavefoundry": {
       "command": "python3",
       "args": [
-        "-c",
-        "import os,runpy; runpy.run_path(os.path.join(os.environ['CLAUDE_PROJECT_DIR'], '.wavefoundry', 'framework', 'scripts', 'server.py'), run_name='__main__')"
+        ".wavefoundry/framework/scripts/server.py"
       ]
     }
   }

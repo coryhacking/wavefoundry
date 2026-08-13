@@ -599,9 +599,86 @@ class MergeMcpServerTests(unittest.TestCase):
             data = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
         wf = data["mcpServers"]["wavefoundry"]
         self.assertEqual(wf["command"], "python3")
-        self.assertEqual(wf["args"][0], "-c")
-        self.assertIn("CLAUDE_PROJECT_DIR", wf["args"][1])
-        self.assertIn("runpy.run_path", wf["args"][1])
+        # 1v7a2 AC-1: the stanza NAMES the server, it does not carry a program.
+        # An inline `python3 -c` launcher shipped here between 1tj0l and 1v7a2;
+        # a Git-tracked config that executes a code string reads as a
+        # code-execution surface to enterprise security tooling, and the
+        # cwd exposure it closed was recorded as latent in 1tjjl-bug.
+        self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
+        self.assertNotIn("-c", wf["args"])
+        for arg in wf["args"]:
+            self.assertNotIn("runpy", arg)
+            self.assertNotIn("CLAUDE_PROJECT_DIR", arg)
+
+    def test_render_migrates_an_existing_inline_stanza(self):
+        """1v7a2 AC-5: already-installed repositories must be MIGRATED.
+
+        This is the operator's actual problem: without it, every repository that
+        installed between waves 1tj0l and 1v7a2 keeps the flagged stanza
+        forever. The failure mode to exclude is a merge that leaves the inline
+        program in place beside the new args, so the assertion is on the whole
+        args list plus an explicit absence of the program text.
+        """
+        rps = self._load_rps()
+        inline = (
+            "import os,runpy; runpy.run_path(os.path.join("
+            "os.environ['CLAUDE_PROJECT_DIR'], '.wavefoundry', 'framework', "
+            "'scripts', 'server.py'), run_name='__main__')"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".mcp.json").write_text(
+                json.dumps({"mcpServers": {
+                    "wavefoundry": {"command": "python3", "args": ["-c", inline]},
+                    "my-other-server": {"command": "npx", "args": ["-y", "my-pkg"]},
+                }}),
+                encoding="utf-8",
+            )
+            rps.render_mcp_json(root)
+            raw = (root / ".mcp.json").read_text(encoding="utf-8")
+            data = json.loads(raw)
+        self.assertEqual(
+            data["mcpServers"]["wavefoundry"]["args"],
+            [".wavefoundry/framework/scripts/server.py"],
+        )
+        self.assertNotIn("runpy", raw)
+        # A foreign server in the same file is still not ours to touch.
+        self.assertEqual(data["mcpServers"]["my-other-server"]["args"], ["-y", "my-pkg"])
+
+    def test_render_mcp_json_embeds_no_absolute_path(self):
+        """1v7a2 AC-2, preserving 1tjjl-bug Requirement 2: every distributed MCP
+        registration is Git-tracked, so no machine path may enter it. Asserted
+        against a root whose absolute path is known, so a renderer that
+        interpolated it would be caught rather than merely looking relative."""
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_mcp_json(root)
+            data = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
+        wf = data["mcpServers"]["wavefoundry"]
+        for arg in wf["args"]:
+            self.assertNotIn(str(root), arg)
+            self.assertFalse(arg.startswith("/"), arg)
+            self.assertNotRegex(arg, r"^[A-Za-z]:[\\/]")
+
+    def test_render_mcp_json_matches_the_other_path_naming_hosts(self):
+        """1v7a2 AC-6: five registrations, one idiom. Antigravity and Codex
+        already ship this exact argument with no working-directory anchor, so
+        pinning the correspondence is what stops Claude drifting into a sixth
+        shape the next time cwd independence looks attractive."""
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_mcp_json(root)
+            rps.render_antigravity_mcp_json(root)
+            claude = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
+            antigravity = json.loads(
+                (root / ".agents" / "mcp_config.json").read_text(encoding="utf-8")
+            )
+        self.assertEqual(
+            claude["mcpServers"]["wavefoundry"]["args"],
+            antigravity["mcpServers"]["wavefoundry"]["args"],
+        )
 
     def test_render_mcp_json_preserves_existing_servers(self):
         rps = self._load_rps()
@@ -616,29 +693,66 @@ class MergeMcpServerTests(unittest.TestCase):
         self.assertIn("my-other-server", data["mcpServers"])
         self.assertIn("wavefoundry", data["mcpServers"])
 
-    def test_claude_mcp_stanza_runs_owner_server_from_nested_cwd(self):
+    def _run_claude_stanza(self, cwd: Path, root: Path):
+        """Execute the rendered Claude stanza from *cwd*, serving *root*."""
         rps = self._load_rps()
+        rps.render_mcp_json(root)
+        stanza = json.loads(
+            (root / ".mcp.json").read_text(encoding="utf-8")
+        )["mcpServers"]["wavefoundry"]
+        env = dict(os.environ)
+        env["CLAUDE_PROJECT_DIR"] = str(root)
+        return subprocess.run(
+            [stanza["command"], *stanza["args"]],
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def _seed_owner_tree(self, tmp: str):
+        root = Path(tmp) / "outer"
+        nested = root / "nested" / "work"
+        server = root / ".wavefoundry" / "framework" / "scripts" / "server.py"
+        server.parent.mkdir(parents=True)
+        nested.mkdir(parents=True)
+        server.write_text("print('outer-server')\n", encoding="utf-8")
+        return root, nested
+
+    def test_claude_mcp_stanza_runs_owner_server_from_the_repository_root(self):
+        """1v7a2: the SUPPORTED contract, executed rather than assumed.
+
+        This replaces a test that asserted the stanza also worked from a nested
+        cwd. Wave 1tj0l bought that with an inline `python3 -c` launcher, and
+        1v7a2 gave it back deliberately: a Git-tracked config carrying a program
+        is flagged by enterprise security tooling, while the cwd exposure it
+        closed was recorded as latent in 1tjjl-bug. Repository-root launch is
+        what MCP clients do and what three other hosts already rely on.
+        """
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "outer"
-            nested = root / "nested" / "work"
-            server = root / ".wavefoundry" / "framework" / "scripts" / "server.py"
-            server.parent.mkdir(parents=True)
-            nested.mkdir(parents=True)
-            server.write_text("print('outer-server')\n", encoding="utf-8")
-            rps.render_mcp_json(root)
-            stanza = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["wavefoundry"]
-            env = dict(os.environ)
-            env["CLAUDE_PROJECT_DIR"] = str(root)
-            result = subprocess.run(
-                [stanza["command"], *stanza["args"]],
-                cwd=nested,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "outer-server")
+            root, _nested = self._seed_owner_tree(tmp)
+            result = self._run_claude_stanza(root, root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "outer-server")
+
+    def test_claude_mcp_stanza_fails_loudly_from_a_nested_cwd(self):
+        """1v7a2: the re-accepted limitation, pinned so it stays HONEST.
+
+        The point is not that a nested cwd fails; it is that it fails at
+        startup, before the server runs, so the failure mode is a missing file
+        rather than a server that starts and serves the WRONG repository.
+        `_discover_root` never executes, so mis-rooting is impossible. If a
+        future change ever made this path start successfully against some other
+        root, that would be the dangerous outcome and this test would catch it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root, nested = self._seed_owner_tree(tmp)
+            result = self._run_claude_stanza(nested, root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No such file or directory", result.stderr)
+        # Never a silent success against a different tree.
+        self.assertNotIn("outer-server", result.stdout)
 
     def test_render_junie_mcp_json_uses_python_command(self):
         # Wave 1p7pm (1p7pb-adr): Junie MCP names the byte-identical `python` command on the
@@ -1023,10 +1137,10 @@ class NoPathedLauncherScanTests(unittest.TestCase):
 
     EXPECTED_COMMAND = "python3"
     EXPECTED_ARGS = [".wavefoundry/framework/scripts/server.py"]
-    CLAUDE_ARGS = [
-        "-c",
-        "import os,runpy; runpy.run_path(os.path.join(os.environ['CLAUDE_PROJECT_DIR'], '.wavefoundry', 'framework', 'scripts', 'server.py'), run_name='__main__')",
-    ]
+    # 1v7a2: Claude's args are no longer a special case. The constant is kept
+    # as an alias rather than deleted so the two use sites below stay readable
+    # about WHICH host they are pinning.
+    CLAUDE_ARGS = EXPECTED_ARGS
 
     def _render_all_json_mcp(self, repo_root: Path) -> None:
         mod = _load_render_module()
@@ -1218,7 +1332,9 @@ class HookReindexDetachTests(unittest.TestCase):
             ".mcp.json": (
                 "render_mcp_json",
                 lambda r: r / ".mcp.json",
-                lambda args: args[0] == "-c" and "CLAUDE_PROJECT_DIR" in args[1],
+                # 1v7a2: Claude now names the server like the other path-naming
+                # hosts; it previously carried an inline `python3 -c` program.
+                lambda args: args == [".wavefoundry/framework/scripts/server.py"],
             ),
             "cursor": (
                 "render_cursor_mcp_json",

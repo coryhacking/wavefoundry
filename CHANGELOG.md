@@ -6,6 +6,31 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.3] - 2026-08-13
+
+### Fixed
+
+- **The Claude MCP registration names the server file again instead of embedding an inline Python
+  program.** `.mcp.json` launched the server through `python3 -c "import os,runpy; …"`, and a
+  Git-tracked configuration that executes a code string is flagged by enterprise security tooling: a
+  config that names a file is auditable, a config that carries a program is a code-execution surface.
+  It now reads `"args": [".wavefoundry/framework/scripts/server.py"]`, matching what the Antigravity
+  and Codex registrations already shipped. **Existing repositories migrate on the upgrade that
+  installs this** — the surface render rewrites the stale stanza in place rather than merging
+  alongside it, and a non-Wavefoundry server in the same file is left untouched.
+  Wave 1v7a3 / change 1v7a2.
+
+  Nothing is given up in how the server finds your repository: it anchors on its own install
+  location, above any environment variable, so no `--root` and no project anchor belongs in the
+  stanza. The inline wrapper only ever helped the interpreter locate the file. The supported contract
+  is repository-root launch, which is what MCP clients do; if a client ever spawns the server from
+  another directory it now fails at startup with a missing file rather than binding to the wrong
+  repository.
+
+  **Hook launchers are deliberately unchanged and still use `CLAUDE_PROJECT_DIR`.** Hooks are
+  invoked by the host from an unknown working directory and that failure is reproduced, not
+  theoretical, so the two surfaces are treated differently on purpose.
+
 ## [1.16.2] - 2026-08-12
 
 ### Fixed

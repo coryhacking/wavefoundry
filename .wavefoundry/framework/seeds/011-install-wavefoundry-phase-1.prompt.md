@@ -49,7 +49,7 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
    - Otherwise—or after an ordinary repeated `wf setup` recomputes an empty pending set—builds `.wavefoundry/index/` (docs/seeds, semantic code embeddings, code embeddings, and graph). The framework seeds and top-level README fold into the project docs index; there is no separate framework index.
    - Use `--background-code` or `--background-docs` only when the operator intentionally accepts one semantic layer finishing after setup returns. A candidate-bearing historical-memory publication intentionally ignores either flag and converges both semantic layers synchronously under its publication receipt.
 
-**Expected artifact:** the committed `.mcp.json` names `command: "python3"` and resolves `server.py` from Claude's `CLAUDE_PROJECT_DIR` rather than the caller cwd; `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root.
+**Expected artifact:** the committed `.mcp.json` names `command: "python3"` and the repo-relative `.wavefoundry/framework/scripts/server.py` as its only argument — a path, never an inline `-c` program, so the committed config stays auditable for enterprise review; `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root. The server anchors its own repository from its install location, so no `--root` and no project-anchor variable belongs in this stanza. Hook launchers are the separate case that does need `CLAUDE_PROJECT_DIR`.
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 

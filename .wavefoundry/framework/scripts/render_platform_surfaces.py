@@ -1484,18 +1484,35 @@ def _merge_mcp_server(target: Path, stanza: dict) -> None:
 def render_mcp_json(repo_root: Path) -> None:
     """Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.
 
-    The command remains the portable ``python3`` PATH token. Claude supplies
-    ``CLAUDE_PROJECT_DIR`` for the selected configuration owner, so the inline launcher resolves
-    that project's server without depending on the process cwd or embedding a machine path.
+    The command remains the portable ``python3`` PATH token and the argument NAMES the server file
+    rather than carrying a program (wave 1v7a2).
+
+    An inline ``python3 -c`` launcher shipped here between waves ``1tj0l`` and ``1v7a2`` to make the
+    stanza cwd-independent. It was reverted because a Git-tracked config that executes an inline code
+    string reads as a code-execution surface to enterprise security tooling, and the exposure it
+    closed was never observed: ``1tjjl-bug`` recorded it as latent, noting that "MCP clients normally
+    spawn the server with the workspace root as working directory, which is why the server works
+    today". An active, reported cost is not worth paying for a hypothetical one.
+
+    The argument stays repo-relative, so nothing machine-specific enters a distributed file
+    (``1tjjl-bug`` Requirement 2), and it matches what Antigravity and Codex already ship.
+
+    Note what this does NOT give up: the server still resolves its own repository. ``_discover_root``
+    ranks the script's own install location ABOVE any environment variable, because ``server_impl.py``
+    always lives at ``<root>/.wavefoundry/framework/scripts/``. The inline wrapper only ever helped
+    the interpreter locate ``server.py``; it never supplied the root. The residual exposure is a host
+    that spawns from another cwd, and it fails loudly at startup (the file cannot be opened) rather
+    than mis-rooting, because discovery never runs.
+
+    Claude HOOK launchers keep ``CLAUDE_PROJECT_DIR`` and are deliberately untouched: their failure
+    was reproduced in ``1tjjk-bug``, not latent, and a hook is invoked by the host from an unknown
+    cwd while an MCP server is spawned once per session by a client that supplies the workspace root.
     """
     _merge_mcp_server(
         repo_root / ".mcp.json",
         {
             "command": "python3",
-            "args": [
-                "-c",
-                "import os,runpy; runpy.run_path(os.path.join(os.environ['CLAUDE_PROJECT_DIR'], '.wavefoundry', 'framework', 'scripts', 'server.py'), run_name='__main__')",
-            ],
+            "args": [".wavefoundry/framework/scripts/server.py"],
         },
     )
 
