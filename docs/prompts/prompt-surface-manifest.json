@@ -5,7 +5,7 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "1.16.2+pipa",
+  "framework_revision": "1.16.3+pitc",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
