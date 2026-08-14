@@ -6,6 +6,17 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.4] - 2026-08-13
+
+### Fixed
+
+- **`wf setup` now works on the supported Python 3.11 runtime.** The archive-manifest
+  renderer used a nested f-string grammar that Python 3.12 accepts but Python 3.11 rejects
+  during import, preventing setup from reaching its normal validation phases. The renderer
+  now resolves the fallback archive path before formatting it, preserving both default and
+  explicit archive paths; focused regression coverage also parses the source with Python
+  3.11. Wave 1v4yf / change 1v4or.
+
 ## [1.16.3] - 2026-08-13
 
 ### Fixed

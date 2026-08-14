@@ -1129,11 +1129,12 @@ def _render_archive_manifest(records: Iterable[dict[str, Any]]) -> str:
              "`docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.", ""]
     for record in sorted(records, key=lambda item: item["memory_id"]):
         targets = ", ".join(f"`{value}`" for value in record.get("target_refs") or []) or "—"
+        archive_path = record.get("archive_path") or f"{MEMORY_ARCHIVE_DIR}/{record['memory_id']}.md"
         lines += [f"## {record['memory_id']}", "",
                   f"- Title: `{record.get('title') or record['memory_id']}`", f"- Kind: `{record['kind']}`",
                   f"- Targets: {targets}", f"- Archived: `{record.get('archived_at') or 'unknown'}`",
                   f"- Successor: `{record.get('superseded_by') or 'none'}`",
-                  f"- Archive path: `{record.get('archive_path') or f'{MEMORY_ARCHIVE_DIR}/{record['memory_id']}.md'}`", ""]
+                  f"- Archive path: `{archive_path}`", ""]
     return "\n".join(lines).rstrip() + "\n"
 
 

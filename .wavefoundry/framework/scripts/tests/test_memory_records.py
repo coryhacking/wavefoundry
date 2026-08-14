@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -578,6 +579,44 @@ class MemoryArchiveTests(_MemoryCase):
         self.assertTrue(again["no_op"])
         self.assertFalse(again["moved"])
         self.assertEqual(len(list(archive.parent.glob("mem-archive.md"))), 1)
+
+    def test_archive_manifest_falls_back_to_memory_id_path(self):
+        manifest = self.mem._render_archive_manifest([
+            {
+                "memory_id": "mem-default-path",
+                "kind": "failed_attempt",
+                "target_refs": [],
+            },
+            {
+                "memory_id": "mem-explicit-path",
+                "kind": "decision",
+                "target_refs": [],
+                "archive_path": "docs/custom/archive.md",
+            },
+        ])
+        self.assertIn(
+            "- Archive path: `docs/agents/memory/archive/mem-default-path.md`",
+            manifest,
+        )
+        self.assertIn("- Archive path: `docs/custom/archive.md`", manifest)
+
+    def test_memory_records_source_parses_with_python311_when_available(self):
+        python311 = shutil.which("python3.11")
+        if python311 is None:
+            self.skipTest("python3.11 is not installed")
+        source = SCRIPTS_ROOT / "memory_records.py"
+        result = subprocess.run(
+            [
+                python311,
+                "-c",
+                "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_legacy_pointer_migration_is_conditional_and_uses_archive_bodies(self):
         self._stale()
