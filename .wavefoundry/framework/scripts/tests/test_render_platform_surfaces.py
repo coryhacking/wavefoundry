@@ -376,7 +376,13 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn("python_exec = sys.executable", claude_sim)
             self.assertIn("windowless_pythonw()", claude_sim)
             self.assertIn("[python_exec, str(target)]", claude_sim)
-            upgrade_skill = (repo_root / ".claude" / "skills" / "upgrade-wave.md").read_text(encoding="utf-8")
+            # Wave 1p6lp: the upgrade skill is registry-rendered as wf-upgrade
+            # (standard SKILL.md with frontmatter); the old flat file is gone.
+            self.assertFalse((repo_root / ".claude" / "skills" / "upgrade-wave.md").exists())
+            upgrade_skill = (
+                repo_root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("name: wf-upgrade", upgrade_skill)
             self.assertIn(".wavefoundry/guard-overrides.json", upgrade_skill)
             # Wave 1p88t: the skill's docs-gardener/docs-lint steps must give BOTH the POSIX `wf` and
             # the native-Windows `wf.cmd` forms (the bash `wf` shim does not run in cmd/PowerShell).
@@ -384,6 +390,14 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             self.assertIn(".\\.wavefoundry\\bin\\wf.cmd docs-lint", upgrade_skill)
             self.assertIn("./.wavefoundry/bin/wf docs-gardener", upgrade_skill)
             self.assertIn(".\\.wavefoundry\\bin\\wf.cmd docs-gardener", upgrade_skill)
+            # Wave 1p6lp: the rendered hook's maintenance guard covers the
+            # wf- skill namespace on every skill host and no longer pins the
+            # retired flat path; operator skills outside wf- stay unguarded.
+            pre_edit_hook = (repo_root / ".claude" / "hooks" / "pre-edit.py").read_text(encoding="utf-8")
+            self.assertIn('".claude/skills/wf-"', pre_edit_hook)
+            self.assertIn('".codex/skills/wf-"', pre_edit_hook)
+            self.assertIn('".agents/skills/wf-"', pre_edit_hook)
+            self.assertNotIn(".claude/skills/upgrade-wave.md", pre_edit_hook)
             aiignore_text = (repo_root / ".aiignore").read_text(encoding="utf-8")
             self.assertIn(".wavefoundry/index/", aiignore_text)
             self.assertIn(".wavefoundry/framework/index/", aiignore_text)

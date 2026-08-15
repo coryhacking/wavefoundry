@@ -140,12 +140,17 @@ def is_framework_maintenance_surface(path: str) -> bool:
         ".cursor/hooks/",
         ".github/hooks/",
         ".windsurf/hooks/",
+        # Wave 1p6lp: registry-rendered wf- skills are framework-owned
+        # surfaces on every skill host; operator-authored skills
+        # outside the wf- namespace stay unguarded.
+        ".claude/skills/wf-",
+        ".codex/skills/wf-",
+        ".agents/skills/wf-",
     )
     if path.startswith(prefixes):
         return True
     exact = {
         ".claude/settings.json",
-        ".claude/skills/upgrade-wave.md",
         ".cursor/hooks.json",
         ".github/hooks/hooks.json",
         ".windsurf/hooks.json",

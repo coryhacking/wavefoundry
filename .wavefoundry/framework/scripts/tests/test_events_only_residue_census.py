@@ -544,8 +544,8 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         self.assertIn("README.md", rels)
         # Every committed platform family is inside the executable scope.
         self.assertIn(".agents/mcp_config.json", rels)
-        self.assertIn(".claude/skills/upgrade-wave.md", rels)
-        self.assertIn(".codex/skills/auto-guru/SKILL.md", rels)
+        self.assertIn(".claude/skills/wf-upgrade/SKILL.md", rels)
+        self.assertIn(".codex/skills/wf-guru/SKILL.md", rels)
         self.assertIn(".cursor/rules/project-context.mdc", rels)
         self.assertIn(".github/copilot-instructions.md", rels)
         self.assertIn(".junie/guidelines.md", rels)

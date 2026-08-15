@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-13
+Last verified: 2026-08-15
 
 ## Wave `1uwpf receipt-and-citation-contract-followups` — CLOSED 2026-08-10 (uncommitted)
 
@@ -51,6 +51,78 @@ All four lanes returned CHANGES REQUESTED; every finding is folded and re-verifi
 ## Current Session
 
 **Active wave:** *(none)*
+
+### Wave 1p6lp CLOSED 2026-08-15 (implemented 2026-08-14)
+
+All three changes implemented in one session, full suite **7239 tests across 62 files OK**, docs-lint clean, all ACs and tasks `[x]`:
+
+- **`1p6lo`**: `Skill` registry + `render_skills` emitter in `render_agent_surfaces.py`, called before the Guru gate; `wf-` kebab-case namespace enforced (regex + test); `auto-guru`/`upgrade-wave` migrated to `wf-guru`/`wf-upgrade` with the ad-hoc writers retired; stale paths cleaned with a **containment check** (a full-suite find: the first cut would have unlinked through a symlinked parent; now refuses loudly, regression-tested); maintenance guard covers the `wf-` skill prefix on all three hosts via the rendered hook template; carrier-region graft keeps re-renders byte-convergent (second render writes nothing); seeds 050/160 updated under `seed_edit_allowed`.
+- **`1v877`**: seed `177-red-team-review.prompt.md` + rendered `docs/prompts/red-team-review.prompt.md` (shortcuts **Red-team review** / **Red team this**); no-signoff/no-gate boundary; cross-refs in seeds 236/237/225 + rendered docs; catalog + manifest rows; live find: rendered specialist doc lagged seed 225's `improvement-review` mode, drift repaired.
+- **`1p6lw`**: twelve skills total render to `.codex`/`.claude`/`.agents` (ten lifecycle + router + two migrated); Claude Code live-discovered them in-session; three descriptions containing `": "` (YAML-unsafe in frontmatter) repaired with a test forbidding the pattern.
+
+Transition note for target repos: the maintenance-guard pin lives in rendered hook bodies, so already-installed repos keep guarding the old flat path until their next upgrade re-render.
+
+**Closed 2026-08-15** after the six-seat delivery council PASS (see below) and explicit operator close via `/wf-close-wave`. CHANGELOG carries an `[Unreleased]` section with the skills and Red-team review bullets. Open questions carried nowhere: none; deferred skill candidates (`wf-config-review`, maintainer extras) are recorded in `1p6lw` Scope and the `1ve3a` plans. **Next:** operator may say Implement wave for `1ve3a` (single-OPEN slot now free). Nothing committed.
+
+### Wave `1vbuu cleanup-review-reachability` CLOSED 2026-08-15
+
+The fourth wave, from the operator's "can we improve this? anything in the graph?" after `1ve3e`. Verdict recorded in the change doc: the graph answered node reachability correctly and the failure was applying a node-reachability rule to a condition-reachability question while trusting a docstring, so path predicates on call edges were evaluated and DEFERRED. Delivered: (1) seed 221 gained a two-class reachability rule (node vs condition; three-step probe: enumerate every sentinel producer, grep the module's tests, treat prose unreachability as a hypothesis), mirrored into the repo-local cleanup prompt; (2) `code_impact` now attaches the advisory `test_callers_not_visible` when `include_tests=true` finds zero test-path callers, naming both invisibility reasons (index-excluded test trees like this repo's `scripts/tests/`, mock-driven coverage with no `calls` edge). Three-state tests on the existing fake-graph fixture; the live accel query that returned a silent empty this morning now emits the advisory with its 3 real callers intact. Live find: the `test_advisory_tags_appear_only_at_the_sanctioned_sites` guard (1uugg AC-10c) correctly rejected the new `advisory=True` site; the sanctioned set was extended deliberately with a stated reason (code_impact gates nothing). Typed ledger complete through delivery (readiness run + 4 approvals; delivery run + code, qa, docs-contract); suite 7244/62 OK; docs-lint clean; `docs/specs/mcp-tool-surface.md` gained one clause. Memory: none proposed, none forced (the lesson lives in the seed rule and `1vcgo-mem`). Closed on the operator's `/wf-close-wave`; CHANGELOG `[Unreleased]` Fixed section gained its bullet.
+
+**End of session state: NO wave open; FOUR closed waves uncommitted (`1p6lp`, `1ve3a`, `1ve3e`, `1vbuu`); suite 7244/62 OK; docs-lint clean.** Ready to commit and ride the next release. Open observation (no wave): the reranker FP16 drift test skips under the suite's cpu pin and fails on direct CoreML runs.
+
+### Wave `1ve3e cleanup-review-followups` CLOSED 2026-08-15
+
+Third wave of the day, born from the first real `/wf-code-cleanup` run. Its headline is a **withdrawn verdict**: the sweep recommended removing `accel_embedder`'s resident-graph fallback as dead-for-shipped-models (corroborating a docstring that said "unreachable"), the operator approved it, and plan-time verification falsified the premise: `_resolve_clean_onnx` degrades to that branch on any failed clean fetch and the offline-fallback tests execute it. `1ve3c` corrected the docstring instead (comment-only, proven by an empty executable-line diff); `1ve3d` fixed seed 160's two dangling `docs/prompts/agents/` references to when-present semantics. Typed ledger complete (readiness run + 3 approvals; delivery run + code-reviewer, docs-contract-reviewer, operator). Suite 7241/62 OK. Active memory `1vcgo-mem` records the sweep lesson (trace the sentinel producers, not just the registry lookup, before calling a fallback dead); operator chose to keep it. CHANGELOG `[Unreleased]` gained a Fixed section.
+
+**Open observation, not in any wave:** `test_reranker_fp16_matches_fp32_when_available` FAILS on direct CoreML runs (one query drifts 0.067 vs the 0.05 bound) but is SKIPPED under `run_tests.py`'s `WAVEFOUNDRY_EMBED_PROVIDER=cpu` pin, so every green suite this week skipped it, not passed it. Pre-existing (identical on HEAD), machine-level, orthogonal to all three waves; a candidate for its own change (either the FP16 export precision or the bound).
+
+**No wave open; nothing committed.** Three closed waves (`1p6lp`, `1ve3a`, `1ve3e`) ready to commit and ride the next release.
+
+### Wave `1ve3a package-skill` CLOSED 2026-08-15
+
+Full typed-ledger lifecycle in one day, each step explicitly operator-commanded through the new skills themselves (interrogate, implement, review, close): `initial_delivery` run record, executed code-reviewer + qa-reviewer approvals, operator signoff on the `/wf-close-wave` invocation. One decision memory promoted after a validation rewrite (the drafter's auto-target said `build_pack.py`; the mechanism lives in `render_agent_surfaces.py`): repo-conditional skills gate on backing-doc presence, never repo identity. CHANGELOG `[Unreleased]` extended with the doc-gated skills bullet. **No wave open; nothing committed.** Ready to commit both skill waves and ride the next release.
+
+### Implementation record (2026-08-15)
+
+Both changes implemented and marked: `Skill.requires_doc` replaces `requires_guru` (wf-guru pinned byte-identical via the shared `GURU_ROLE_REL` predicate); `wf-package` and `wf-code-cleanup` registered on their backing-doc gates; catalogs updated; new tests `test_doc_gate_polarity_both_directions` + `test_doc_gated_entries_declare_their_backing_doc_as_gate`; 14 skills render here, second render writes nothing; full suite **7241 tests across 62 files OK**; docs-lint clean. Remaining: delivery review (typed approvals for code-reviewer, qa-reviewer + `initial_delivery` run record + operator signoff), then operator-owned close.
+
+### Original planning record (READIED 2026-08-15)
+
+Per operator direction: two doc-gated skills over the `1p6lp` registry. `1vbpl` generalizes `requires_guru` into a doc-presence gate (`requires_doc`) and adds **`wf-package`** gated on `docs/prompts/package-wavefoundry.prompt.md` (seed 100 declares it public-only/when-present, so target repos never render it, which is the operator's constraint: this repository only). `1ve3b` adds **`wf-code-cleanup`** (operator-chosen name) gated on `docs/prompts/codebase-cleanup-review.prompt.md`, which no seed provisions to targets. This is a **typed events.jsonl wave**: readiness recorded via `wf_review_event` (readiness run record + three executed approvals: wave-council-readiness, code-reviewer, qa-reviewer, each with an executed known-bad control after the ledger rejected `known_bad_detected: false` on an executed approval). Receipt `review-policy-e1fc9a84f0a0df8dcfde`; delivery lanes code-reviewer + qa-reviewer; no delivery council required. Implementation starts only after `1p6lp` closes; `1vbpl` (gate mechanism) lands before `1ve3b`.
+
+Also learned for future typed waves: hand-editing `Required review lanes` in a fresh wave.md invalidates the scaffolded review-status projection (the projector adds lane rows); regenerate the block to match `render_review_status_projection` output.
+
+### Delivery review complete 2026-08-14
+
+Invoked via the freshly rendered `/wf-review-wave` skill (the wave reviewing itself through its own deliverable). Six-seat delivery council ran inline at standard primer depth (red-team primer, code, qa, security, docs-contract, architecture rotating): **PASS**, one qa finding repaired in-cycle (the rendered-hook maintenance-guard prefix change had no pinning test; assertions added and executed, 94 tests OK). Fresh probes executed: registry-to-catalog parity 12/12, permissions surface zero-diff, five-file script diff census, reach-for sweep clean. `wave-council-delivery` and all five lane signoffs recorded as prose lines (legacy-prose wave). `wf_review_wave` now reports only `missing_operator_signoff` — the operator's own approval at close. Docs-lint clean. **Close remains operator-owned and has not been requested.**
+
+### Wave 1p6lp revived and readied 2026-08-14
+
+The parked 2026-06-19 skills wave was revived per operator direction. Both original change docs refreshed: line refs re-verified against HEAD, tool names corrected to the post-`1t3gt` surface, `wf-` kebab-case skill namespace adopted (operator direction; the two migrated skills rename to `wf-guru` and `wf-upgrade`), and `1p6lw` re-curated from five to **ten** skills (core loop + `wf-interrogate-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, plus the `wf-council` router over Wave Council / Archetype Council / standalone red-team review; full-catalog exclusions with reasons recorded in its Scope).
+
+A third change was authored and admitted the same day: **`1v877-enh red-team-standalone-review-command`**, promoting red-team-in-isolation (seven standalone modes already defined in `docs/agents/specialists/red-team.md`) to the operator command **Red-team review** via a new seed (177 verified free), cross-refs in seeds 236/237/225, catalog rows, and an explicit no-signoff/no-gate boundary. It supplies `wf-council`'s third pointer target; `1p6lw` depends on both `1p6lo` and `1v877`.
+
+Readiness council ran inline twice (initial pass: red-team, security-reviewer, docs-contract-reviewer; delta pass for the scope expansion: red-team, docs-contract-reviewer). The initial pass's one finding, an incomplete rename census, was folded into `1p6lo` Requirement 5 before approval; both `wf_prepare_wave(mode='ready')` calls succeeded (3 changes, lint clean). The wave awaits **Implement wave** (order: `1p6lo` registry, `1v877` command, `1p6lw` skills). All of this is uncommitted docs-only work.
+
+### 1.16.4 released 2026-08-13
+
+Tag `v1.16.4`, stamp commit `55ccb026` (`1.16.4+piwn`), pack `wavefoundry-1.16.4.piwn.zip`. Suite 7230 across 62 files, docs-lint ok, tree clean and pushed. Contents: wave `1v4yf` only, the Python 3.11 f-string repair in `memory_records.py`. Model set stays at v2, so `wavefoundry-models-2.zip` was reattached rather than rebuilt.
+
+**Blocker hit, and worked around rather than fixed:** `build_pack --version 1.16.4 --with-models --release` aborted at `model_bundle.build_bundle` with `warmed model cache does not match the canonical verification manifest`.
+
+The release shipped by reusing the existing `~/.wavefoundry/dist/wavefoundry-models-2.zip`, verified first against the canonical manifest (manifest identical, 15/15 declared files sha256-match, zero undeclared model files), then publishing by hand along `build_pack`'s own ordering: README badge stamp, stamp commit, annotated tag on that commit, push main, push tag, `gh release create` with both assets. Latest resolves to `v1.16.4`.
+
+#### Root cause, diagnosed after the release
+
+One byte in the published model asset. In `wavefoundry-models-2.zip`, the member `models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/refs/main` is **41 bytes: the commit sha plus a trailing newline**. The other two components' `refs/main` members are clean 40-byte shas.
+
+`huggingface_hub` resolves the symbolic revision `main` by reading `refs/main` verbatim and matching it against snapshot directory names, so `d3c1d2d4...798f\n` never matches the directory `d3c1d2d4...798f`. Every cached-first lookup for that one component therefore misses on a cache provisioned from the bundle. `accel_embedder._hf_download_cached_first` swallows the miss and falls through to an unpinned online `hf_hub_download`, which resolves `main` on the Hub to the current head `e596f507...`, pulls roughly 100 MB, writes a second snapshot, and rewrites `refs/main` to point at it. `_manifest_from_cache` enumerates the whole component directory, so that extra snapshot breaks exact equality against the canonical manifest from then on.
+
+Executed evidence: on a scratch extraction of the published zip, `try_to_load_from_cache(revision='main')` returns `None` for all three files while `revision='d3c1d2d4...'` resolves them; stripping the single trailing newline makes `hf_hub_download(local_files_only=True)` resolve all three with no network.
+
+Local timeline: `wf setup` installed the bundle at 18:15:37; the next index build downloaded `main` at 19:49:39; the release build only started at 19:51:51 and merely observed the result. The earlier note in this file blaming the release build was wrong.
+
+**The contradiction that makes this unfixable locally:** the canonical manifest pins the sha256 of the **41-byte** form (`e0da9620...`, verified). Keeping the newline guarantees the re-download that breaks the manifest; stripping it makes `refs/main` itself fail the manifest. No byte state of that file satisfies both, so the published set-2 asset cannot be rebuilt from any cache that has been used once. Fixing it needs its own wave: normalize `refs/main` on install or at bundle build, regenerate the manifest, and republish the asset. Until then `--with-models` stays broken on this machine and on any machine that has provisioned models offline. Field impact short of that: one unnecessary ~100 MB re-download on the first index build after an offline provision; retrieval is unaffected, since the weights are byte-identical across the two commits.
 
 ### 1.16.0 released 2026-08-11
 

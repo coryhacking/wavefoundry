@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-08-15
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -36,7 +36,30 @@ Maps Wave Framework agent docs, personas, specialists, and factor agents to nati
 |------|------|--------|
 | Cursor | `.cursor/rules/auto-guru.mdc` | `alwaysApply` rule |
 | Claude Code | `.claude/agents/guru.md` | `PROACTIVELY` subagent |
-| Codex | `.codex/skills/auto-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+| Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+
+### Skills (`wf-` namespace, registry-rendered)
+
+One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists.
+
+| Skill | Backing prompt(s) | Gate |
+|-------|-------------------|------|
+| `wf-plan-feature` | `docs/prompts/plan-feature.prompt.md` | none |
+| `wf-prepare-wave` | `docs/prompts/prepare-wave.prompt.md` | none |
+| `wf-implement-wave` | `docs/prompts/implement-wave.prompt.md` | none |
+| `wf-review-wave` | `docs/prompts/review-wave.prompt.md` | none |
+| `wf-close-wave` | `docs/prompts/close-wave.prompt.md` | none |
+| `wf-interrogate-plan` | `docs/prompts/interrogate-plan.prompt.md` | none |
+| `wf-evaluate-decision` | `docs/prompts/evaluate-decision.prompt.md` | none |
+| `wf-memory-review` | `docs/prompts/memory-review.prompt.md` | none |
+| `wf-pause-wave` | `docs/prompts/pause-wave.prompt.md` | none |
+| `wf-council` | `docs/prompts/council-review.prompt.md`, `docs/prompts/archetype-council.prompt.md`, `docs/prompts/red-team-review.prompt.md` | none |
+| `wf-guru` | `docs/agents/guru.md` (role doc) | `docs/agents/guru.md` present |
+| `wf-upgrade` | `docs/prompts/upgrade-wavefoundry.prompt.md` | none (maintenance checklist) |
+| `wf-package` | `docs/prompts/package-wavefoundry.prompt.md` | backing prompt present (seed 100 public-only/when-present, so normally the framework source repo only) |
+| `wf-code-cleanup` | `docs/prompts/codebase-cleanup-review.prompt.md` | backing prompt present (repo-local surface; no seed provisions it to targets) |
+
+Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/`. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace).
 
 ## Host launcher contracts
 
@@ -105,7 +128,7 @@ consent output reports them as already present and left unmanaged.
 
 Canonical reviewer/council docs are the source surfaces. `render_agent_surfaces.py` derives its finite destination manifest from `REVIEW_PROTOCOL_CARRIER_REGISTRY` and reconciles one `wave:executable-review-evidence` marker region per enabled carrier through the public `wf render-surfaces` path. Setup, full upgrade, targeted/full refresh, and Wavefoundry self-hosting use that same operation. Missing required canonical carriers are created from installed seeds or a bounded multi-output-owner pointer; Guru and repo-local optional lanes remain existing/enabled-only. The renderer owns only the marked section and preserves project-authored extensions outside it.
 
-Native reviewer wrappers are not discovered by a broad glob. Only an existing `.claude/agents/<registered-role>.md` or `.codex/skills/agent-role-<registered-role>/SKILL.md` derived from a registered canonical role is eligible, plus the canonical Guru wrapper paths `.claude/agents/guru.md` and `.codex/skills/auto-guru/SKILL.md`. Wrappers created during a render are reconciled again before that same render returns. Repo-local docs-contract and release reviewer docs are likewise existing/enabled-only. QA's canonical source is `239-qa-reviewer.prompt.md` → `docs/agents/qa-reviewer.md`; seed 209 remains the single full protocol/checklist.
+Native reviewer wrappers are not discovered by a broad glob. Only an existing `.claude/agents/<registered-role>.md` or `.codex/skills/agent-role-<registered-role>/SKILL.md` derived from a registered canonical role is eligible, plus the canonical Guru wrapper paths `.claude/agents/guru.md` and `.codex/skills/wf-guru/SKILL.md`. Wrappers created during a render are reconciled again before that same render returns. Repo-local docs-contract and release reviewer docs are likewise existing/enabled-only. QA's canonical source is `239-qa-reviewer.prompt.md` → `docs/agents/qa-reviewer.md`; seed 209 remains the single full protocol/checklist.
 
 ## Canonical Factor Docs (`docs/agents/`)
 

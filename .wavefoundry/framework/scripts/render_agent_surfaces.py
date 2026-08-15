@@ -204,7 +204,7 @@ def review_protocol_carriers(repo_root: Path | None = None) -> tuple[ReviewProto
         candidates = (
             f".claude/agents/{role}.md",
             f".codex/skills/agent-role-{role}/SKILL.md",
-        ) + ((".codex/skills/auto-guru/SKILL.md",) if role == "guru" else ())
+        ) + ((".codex/skills/wf-guru/SKILL.md",) if role == "guru" else ())
         for destination in candidates:
             if destination in seen or not (repo_root / destination).is_file():
                 continue
@@ -305,14 +305,60 @@ CLAUDE_GURU_AGENT = dedent(
     """
 )
 
-CODEX_AUTO_GURU_SKILL = dedent(
-    """\
-    ---
-    name: auto-guru
-    description: PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).
-    ---
+# ---------------------------------------------------------------------------
+# Skill registry (wave 1p6lp / change 1p6lo)
+#
+# One declarative registry + one emitter renders every Wavefoundry skill as
+# standard SKILL.md (YAML frontmatter name/description + markdown body) into
+# each ACTIVE skill-supporting host's project-local directory. Skill names
+# live in a `wf-` kebab-case namespace so `/wf` filters a host's command list
+# to the whole family and the names cannot collide with third-party skills in
+# target repos. Bodies are THIN POINTERS to the backing prompt/seed surfaces;
+# workflow content is never inlined here.
+# ---------------------------------------------------------------------------
 
-    # Auto-Guru (Codex skill — optional native surface)
+_SKILL_NAME_PATTERN = re.compile(r"^wf-[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+# Hosts that consume the cross-tool SKILL.md standard. Emission is gated on
+# the host root directory existing — the same presence test the other tier-3
+# surfaces use — so a repo that never enabled a host gains no stray tree.
+# (`.codex` always exists after a render: render_codex_mcp_config writes the
+# baseline `.codex/config.toml` unconditionally before this pass runs.)
+SKILL_HOSTS: "tuple[tuple[str, str], ...]" = (
+    (".codex", ".codex/skills"),
+    (".claude", ".claude/skills"),
+    (".agents", ".agents/skills"),
+)
+
+# Retired by the wave-1p6lp migration onto the registry: the flat,
+# frontmatter-less Claude upgrade skill (invisible to current Claude Code
+# skill discovery) and the pre-namespace Codex guru skill.
+STALE_SKILL_PATHS: "tuple[str, ...]" = (
+    ".claude/skills/upgrade-wave.md",
+    ".codex/skills/auto-guru/SKILL.md",
+)
+
+
+@dataclass(frozen=True)
+class Skill:
+    """One registry entry, rendered as SKILL.md to every active skill host.
+
+    ``requires_doc`` (wave 1ve3a, generalizing the wf-guru gate): when set, the
+    skill emits only where that repo-relative doc exists. The gate follows the
+    CAPABILITY (the backing doc), never a repo identity — e.g. wf-package gates
+    on the packaging prompt, which seed 100 declares public-only/when-present,
+    so it renders in the framework source repository and nowhere else.
+    """
+
+    name: str
+    description: str
+    body: str
+    requires_doc: "str | None" = None
+
+
+WF_GURU_SKILL_BODY = dedent(
+    """\
+    # Wavefoundry Guru (skill — optional native surface)
 
     Canonical rules for **all** hosts: `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and `docs/agents/guru.md`.
 
@@ -324,16 +370,347 @@ CODEX_AUTO_GURU_SKILL = dedent(
 
     1. Read `AGENTS.md` § **Codebase and documentation questions (auto-Guru)**.
     2. Read and follow `docs/agents/guru.md` (classification, retrieval loop, Pass 3, citations).
-    3. MCP server loads automatically from the committed `.codex/config.toml`; attach the `wavefoundry` server from the project-local config.
+    3. Attach the `wavefoundry` MCP server via your host's project-local registration (see the `AGENTS.md` MCP table; Codex loads it automatically from the committed `.codex/config.toml`).
     4. Prefer **`code_ask`** and **`docs_search`** over ad-hoc search when MCP is available.
     5. Complete Pass 3 validation before answering; never paraphrase only the `code_ask` `answer` field.
 
-    ## Codex notes
+    ## Notes
 
     - Operators do not need to say **Guru**; this skill is the default path for code/doc questions.
     - Explicit shortcut **Guru** remains in `docs/prompts/index.md`.
     """
 )
+
+WF_UPGRADE_SKILL_BODY = dedent(
+    """\
+    # Upgrade Wavefoundry
+
+    **Backwards-compatible operator phrases:** *Upgrade wave framework*, *Upgrade wave context* — same checklist.
+
+    Use this checklist when intentionally editing the wave framework or repo-local wave surfaces.
+
+    ## Gate sequence
+
+    1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.prompt.md`.
+    2. Produce a file-level patch plan and wait for operator approval before broad framework-maintenance edits.
+    3. Create or update `.wavefoundry/guard-overrides.json` before editing:
+       - `.wavefoundry/framework/`
+       - `docs/prompts/`
+       - `AGENTS.md`
+       - tracked hook config files
+    4. Set `framework_edit_allowed.enabled: true` after the operator approves the file-level plan.
+    5. Set `seed_edit_allowed.enabled: true` before editing any `.wavefoundry/framework/seeds/*.prompt.md` file.
+    6. Delete the override file or set both flags back to `false` when the maintenance pass is complete.
+
+    ## Verification sequence
+
+    1. Run framework tests when the test suite is present (development installs only — not included in distribution packs): `python3 -B .wavefoundry/framework/scripts/run_tests.py` (skip if `run_tests.py` does not exist)
+    2. `wf render-surfaces` (hooks, MCP, bin launchers, and `render_agent_surfaces.py` when `docs/agents/guru.md` exists)
+    3. Backfill `AGENTS.md` auto-Guru tier-1 sections per `seed-050` when missing; ensure `docs/agents/guru.md` exists; re-run step 2 if tier-1 was just added
+    4. `./.wavefoundry/bin/wf docs-gardener` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-gardener` (or MCP `wf_garden_docs`)
+    5. `./.wavefoundry/bin/wf docs-lint` — native Windows: `.\\.wavefoundry\\bin\\wf.cmd docs-lint` (or MCP `wf_validate_docs`)
+
+    ## Guardrails
+
+    - Keep inventory and drift-detection lanes read-only unless explicit write ownership was granted.
+    - Update existing canonical docs in place instead of creating parallel files when a topical home already exists.
+    - Preserve journals, personas, wave archives, and historical records unless the upgrade explicitly retires a live replacement surface.
+    """
+)
+
+def _thin_pointer_body(title: str, prompt_doc: str, lines: "tuple[str, ...]") -> str:
+    """Build a thin-pointer skill body: the workflow stays in the prompt doc.
+
+    Wave 1p6lp (1p6lw) design contract: skill bodies never inline workflow
+    content, so they cannot drift from the seeds/prompts that own behavior.
+    """
+
+    bullet_block = "\n".join(f"- {line}" for line in lines)
+    return (
+        f"# {title} (Wavefoundry skill)\n\n"
+        f"This skill is a thin pointer: the workflow lives in `{prompt_doc}`. "
+        "Read that document and follow it; do not improvise the steps from this summary.\n\n"
+        f"{bullet_block}\n"
+    )
+
+
+WF_COUNCIL_SKILL_BODY = dedent(
+    """\
+    # Convene a review council (Wavefoundry skill)
+
+    This skill is a router: pick the review form that fits the artifact, then read and follow that form's prompt doc. The full chooser table lives in `docs/prompts/archetype-council.prompt.md`.
+
+    - Code, architecture, or trust-boundary artifact: **Council review**, `docs/prompts/council-review.prompt.md`.
+    - Prose, naming, AC formulation, or decision narrative: **Archetype review**, `docs/prompts/archetype-council.prompt.md`.
+    - One sharp adversarial challenge on a single artifact: **Red-team review**, `docs/prompts/red-team-review.prompt.md`.
+    - These on-demand reviews record no lifecycle signoffs and satisfy no gate; when a prompt directs recording against a wave, use the `wf_review_event` MCP tool.
+    - Boundary: the open wave's REQUIRED review lanes run under Review wave (`wf_review_wave`), and a change doc heading for admission gets Interrogate this plan; this router is for on-demand reviews outside both.
+    """
+)
+
+SKILL_REGISTRY: "tuple[Skill, ...]" = (
+    Skill(
+        name="wf-plan-feature",
+        description="Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The Plan feature workflow.",
+        body=_thin_pointer_body(
+            "Plan a change",
+            "docs/prompts/plan-feature.prompt.md",
+            (
+                "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (feature, bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
+                "Gate reminder: planning writes docs only; no repository code edits until the stage gate (change doc, wave admission, recorded readiness) is satisfied.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-prepare-wave",
+        description="Confirm a wave's readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). The Prepare wave / Ready wave workflow.",
+        body=_thin_pointer_body(
+            "Prepare a wave",
+            "docs/prompts/prepare-wave.prompt.md",
+            (
+                "Prefer the `wf_prepare_wave` MCP tool: `dry_run` to validate, `ready` to record readiness without opening, `create` to prepare and open.",
+                "The prepare-phase council review runs as the last prepare step; `wave-council-readiness` must be recorded before the wave readies.",
+                "Gate reminder: only one wave may be OPEN at a time; readiness alone never takes that slot.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-implement-wave",
+        description="Open a readied wave and coordinate multi-change implementation with real-time AC and task tracking. The Implement wave workflow.",
+        body=_thin_pointer_body(
+            "Implement a wave",
+            "docs/prompts/implement-wave.prompt.md",
+            (
+                "Prefer the `wf_implement_wave` MCP tool to open the readied wave and receive the ordered change list and watchpoints.",
+                "Gate reminder: the stage gate applies before any code edit (change doc, wave admission, recorded readiness); mark ACs and tasks as work completes, not at wave end.",
+                "Single-change variant: Implement feature (`docs/prompts/implement-feature.prompt.md`).",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-review-wave",
+        description="Run the open wave's required review lanes and record typed review evidence ahead of closure. The Review wave workflow.",
+        body=_thin_pointer_body(
+            "Review a wave",
+            "docs/prompts/review-wave.prompt.md",
+            (
+                "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
+                "Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-close-wave",
+        description="Finalize and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.",
+        body=_thin_pointer_body(
+            "Close a wave",
+            "docs/prompts/close-wave.prompt.md",
+            (
+                "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
+                'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
+                "Single-change variant: Finalize feature (`docs/prompts/finalize-feature.prompt.md`).",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-interrogate-plan",
+        description="Stress-test a change doc before wave admission by walking every unresolved decision branch one question at a time. The Interrogate this plan workflow.",
+        body=_thin_pointer_body(
+            "Interrogate a plan",
+            "docs/prompts/interrogate-plan.prompt.md",
+            (
+                "Load the change doc with the `wf_get_change` MCP tool; the interrogation itself is prompt-driven.",
+                "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-evaluate-decision",
+        description="Structured evaluation of an ADR-shaped decision between two named options, running a red-team pass, council review, and operator interview, ending in an Architecture Decision Record. Not for ordinary in-flight decisions. The Evaluate decision workflow.",
+        body=_thin_pointer_body(
+            "Evaluate a decision",
+            "docs/prompts/evaluate-decision.prompt.md",
+            (
+                "The workflow is prompt-driven (no dedicated MCP tool) and ends in an Architecture Decision Record.",
+                "Frame two specific options before running; a poorly framed question produces a confident but useless evaluation.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-memory-review",
+        description="Review and apply eligible agent-memory consolidation, archival, and purge per the memory lifecycle gates. The Memory review workflow.",
+        body=_thin_pointer_body(
+            "Review memories",
+            "docs/prompts/memory-review.prompt.md",
+            (
+                "Prefer the `memory_reconcile`, `memory_consolidate`, and `memory_purge` MCP tools.",
+                "Gate reminder: consolidation, archival, and purge apply only per the prompt's eligibility gates; nothing is purged on judgment alone.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-pause-wave",
+        description="Park the current session's wave state in the durable handoff artifact when stopping work or handing off. The Pause wave workflow.",
+        body=_thin_pointer_body(
+            "Pause a wave",
+            "docs/prompts/pause-wave.prompt.md",
+            (
+                "Prefer the `wf_pause_wave` MCP tool; it also closes any open edit gates.",
+                "Write the durable handoff artifact; do not improvise a summary in its place.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-council",
+        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. Not the open wave's required lanes (Review wave) and not a change-doc stress test (Interrogate this plan).",
+        body=WF_COUNCIL_SKILL_BODY,
+    ),
+    Skill(
+        name="wf-guru",
+        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).",
+        body=WF_GURU_SKILL_BODY,
+        requires_doc=GURU_ROLE_REL,
+    ),
+    Skill(
+        name="wf-upgrade",
+        description="Operator checklist for intentionally editing the Wave Framework or repo-local wave surfaces (Upgrade Wavefoundry). Framework maintenance only, never product code changes.",
+        body=WF_UPGRADE_SKILL_BODY,
+    ),
+    Skill(
+        name="wf-package",
+        description="Build the Wavefoundry framework distribution pack with build_pack.py (Package Wavefoundry). Available only where the packaging prompt doc exists, normally the framework source repository.",
+        body=_thin_pointer_body(
+            "Package Wavefoundry",
+            "docs/prompts/package-wavefoundry.prompt.md",
+            (
+                "Prefer `--release` for a published release; a bare `--version` build only packages. `build_pack.py` hard-fails without a matching `## [version]` CHANGELOG section, so write the changelog first.",
+                "Gate reminder: publishing a release is operator-owned; never push tags or publish without explicit operator instruction in the current session.",
+                "The ordered verification commands live in `docs/contributing/build-and-verification.md`.",
+            ),
+        ),
+        requires_doc="docs/prompts/package-wavefoundry.prompt.md",
+    ),
+    Skill(
+        name="wf-code-cleanup",
+        description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) and not the open wave's required lanes (wf-review-wave).",
+        body=_thin_pointer_body(
+            "Codebase cleanup review",
+            "docs/prompts/codebase-cleanup-review.prompt.md",
+            (
+                "The sweep is graph-based and recommend-only; it proposes, the operator disposes.",
+                "Acting on a recommendation is ordinary lifecycle work (plan, admit, implement); never an inline mass deletion.",
+            ),
+        ),
+        requires_doc="docs/prompts/codebase-cleanup-review.prompt.md",
+    ),
+)
+
+
+def skill_document(skill: Skill) -> str:
+    """Assemble the standard SKILL.md text for one registry entry."""
+
+    return (
+        f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{skill.body}"
+    )
+
+
+def _skill_output_destinations(repo_root: Path) -> list[str]:
+    """Every skill path the registry pass may write, honoring both gates."""
+
+    destinations: list[str] = []
+    for skill in SKILL_REGISTRY:
+        if skill.requires_doc and not (repo_root / skill.requires_doc).is_file():
+            continue
+        for host_root, skills_dir in SKILL_HOSTS:
+            if (repo_root / host_root).is_dir():
+                destinations.append(f"{skills_dir}/{skill.name}/SKILL.md")
+    return destinations
+
+
+def render_skills(repo_root: Path) -> list[str]:
+    """Render every registry skill to each active skill host.
+
+    Returns changed paths only (write_text compares bytes first). Runs on
+    every render — per-skill doc-presence gates (requires_doc) decide skill
+    eligibility; host-dir presence decides where each eligible skill lands.
+    Also removes the pre-registry stale paths so migrated skills never
+    coexist with their old locations.
+    """
+
+    for skill in SKILL_REGISTRY:
+        if not _SKILL_NAME_PATTERN.fullmatch(skill.name):
+            raise RuntimeError(
+                f"skill name violates the wf- kebab-case policy: {skill.name!r}"
+            )
+    written: list[str] = []
+    root = repo_root.resolve()
+    for rel in STALE_SKILL_PATHS:
+        stale = repo_root / rel
+        # Containment before deletion: unlink through a symlinked component
+        # would delete OUTSIDE the repository. A tampered legacy wrapper path
+        # fails loudly (the same refusal contract the old write path had)
+        # rather than being silently skipped or followed.
+        try:
+            resolved_parent = stale.parent.resolve(strict=False)
+        except OSError as exc:
+            raise RuntimeError(
+                f"stale skill path cannot be resolved safely: {rel}: {exc}"
+            ) from exc
+        if stale.is_symlink() or not resolved_parent.is_relative_to(root):
+            raise RuntimeError(
+                f"stale skill path escapes the repository root through a symlink: {rel}"
+            )
+        if stale.is_file():
+            stale.unlink()
+            written.append(rel)
+            parent = stale.parent
+            # Remove the emptied per-skill directory (never the shared
+            # skills/ root, which other skills may populate).
+            if parent.name != "skills":
+                try:
+                    parent.rmdir()
+                except OSError:
+                    pass
+    for skill in SKILL_REGISTRY:
+        if skill.requires_doc and not (repo_root / skill.requires_doc).is_file():
+            continue
+        for host_root, skills_dir in SKILL_HOSTS:
+            if not (repo_root / host_root).is_dir():
+                continue
+            rel = f"{skills_dir}/{skill.name}/SKILL.md"
+            target = repo_root / rel
+            document = skill_document(skill)
+            # A skill file can also be a review carrier (wf-guru on Codex):
+            # the reconcile passes own marked regions inside it. Graft any
+            # existing well-formed regions into the fresh template with the
+            # SAME upsert functions the reconcilers use, so a re-render is
+            # byte-identical and the changed-only manifest stays quiet.
+            if target.is_file():
+                try:
+                    existing = target.read_text(encoding="utf-8")
+                except OSError:
+                    existing = ""
+                protocol_block = _extract_marked_block(
+                    existing, REVIEW_PROTOCOL_MARKER_BEGIN, REVIEW_PROTOCOL_MARKER_END
+                )
+                if protocol_block is not None:
+                    document = (
+                        _upsert_review_protocol_region(document, protocol_block)
+                        or document
+                    )
+                policy_block = _extract_marked_block(
+                    existing,
+                    REVIEW_POLICY_SURFACE_MARKER_BEGIN,
+                    REVIEW_POLICY_SURFACE_MARKER_END,
+                )
+                if policy_block is not None:
+                    document = (
+                        _upsert_review_policy_region(document, policy_block)
+                        or document
+                    )
+            if write_text(target, document):
+                written.append(rel)
+    return written
 
 CODEX_MCP_CONFIG_TOML = dedent(
     """\
@@ -917,6 +1294,23 @@ def _upsert_review_policy_region(text: str, block: str) -> str | None:
     return text + separator + "\n" + marked + "\n"
 
 
+def _extract_marked_block(text: str, begin: str, end: str) -> "str | None":
+    """Return the inner block of a single well-formed marker region, else None."""
+
+    if text.count(begin) != 1 or text.count(end) != 1:
+        return None
+    match = re.search(
+        r"^"
+        + re.escape(begin)
+        + r"[ \t\r]*\n(.*?)\n"
+        + re.escape(end)
+        + r"[ \t\r]*(?=\n|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    return match.group(1) if match else None
+
+
 def _context_efficiency_carrier_block() -> str:
     """Load the canonical carrier without duplicating its prose in the renderer.
 
@@ -1086,13 +1480,16 @@ def _write_review_carrier_text(path: Path, content: str) -> None:
 
 
 def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
-    """Return every non-registry agent destination this pass may write."""
+    """Return every non-registry agent destination this pass may write.
+
+    Skill paths are not listed here: the skill registry pass owns them and
+    reports its own destinations via ``_skill_output_destinations`` (which the
+    preflight consults regardless of Guru availability).
+    """
 
     if not guru_available(repo_root):
         return []
-    destinations = [
-        ".codex/skills/auto-guru/SKILL.md",
-    ]
+    destinations: list[str] = []
     if (repo_root / ".cursor").exists():
         destinations.append(".cursor/rules/auto-guru.mdc")
     if (repo_root / ".claude").exists():
@@ -1117,6 +1514,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
         *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
+        *_skill_output_destinations(repo_root),
     ]
     for destination in dict.fromkeys(destinations):
         _contained_review_carrier_path(repo_root, destination)
@@ -1304,6 +1702,11 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # return so setup/upgrade/render can repair review carriers in repositories
     # that intentionally do not expose Guru.
     preflight_agent_surface_paths(repo_root)
+    # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
+    # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
+    # same render, and BEFORE the Guru gate because lifecycle skills are not
+    # Guru-gated (per-skill gates live in the registry).
+    skills_written = render_skills(repo_root)
     lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root)
     # The phase-0c in-process reconciler can still be old code on the upgrade
     # that installs this release. Replay only its shared upgrade-policy marker
@@ -1321,6 +1724,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     framework_written = list(
         dict.fromkeys(
             [
+                *skills_written,
                 *lifecycle_written,
                 *upgrade_policy_written,
                 *review_written,
@@ -1366,8 +1770,8 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
         _tier3_write(claude_agent, CLAUDE_GURU_AGENT)
 
-    codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
-    _tier3_write(codex_skill, CODEX_AUTO_GURU_SKILL)
+    # Wave 1p6lp: the Codex guru skill is registry-rendered (wf-guru) by
+    # render_skills above; the ad-hoc CODEX_AUTO_GURU_SKILL write is retired.
 
     # Root @import bridge — make CLAUDE.md a real @AGENTS.md import (1p5xc).
     # The single, contained @import; replaces the prose "read AGENTS.md first"

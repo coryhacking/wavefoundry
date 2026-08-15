@@ -46,6 +46,8 @@ These invariants apply in every mode. A red-team output that violates them is no
 
 These are common operating patterns. They are not an exhaustive ceiling: when a specific task calls for a better-grounded challenger lens than any named mode provides, apply that lens directly. The invariants above still apply.
 
+The standalone modes below are operator-invocable directly via the **Red-team review** command (`docs/prompts/red-team-review.prompt.md`, seed `177`), which records no signoffs and satisfies no gate.
+
 ### `improvement-review`
 
 Given a feature, change, or plan: identify what is missing, what risks exist, and how it could be meaningfully improved. This is the default mode when the question is "how can this be better?" or "are there any gaps?" rather than "what's wrong?" Lead with constructive findings — missing pieces, unaddressed edge cases, better approaches, risks worth mitigating — before adversarial findings. Output: a prioritised list of improvements with concrete suggestions, followed by any risks or gaps that were not already addressed.

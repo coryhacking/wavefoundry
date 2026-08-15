@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-15
 
 **Shortcut phrases:** `Archetype review` · `Archetype council`
 
@@ -14,7 +14,7 @@ Run a stance-based council review on an artifact whose load-bearing surface is t
 
 Reach for Archetype Council when the artifact under review is **text precision**, **prose**, **decision narrative**, **naming**, or **AC formulation** — situations where the Wave Council's specialist seats (architecture, security, qa, reality-checker) are in the wrong shape and the role-based lens leaves orthogonal axes unexercised.
 
-Reach for **`red-team`** when a single sharp adversarial challenge is the right shape.
+Reach for **Red-team review** (`docs/prompts/red-team-review.prompt.md`) when a single sharp adversarial challenge is the right shape.
 
 Reach for the **Wave Council** when the artifact is code, architecture, trust-boundary, or implementation-shaped. Wave Council remains mandatory at Prepare wave and Review wave when `wave_review.enabled` is true — Archetype Council does not replace it.
 
@@ -23,7 +23,7 @@ Reach for the **Wave Council** when the artifact is code, architecture, trust-bo
 | Pressure-test an AC table for testable propositions | **Archetype review** |
 | Sharpen a README draft for visitor reception | **Archetype review** (with Hemingway swap) |
 | Stress-test an ADR's comparison logic | **Archetype review** (with Munger swap) |
-| Get one sharp adversarial challenge before commit | **`red-team`** |
+| Get one sharp adversarial challenge before commit | **Red-team review** |
 | Satisfy `wave-council-readiness` for Prepare wave | **Wave Council** (`Council review`) — Archetype Council does not record this signoff |
 | Review a code change for architecture / security / qa | **Wave Council** (`Council review`) |
 
@@ -86,7 +86,7 @@ The findings are preserved in `1p318`'s Decision Log under "Three-persona review
 | Command | When to use |
 |---|---|
 | **Archetype review** | Optional, operator-invoked, stance-based; AC text / prose / decision narrative / naming |
-| **`red-team`** | Single adversarial stance, in isolation; or Phase 1 primer to Wave Council |
+| **Red-team review** (`docs/prompts/red-team-review.prompt.md`) | Single adversarial stance, in isolation; or Phase 1 primer to Wave Council |
 | **Wave Council** (`Council review`) | Role-based specialist seats; required at Prepare wave / Review wave when `wave_review.enabled`; code / architecture / trust-boundary work |
 | **Prepare wave** | Lifecycle gate — Wave Council readiness pass is embedded; records `wave-council-readiness` signoff |
 | **Review wave** | Lifecycle gate — Wave Council delivery pass is embedded; records `wave-council-delivery` signoff |

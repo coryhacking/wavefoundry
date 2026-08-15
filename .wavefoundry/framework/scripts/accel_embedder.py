@@ -316,9 +316,13 @@ def _resolve_model_files(model_name: str) -> Optional[tuple[str, str]]:
     otherwise uses the model's fastembed-resident ONNX, downloading it on a cold cache so the GPU
     path doesn't degrade to CPU when prewarm was skipped.
 
-    Since wave 1v0r0 registered arctic (``:72``), BOTH shipped models resolve through the clean
-    export, so the resident-graph branch below is unreachable for the current model set and only
-    runs for an unregistered model. This does not make the fastembed cache redundant:
+    The resident-graph branch below is LIVE on two routes, even with every shipped model
+    registered in ``CLEAN_ONNX_SOURCES``: models with no registry entry, and registered models
+    whose clean-export fetch FAILS (``_resolve_clean_onnx`` degrades to ``None`` on an offline
+    cold cache or CA-trust failure and logs "falling back to the resident model path"). The
+    offline-fallback tests execute this branch for registered models; do not mislabel it dead
+    (wave 1ve3e corrected exactly that claim after it propagated into a removal
+    recommendation). The fastembed cache is independently load-bearing too:
     ``indexer._get_embedder`` reaches fastembed by its own path for small incremental runs and
     when accel is unavailable on a GPU host.
     """

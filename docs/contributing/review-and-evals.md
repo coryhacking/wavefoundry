@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-08-15
 
 ## Review Lane Summary
 
@@ -43,7 +43,7 @@ Seed `209-agent-harness-core.prompt.md` is the only full executable-review-evide
 | Seed 100 | `docs/prompts/review-wave.prompt.md`; `docs/prompts/agents/review-wave.prompt.md`; `docs/prompts/create-wave.prompt.md` | Seed 100 + public renderer | Seeds 150 / 160 + public renderer | `PublicSetupReviewProtocolIntegrationTests`; `PublicUpgradeReviewProtocolIntegrationTests` |
 | Seeds 050 + 209 | Existing/enabled `docs/agents/docs-contract-reviewer.md`; `docs/agents/release-reviewer.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
 | Seed 209 | `docs/contributing/review-and-evals.md` | Public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
-| Registered canonical role | Existing/enabled `.claude/agents/<role>.md`; `.codex/skills/agent-role-<role>/SKILL.md`; canonical Guru wrappers `.claude/agents/guru.md` and `.codex/skills/auto-guru/SKILL.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
+| Registered canonical role | Existing/enabled `.claude/agents/<role>.md`; `.codex/skills/agent-role-<role>/SKILL.md`; canonical Guru wrappers `.claude/agents/guru.md` and `.codex/skills/wf-guru/SKILL.md` | Seed 050 + public renderer | Seeds 150 / 160 + public renderer | `ReviewProtocolCarrierRegistryTests` |
 | Seed 209 + `review_evidence.py` + `wf_review_wave` + `wf_review_event` | Seed 209 owns the human protocol and bounded same-root-cause review rule. `review_evidence.py` owns typed state, vocabulary, and the one structured authority/action projection. `wf_review_wave` is the sole guided inspection entry point and full-validation owner. `wf_review_event` owns typed writes, the post-commit continuation, and the forensic `list` presentation. The fixed sibling `events.jsonl` remains the sole machine authority; generated Markdown is presentation only. | Seed 100 / `wf_create_wave`; framework MCP server | Direct-ledger validation (missing/noncanonical/schema/relationship failures reject without Git); typed append; Prepare-owned policy receipt in the same ledger; protocol-2 upgrade reprojects only non-closed waves; successful writes derive continuation without rerunning validation | `ReviewEvidenceStateMachineTests`; `GuidedReviewAuthorityProjectionTests`; `ReviewEvidenceListEventTests`; `WaveLifecycleMutationTests`; `WaveCreateScaffoldAlignmentTests`; build-pack/setup/upgrade distribution fixtures; rollback-boundary negative control; live-surface deletion census |
 
 Fresh setup, full upgrade, direct `wf render-surfaces`, and self-host refresh converge on that renderer operation. Missing required canonical carriers are materialized from their installed seeds (or a bounded bootstrap pointer for multi-output owners); Guru, conditional repo-local reviewers, and arbitrary native wrappers remain existing/enabled-only. Newly created canonical Guru wrappers are reconciled after materialization in the same render pass. Malformed markers fail safe rather than authorizing whole-file replacement.

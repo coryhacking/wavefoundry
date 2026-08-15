@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-13
+Last verified: 2026-08-15
 
 ## Verification Commands
 
@@ -219,7 +219,7 @@ Agents running **Upgrade wave framework** must follow `docs/prompts/upgrade-wave
 2. Backfill `AGENTS.md` tier-1 sections (**Codebase and documentation questions (auto-Guru)**, **Agent platform routing**) when missing.
 3. Ensure `docs/agents/guru.md` exists; migrate legacy CIA paths when needed.
 4. Re-run the renderer after tier-1 backfill if it was just added.
-5. Confirm generated files: `.codex/skills/auto-guru/SKILL.md`, `.codex/config.toml` (Codex MCP registration); `.cursor/rules/auto-guru.mdc` and `.claude/agents/guru.md` when those host dirs exist; tier-2 marker blocks on thin pointers per `docs/agents/platform-mapping.md`.
+5. Confirm generated files: `.codex/skills/wf-guru/SKILL.md` (registry-rendered; pre-namespace `auto-guru/` is stale-cleaned), `.codex/config.toml` (Codex MCP registration); `.cursor/rules/auto-guru.mdc` and `.claude/agents/guru.md` when those host dirs exist; tier-2 marker blocks on thin pointers per `docs/agents/platform-mapping.md`.
 6. Do not hand-edit `<!-- wave:auto-guru begin` … `end -->` regions — fix templates in `render_agent_surfaces.py` instead.
 
 **Upgrade index rule:** the pack ships framework **source only** — there is no framework semantic index in it. There is a single semantic index (the project index at `.wavefoundry/index/`), and framework seeds fold into that project docs index at setup/upgrade. On an ordinary target-repo upgrade, update the project index after restarting the MCP server; a `CHUNKER_VERSION` bump forces a full rebuild.

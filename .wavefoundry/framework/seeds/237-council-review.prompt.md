@@ -13,6 +13,8 @@ Run a full Wave Council review on any artifact — a plan, implementation, decis
 
 > **Note:** Standalone council reviews are advisory. They do not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
 
+> **Related:** for a single adversarial pass on one artifact without convening a council, use **Red-team review** (`docs/prompts/red-team-review.prompt.md`, seed `177`) — it likewise records no signoffs and satisfies no gate.
+
 ---
 
 ## Protocol

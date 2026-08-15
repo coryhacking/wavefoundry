@@ -6,6 +6,62 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Wavefoundry skills: the operator lifecycle is now `/wf`-discoverable in skill-supporting
+  hosts.** One skill registry renders standard `SKILL.md` files into each active host directory
+  (`.codex/skills/`, `.claude/skills/`, `.agents/skills/`) with a `wf-` kebab-case namespace, so
+  typing `/wf` filters the host's command list to the whole family. Twelve skills ship: the
+  lifecycle set (`wf-plan-feature`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`,
+  `wf-close-wave`, `wf-interrogate-plan`, `wf-evaluate-decision`, `wf-memory-review`,
+  `wf-pause-wave`), a review router (`wf-council`), and the two migrated skills (`wf-guru`,
+  `wf-upgrade`). Bodies are thin pointers to the backing `docs/prompts/` workflow docs, so
+  skills cannot drift from the prompts that own behavior. The old flat
+  `.claude/skills/upgrade-wave.md` (invisible to current Claude Code skill discovery) and the
+  pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render, with a containment
+  check that refuses symlink-escaping legacy paths instead of deleting through them.
+  Wave 1p6lp / changes 1p6lo, 1p6lw.
+- **New operator command: Red-team review (`Red team this`).** Runs the red-team specialist in
+  isolation against one artifact (plan, code, ADR, design, prose, workflow) using its standalone
+  modes, with `improvement-review` as the default lens. The command records no signoffs and
+  satisfies no gate; the archetype and council prompts now route their "reach for red-team"
+  guidance at it. Wave 1p6lp / change 1v877.
+- **Doc-gated skills: a skill can now follow a capability instead of rendering everywhere.**
+  The registry's guru-specific gate generalized into `requires_doc`, so a skill emits only in
+  repositories that carry its backing prompt doc. Two entries use it: `wf-package` (Package
+  Wavefoundry; renders only where the packaging prompt exists, normally the framework source
+  repository) and `wf-code-cleanup` (the recommend-only whole-codebase maintainability sweep).
+  Target repositories are proven unaffected in both directions by test, and a gated skill can
+  never render where its own pointer doc is missing. Wave 1ve3a / changes 1vbpl, 1ve3b.
+
+### Fixed
+
+- **The `accel_embedder` docstring no longer mislabels the resident-model fallback as unreachable.**
+  `_resolve_model_files` claimed its resident-graph branch was dead once every shipped model was
+  registered for a clean ONNX export; in fact the branch is the live degradation route whenever a
+  clean-export fetch fails (offline cold cache, CA-trust failure), and the offline-fallback tests
+  execute it. The docstring now names both routes and cites the fallback semantics, so a future
+  cleanup pass cannot re-derive a removal verdict from it. Comment-only; no behavior change.
+  Wave 1ve3e / change 1ve3c.
+- **Seed 160 no longer directs upgrades at agents-prompt bodies that do not exist.** The upgrade
+  seed named `docs/prompts/agents/architecture-reviewer.prompt.md` as a backfill target and
+  `docs/prompts/agents/upgrade-wavefoundry.md` (which exists nowhere) as expected-present. The
+  specialist-body list now carries the directory's actual optional, reconcile-when-present
+  semantics and the ghost reference is removed, so upgrade agents in target repos stop searching
+  for files that were never provisioned. Wave 1ve3e / change 1ve3d.
+- **The cleanup review distinguishes two kinds of "dead" and `code_impact` stops reporting a
+  silent empty for test callers.** The code-reviewer's maintainability sweep now separates
+  node reachability (no caller the graph can see) from condition reachability (a fallback or
+  degradation branch whose guard "is never true"), and for the second class requires
+  enumerating every producer of the guarding sentinel and checking the module's own tests
+  before recommending removal, treating any prose claim of unreachability as a hypothesis to
+  falsify. `code_impact(include_tests=true)` now attaches the advisory `test_callers_not_visible`
+  when it finds no test-path callers, because index-excluded test trees and mock-driven
+  coverage are invisible to call edges; the affected list is unchanged and `include_tests=false`
+  is untouched. Wave 1vbuu / change 1vbut.
+
 ## [1.16.4] - 2026-08-13
 
 ### Fixed

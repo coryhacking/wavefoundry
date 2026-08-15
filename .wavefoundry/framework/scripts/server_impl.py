@@ -23571,6 +23571,29 @@ def _code_impact_graph_response(
     )
     if _mem_advisories:
         _extra["memory_advisories"] = _mem_advisories
+    # Wave 1vbuu (1vbut): an empty test-caller set under include_tests=true is
+    # NOT evidence of absent test coverage. Two invisibility classes make it a
+    # silent empty: (a) test trees the index excludes at build time (this
+    # repository's own .wavefoundry/framework/scripts/tests/ is never indexed),
+    # and (b) mock- or fixture-driven coverage (patch.object on a parent) that
+    # produces no `calls` edge to the symbol. Say so, advisory-only, exactly in
+    # the zero-test-affected state; a real test-path hit suppresses it and
+    # include_tests=false is untouched.
+    _diags: list[dict[str, Any]] = []
+    if include_tests and not any(
+        _is_test_path(str(a.get("source_file") or "")) for a in affected_enriched
+    ):
+        _diags.append(_diagnostic(
+            "test_callers_not_visible",
+            "include_tests=true found no test-path callers, but an empty result does not prove "
+            "absent test coverage: test trees excluded from the index at build time carry no "
+            "nodes, and mock- or fixture-driven coverage (e.g. patch.object on a caller) produces "
+            "no `calls` edge. Corroborate with code_keyword over the test tree for the symbol name "
+            "before treating this symbol as untested.",
+            recovery_tools=["code_keyword"],
+            recovery_usage=f"code_keyword(query={symbol.rsplit('::', 1)[-1]!r}, glob='**/test*')",
+            advisory=True,
+        ))
     return _attach_auto_rebuild_diag(
         _response(
             "ok",
@@ -23595,6 +23618,7 @@ def _code_impact_graph_response(
                 # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence counts.
                 "attribution_counts_by_language": _compute_attribution_counts_by_language(impact_edges, index),
             },
+            diagnostics=_diags or None,
             next_tools=["code_callgraph", "code_read"],
             usage=f"code_callgraph(symbol={symbol!r}, direction='both')",
         ),

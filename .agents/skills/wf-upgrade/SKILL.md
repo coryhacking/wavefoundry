@@ -1,4 +1,9 @@
-# Claude skill: Upgrade Wavefoundry
+---
+name: wf-upgrade
+description: Operator checklist for intentionally editing the Wave Framework or repo-local wave surfaces (Upgrade Wavefoundry). Framework maintenance only, never product code changes.
+---
+
+# Upgrade Wavefoundry
 
 **Backwards-compatible operator phrases:** *Upgrade wave framework*, *Upgrade wave context* — same checklist.
 

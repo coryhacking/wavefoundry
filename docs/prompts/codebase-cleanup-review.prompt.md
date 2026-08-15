@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-16
+Last verified: 2026-08-15
 
 **Shortcut phrases:** `Codebase cleanup review` · `Dead code review` · `Maintainability sweep`
 
@@ -27,6 +27,8 @@ With the MCP attached it uses the index, which is far more reliable than scannin
 ## Aggressive but SAFE
 
 Zero static references does **not** mean dead. Before recommending a deletion, the review rules out the surfaces invisible to static analysis: framework registration / decorators / DI, reflection, plugin / entry-point / hook registration, callbacks, symbols referenced by string or serialized name, test fixtures, and the public API. Empty graph results are corroborated with `code_references` / `code_keyword`, and heuristic (EXTRACTED) graph edges are never trusted alone.
+
+**Two reachability classes, two probes.** The rule above is **node reachability** (a caller the graph cannot see; answered by `code_references` + `code_callhierarchy`). A conditionally-guarded branch (fallback, degradation, retry, cold-cache, compatibility path) is **condition reachability**: it has a caller, and the removal argument is "the guard is never true," which no call graph answers. Before recommending its removal: enumerate **every producer of the sentinel** that routes into it (every `return None`, every caught exception, every error-path exit of the preferred route), grep the module's **own tests** for fixtures naming the branch (mock-driven coverage produces no `calls` edge, and `code_impact(include_tests=true)` reports it as `test_callers_not_visible`), and treat any **prose claim of unreachability** (docstring, comment, prior sweep) as a hypothesis to falsify, never as corroboration.
 
 ## Output
 

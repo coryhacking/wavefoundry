@@ -18172,8 +18172,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("wf_prepare_wave_response", "_diagnostic", "ac_priority_unpopulated"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
                 ("wf_prepare_wave_response", "_review_policy_receipt_diagnostics", "<helper-call>"),
+                # Wave 1vbuu (1vbut): code_impact's test-visibility note is a
+                # read-only retrieval advisory on a query tool, not a lifecycle
+                # gate; it can soften nothing because code_impact gates nothing.
+                ("_code_impact_graph_response", "_diagnostic", "test_callers_not_visible"),
             },
-            "exactly these three sites may be advisory. A tag added, removed, or "
+            "exactly these four sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
             "does not -- moving it onto missing_wave_council_signoff or "
             "another_wave_active would otherwise open the readiness stage gate "
@@ -23249,6 +23253,64 @@ class TestCodeImpactIncludeTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         affected_ids = {row["node_id"] for row in result["data"]["affected"]}
         self.assertIn("tests/test_utils.py::test_helper", affected_ids)
+
+    # Wave 1vbuu (1vbut): the `test_callers_not_visible` advisory fires ONLY when
+    # include_tests=true finds zero test-path callers. Three states:
+    #   (1) include_tests=true + a test-path hit  -> no diagnostic (positive control)
+    #   (2) include_tests=false                   -> no diagnostic (response unchanged)
+    #   (3) include_tests=true + no test-path hit -> diagnostic present, advisory
+    @staticmethod
+    def _codes(result):
+        return {d.get("code") for d in (result.get("diagnostics") or [])}
+
+    def test_test_callers_visible_hit_suppresses_diagnostic(self):
+        result = self.srv.code_impact_response(
+            self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=True
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("test_callers_not_visible", self._codes(result))
+
+    def test_include_tests_false_never_emits_visibility_diagnostic(self):
+        result = self.srv.code_impact_response(
+            self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=False
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertNotIn("test_callers_not_visible", self._codes(result))
+
+    def test_no_test_callers_emits_advisory_diagnostic(self):
+        # Rebuild the graph with a NON-test caller only: the symbol is reachable
+        # (one caller) but no test-path node exists, the wave-1ve3e state.
+        import json
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        payload = {
+            "schema_version": "1",
+            "builder_version": "1",
+            "layer": "project",
+            "nodes": [
+                {"id": "src/utils.py::helper", "label": "helper", "kind": "function", "source_file": "src/utils.py", "layer": "project"},
+                {"id": "src/app.py::main", "label": "main", "kind": "function", "source_file": "src/app.py", "layer": "project"},
+            ],
+            "edges": [
+                {"source": "src/app.py::main", "target": "src/utils.py::helper", "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+            ],
+            "counts": {"files": 2, "nodes": 2, "edges": 1},
+        }
+        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        result = self.srv.code_impact_response(
+            self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=True
+        )
+        self.assertEqual(result["status"], "ok", result)
+        # The non-test caller is still reported: the diagnostic qualifies the
+        # empty TEST set, it does not empty the response.
+        affected_ids = {row["node_id"] for row in result["data"]["affected"]}
+        self.assertIn("src/app.py::main", affected_ids)
+        diags = [d for d in (result.get("diagnostics") or []) if d.get("code") == "test_callers_not_visible"]
+        self.assertEqual(len(diags), 1, result.get("diagnostics"))
+        self.assertTrue(diags[0].get("advisory"), "must be advisory, never an error")
+        self.assertIn("mock", diags[0]["message"])
+        self.assertIn("excluded from the index", diags[0]["message"])
+        self.assertIn("code_keyword", diags[0].get("recovery_tools") or [])
+        self.assertFalse(result.get("isError"))
 
 
 class TestCodeGraphCommunity(unittest.TestCase):

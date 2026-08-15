@@ -612,7 +612,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         repo_root = TESTS_ROOT.parents[3]
         manifest = ras.review_protocol_carrier_manifest(repo_root)
         self.assertIn(".claude/agents/guru.md", manifest)
-        self.assertIn(".codex/skills/auto-guru/SKILL.md", manifest)
+        self.assertIn(".codex/skills/wf-guru/SKILL.md", manifest)
         for rel in manifest:
             path = repo_root / rel
             if not path.is_file():
@@ -634,7 +634,7 @@ class RenderAgentSurfacesTests(unittest.TestCase):
                 (repo_root / "docs" / "agents" / "guru.md").write_text(
                     GURU_STUB, encoding="utf-8"
                 )
-                skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
+                skill = repo_root / ".codex" / "skills" / "wf-guru" / "SKILL.md"
                 skill.parent.mkdir(parents=True)
                 if shape == "final":
                     outside.mkdir()
@@ -708,6 +708,10 @@ class RenderAgentSurfacesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (repo_root / ".claude" / "agents").mkdir(parents=True)
+            # Wave 1p6lp: skill emission is host-dir gated; the full platform
+            # render creates .codex via render_codex_mcp_config before this
+            # pass, so the standalone agent render needs the dir pre-made.
+            (repo_root / ".codex").mkdir()
             (repo_root / ".junie").mkdir()
             (repo_root / ".junie" / "guidelines.md").write_text(
                 "# Junie\n\n## Key Rules\n\n- other\n",
@@ -736,9 +740,21 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             self.assertIn("PROACTIVELY", claude_agent.read_text(encoding="utf-8"))
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, claude_agent.read_text(encoding="utf-8"))
 
-            codex_skill = repo_root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
+            codex_skill = repo_root / ".codex" / "skills" / "wf-guru" / "SKILL.md"
             self.assertTrue(codex_skill.is_file())
-            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex_skill.read_text(encoding="utf-8"))
+            codex_skill_text = codex_skill.read_text(encoding="utf-8")
+            self.assertIn("name: wf-guru", codex_skill_text)
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, codex_skill_text)
+
+            # Registry skills land on every active skill host (wave 1p6lp).
+            claude_guru_skill = repo_root / ".claude" / "skills" / "wf-guru" / "SKILL.md"
+            self.assertTrue(claude_guru_skill.is_file())
+            for host in (".codex", ".claude"):
+                upgrade_skill = repo_root / host / "skills" / "wf-upgrade" / "SKILL.md"
+                self.assertTrue(upgrade_skill.is_file(), upgrade_skill)
+                self.assertIn("name: wf-upgrade", upgrade_skill.read_text(encoding="utf-8"))
+            # .agents is absent in this repo fixture, so no Antigravity tree.
+            self.assertFalse((repo_root / ".agents").exists())
 
             codex_mcp_config = repo_root / ".codex" / "config.toml"
             self.assertFalse(
@@ -753,6 +769,185 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             claude = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertIn("wave:auto-guru begin", claude)
             self.assertIn("guru", claude)
+
+
+class SkillRegistryTests(unittest.TestCase):
+    """Wave 1p6lp (1p6lo) — unified skill registry + SKILL.md emitter."""
+
+    # The doc-gated skills (wave 1ve3a) and their gate docs.
+    _DOC_GATED = {
+        "wf-package": "docs/prompts/package-wavefoundry.prompt.md",
+        "wf-code-cleanup": "docs/prompts/codebase-cleanup-review.prompt.md",
+    }
+
+    def _repo(
+        self,
+        root: Path,
+        *,
+        guru: bool = True,
+        gate_docs: bool = True,
+        hosts=(".codex", ".claude", ".agents"),
+    ) -> None:
+        (root / "docs" / "agents").mkdir(parents=True)
+        if guru:
+            (root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
+        if gate_docs:
+            (root / "docs" / "prompts").mkdir(parents=True, exist_ok=True)
+            for rel in self._DOC_GATED.values():
+                (root / rel).write_text("# gate doc stub\n", encoding="utf-8")
+        for host in hosts:
+            (root / host).mkdir(parents=True, exist_ok=True)
+
+    def test_registry_names_hold_the_wf_namespace_policy(self) -> None:
+        self.assertTrue(ras.SKILL_REGISTRY)
+        for skill in ras.SKILL_REGISTRY:
+            self.assertRegex(skill.name, r"^wf-[a-z0-9]+(?:-[a-z0-9]+)*$")
+            self.assertTrue(skill.description.strip())
+            self.assertTrue(skill.body.strip())
+            # Frontmatter descriptions render as single-line YAML plain
+            # scalars: a newline or ": " would break strict parsers.
+            self.assertNotIn("\n", skill.description)
+            self.assertNotIn(": ", skill.description, skill.name)
+
+    def test_registry_descriptions_are_pairwise_distinct(self) -> None:
+        descriptions = [skill.description for skill in ras.SKILL_REGISTRY]
+        self.assertEqual(len(descriptions), len(set(descriptions)))
+
+    def test_render_skills_refuses_unprefixed_name(self) -> None:
+        bad = ras.Skill(name="upgrade", description="d", body="b")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            with patch.object(ras, "SKILL_REGISTRY", (bad,)):
+                with self.assertRaises(RuntimeError):
+                    ras.render_skills(root)
+
+    def test_emits_every_skill_to_every_active_host(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            written = ras.render_skills(root)
+            for skill in ras.SKILL_REGISTRY:
+                for host in (".codex", ".claude", ".agents"):
+                    rel = f"{host}/skills/{skill.name}/SKILL.md"
+                    self.assertIn(rel, written)
+                    text = (root / rel).read_text(encoding="utf-8")
+                    self.assertTrue(
+                        text.startswith(f"---\nname: {skill.name}\ndescription: "),
+                        rel,
+                    )
+
+    def test_guru_gate_and_host_dir_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root, guru=False, hosts=(".codex", ".claude"))
+            ras.render_skills(root)
+            self.assertFalse((root / ".codex" / "skills" / "wf-guru").exists())
+            self.assertTrue((root / ".codex" / "skills" / "wf-upgrade" / "SKILL.md").is_file())
+            self.assertTrue((root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md").is_file())
+            self.assertFalse((root / ".agents").exists(), "inactive host must gain no tree")
+
+    def test_stale_pre_registry_paths_are_cleaned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            old_flat = root / ".claude" / "skills" / "upgrade-wave.md"
+            old_flat.parent.mkdir(parents=True)
+            old_flat.write_text("old flat skill\n", encoding="utf-8")
+            old_codex = root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
+            old_codex.parent.mkdir(parents=True)
+            old_codex.write_text("old codex skill\n", encoding="utf-8")
+            written = ras.render_skills(root)
+            self.assertIn(".claude/skills/upgrade-wave.md", written)
+            self.assertIn(".codex/skills/auto-guru/SKILL.md", written)
+            self.assertFalse(old_flat.exists())
+            self.assertFalse(old_codex.parent.exists(), "emptied per-skill dir removed")
+            self.assertTrue((root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md").is_file())
+            self.assertTrue((root / ".codex" / "skills" / "wf-guru" / "SKILL.md").is_file())
+
+    def test_doc_gate_polarity_both_directions(self) -> None:
+        # Wave 1ve3a: the negative direction is the deliverable — a repo
+        # without the backing prompt doc (every target repo today) must emit
+        # neither doc-gated skill on any host.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root, gate_docs=True)
+            ras.render_skills(root)
+            for name in self._DOC_GATED:
+                for host in (".codex", ".claude", ".agents"):
+                    self.assertTrue(
+                        (root / host / "skills" / name / "SKILL.md").is_file(),
+                        f"{name} missing on {host} despite gate doc present",
+                    )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root, gate_docs=False)
+            ras.render_skills(root)
+            for name in self._DOC_GATED:
+                emitted = list(root.glob(f"*/skills/{name}"))
+                self.assertEqual(
+                    emitted, [], f"{name} emitted without its gate doc: {emitted}"
+                )
+            # Ungated lifecycle skills still emit in the same repo.
+            self.assertTrue(
+                (root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md").is_file()
+            )
+
+    def test_doc_gated_entries_declare_their_backing_doc_as_gate(self) -> None:
+        # The gate must point at the same doc the thin-pointer body names,
+        # so the skill can never render where its pointer dangles.
+        by_name = {skill.name: skill for skill in ras.SKILL_REGISTRY}
+        for name, rel in self._DOC_GATED.items():
+            skill = by_name[name]
+            self.assertEqual(skill.requires_doc, rel)
+            self.assertIn(rel, skill.body)
+        self.assertEqual(by_name["wf-guru"].requires_doc, "docs/agents/guru.md")
+
+    def test_stale_cleanup_refuses_symlink_escape(self) -> None:
+        # Deletion containment: a legacy wrapper path symlinked outside the
+        # repo must refuse loudly, never unlink through the escape.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir)
+            root = outer / "repo"
+            outside = outer / "outside"
+            self._repo(root)
+            outside.mkdir()
+            (outside / "SKILL.md").write_text("external sentinel\n", encoding="utf-8")
+            legacy_dir = root / ".codex" / "skills" / "auto-guru"
+            legacy_dir.parent.mkdir(parents=True, exist_ok=True)
+            legacy_dir.symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(RuntimeError):
+                ras.render_skills(root)
+            self.assertEqual(
+                (outside / "SKILL.md").read_text(encoding="utf-8"),
+                "external sentinel\n",
+            )
+
+    def test_thin_pointer_targets_exist_in_self_hosted_repo(self) -> None:
+        # Wave 1p6lw AC-2/AC-6: every prompt doc a skill body points at must
+        # resolve in the self-hosted tree (the thin-pointer contract's target).
+        repo_root = TESTS_ROOT.parents[2].parent
+        pattern = re.compile(r"docs/prompts/[a-z0-9-]+\.prompt\.md")
+        for skill in ras.SKILL_REGISTRY:
+            targets = set(pattern.findall(skill.body))
+            if skill.name not in ("wf-guru",):
+                self.assertTrue(targets, f"{skill.name} body names no prompt doc")
+            for target in targets:
+                self.assertTrue(
+                    (repo_root / target).is_file(), f"{skill.name}: missing {target}"
+                )
+
+    def test_second_full_render_is_convergent(self) -> None:
+        # The Codex wf-guru skill is also a review carrier: the reconcile pass
+        # appends owned regions after the registry writes the template. The
+        # registry grafts existing regions on re-render, so the second full
+        # render must report zero written paths.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            first = ras.render_agent_surfaces(root)
+            self.assertTrue(first)
+            self.assertEqual(ras.render_agent_surfaces(root), [])
 
 
 class AutoGuruRoutingAnchorRegressionTests(unittest.TestCase):
@@ -843,11 +1038,12 @@ class AgentSurfaceNewlineTests(unittest.TestCase):
     are byte-identical LF on every host, matching render_platform_surfaces.write_text.
     """
 
-    # The three freshly generated agent surfaces this renderer owns.
+    # The freshly generated agent surfaces this renderer owns.
     _GENERATED_SURFACES = (
         (".cursor", "rules", "auto-guru.mdc"),
         (".claude", "agents", "guru.md"),
-        (".codex", "skills", "auto-guru", "SKILL.md"),
+        (".codex", "skills", "wf-guru", "SKILL.md"),
+        (".codex", "skills", "wf-upgrade", "SKILL.md"),
     )
 
     def _make_repo(self, repo_root: Path) -> None:
@@ -855,6 +1051,7 @@ class AgentSurfaceNewlineTests(unittest.TestCase):
         (repo_root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
         (repo_root / ".cursor" / "rules").mkdir(parents=True)
         (repo_root / ".claude" / "agents").mkdir(parents=True)
+        (repo_root / ".codex").mkdir()
 
     def test_write_text_uses_newline_empty_and_writes_verbatim(self) -> None:
         # Durable, host-independent guard: capture the newline kwarg passed to

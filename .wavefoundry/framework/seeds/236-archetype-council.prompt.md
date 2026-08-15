@@ -19,7 +19,7 @@ Run a stance-based council review on any artifact — plans, design documents, c
 
 | Surface | Shape | When |
 |---|---|---|
-| **`red-team`** alone | Single adversarial stance, in isolation | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
+| **Red-team review** (`docs/prompts/red-team-review.prompt.md`, seed `177`) | Single adversarial stance, in isolation | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
 | **Wave Council** | Role-based seats (architecture, security, qa, reality-checker + rotating fifth), mandatory at Prepare and Review | Code, architecture, trust-boundary, or implementation-shaped work; integrates with the wave lifecycle |
 | **Archetype Council** | Stance-based seats (orthogonal axes, not specialist roles), optional | Any artifact where orthogonal thinking-stance lenses are what the work rewards — plans, design docs, code review passes, decision narratives, prose drafts, AC formulations, naming decisions. Especially valuable when role-specialist seats would be overkill or in the wrong shape (e.g., a refactor plan benefits from Sun Tzu's positioning lens and Marcus's durability lens more than from another architecture-reviewer pass). |
 
@@ -239,7 +239,7 @@ Present council output at summary level — seat step details stay internal; the
 
 ## Role Boundaries
 
-**vs. `red-team`:** `red-team` runs a single adversarial stance in isolation (or applies all five adversarial-leaning stances inside one mode). Archetype Council runs multiple stance-based seats in isolation and synthesizes across them — the axes are orthogonal rather than overlapping. Invoke `red-team` when one sharp challenge is the right shape; invoke Archetype Council when multiple orthogonal axes need to fire simultaneously.
+**vs. `red-team`:** `red-team` runs a single adversarial stance in isolation (or applies all five adversarial-leaning stances inside one mode). Archetype Council runs multiple stance-based seats in isolation and synthesizes across them — the axes are orthogonal rather than overlapping. Invoke **Red-team review** (`docs/prompts/red-team-review.prompt.md`, seed `177`) when one sharp challenge is the right shape; invoke Archetype Council when multiple orthogonal axes need to fire simultaneously.
 
 **vs. Wave Council:** Wave Council uses role-based specialist seats (architecture, security, qa, reality-checker + rotating fifth) and is mandatory at Prepare and Review when `wave_review.enabled` is true. Archetype Council uses stance-based seats and is optional. Wave Council remains required regardless of whether Archetype Council also runs.
 

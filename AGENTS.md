@@ -58,14 +58,16 @@ Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the
 | **2 — Thin pointer** | Each host's entry file (`CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, `WARP.md`, …) | One guardrail bullet pointing at tier 1 — no duplicated workflow text |
 | **3 — Optional native** | Only when the host supports that affordance | Extra routing (rules, subagents, skills) — **enhances** tier 1; does not replace it |
 
-**Optional native surfaces** (seed when `docs/agents/guru.md` exists; see `docs/agents/platform-mapping.md`):
+**Optional native surfaces** (Guru surfaces seed when `docs/agents/guru.md` exists; see `docs/agents/platform-mapping.md`):
 
 | Host | Optional surface | MCP registration |
 |------|------------------|------------------|
 | Cursor | `.cursor/rules/auto-guru.mdc` | `.cursor/mcp.json` |
 | Claude Code | `.claude/agents/guru.md` | `.mcp.json` (repo root) |
-| Codex | `.codex/skills/auto-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+| Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
 | Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `AGENTS.md` MCP table (stdio entry or provider UI) |
+
+**Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`). Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family. Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill. Current entries: the lifecycle set `wf-plan-feature`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-interrogate-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist). Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only) and `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep). The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
 
 ## Purpose
 
@@ -125,6 +127,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
 | **Migrate journals** | One-time retirement of remaining journal files into the memory system (legacy alias: **Distill journals**) | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
 | **Archetype review** / **Archetype council** | Optional stance-based review applied to plans, design docs, code, prose, decision narratives, naming, AC formulation | `docs/prompts/archetype-council.prompt.md` |
+| **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
 | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
 | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
 
