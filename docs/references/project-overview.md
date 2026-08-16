@@ -78,7 +78,7 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, validate and promote memory candidates, clear handoff.
 
-See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog.
+See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-interrogate-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 
 ## Generic Agent Roles
 

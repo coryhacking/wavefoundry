@@ -169,7 +169,7 @@ CLAUDE.md            Claude Code-specific entry surface
 
 \* `.wavefoundry/index/` and `.wavefoundry/logs/` are gitignored — per-machine and regenerable. A few host-local runtime artifacts are also gitignored: `.wavefoundry/guard-overrides.json`, `.wavefoundry/dashboard-server.json`, `.wavefoundry/*.lock`, `.wavefoundry/framework/test-cache.json`.
 
-Wavefoundry writes only to the paths above. The framework itself is committed so everyone on the team has the same version locked in the repo. If you run a host-specific renderer (Claude Code, Cursor, Codex, Junie, GitHub hooks), those write to `.claude/`, `.cursor/hooks.json`, `.codex/config.toml`, `.junie/`, and/or `.github/hooks/` — all committed.
+Wavefoundry writes only to the paths above. The framework itself is committed so everyone on the team has the same version locked in the repo. If you run a host-specific renderer (Claude Code, Cursor, Codex, Junie, GitHub hooks), those write to `.claude/`, `.cursor/hooks.json`, `.codex/config.toml`, `.junie/`, and/or `.github/hooks/` — all committed. Skill-supporting hosts additionally get the `/wf-…` lifecycle skills as `SKILL.md` files under `.claude/skills/`, `.codex/skills/`, and `.agents/skills/` (see [Skills](#skills-the-lifecycle-as-slash-commands)) — committed too, so the whole team gets the same command menu.
 
 What each `docs/` subdirectory carries — the agent reads these to ground its work:
 
@@ -199,6 +199,8 @@ If a required model cannot download, first retry `wf setup` when network access 
 ## Your first wave
 
 Three turns of conversation, end to end. Step 3 includes a structural refusal you can't talk past — that's the point of the framework.
+
+Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
 
 ### 1. Plan a change
 
@@ -342,14 +344,16 @@ The number is designed to be a defensible under-count, not a marketing figure. C
 
 Any MCP-aware host can attach to the local Wavefoundry server. For some hosts, `wf render-surfaces` writes the config for you; for the others, you paste the stdio entry into the host's MCP settings yourself.
 
+Hosts marked **skills** also receive the `/wf-…` lifecycle skills as project-local `SKILL.md` files (see [Skills](#skills-the-lifecycle-as-slash-commands)); the others use the shortcut phrases, which work on every host.
+
 | Host | What to do |
 |---|---|
-| **Claude Code** | `wf render-surfaces --platform claude` |
-| **Codex CLI** | The committed `.codex/config.toml` loads on project trust |
+| **Claude Code** (skills) | `wf render-surfaces --platform claude` |
+| **Codex CLI** (skills) | The committed `.codex/config.toml` loads on project trust |
 | **Cursor** | `wf render-surfaces --platform cursor` |
 | **Junie** | `wf render-surfaces --platform junie` |
 | **GitHub Copilot · Windsurf · Air · Warp** | Paste the stdio entry from [`docs/prompts/install-wavefoundry.prompt.md`](docs/prompts/install-wavefoundry.prompt.md) into your host's MCP settings |
-| **Antigravity** | `wf render-surfaces --platform antigravity` |
+| **Antigravity** (skills) | `wf render-surfaces --platform antigravity` |
 
 ---
 
@@ -365,6 +369,29 @@ You'll use about six phrases day-to-day; the rest of the surface is there when y
 - `Close wave` — structured closure with operator signoff
 
 The [full tool surface](docs/prompts/index.md) covers wave admin, code search, graph queries, dashboard control, gate management, and adversarial review. The catalog is searchable from inside the agent (`docs_search`, `code_ask`).
+
+### Skills: the lifecycle as slash commands
+
+You don't have to memorize the phrases. In hosts that support skills — **Claude Code, Codex, and Antigravity** — Wavefoundry renders every core command as a project-local skill under a `wf-` prefix, so typing **`/wf`** filters the host's command menu to the whole family:
+
+| Skill | Same as saying |
+|---|---|
+| `/wf-plan-feature` | `Plan feature` (any kind: feature, bug fix, refactor, docs, …) |
+| `/wf-interrogate-plan` | `Interrogate this plan` — stress-test a change doc before admission |
+| `/wf-prepare-wave` | `Prepare wave` |
+| `/wf-implement-wave` | `Implement wave` |
+| `/wf-review-wave` | `Review wave` |
+| `/wf-close-wave` | `Close wave` |
+| `/wf-pause-wave` | `Pause wave` — park session state in the handoff |
+| `/wf-council` | Convene an on-demand review: Wave Council, Archetype Council, or a standalone Red-team review |
+| `/wf-evaluate-decision` | `Evaluate decision` — ADR-shaped comparison of two options |
+| `/wf-memory-review` | `Memory review` — apply eligible memory consolidation and archival |
+| `/wf-guru` | Cited code and documentation Q&A (also auto-routes; you rarely need to invoke it) |
+| `/wf-upgrade` | `Upgrade Wavefoundry` — the framework-maintenance checklist |
+
+Each skill is a thin pointer to the same `docs/prompts/*.prompt.md` workflow the phrase uses, so the two never drift, and the skills carry the load-bearing reminders inline (closure is operator-owned; the stage gate applies before any code edit). Skills render on `wf setup` and on every **Upgrade Wavefoundry**; hosts without a skill mechanism (Cursor, Junie, Copilot, Windsurf, Warp, Air) keep the phrase interface, which works everywhere.
+
+> Skills whose backing workflow exists only in some repositories render only there — for example `/wf-package` (building the framework distribution) appears in the Wavefoundry source repo and nowhere else, and `/wf-code-cleanup` (the recommend-only maintainability sweep) appears wherever the cleanup prompt is present.
 
 ---
 

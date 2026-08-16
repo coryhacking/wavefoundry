@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.0] - 2026-08-15
 
 ### Added
 
@@ -61,6 +61,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when it finds no test-path callers, because index-excluded test trees and mock-driven
   coverage are invisible to call edges; the affected list is unchanged and `include_tests=false`
   is untouched. Wave 1vbuu / change 1vbut.
+
+### Documentation
+
+- **The skills are documented where operators look.** The README gains a *Skills: the lifecycle
+  as slash commands* section (the full `/wf-…` table, which hosts render them, and that each skill
+  runs the identical workflow as its phrase), a pointer in the first-wave walkthrough, and skill
+  markers in the host-support table; `docs/prompts/index.md` and `docs/references/project-overview.md`
+  carry usage notes; seed 100 instructs target repositories' prompt indexes to carry the same
+  note when a skill host is active; the shipped framework README describes the registry.
 
 ## [1.16.4] - 2026-08-13
 
