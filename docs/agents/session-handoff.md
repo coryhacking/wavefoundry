@@ -52,6 +52,11 @@ All four lanes returned CHANGES REQUESTED; every finding is folded and re-verifi
 
 **Active wave:** *(none)*
 
+### 1.17.0 RELEASED 2026-08-15
+
+Tag `v1.17.0` on stamp commit `62c29ca1` (`1.17.0+pjdj`); assets `wavefoundry-1.17.0.pjdj.zip` (6,259,625 bytes) and the reattached, re-verified `wavefoundry-models-2.zip` (351,495,236 bytes; manifest identical to canonical, 15/15 sha256, zero undeclared); Latest resolves to v1.17.0. Contents: waves `1p6lp`, `1ve3a`, `1ve3e`, `1vbuu` plus the skills documentation. Suite 7244/62 OK. **The automated `--release` path REFUSED at pre-flight (`--release` now requires `--with-models`), and `--with-models` remains broken on this machine by the `refs/main` newline defect; shipped by hand along `build_pack`'s exact five-step ordering, same as 1.16.4.** That defect needs its own wave before releases are one command again. Target repos: drop the zip and run **Upgrade Wavefoundry**; thirteen `wf-` skills render there (all but `wf-package`/`wf-code-cleanup`).
+
+
 ### Wave 1p6lp CLOSED 2026-08-15 (implemented 2026-08-14)
 
 All three changes implemented in one session, full suite **7239 tests across 62 files OK**, docs-lint clean, all ACs and tasks `[x]`:
