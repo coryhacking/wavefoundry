@@ -3310,6 +3310,17 @@ def _run_renderer_warning_scan(root: Path | None) -> list[dict]:
         return []
 
 
+def _run_agent_surface_integrity_scan(root: Path | None) -> dict:
+    """Read-only advisory duplicate-role scan for the upgrade summary."""
+    if root is None:
+        return {"available": False, "finding_count": 0}
+    try:
+        import agent_surface_integrity
+        return agent_surface_integrity.audit_agent_surfaces(root)
+    except Exception:  # noqa: BLE001
+        return {"available": False, "finding_count": 0}
+
+
 def _reconciliation_recommendation_lines(
     from_version: str | None,
     to_version: str | None,
@@ -3955,6 +3966,22 @@ def _print_operator_summary(
         _log("  these do NOT self-heal — repair the markers, then re-render):")
         for warning in renderer_warnings:
             _log(f"    {warning.get('detail') or warning}")
+    # Wave 1vgep: this line already acts on the upgrade that DELIVERS the audit, because
+    # phase_cleanup runs in the standalone --cleanup process from the freshly extracted
+    # runner (see _new_code_upgrade_backstop). It is the advisory's single owner; a
+    # zip-loaded extension hook would print it a second time.
+    agent_surface_integrity = _run_agent_surface_integrity_scan(root)
+    if agent_surface_integrity.get("finding_count", 0):
+        _log("")
+        _log(
+            "  Agent-role integrity: "
+            f"{agent_surface_integrity['finding_count']} advisory finding(s); "
+            "merge local content into the canonical carrier before retiring duplicates "
+            "(details: wf_audit)."
+        )
+        for entry in agent_surface_integrity.get("duplicate_roles") or []:
+            paths = ", ".join(str(item.get("path")) for item in entry.get("paths") or [])
+            _log(f"    {entry.get('role')}: {paths} -> {entry.get('canonical_path')}")
     # Set here, at the emit site, and never in `_build_upgrade_summary` or
     # `_emit_summary_line`: both are shared with the primary-phase degradation
     # fallback, whose invariant is that it carries NO token.

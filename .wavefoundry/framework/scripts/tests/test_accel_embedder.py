@@ -6,6 +6,7 @@ GPU/ANE (per AC-7). The real CoreML cos-equivalence is validated on the operator
 from __future__ import annotations
 
 import importlib.util
+import contextlib
 import io
 import os
 import sys
@@ -1003,11 +1004,107 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
         fake_setup_index = MagicMock()
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
-            path = self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
+            with contextlib.redirect_stderr(io.StringIO()):
+                path = self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
         self.assertEqual(path, "/downloaded/model.onnx")
         self.assertEqual(calls, [True, False], "cached-first then online download")
         fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
         fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()
+
+    def test_cached_first_online_branch_is_pinned_for_managed_repos(self):
+        # Wave 1vglb (1vgla): a cache miss on a MANAGED repo downloads the canonical
+        # model-set revision, never an unpinned Hub head (the drift that made model
+        # set 2 unrebuildable). Unmanaged repos keep the default revision.
+        seen = {}
+
+        def fake_dl(repo, filename, cache_dir=None, local_files_only=False, **kw):
+            if local_files_only:
+                raise RuntimeError("LocalEntryNotFound")
+            seen[repo] = kw.get("revision")
+            return f"/downloaded/{filename}"
+
+        fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        # F-1vglb-01: the SAME upstream is pinned at different revisions per target cache
+        # (fastembed listed first, as in the real manifest); the clean-ONNX helper must pin
+        # the onnx-src component, never the first upstream match.
+        fake_manifest = {"components": [
+            {"upstream": "Snowflake/snowflake-arctic-embed-s", "target": "fastembed", "revision": "e596f507467533e48a2e17c007f0e1dacc837b33"},
+            {"upstream": "Snowflake/snowflake-arctic-embed-s", "target": "onnx-src", "revision": "d3c1d2d433dd0fdc8e9ca01331a5f225639e798f"},
+        ]}
+        fake_bundle = MagicMock()
+        fake_bundle.load_canonical_verification_manifest.return_value = fake_manifest
+        with tempfile.TemporaryDirectory() as cache:
+            with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index, "model_bundle": fake_bundle}):
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    self.accel._hf_download_cached_first("Snowflake/snowflake-arctic-embed-s", "onnx/model_fp16.onnx", cache)
+                    self.accel._hf_download_cached_first("some/unmanaged-repo", "x.onnx", cache)
+        self.assertEqual(seen["Snowflake/snowflake-arctic-embed-s"], "d3c1d2d433dd0fdc8e9ca01331a5f225639e798f")
+        self.assertIsNone(seen["some/unmanaged-repo"])
+        # the miss is operator-visible, naming the pin
+        self.assertIn("pinned revision d3c1d2d433dd", err.getvalue())
+        self.assertIn("no model-set pin", err.getvalue())
+
+    def test_canonical_revision_resolves_by_upstream_and_target_against_the_real_manifest(self):
+        # F-1vglb-01, against the CHECKED-IN manifest (no fake): the arctic upstream is shared
+        # by two components; each target cache gets its own pin, unknown targets get None.
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import model_bundle
+            manifest = model_bundle.load_canonical_verification_manifest()
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        by_key = {(c["upstream"], c["target"]): c["revision"] for c in manifest["components"]}
+        arctic = "Snowflake/snowflake-arctic-embed-s"
+        self.assertNotEqual(by_key[(arctic, "fastembed")], by_key[(arctic, "onnx-src")],
+                            "fixture premise: the shared upstream is pinned differently per target")
+        self.assertEqual(self.accel._canonical_revision_for(arctic, "onnx-src"), by_key[(arctic, "onnx-src")])
+        self.assertEqual(self.accel._canonical_revision_for(arctic, "fastembed"), by_key[(arctic, "fastembed")])
+        self.assertEqual(self.accel._canonical_revision_for(arctic, "onnx-src"), "d3c1d2d433dd0fdc8e9ca01331a5f225639e798f")
+        self.assertIsNone(self.accel._canonical_revision_for(arctic, "no-such-target"))
+        self.assertIsNone(self.accel._canonical_revision_for("some/unmanaged-repo", "onnx-src"))
+        self.assertEqual(self.accel._CLEAN_ONNX_TARGET, "onnx-src")
+
+    def test_pinned_download_writes_refs_main_once_and_leaves_existing_refs_alone(self):
+        # F-1vglb-02: a commit-hash download leaves no refs/main (huggingface_hub writes refs only
+        # for symbolic revisions), so the helper writes the normalized 40-byte ref itself, once.
+        pin = "d3c1d2d433dd0fdc8e9ca01331a5f225639e798f"
+        repo = "Snowflake/snowflake-arctic-embed-s"
+
+        def fake_dl(repo_id, filename, cache_dir=None, local_files_only=False, **kw):
+            if local_files_only:
+                raise RuntimeError("LocalEntryNotFound")
+            snap = Path(cache_dir) / f"models--{repo_id.replace('/', '--')}" / "snapshots" / (kw.get("revision") or "deadbeef") / filename
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            snap.write_bytes(b"weights")
+            return str(snap)
+
+        fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
+        fake_setup_index = MagicMock()
+        fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
+        fake_bundle = MagicMock()
+        fake_bundle.load_canonical_verification_manifest.return_value = {"components": [
+            {"upstream": repo, "target": "onnx-src", "revision": pin},
+        ]}
+        with tempfile.TemporaryDirectory() as cache:
+            ref = Path(cache) / "models--Snowflake--snowflake-arctic-embed-s" / "refs" / "main"
+            with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index, "model_bundle": fake_bundle}):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.accel._hf_download_cached_first(repo, "onnx/model_fp16.onnx", cache)
+                    self.assertTrue(ref.is_file(), "pinned download must leave a resolvable main")
+                    self.assertEqual(ref.read_bytes(), pin.encode(), "40-byte form, no trailing newline")
+                    # an existing ref is never repointed
+                    ref.write_bytes(b"0" * 40)
+                    self.accel._hf_download_cached_first(repo, "tokenizer.json", cache)
+                    self.assertEqual(ref.read_bytes(), b"0" * 40)
+                    # F-1vglb-03: a legacy ref that names the pin with a trailing newline IS normalized
+                    ref.write_bytes(pin.encode() + b"\n")
+                    self.accel._hf_download_cached_first(repo, "onnx/model_int8.onnx", cache)
+                    self.assertEqual(ref.read_bytes(), pin.encode())
+                    # unmanaged repos get no ref written
+                    self.accel._hf_download_cached_first("some/unmanaged-repo", "x.onnx", cache)
+            self.assertFalse((Path(cache) / "models--some--unmanaged-repo" / "refs").exists())
 
     def test_cached_first_applies_ca_bundle_on_cert_verify_failure(self):
         # Wave 1p939 AC-1: a host-agent CA var present + a cert-verify failure on the online attempt
@@ -1035,7 +1132,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
 
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = fake_retry
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
-            with self.assertRaises(Exception):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(Exception):
                 self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
         fake_setup_index.ensure_ca_bundle_applied.assert_called_once()
         fake_setup_index.retry_with_ca_bundle_ladder.assert_called_once()

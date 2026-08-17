@@ -6,6 +6,58 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-08-16
+
+### Added
+
+- **Agent-role integrity audit (advisory).** Upgraded target repositories can end up with two live
+  documents for one framework review-carrier role (reviewer or specialist): the renderer creates its
+  canonical carrier at the registry destination while an older repo-grown copy at another path stays
+  a routing target, and per-file lint passes both. `wf_audit` now returns an
+  `agent_surface_integrity` report naming every contributing path, the registry-derived canonical
+  destination, and the merge-before-retire remediation, plus an `agent_surface_integrity_drift`
+  diagnostic when a fork exists; the upgrade operator summary prints the same advisory with per-role
+  paths. Read-only and non-blocking: nothing is deleted, moved, or rewritten, and docs-lint stays
+  green when a merge is the only issue. The upgrade that delivers this release already reports it,
+  because the operator summary prints from the cleanup phase, which runs the freshly installed
+  runner. Wave 1vgep / change 1vflu.
+
+### Fixed
+
+- **Reconciliation scan no longer reports the `## Resolved / closed` archive rows seed-230 tells
+  repos to write.** `docs/missing-docs.md` mixes live gap tables with an archive table; when a
+  resolved component is a later-retired surface, its dated resolution note necessarily names it,
+  and every upgrade reported that historical record as a stale reference (field feedback from the
+  first 1.17.1 upgrades). Table rows under the exact ATX H2 heading `## Resolved / closed` in
+  `docs/missing-docs.md` are now excluded structurally for every scan pattern, fence-aware and
+  failing toward reporting: the same string in a priority table, in prose under the heading, under
+  any other heading, in a fenced code block, or in any other file still reports, and nothing else
+  gains section-based suppression. Seed-230 §6, seed-150, and seed-160 now agree that a resolved
+  row is removed or moved under that exact heading. If you recorded a stopgap `historical-record`
+  disposition for such a row, drop it: the disposition key hashes the matched text (here the
+  retired path), not the row, so it also silences the same path in the live tables of that file. Wave 1vk4c / change 1vk4b.
+- **`platform-mapping.md` § Skills is now specified.** Seed-100 pointed every repository's
+  `docs/prompts/index.md` at a `docs/agents/platform-mapping.md` § Skills section that no seed told
+  anyone to write. Seed-050 now specifies it (active host skill directories, the rendered set listed
+  from disk, and the gating rules: render on setup/upgrade, doc-gated `wf-guru`/`wf-package`/
+  `wf-code-cleanup`, independent of `enabled_agent_roles`), the upgrade checklist re-verifies it
+  against the rendered directories on every upgrade, and the rendered upgrade prompt gains the
+  matching verify item. Wave 1vk4c / change 1vk4a.
+- **Offline model set 3 (`wavefoundry-models-3.zip`): first-lookup cache misses are gone and the
+  one-command release path is restored.** Model set 2 shipped one Hugging Face cache reference
+  file (`refs/main` for the Arctic S ONNX source) with a trailing newline, so `huggingface_hub`
+  missed the installed snapshot on the first index build, re-downloaded ~100 MB from `main`
+  unpinned, and left the cache with two snapshots that no longer matched the canonical manifest.
+  On the release machine that same drift made `build_pack.py --with-models` refuse to build, so
+  1.16.4 and 1.17.0 shipped by hand. Set 3 carries byte-identical weights and the SAME embedding
+  fingerprint (no existing index re-embeds; ADR `1vglc`); the only content change is that one
+  reference file. The bundle code now normalizes `refs/*` members at build, at install, and in
+  attestation through one helper, so a defective ref can neither be packed nor block a build
+  again, and the online fallback for managed models is pinned to the canonical revision (with a
+  stderr miss log) instead of drifting to `main`. Set 3 is published at the permanent `models`
+  release tag next to set 2; releases after 1.17.0 declare set 3, and **Upgrade Wavefoundry**
+  installs it over an existing set-2 cache. Wave 1vglb / change 1vgla.
+
 ## [1.17.0] - 2026-08-15
 
 ### Added

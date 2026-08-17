@@ -274,6 +274,79 @@ EXCLUDED_BASENAMES: tuple[str, ...] = (
 # whose name merely contains `journal`.
 _EXCLUDED_PATH_COMPONENTS: tuple[str, ...] = ("journals", "snapshots")
 
+# ── Framework-mandated archive sections (wave 1vk4c / 1vk4b) ────────────────
+# seed-230 §6 tells the agent to MOVE a resolved `docs/missing-docs.md` row into
+# a `## Resolved / closed` table with a dated resolution note. When the resolved
+# component is a later-retired surface, that note necessarily names it, and the
+# row is exactly the historical record seed-160/220 protect ("retiring a file
+# removes the file, not the historical record of it"), so reporting it recurred
+# on every consumer upgrade (field feedback, 1.17.1). This exclusion is
+# STRUCTURAL, like the path exclusions above (applied in `scan_repo` beside
+# `is_excluded`), not a judgment (dispositions stay at the channel boundary).
+# Exact allowlist of (repo-relative POSIX path, ATX H2 heading text, case-folded);
+# grow it only when a seed prescribes another archive heading, never widen it to
+# a heuristic. Only TABLE ROWS under the heading are exempt (seed-230 mandates a
+# table); prose parked under it still reports.
+_ARCHIVE_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("docs/missing-docs.md", "resolved / closed"),
+)
+# ATX heading: 0-3 leading spaces, 1-6 hashes, then either end-of-line (an EMPTY
+# heading, which still terminates a span) or at least one space/tab plus text and
+# optional closing hashes. `##Resolved` (no space) and setext underlines are NOT
+# headings here, so they can never open an exempt span (fail toward reporting).
+_ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
+# Code fence: 0-3 leading spaces and a run of 3+ backticks or tildes. Per CommonMark
+# a fence closes only on the SAME character with a run at least as long as the
+# opener, so a ``` line inside a ```` block does not close it and a `~~~` line
+# inside a ``` block is content.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _archive_row_spans(text: str, rel: str) -> list[tuple[int, int]]:
+    """``(start, end)`` offsets of table rows inside an allowlisted archive section.
+
+    Returns ``[]`` unless *rel* is allowlisted AND the text carries the exact ATX
+    H2 heading outside a code fence. A span runs from that heading to the next
+    ATX H1/H2 (nested H3+ stays inside) or EOF; only lines whose first non-space
+    character is ``|`` contribute. ``\r`` is stripped so CRLF files behave.
+    """
+
+    wanted = {heading for path, heading in _ARCHIVE_SECTIONS if path == rel}
+    if not wanted:
+        return []
+    spans: list[tuple[int, int]] = []
+    active = False
+    fence: tuple[str, int] | None = None  # (fence char, opener length)
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        start = offset
+        offset += len(line)
+        raw = line.rstrip("\r\n")
+        fence_match = _FENCE_RE.match(raw)
+        if fence_match:
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+                continue
+            if marker[0] == fence[0] and len(marker) >= fence[1]:
+                fence = None
+                continue
+            # a shorter or other-character run inside an open fence is content
+        if fence is not None:
+            continue
+        heading = _ATX_HEADING_RE.match(raw)
+        if heading:
+            if len(heading.group(1)) <= 2:
+                active = (
+                    len(heading.group(1)) == 2
+                    and (heading.group(2) or "").strip().casefold() in wanted
+                )
+            continue
+        if active and raw.lstrip().startswith("|"):
+            spans.append((start, start + len(raw)))
+    return spans
+
+
 SCAN_SUFFIXES: tuple[str, ...] = (".md", ".mdc", ".json", ".py")
 
 # ── Host permission / allow-rule files (separate operator-flag channel) ───────
@@ -611,11 +684,21 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                 rel, m.group(0), provenance, governed_spans, m.start()
             )
 
+        # Wave 1vk4c: table rows under a framework-mandated archive heading are
+        # historical record; every producer below skips a match that starts
+        # inside one (empty for every file but the allowlisted archive carriers).
+        archive_spans = _archive_row_spans(text, rel)
+
+        def _archived(m: re.Match[str]) -> bool:
+            return any(s <= m.start() < e for s, e in archive_spans)
+
         patterns = [_LITERAL_PATTERN]
         if path.suffix == ".py":
             patterns += [_DYNAMIC_PATTERN, _VAR_BINDIR_PATTERN]
         for pat in patterns:
             for m in pat.finditer(text):
+                if _archived(m):
+                    continue
                 retired = m.group(1)
                 line = text.count("\n", 0, m.start()) + 1
                 findings.append(
@@ -635,6 +718,8 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
         # references, and per-line reporting would silently under-count.
         for pat, retired, suggestion, exempt in _RETIRED_CONTENT_PATTERNS:
             for m in pat.finditer(text):
+                if _archived(m):
+                    continue
                 if exempt is not None and exempt.search(_line_text(text, m.start())):
                     continue
                 findings.append(
@@ -649,6 +734,8 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                 )
         # The `.md` to `.prompt.md` rename, resolved against the tree.
         for m, matched, suggestion in _stale_prompt_extension_hits(root, text):
+            if _archived(m):
+                continue
             findings.append(
                 StaleReference(
                     file=rel,
@@ -665,6 +752,8 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
         qualified_spans: list[tuple[int, int]] = []
         for m in _TOOL_MCP_PATTERN.finditer(text):
             qualified_spans.append(m.span())
+            if _archived(m):
+                continue
             old_name = m.group(1)
             line = text.count("\n", 0, m.start()) + 1
             findings.append(
@@ -680,6 +769,8 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
             )
         for m in _TOOL_BARE_PATTERN.finditer(text):
             if any(s <= m.start() < e for s, e in qualified_spans):
+                continue
+            if _archived(m):
                 continue
             old_name = m.group(1)
             line = text.count("\n", 0, m.start()) + 1
@@ -786,10 +877,13 @@ def scan_repo_channels(
     reconciliation: list[StaleReference] = []
     host_permission_flags: list[StaleReference] = []
     renderer_provenance_flags: list[StaleReference] = []
-    # 1v7a1: suppression happens HERE, at the reported-channel boundary, not in
-    # `scan_repo`. `scan_repo` stays the complete, unfiltered view so an audit
-    # can still see what was dispositioned away; only the reported channels
-    # honour the operator's settled judgments.
+    # 1v7a1: DISPOSITION suppression happens HERE, at the reported-channel
+    # boundary, not in `scan_repo`. `scan_repo` stays the complete view of every
+    # in-scope hit so an audit can still see what was dispositioned away; only
+    # the reported channels honour the operator's settled judgments. STRUCTURAL
+    # exclusions (paths via `is_excluded`; archive table rows via
+    # `_ARCHIVE_SECTIONS`, wave 1vk4c) are applied inside `scan_repo`, because
+    # they define what is in scope rather than judge a hit.
     dispositions = load_dispositions(root)
     for ref in scan_repo(root):
         if is_dispositioned(ref, dispositions):

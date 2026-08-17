@@ -74,9 +74,11 @@ your environment cannot reach Hugging Face, download the offline model asset fro
 [**Model Assets** release](https://github.com/coryhacking/wavefoundry/releases/tag/models),
 leave it zipped next to the feature package (repo root, `~/`, `~/.wavefoundry/`,
 `~/.wavefoundry/dist/`, or `~/Downloads/`), and run `wf setup`. Assets are versioned by model
-set, not by release. Wavefoundry `1.16.0` selects `wavefoundry-models-2.zip`
-(Arctic S plus L6); the asset serves every compatible framework release until
-the pinned model set changes again.
+set, not by release. Wavefoundry `1.16.0` through `1.17.0` select `wavefoundry-models-2.zip`
+and later releases select `wavefoundry-models-3.zip` (the same Arctic S plus L6 weights; set 3
+corrects one reference file so offline caches resolve on first lookup, and keeps the same
+embedding identity so no index re-embeds); the asset serves every compatible framework release
+until the pinned model set changes again.
 
 ---
 

@@ -40,22 +40,22 @@
       "attribution": "Model artifact from Snowflake/snowflake-arctic-embed-s.",
       "directory": "models--Snowflake--snowflake-arctic-embed-s",
       "files": [
-                {
-                    "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/refs/main",
-                    "sha256": "e0da9620fd2fefb5a586f0add3e58debe0426241c7e58698b0ce16fd1b9c23c8"
-                },
-                {
-                    "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/onnx/model_fp16.onnx",
-                    "sha256": "625ce8535c4063628226bddea19cdf018e2e86557a0fd9c512b495481f4d14f9"
-                },
-                {
-                    "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/onnx/model_int8.onnx",
-                    "sha256": "f93ff225320628d2e88baf2a395cae791b0e3b27edf5c70bf7b312a4d3260c14"
-                },
-                {
-                    "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/tokenizer.json",
-                    "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854"
-                }
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/refs/main",
+          "sha256": "722ec9c8475548b2e792a0287e505f0dd6d91c011c9a0c2f22ee44dee496eec0"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/onnx/model_fp16.onnx",
+          "sha256": "625ce8535c4063628226bddea19cdf018e2e86557a0fd9c512b495481f4d14f9"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/onnx/model_int8.onnx",
+          "sha256": "f93ff225320628d2e88baf2a395cae791b0e3b27edf5c70bf7b312a4d3260c14"
+        },
+        {
+          "path": "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/snapshots/d3c1d2d433dd0fdc8e9ca01331a5f225639e798f/tokenizer.json",
+          "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854"
+        }
       ],
       "id": "embedding-clean-onnx",
       "license": "Apache-2.0",
@@ -98,6 +98,6 @@
     }
   ],
   "embedding_compatibility_fingerprint": "wf-model-set-2-20260811-arctic-s",
-  "model_set_version": "2",
+  "model_set_version": "3",
   "schema_version": 1
 }

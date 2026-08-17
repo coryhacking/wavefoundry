@@ -57,7 +57,7 @@ Tasks:
 
    **Missing docs and coverage gaps** — refresh `docs/missing-docs.md` (or `docs/gaps/missing-docs.md`):
    - Check for new modules, new public APIs, or new integration surfaces added since last verified that have no corresponding doc coverage
-   - Check for items in missing-docs that have since been documented and should be removed
+   - Check for items in missing-docs that have since been documented and should be removed, or moved to the `## Resolved / closed` table per `230-author-spec` §6 when a dated resolution record is worth keeping
    - Check for doc stubs created during init that are still marked `TBD` or `Unknown` — flag for resolution when code evidence now exists
 
    **Contribution workflow and governance drift** — compare contributing docs against actual repo governance config:

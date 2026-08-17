@@ -106,7 +106,7 @@ After writing the spec, update `docs/specs/README.md` (or create it if absent) t
 
 ### 6. Resolve missing-docs entries
 
-If `docs/missing-docs.md` listed this component as a documentation gap, move the row from the appropriate priority table to the `## Resolved / closed` table with today's date and a short resolution note.
+If `docs/missing-docs.md` listed this component as a documentation gap, move the row from the appropriate priority table to the `## Resolved / closed` table with today's date and a short resolution note. Keep that heading exactly as written (an ATX H2, `## Resolved / closed`, in the canonical `docs/missing-docs.md`): the retired-surface reconciliation scan's archive allowlist (`reconcile_scan.py`) treats table rows under it as historical record, so a resolution note that names a later-retired surface is not reported as a stale reference; prose under that heading, and rows and prose anywhere else in the file, are still scanned as live guidance.
 
 ### 7. Update cross-references
 

@@ -6561,6 +6561,39 @@ class WaveAuditTests(unittest.TestCase):
         self.assertNotIn("error", [d.get("severity") for d in result.get("diagnostics", [])])
         self.assertIn("wf_current_wave", result["next_tools"])
 
+    def test_agent_surface_integrity_advisory_rides_the_audit_envelope(self):
+        """Wave 1vgep (1vflu) AC-7: wf_audit carries the agent-surface report and, when a
+        framework role is duplicated, the advisory diagnostic; a clean tree carries the
+        report with zero findings and no such diagnostic. Not patched: the real audit runs
+        against the fixture root."""
+        wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
+        agents = self.root / "docs" / "agents"
+        (agents / "specialists").mkdir(parents=True, exist_ok=True)
+        header = "# {name}\n\nOwner: Engineering\nStatus: active\nRole: red-team\nCategory: specialist\n"
+        (agents / "specialists" / "red-team.md").write_text(header.format(name="Red Team"), encoding="utf-8")
+        with patch.object(self.srv, "current_wave", return_value=wave_record), \
+             patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            clean = self.srv.wf_audit_response(self.root)
+            (agents / "red-team.md").write_text(header.format(name="Red Team (legacy)"), encoding="utf-8")
+            forked = self.srv.wf_audit_response(self.root)
+        self.assertTrue(clean["data"]["agent_surface_integrity"]["available"])
+        self.assertEqual(clean["data"]["agent_surface_integrity"]["finding_count"], 0)
+        self.assertNotIn("agent_surface_integrity_drift", [d["code"] for d in clean.get("diagnostics", [])])
+        report = forked["data"]["agent_surface_integrity"]
+        self.assertEqual(report["finding_count"], 1)
+        [duplicate] = report["duplicate_roles"]
+        self.assertEqual(duplicate["role"], "red-team")
+        self.assertEqual(duplicate["canonical_path"], "docs/agents/specialists/red-team.md")
+        self.assertEqual({item["path"] for item in duplicate["paths"]},
+                         {"docs/agents/red-team.md", "docs/agents/specialists/red-team.md"})
+        codes = [d["code"] for d in forked["diagnostics"]]
+        self.assertIn("agent_surface_integrity_drift", codes)
+        # advisory: the audit envelope stays ok and the wave stays ready
+        self.assertEqual(forked["status"], "ok")
+        # both role docs untouched by the audit
+        self.assertIn("Red Team (legacy)", (agents / "red-team.md").read_text(encoding="utf-8"))
+
     def test_lint_fail_path(self):
         """AC-3: lint failure adds wf_validate_docs to next_tools, ready=False."""
         wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}

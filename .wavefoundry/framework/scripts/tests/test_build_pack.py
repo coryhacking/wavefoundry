@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import build_pack  # noqa: E402
+import model_bundle  # noqa: E402
 
 FAKE_PREFIX = "2tm5"
 FAKE_VERSION = "1.0.0"
@@ -59,7 +60,7 @@ class BuildPackTests(unittest.TestCase):
         with zipfile.ZipFile(path) as archive:
             payload = json.loads(archive.read(manifest))
             package_manifest = archive.read(".wavefoundry/framework/MANIFEST").decode("utf-8")
-        self.assertEqual(payload["model_set_version"], "2")
+        self.assertEqual(payload["model_set_version"], model_bundle.MODEL_SET_VERSION)
         self.assertIn("model-set-verification-manifest.json", package_manifest)
 
     def test_build_suffix_uses_rightmost_four_characters(self):

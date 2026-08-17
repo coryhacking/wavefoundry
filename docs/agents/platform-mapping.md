@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-16
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -59,7 +59,7 @@ One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every
 | `wf-package` | `docs/prompts/package-wavefoundry.prompt.md` | backing prompt present (seed 100 public-only/when-present, so normally the framework source repo only) |
 | `wf-code-cleanup` | `docs/prompts/codebase-cleanup-review.prompt.md` | backing prompt present (repo-local surface; no seed provisions it to targets) |
 
-Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/`. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace).
+Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 14 skill directories in each as of 2026-08-16). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace).
 
 ## Host launcher contracts
 

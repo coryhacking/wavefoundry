@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-16
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -17,7 +17,7 @@ Use this prompt when the repository is already seeded and you want it to adopt a
 The expected operator flow is:
 
 1. Put the new framework in reach of this repository.
-   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. For offline model setup, place the feature ZIP and the model-set asset it declares (`wavefoundry-models-2.zip` beginning with Wavefoundry 1.16.0) in any of those standard distribution directories. Discovery ignores model assets as framework packs, selects the exact declared model-set version, and setup verifies its component hashes and licenses before indexing.
+   - Usually this means building or placing `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`. For offline model setup, place the feature ZIP and the model-set asset it declares (`wavefoundry-models-2.zip` for Wavefoundry 1.16.0 through 1.17.0; `wavefoundry-models-3.zip` after, same weights and embedding identity, one reference file corrected) in any of those standard distribution directories. Discovery ignores model assets as framework packs, selects the exact declared model-set version, and setup verifies its component hashes and licenses before indexing.
    - If the repository already has the desired newer `.wavefoundry/framework/` tree staged locally, the upgrade runs against that tree directly.
    - **Never `ls` for the pack to decide whether one exists.** It almost always lives in `~/.wavefoundry/dist/`, not the repo root, so an empty `ls wavefoundry-*.zip` at the repo root does **not** mean there's no pack. Determine it only via `wf upgrade --detect-zip` / `--list-zips` / `--dry-run` (see *Agent-safe zip discovery* below).
    - A standard-only upgrade checks the managed model-set identity but does not replace a verified cache with an unpinned upstream revision. If its release-pinned policy is newer, it retains the working cache and names the matching companion as the deterministic update path; missing models still use the normal setup download path.
@@ -111,7 +111,7 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 4. **Tier 2–3 — generated files** (do not hand-edit `wave:auto-guru` marker regions):
    - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/wf-guru/SKILL.md`
    - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
-5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing
+5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing, and, when a skill host root exists (`.claude/`, `.codex/`, `.agents/`), that `platform-mapping.md` § Skills lists the rendered skill set as found on disk (host skill directories, rendered skills, gating rules; seed-050 specifies the section, seed-100 points `docs/prompts/index.md` at it)
 6. **Operator follow-up** — Codex: MCP reloads from committed `.codex/config.toml` automatically; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
 
 ## Secrets scan and resume

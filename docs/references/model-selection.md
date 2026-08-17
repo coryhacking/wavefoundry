@@ -2,12 +2,14 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-16
 
 ## Current Release Policy
 
 Wavefoundry `1.16.0` advances the directly distributable companion asset to
-`wavefoundry-models-2.zip`. The active set uses Snowflake Arctic Embed S for
+`wavefoundry-models-2.zip`; releases after `1.17.0` declare `wavefoundry-models-3.zip`,
+which carries the same weights and embedding fingerprint and corrects one cache
+reference file (see ADR `1vglc`). The active set uses Snowflake Arctic Embed S for
 both semantic layers and retains the MS MARCO MiniLM L-6 cross-encoder. The
 document and code selectors remain independent configuration authorities even
 though their v2 values are equal; equal identifiers reuse one process-local
@@ -22,8 +24,10 @@ embedder instance.
 The generated verification manifest is the authority for exact upstream
 revisions, file hashes, licenses, and attributions. The hand-authored supplier
 decision below is intentionally separate from that reproducible bundle
-identity. A model-set change must advance both the model-set version and shared
-compatibility fingerprint and publish the matching versioned companion asset.
+identity. A model-set change must advance the model-set version and publish the
+matching versioned companion asset; it advances the shared compatibility
+fingerprint only when weights, pooling, or precision change (an executed byte
+compare of the shipped weight files is required to keep it; ADR `1vglc`).
 
 ## 2026-08-11 Supplier-Origin Decision
 

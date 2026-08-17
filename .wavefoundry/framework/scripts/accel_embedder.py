@@ -236,15 +236,81 @@ def _hf_download_cached_first(repo: str, filename: str, cache_dir: str) -> str:
         return hf_hub_download(repo, filename, cache_dir=cache_dir, local_files_only=True)
     except Exception:
         pass
+    # Wave 1vglb (1vgla): a cache miss must never DRIFT the cache. The pre-1vglb fallback
+    # downloaded ``main`` unpinned, so one defective ``refs/main`` (model set 2 shipped a
+    # trailing newline) turned into an unpinned ~100 MB re-download that repointed the
+    # cache at a newer Hub head and made the model asset unrebuildable. Pin the online
+    # branch to the canonical model-set revision for managed repos and say so on stderr,
+    # so a persisting miss is operator-visible instead of a silent per-process download.
+    # This helper serves only the clean-ONNX cache (every caller passes _CLEAN_ONNX_CACHE),
+    # so the pin resolves by (upstream, target="onnx-src"): the arctic upstream is shared
+    # by the fastembed component at a DIFFERENT revision (delivery finding F-1vglb-01).
+    revision = _canonical_revision_for(repo, _CLEAN_ONNX_TARGET)
+    print(
+        f"[wavefoundry] {repo!r}/{filename!r} not in the local cache; fetching "
+        + (f"pinned revision {revision[:12]}." if revision
+           else "the default revision (no model-set pin: unmanaged repo, or the canonical manifest is unavailable)."),
+        file=sys.stderr, flush=True,
+    )
+    download_kwargs = {"cache_dir": cache_dir}
+    if revision:
+        download_kwargs["revision"] = revision
     # Wave 1p939: this is a non-setup launcher (MCP index_build, dashboard watcher, background
     # refresh) — apply the same CA ladder wf setup uses before the online attempt, once per process,
     # then fall back through the same reactive candidate ladder _warm_model uses on a cert-verify
     # failure (delivery-phase council finding: the proactive step alone isn't full ladder parity).
     import setup_index
     setup_index.ensure_ca_bundle_applied()
-    return setup_index.retry_with_ca_bundle_ladder(
-        lambda: hf_hub_download(repo, filename, cache_dir=cache_dir), repo,
+    path = setup_index.retry_with_ca_bundle_ladder(
+        lambda: hf_hub_download(repo, filename, **download_kwargs), repo,
     )
+    if revision:
+        # huggingface_hub writes refs/<revision> only when the revision is symbolic; a
+        # commit-hash pin leaves no refs/main, so the next process would miss ``main``
+        # again and the cache could never attest (delivery finding F-1vglb-02). Write the
+        # normalized ref once, never repointing one that already exists.
+        _ensure_ref_main(Path(cache_dir), repo, revision)
+    return path
+
+
+_CLEAN_ONNX_TARGET = "onnx-src"
+
+
+def _canonical_revision_for(repo: str, target: str) -> str | None:
+    """The model-set-pinned Hub revision for a managed repo in one target cache, or None.
+
+    Resolved from the canonical verification manifest by (``upstream``, ``target``): the
+    same upstream may be pinned at different revisions per target cache, so an upstream-only
+    match would pin the wrong component. Unmanaged repos (or targets) return None.
+    """
+    try:
+        import model_bundle
+        manifest = model_bundle.load_canonical_verification_manifest()
+    except Exception:
+        return None
+    for component in manifest.get("components", []):
+        if component.get("upstream") == repo and component.get("target") == target:
+            revision = str(component.get("revision") or "").strip()
+            return revision or None
+    return None
+
+
+def _ensure_ref_main(cache_dir: Path, repo: str, revision: str) -> None:
+    """Best-effort: create ``models--<org>--<name>/refs/main`` (40-byte form) if absent."""
+    ref = cache_dir / f"models--{repo.replace('/', '--')}" / "refs" / "main"
+    pinned = revision.strip().encode("utf-8")
+    try:
+        if ref.exists():
+            raw = ref.read_bytes()
+            # F-1vglb-03: a legacy ref that already names the pin but carries the newline is
+            # normalized in place; a ref that points elsewhere is never repointed.
+            if raw != pinned and raw.strip() == pinned:
+                ref.write_bytes(pinned)
+            return
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_bytes(pinned)
+    except OSError:
+        pass
 
 
 def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:

@@ -6,7 +6,9 @@ anti-duplication guard (no second hand-authored copy of the map).
 """
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
+import json
 import re
 import sys
 import tempfile
@@ -338,6 +340,153 @@ class ExclusionTests(unittest.TestCase):
             root = Path(td)
             (root / "image.png").write_bytes(b".wavefoundry/bin/docs-lint")
             self.assertEqual(self.scan.scan_repo(root), [])
+
+
+class ArchiveSectionExclusionTests(unittest.TestCase):
+    """Wave 1vk4c (1vk4b): table rows under seed-230's `## Resolved / closed` heading in
+    `docs/missing-docs.md` are historical record, so the scan does not report them; every
+    other shape and location keeps reporting (fail toward reporting, memory 1u43m)."""
+
+    ARCHIVE = "docs/missing-docs.md"
+    # every producer family in one row: retired content path, literal bin wrapper path,
+    # renamed MCP tool (bare + qualified), stale prompt extension (resolves against the tree)
+    ROW = (
+        "| 2026-04-06 | docs/agents/journals/ created at init; retired, see docs/agents/memory/ | "
+        "ran `.wavefoundry/bin/docs-lint`; used `wave_close` and `mcp__wavefoundry__wave_audit`; "
+        "see docs/prompts/plan-feature.md | Historical record only |"
+    )
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def _root(self, td: str, missing_docs: str) -> Path:
+        root = Path(td)
+        (root / "docs" / "prompts").mkdir(parents=True)
+        # makes the stale `.md` prompt reference resolvable, so that producer fires
+        (root / "docs" / "prompts" / "plan-feature.prompt.md").write_text("# p\n", encoding="utf-8")
+        (root / self.ARCHIVE).write_text(missing_docs, encoding="utf-8")
+        return root
+
+    def _findings(self, root: Path) -> list:
+        return [f for f in self.scan.scan_repo(root) if f.file == self.ARCHIVE]
+
+    def test_archive_rows_are_silent_for_every_producer(self):
+        # AC-1: the seed-230 shape (heading, then a table) with a row naming every
+        # retired-surface family reports nothing.
+        text = "# Missing docs\n\n## Resolved / closed\n\n| Date | Item | Note | Status |\n| --- | --- | --- | --- |\n" + self.ROW + "\n"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root(td, text)
+            live = [f for f in self.scan.scan_repo(root) if f.file != self.ARCHIVE]
+            self.assertEqual(self._findings(root), [])
+            self.assertEqual(live, [], "the fixture must not leak findings elsewhere")
+
+    def test_same_strings_outside_the_archive_still_report(self):
+        # AC-2: priority table, prose under the archive heading, another heading.
+        text = (
+            "# Missing docs\n\n## High\n\n| Date | Item | Note | Status |\n| --- | --- | --- | --- |\n" + self.ROW + "\n\n"
+            "## Resolved / closed\n\n| Date | Item | Note | Status |\n| --- | --- | --- | --- |\n" + self.ROW + "\n"
+            "Prose parked under the archive heading still names docs/agents/journals/ and .wavefoundry/bin/docs-lint.\n\n"
+            "## Watchpoints\n\n" + self.ROW + "\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root(td, text)
+            lines = sorted({f.line for f in self._findings(root)})
+        expected_lines = [7, 14, 18]  # High row (7), prose under the archive heading (14), Watchpoints row (18); the archive row on line 13 is silent
+        self.assertEqual(lines, expected_lines)
+        # and each family reports on the High row
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root(td, text)
+            surfaces = {f.retired_surface for f in self._findings(root) if f.line == 7}
+        self.assertEqual(surfaces, {"docs/agents/journals", "docs-lint", "wave_close", "wave_audit", "prompt .md extension"})
+
+    def test_field_reproduction_reports_only_the_priority_table_row(self):
+        # The Aceiss field shape: one archive row plus the same path in a priority table.
+        text = (
+            "# Missing docs\n\n## High\n\n| Item | Note |\n| --- | --- |\n| docs/agents/journals/ | still open |\n\n"
+            "## Resolved / closed\n\n| Date | Item | Note |\n| --- | --- | --- |\n"
+            "| 2026-04-06 | docs/agents/journals/ | Historical record only; the journal system has since been retired; durable lessons are captured as typed memory records under docs/agents/memory/ |\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root(td, text)
+            found = self._findings(root)
+        self.assertEqual([(f.line, f.retired_surface) for f in found], [(7, "docs/agents/journals")])
+
+    def test_stopgap_disposition_still_suppresses_the_live_hit_until_removed(self):
+        # AC-3: the 1v7a1 key hashes (file, surface, matched TEXT), so a disposition made
+        # for the archive row equals the live High-table hit's key and suppresses it at the
+        # channel boundary; drop the entry and the live hit reappears. Fail-open store unchanged.
+        text = (
+            "# Missing docs\n\n## High\n\n| Item | Note |\n| --- | --- |\n| docs/agents/journals/ | still open |\n\n"
+            "## Resolved / closed\n\n| Date | Item |\n| --- | --- |\n| 2026-04-06 | docs/agents/journals/ retired |\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = self._root(td, text)
+            [live] = self._findings(root)
+            key = self.scan.disposition_key(live)
+            # the key an operator recorded for the ARCHIVE row (same file, surface, matched
+            # text, different line) is byte-identical to the live hit's key
+            archive_row = dataclasses.replace(live, line=13)
+            self.assertEqual(self.scan.disposition_key(archive_row), key)
+            store = root / self.scan.DISPOSITIONS_REL
+            store.write_text(json.dumps([{"key": key, "status": self.scan.HISTORICAL_RECORD}]), encoding="utf-8")
+            reconciliation, _, _ = self.scan.scan_repo_channels(root)
+            self.assertEqual([f for f in reconciliation if f.file == self.ARCHIVE], [], "stopgap suppresses the live hit too")
+            store.unlink()
+            reconciliation, _, _ = self.scan.scan_repo_channels(root)
+            self.assertEqual([f.line for f in reconciliation if f.file == self.ARCHIVE], [7])
+            store.write_text("not json", encoding="utf-8")
+            self.assertEqual(self.scan.load_dispositions(root), {}, "fail-open on a corrupt store")
+            reconciliation, _, _ = self.scan.scan_repo_channels(root)
+            self.assertEqual([f.line for f in reconciliation if f.file == self.ARCHIVE], [7], "corrupt store suppresses nothing")
+
+    def test_no_other_document_or_shape_gains_suppression(self):
+        # AC-4: identical heading in another file, H3, renamed heading, setext, no-space
+        # `##`, fenced heading, and non-Markdown files all keep reporting; H1 ends the span.
+        row = "| 2026-04-06 | docs/agents/journals/ retired |"
+        cases = {
+            "docs/other.md": "## Resolved / closed\n\n" + row + "\n",
+            "docs/missing-docs.md": (
+                "### Resolved / closed\n\n" + row + "\n"          # H3, line 3
+                "## Resolved and closed\n\n" + row + "\n"          # renamed, line 6
+                "Resolved / closed\n-----------------\n" + row + "\n"  # setext, line 9
+                "##Resolved / closed\n\n" + row + "\n"             # no space, line 12
+                "```\n## Resolved / closed\n```\n" + row + "\n"     # fenced, line 16
+                "## Resolved / closed\n\n# Top-level again\n\n" + row + "\n"  # H1 ends span, line 21
+                "## Resolved / closed (2026 archive)\n\n" + row + "\n"   # exact text only, not substring, line 24
+                "```\n~~~\n## Resolved / closed\n```\n" + row + "\n"     # ~~~ inside a ``` fence is content; heading stays fenced, line 29
+                "````\n```\n## Resolved / closed\n````\n" + row + "\n"   # ``` inside a ```` fence does not close it, line 34
+                "## Resolved / closed\n##\n" + row + "\n"                 # an empty ATX heading terminates the span, line 37
+            ),
+            "notes/archive.py": "# ## Resolved / closed\nX = 'docs/agents/journals/'\n",
+            "config/archive.json": '{"heading": "## Resolved / closed", "path": "docs/agents/journals/"}\n',
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel, body in cases.items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(body, encoding="utf-8")
+            by_file = {}
+            for f in self.scan.scan_repo(root):
+                by_file.setdefault(f.file, []).append(f.line)
+        self.assertEqual(by_file.get("docs/other.md"), [3])
+        self.assertEqual(sorted(by_file.get("docs/missing-docs.md", [])), [3, 6, 9, 12, 16, 21, 24, 29, 34, 37])
+        self.assertEqual(by_file.get("notes/archive.py"), [2])
+        self.assertEqual(by_file.get("config/archive.json"), [1])
+
+    def test_archive_span_helper_contract(self):
+        # CRLF, closing hashes, nested H3 inside the span, other-file short-circuit.
+        text = "## Resolved / closed ##\r\n\r\n| a | docs/agents/journals/ |\r\n### nested\r\n| b | x |\r\n  | c | indented row |\r\nplain\r\n"
+        spans = self.scan._archive_row_spans(text, "docs/missing-docs.md")
+        self.assertEqual([text[s:e] for s, e in spans], ["| a | docs/agents/journals/ |", "| b | x |", "  | c | indented row |"])
+        # fence bookkeeping: a shorter or other-character run inside an open fence is content
+        fenced = "````\n```\n## Resolved / closed\n| a | x |\n````\n| b | y |\n"
+        self.assertEqual(self.scan._archive_row_spans(fenced, "docs/missing-docs.md"), [])
+        mixed = "```\n~~~\n## Resolved / closed\n```\n| a | x |\n"
+        self.assertEqual(self.scan._archive_row_spans(mixed, "docs/missing-docs.md"), [])
+        self.assertEqual(self.scan._archive_row_spans(text, "docs/other.md"), [])
+        self.assertEqual(self.scan._archive_row_spans("no headings at all\n| row |\n", "docs/missing-docs.md"), [])
+        self.assertEqual(self.scan._ARCHIVE_SECTIONS, (("docs/missing-docs.md", "resolved / closed"),))
 
 
 class HostPermissionChannelTests(unittest.TestCase):

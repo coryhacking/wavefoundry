@@ -26,6 +26,9 @@ class ModelBundleTests(unittest.TestCase):
             (base / "snapshots" / "rev" / "onnx").mkdir(parents=True)
             (base / "refs" / "main").write_text("rev\n", encoding="utf-8")
             (base / "snapshots" / "rev" / "onnx" / "model.onnx").write_bytes(directory.encode())
+            # a non-ref member that carries whitespace at both ends: normalization must
+            # NEVER touch it (real tokenizer.json files end in a newline)
+            (base / "snapshots" / "rev" / "tokenizer.json").write_bytes(b" {}\n")
         self.out = self.tmp / "out"; self.out.mkdir()
         self.fast = self.tmp / "target-fast"
         self.onnx = self.tmp / "target-onnx"
@@ -54,6 +57,14 @@ class ModelBundleTests(unittest.TestCase):
         manifest = model_bundle.load_canonical_verification_manifest()
         self.assertEqual(manifest["model_set_version"], model_bundle.MODEL_SET_VERSION)
         self.assertEqual(len(manifest["components"]), len(model_bundle.COMPONENTS))
+        # Wave 1vglb: the CHECKED-IN manifest pins every refs/main at the 40-byte form
+        # (sha256 of the bare revision), so the set-2 defect cannot be re-pinned by hand.
+        import hashlib
+        for component in manifest["components"]:
+            refs = [f for f in component["files"] if f["path"].endswith("/refs/main")]
+            self.assertEqual(len(refs), 1, component["id"])
+            self.assertEqual(refs[0]["sha256"], hashlib.sha256(component["revision"].encode()).hexdigest(), component["id"])
+            self.assertNotEqual(refs[0]["sha256"], hashlib.sha256((component["revision"] + "\n").encode()).hexdigest())
 
     def test_retired_model_residue_census_is_closed(self):
         """Legacy identities survive only in cleanup, comparison evidence, or history."""
@@ -180,11 +191,132 @@ class ModelBundleTests(unittest.TestCase):
 
     def test_build_materialize_and_reuse(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
-        self.assertEqual(bundle.name, "wavefoundry-models-2.zip")
-        result = model_bundle.materialize_bundle(bundle, expected_model_set_version="2")
+        # Wave 1vglb: follow the live constant, not a literal set number.
+        self.assertEqual(bundle.name, model_bundle.bundle_name())
+        version = model_bundle.MODEL_SET_VERSION
+        result = model_bundle.materialize_bundle(bundle, expected_model_set_version=version)
         self.assertEqual(result["published_components"], len(model_bundle.COMPONENTS))
-        self.assertEqual(model_bundle.materialize_bundle(bundle, expected_model_set_version="2")["published_components"], 0)
+        self.assertEqual(model_bundle.materialize_bundle(bundle, expected_model_set_version=version)["published_components"], 0)
         self.assertTrue((self.fast / "models--snowflake--snowflake-arctic-embed-s" / ".wavefoundry-model-bundle.json").is_file())
+
+    # ------------------------------------------------------------------
+    # Wave 1vglb (1vgla): refs/main normalization, the executed falsifications.
+    # The fixture's cache deliberately writes ``refs/main`` as ``"rev\n"`` (the exact
+    # defective 41-byte shape model set 2 shipped), so every test below runs against
+    # the real known-bad input.
+    # ------------------------------------------------------------------
+
+    def _arctic_ref_member(self) -> str:
+        return "models/onnx-src/models--Snowflake--snowflake-arctic-embed-s/refs/main"
+
+    def test_build_normalizes_refs_main_and_manifest_pins_the_40_byte_form(self):
+        # (a) build-side: the cache holds "rev\n"; the packed member and the
+        # manifest sha must both describe the stripped form.
+        import zipfile, hashlib
+        on_disk = (self.cache / "onnx-src" / "models--Snowflake--snowflake-arctic-embed-s" / "refs" / "main").read_bytes()
+        self.assertTrue(on_disk.endswith(b"\n"), "fixture must present the defective shape")
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        with zipfile.ZipFile(bundle) as archive:
+            packed = archive.read(self._arctic_ref_member())
+        self.assertEqual(packed, b"rev")
+        self.assertFalse(packed.endswith(b"\n"))
+        shas = {f["path"]: f["sha256"] for c in self._test_manifest["components"] for f in c["files"]}
+        pinned = shas[self._arctic_ref_member()]
+        self.assertEqual(pinned, hashlib.sha256(b"rev").hexdigest())
+        self.assertNotEqual(pinned, hashlib.sha256(b"rev\n").hexdigest())
+        # normalization scope: a non-ref member keeps its whitespace, packed and pinned raw
+        tok = self._arctic_ref_member().replace("refs/main", "snapshots/rev/tokenizer.json")
+        with zipfile.ZipFile(bundle) as archive:
+            self.assertEqual(archive.read(tok), b" {}\n")
+        self.assertEqual(shas[tok], hashlib.sha256(b" {}\n").hexdigest())
+
+    def test_materialize_writes_refs_main_normalized_even_from_a_newline_bundle(self):
+        # (b) install-side, independent of build-side: hand-craft a bundle whose
+        # packed refs/main carries the newline (as set 2 does) and prove the
+        # installed file is the 40-byte form. Hash the manifest for the newline
+        # form so the bundle passes verification the way set 2 would.
+        import zipfile, json, hashlib, copy
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        crafted = self.out / "crafted.zip"
+        manifest = copy.deepcopy(self._test_manifest)
+        for c in manifest["components"]:
+            for f in c["files"]:
+                if f["path"].endswith("refs/main"):
+                    f["sha256"] = hashlib.sha256(b"rev\n").hexdigest()
+        with zipfile.ZipFile(bundle) as src, zipfile.ZipFile(crafted, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == model_bundle._MANIFEST_NAME:
+                    data = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
+                elif item.filename.endswith("refs/main"):
+                    data = b"rev\n"
+                dst.writestr(item, data)
+        with patch.object(model_bundle, "load_canonical_verification_manifest", side_effect=lambda path=None: manifest):
+            # archive verification hashes the packed bytes as-is, so the newline form
+            # matches this crafted manifest and the install path is reached
+            model_bundle.materialize_bundle(crafted, expected_model_set_version=model_bundle.MODEL_SET_VERSION)
+        arctic = self.onnx / "models--Snowflake--snowflake-arctic-embed-s"
+        installed = (arctic / "refs" / "main").read_bytes()
+        self.assertEqual(installed, b"rev", "install must write the normalized 40-byte form")
+        self.assertEqual((arctic / "snapshots" / "rev" / "tokenizer.json").read_bytes(), b" {}\n",
+                         "non-ref members install byte-identically")
+
+    def test_known_bad_pair_newline_ref_misses_main_and_normalized_resolves(self):
+        # (d) the executed known-bad from the 1.16.4 diagnosis, on a fixture cache:
+        # huggingface_hub resolves ``main`` by reading refs/main VERBATIM.
+        try:
+            from huggingface_hub import try_to_load_from_cache
+        except Exception:  # pragma: no cover
+            self.skipTest("huggingface_hub unavailable")
+        repo_dir = self.tmp / "hfcache" / "models--Snowflake--snowflake-arctic-embed-s"
+        snap = repo_dir / "snapshots" / "abcdef1234567890abcdef1234567890abcdef12"
+        (snap / "onnx").mkdir(parents=True)
+        (snap / "onnx" / "model.onnx").write_bytes(b"w")
+        (repo_dir / "refs").mkdir()
+        (repo_dir / "refs" / "main").write_bytes(b"abcdef1234567890abcdef1234567890abcdef12\n")
+        cache_dir = str(self.tmp / "hfcache")
+        before = try_to_load_from_cache("Snowflake/snowflake-arctic-embed-s", "onnx/model.onnx", cache_dir=cache_dir, revision="main")
+        self.assertIsNone(before, "newline ref must fail to resolve main (the known-bad)")
+        (repo_dir / "refs" / "main").write_bytes(model_bundle._normalized_ref_bytes(b"abcdef1234567890abcdef1234567890abcdef12\n"))
+        after = try_to_load_from_cache("Snowflake/snowflake-arctic-embed-s", "onnx/model.onnx", cache_dir=cache_dir, revision="main")
+        self.assertTrue(isinstance(after, str) and after.endswith("model.onnx"), "normalized ref must resolve main")
+
+    def test_legacy_marker_with_verbatim_ref_digest_still_verifies(self):
+        # Markers written before 1vglb pinned the ref's VERBATIM digest (set 2 shipped a
+        # 41-byte ref). The normalizing verifier must still accept them, so an installed
+        # set 2 reads as an older managed set rather than a mixed cache during upgrade.
+        import hashlib, json
+        dest = self.cache / "onnx-src" / "models--Snowflake--snowflake-arctic-embed-s"
+        legacy = {
+            "files": {
+                "refs/main": hashlib.sha256(b"rev\n").hexdigest(),
+                "snapshots/rev/onnx/model.onnx": hashlib.sha256(b"models--Snowflake--snowflake-arctic-embed-s").hexdigest(),
+                "snapshots/rev/tokenizer.json": hashlib.sha256(b" {}\n").hexdigest(),
+            },
+            "model_set_version": "2",
+            "fingerprint": model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT,
+        }
+        marker = self.tmp / "legacy-marker.json"
+        marker.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertIsNotNone(model_bundle._verified_marker(dest, marker))
+        # a normalized (post-1vglb) marker verifies too, and a tampered ref still fails
+        legacy["files"]["refs/main"] = hashlib.sha256(b"rev").hexdigest()
+        marker.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertIsNotNone(model_bundle._verified_marker(dest, marker))
+        legacy["files"]["refs/main"] = hashlib.sha256(b"other").hexdigest()
+        marker.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertIsNone(model_bundle._verified_marker(dest, marker))
+        # and a non-ref member never gets the legacy tolerance
+        legacy["files"]["refs/main"] = hashlib.sha256(b"rev").hexdigest()
+        legacy["files"]["snapshots/rev/tokenizer.json"] = hashlib.sha256(b"{}").hexdigest()
+        marker.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertIsNone(model_bundle._verified_marker(dest, marker))
+
+    def test_set3_keeps_the_set2_embedding_fingerprint(self):
+        # The identity decision, pinned: a set bump that changes only a reference
+        # byte must not invalidate any existing index.
+        self.assertEqual(model_bundle.MODEL_SET_VERSION, "3")
+        self.assertEqual(model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT, "wf-model-set-2-20260811-arctic-s")
 
     def test_rejects_traversal_and_hash_tamper(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
@@ -377,6 +509,51 @@ class ModelBundleTests(unittest.TestCase):
         self.assertEqual(model_bundle.local_model_set_status(), "current")
         for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
             self.assertTrue((model_bundle._target_root(target) / directory / ".wavefoundry-model-bundle.json").is_file())
+
+    def test_attest_normalizes_legacy_refs_in_place_and_materialize_skip_repairs_them(self):
+        # F-1vglb-03: a legacy set-2 cache (41-byte ref) upgraded WITHOUT the asset in reach
+        # must not be relabeled with the defect intact. Attest normalizes the bytes it
+        # attests; the already-installed skip in materialize repairs them too; and main
+        # resolves under the REAL huggingface_hub afterwards.
+        try:
+            from huggingface_hub import try_to_load_from_cache
+        except Exception:  # pragma: no cover
+            self.skipTest("huggingface_hub unavailable")
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        with zipfile.ZipFile(bundle) as archive:
+            manifest_path = self.out / "verification.json"
+            manifest_path.write_bytes(archive.read("model-bundle-manifest.json"))
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            shutil.copytree(self.cache / target / directory, model_bundle._target_root(target) / directory)
+        arctic = self.onnx / "models--Snowflake--snowflake-arctic-embed-s"
+        ref = arctic / "refs" / "main"
+        self.assertEqual(ref.read_bytes(), b"rev\n", "fixture premise: the legacy 41-byte shape")
+        # 1) attest with no asset in reach: attested AND normalized
+        self.assertTrue(model_bundle.attest_online_cache(manifest_path))
+        self.assertEqual(ref.read_bytes(), b"rev")
+        for _id, target, directory, _license, _upstream in model_bundle.COMPONENTS:
+            self.assertEqual((model_bundle._target_root(target) / directory / "refs" / "main").read_bytes(), b"rev")
+        self.assertEqual(model_bundle.local_model_set_status(), "current")
+        # 2) an attested marker with a defective ref left behind by older code: the asset drop
+        #    is still a no-op publish, but the skip path repairs the bytes
+        ref.write_bytes(b"rev\n")
+        result = model_bundle.materialize_bundle(bundle, expected_model_set_version=model_bundle.MODEL_SET_VERSION)
+        self.assertEqual(result["published_components"], 0)
+        self.assertEqual(ref.read_bytes(), b"rev")
+        # 3) the runtime resolves main offline against the normalized ref
+        hit = try_to_load_from_cache("Snowflake/snowflake-arctic-embed-s", "onnx/model.onnx", cache_dir=str(self.onnx), revision="main")
+        self.assertTrue(isinstance(hit, str) and hit.endswith("model.onnx"))
+
+    def test_normalize_refs_in_place_touches_only_defective_refs_and_reports_originals(self):
+        dest = self.cache / "onnx-src" / "models--Snowflake--snowflake-arctic-embed-s"
+        (dest / "refs" / "other").write_bytes(b"abc")
+        changed = model_bundle._normalize_refs_in_place(dest)
+        self.assertEqual([(p.name, o) for p, o in changed], [("main", b"rev\n")])
+        self.assertEqual((dest / "refs" / "main").read_bytes(), b"rev")
+        self.assertEqual((dest / "refs" / "other").read_bytes(), b"abc")
+        self.assertEqual((dest / "snapshots" / "rev" / "tokenizer.json").read_bytes(), b" {}\n", "never touches non-refs")
+        self.assertEqual(model_bundle._normalize_refs_in_place(dest), [], "idempotent")
+        self.assertEqual(model_bundle._normalize_refs_in_place(self.tmp / "no-such"), [])
 
     def test_refuses_incomplete_or_extra_online_cache_without_markers(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)

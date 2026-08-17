@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-16
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
@@ -20,7 +20,7 @@ What it does in order:
    - `vX.Y.Z` tag must not exist locally or on `origin`
    - `gh auth status` must succeed
    - `CHANGELOG.md` must contain a `## [X.Y.Z]` section
-2. **Build** the source distribution and matching model companion — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`, and verifies `wavefoundry-models-2.zip` for the 1.16.0 model set. The feature pack ships framework **source only**; the separate companion carries pinned offline model artifacts, not a semantic index.
+2. **Build** the source distribution and matching model companion — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`, and builds the declared model companion (`wavefoundry-models-<MODEL_SET_VERSION>.zip`, set 3 from the release after 1.17.0) from the warmed local cache (a pre-existing companion zip is never reused); the cache must match the canonical model-set manifest byte for byte, with `refs/main` files compared in their normalized 40-byte form. The feature pack ships framework **source only**; the separate companion carries pinned offline model artifacts, not a semantic index.
 3. **Commit the stamp**: the VERSION/manifest/README-badge changes the build made are committed automatically (`git add -A && git commit`) so the tag points at the stamped tree.
 4. **Tag** the stamp commit locally with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
 5. **Push main**: `HEAD` is pushed to `origin/main` (the stamp commit lands on the default branch).
@@ -53,7 +53,8 @@ Each step prints a recovery command in its error message. Common cases:
   ```bash
   gh release create v<X.Y.Z> --title <X.Y.Z> \
     --notes-file <(awk '/^## \[<X.Y.Z>\]/{flag=1;next} /^## \[/{flag=0} flag' CHANGELOG.md) \
-    ~/.wavefoundry/dist/wavefoundry-<X.Y.Z>.<build-suffix>.zip
+    ~/.wavefoundry/dist/wavefoundry-<X.Y.Z>.<build-suffix>.zip \
+    ~/.wavefoundry/dist/wavefoundry-models-<MODEL_SET_VERSION>.zip
   ```
   Or, if the wrong tag was pushed, delete it on both sides (`git push origin :refs/tags/v<X.Y.Z>` and `git tag -d v<X.Y.Z>`) and re-run `build_pack.py --release`.
 - **`gh auth status` failed during pre-flight.** Sign in with `gh auth login`, or `gh auth switch -u <username>` if multiple accounts are configured.

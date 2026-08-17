@@ -732,7 +732,11 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("Required embedding model 'model-a' could not be prepared", message)
         self.assertIn("network or download host unavailable", message)
         self.assertIn("Underlying error:", message)
-        self.assertIn("wavefoundry-models-2.zip", message)
+        spec = importlib.util.spec_from_file_location("model_bundle", SCRIPTS_ROOT / "model_bundle.py")
+        model_bundle = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(model_bundle)
+        # the recovery guidance must name the CURRENT model-set asset, not a pinned literal
+        self.assertIn(model_bundle.bundle_name(), message)
         self.assertIn("target repository root, ~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/", message)
         self.assertIn("leave it zipped", message)
         self.assertIn("leaves the verified cache unchanged", message)

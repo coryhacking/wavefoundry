@@ -18,7 +18,11 @@ from typing import Any
 
 BUNDLE_SCHEMA = 1
 BUNDLE_PREFIX = "wavefoundry-models-"
-MODEL_SET_VERSION = "2"
+MODEL_SET_VERSION = "3"
+# Wave 1vglb (1vgla): set 3 corrects ONE reference byte in set 2 (a trailing newline
+# in a ``refs/main`` member) and changes no model weight, so the embedding identity
+# is deliberately unchanged: every set-2 index stays valid and nothing re-embeds.
+# Bump this fingerprint only when weights, pooling, or precision change.
 EMBEDDING_COMPATIBILITY_FINGERPRINT = "wf-model-set-2-20260811-arctic-s"
 _HOME = Path("~/.wavefoundry").expanduser()
 _FASTEMBED_DEFAULT = _HOME / "cache" / "fastembed"
@@ -60,6 +64,69 @@ def _file_sha256(path: Path) -> str:
             digest.update(block)
     return digest.hexdigest()
 
+
+
+def _is_ref_member(relative: str) -> bool:
+    """True for a huggingface_hub symbolic-revision file (``refs/<name>``)."""
+    parts = Path(relative).parts
+    return len(parts) == 2 and parts[0] == "refs"
+
+
+def _normalized_ref_bytes(data: bytes) -> bytes:
+    """Canonical bytes for a ``refs/<name>`` member: the bare revision, no trailing newline.
+
+    Wave 1vglb (1vgla): huggingface_hub resolves a symbolic revision by reading
+    ``refs/main`` VERBATIM and matching it against snapshot directory names, so a
+    trailing newline (``<sha>\n``, 41 bytes) never matches the 40-char directory and
+    every ``local_files_only=True`` lookup misses. Model set 2 shipped exactly that
+    for one component and its manifest pinned the defective byte-shape, which made
+    the asset unrebuildable once the miss triggered an unpinned re-download. Every
+    place that reads a ref for packing, hashing, or writing normalizes through here
+    so build, manifest, and install agree on the 40-byte form regardless of what a
+    local cache holds.
+    """
+    return data.strip()
+
+
+def _normalize_refs_in_place(destination: Path) -> list[tuple[Path, bytes]]:
+    """Rewrite any ``refs/*`` under a component whose raw bytes are not the normalized form.
+
+    Returns ``(path, original_bytes)`` for every file rewritten so callers can roll back.
+    Wave 1vglb (F-1vglb-03): a legacy set-2 cache carries one 41-byte ref; every path that
+    asserts the cache IS the declared set (attest, the already-installed skip in materialize)
+    normalizes the bytes too, so the defect cannot outlive the first setup or upgrade even
+    when the set-3 asset is not in reach.
+    """
+    changed: list[tuple[Path, bytes]] = []
+    refs = destination / "refs"
+    if not refs.is_dir():
+        return changed
+    for ref in sorted(refs.iterdir()):
+        if not ref.is_file():
+            continue
+        raw = ref.read_bytes()
+        normalized = _normalized_ref_bytes(raw)
+        if raw != normalized:
+            ref.write_bytes(normalized)
+            changed.append((ref, raw))
+    return changed
+
+
+def _cache_member_sha256(candidate: Path, relative: str) -> str:
+    """sha256 of an on-disk cache file as the manifest describes it (refs normalized).
+
+    Non-ref members (the weights) stream through ``_file_sha256`` so status, attest,
+    and install never hold a whole model file in memory; only the tiny ref is read whole.
+    """
+    if _is_ref_member(relative):
+        return _sha256(_cache_member_bytes(candidate, relative))
+    return _file_sha256(candidate)
+
+
+def _cache_member_bytes(candidate: Path, relative: str) -> bytes:
+    """Read a cache file for packing/hashing, normalizing ``refs/*`` members."""
+    data = candidate.read_bytes()  # dereference only trusted local cache links
+    return _normalized_ref_bytes(data) if _is_ref_member(relative) else data
 
 def _version_key(value: object) -> tuple[int, ...]:
     """Parse the deliberately small dotted-integer model-set version contract."""
@@ -127,7 +194,7 @@ def _manifest_from_cache(root: Path) -> dict[str, Any]:
             relative = candidate.relative_to(source).as_posix()
             if relative.startswith("/") or ".." in Path(relative).parts:
                 raise RuntimeError(f"unsafe cache path: {candidate}")
-            files.append({"path": f"models/{target}/{directory}/{relative}", "sha256": _file_sha256(candidate)})
+            files.append({"path": f"models/{target}/{directory}/{relative}", "sha256": _sha256(_cache_member_bytes(candidate, relative))})
         if not files:
             raise RuntimeError(f"required warmed model cache is empty: {source}")
         components.append({"id": component_id, "target": target, "directory": directory,
@@ -173,7 +240,7 @@ def build_bundle(
             relative = candidate.relative_to(source).as_posix()
             if relative.startswith("/") or ".." in Path(relative).parts:
                 raise RuntimeError(f"unsafe cache path: {candidate}")
-            data = candidate.read_bytes()  # dereference only trusted local cache links
+            data = _cache_member_bytes(candidate, relative)
             arc = f"models/{target}/{directory}/{relative}"
             payload.append((arc, data))
     out = output_dir / bundle_name()
@@ -250,7 +317,8 @@ def _cached_component_file_map(destination: Path) -> dict[str, str] | None:
             return None
         for candidate in sorted(root.rglob("*")):
             if candidate.is_file():
-                files[candidate.relative_to(destination).as_posix()] = _file_sha256(candidate)
+                relative = candidate.relative_to(destination).as_posix()
+                files[relative] = _cache_member_sha256(candidate, relative)
     return files
 
 
@@ -297,6 +365,7 @@ def attest_online_cache(manifest_path: Path | None = None) -> bool:
     written: list[tuple[Path, bytes | None]] = []
     try:
         for marker, expected in pending:
+            written.extend(_normalize_refs_in_place(marker.parent))
             if marker.is_file() and _verified_marker(marker.parent, marker) == expected:
                 continue
             original = marker.read_bytes() if marker.exists() else None
@@ -334,8 +403,14 @@ def _verified_marker(destination: Path, marker: Path) -> dict[str, Any] | None:
             if not isinstance(relative, str) or not isinstance(digest, str):
                 return None
             candidate = destination / relative
-            if not candidate.is_file() or _file_sha256(candidate) != digest:
+            if not candidate.is_file():
                 return None
+            if _cache_member_sha256(candidate, relative) != digest:
+                # Markers written before wave 1vglb pinned a ref's VERBATIM digest (model set 2
+                # shipped one 41-byte ref); accept that legacy shape so an installed set 2 reads
+                # as an older managed set, not as a mixed cache, until set 3 replaces it.
+                if not (_is_ref_member(relative) and _file_sha256(candidate) == digest):
+                    return None
         _version_key(value.get("model_set_version"))
         if not isinstance(value.get("fingerprint"), str):
             return None
@@ -426,6 +501,7 @@ def materialize_bundle(
                     if installed["fingerprint"] != expected["fingerprint"]:
                         raise RuntimeError("model bundle conflicts with the installed model-set identity")
                     if installed["files"] == files:
+                        _normalize_refs_in_place(destination)
                         continue
             target.mkdir(parents=True, exist_ok=True)
             staging_parent = Path(tempfile.mkdtemp(prefix=".wf-model-", dir=target))
@@ -437,7 +513,14 @@ def materialize_bundle(
                 rel = Path(*rel.parts[2:])
                 output = staging / rel
                 output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_bytes(archive.read(path))
+                payload = archive.read(path)
+                # Wave 1vglb: install-side normalization is defensive and independent
+                # of build-side normalization. A set-3 asset already packs the 40-byte
+                # form (the manifest gates above pin it), so this only matters if a
+                # future canonical manifest ever pinned a non-normalized ref again.
+                if _is_ref_member(rel.as_posix()):
+                    payload = _normalized_ref_bytes(payload)
+                output.write_bytes(payload)
             (staging / _MARKER_NAME).write_text(json.dumps(expected, sort_keys=True) + "\n", encoding="utf-8")
             pending.append((component, destination, staging_parent, staging))
 

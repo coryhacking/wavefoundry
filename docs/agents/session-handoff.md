@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-16
 
 ## Wave `1uwpf receipt-and-citation-contract-followups` — CLOSED 2026-08-10 (uncommitted)
 
@@ -51,6 +51,30 @@ All four lanes returned CHANGES REQUESTED; every finding is folded and re-verifi
 ## Current Session
 
 **Active wave:** *(none)*
+
+### Wave `1vk4c` (2026-08-16), CLOSED
+
+Last closed wave: `1vk4c field-feedback-1p17p1-seed-scan-gaps` (changes `1vk4a`, `1vk4b`); from the first 1.17.1 field upgrades: seed-050 now specifies the `platform-mapping.md` Skills subsection seed-100 points at (seed-160 re-verifies it against the rendered skill directories on every upgrade), and `reconcile_scan.py` no longer reports table rows under the exact `## Resolved / closed` heading in the canonical `docs/missing-docs.md` (every producer, fence-aware, fail-toward-reporting; seed-230/150/160 reconciled; operators drop stopgap dispositions because the disposition key hashes the matched text and also silences the live tables). Readiness council corrected the plan from executed probes; delivery: three lanes + delivery council APPROVE after one aggregated hardening finding. Suite 7267 tests / 63 files OK. Operator signoff and close recorded 2026-08-16; committed and released with 1.17.1 (see below).
+
+**Open questions / Deferred decisions:** legacy `docs/gaps/missing-docs.md` gets no archive exemption until consolidated per seed-220 (deliberate); rows parked under the archive heading are silenced by construction (accepted, allowlist pinned to one entry by test).
+
+### Wave `1vgep` (2026-08-16), CLOSED
+
+Last closed wave: `1vgep agent-role-canonicalization-audit` (change `1vflu`); shipped the read-only, registry-derived agent-surface integrity audit (duplicate framework review-carrier roles) surfaced through `wf_audit` and the upgrade operator summary. Implemented in another session (no MCP attached there); independently reviewed here. Five delivery findings repaired and reverified, including one this session introduced and then retracted: a zip-loaded `pre_cleanup` hook meant to cover the delivering upgrade DUPLICATED the advisory, because `phase_cleanup` runs in the standalone `--cleanup` process from the freshly extracted runner (memory `1vjt5-mem`). `upgrade_extensions.py` is byte-identical to HEAD; the cleanup-driver test pins exactly one advisory block. Suite 7261 tests / 63 files OK. CHANGELOG bullet under `## [1.17.1]`. Operator signoff and close recorded 2026-08-16.
+
+**Open questions / Deferred decisions:** the `[~]` items in `1vflu` (reference census, wrapper policy, repo-local role classification, seed/prompt reconciliation) are deferred by operator direction; the `agent_surface_integrity_drift` diagnostic omits the structured `advisory=True` flag (info, not planned).
+
+### Wave `1vglb` (2026-08-16), CLOSED
+
+Last closed wave: `1vglb model-set-refs-main-fix` (change `1vgla`); shipped the set-3 offline model asset plus ref normalization at build/install/attest and a pinned online fallback, restoring the one-command release path. Operator signoff and close recorded via `wf_close_wave` 2026-08-16.
+
+The model-set defect is fixed end to end. `refs/*` members are normalized (40-byte, no newline) at build (`_manifest_from_cache`, `build_bundle`), at install (`materialize_bundle`), and in attestation (`_cached_component_file_map`, `_verified_marker`) through one helper pair; the online fallback in `accel_embedder._hf_download_cached_first` is pinned to the canonical revision by (upstream, target) with a stderr miss line, and writes/normalizes `refs/main` after a pinned fetch; `attest_online_cache` and `materialize_bundle`'s already-installed skip normalize legacy refs in place. `MODEL_SET_VERSION` is `3`, the fingerprint is unchanged (ADR `1vglc`, weights byte-identical), and the canonical manifest differs from set 2 by exactly one sha. **`wavefoundry-models-3.zip` is published at the `models` tag** (351,495,236 bytes, sha256 `64154814bc6ecff330695dbac752174c60e29d016027180393192a77618169e5`) next to set 2, round-tripped from the download into a clean cache. **`build_pack.py --with-models` builds on this machine again** (exit 0 on the real tree against the repaired live cache; `--with-models --release-dry-run` exit 0 in a scratch clone with both assets and steps 3 to 7 printed). The live `~/.wavefoundry/cache` was repaired by materializing set 3 (arctic onnx-src now one snapshot, ref 40 bytes).
+
+Delivery review (three fresh lanes) found three real defects, all repaired in-session and independently reverified by fresh contexts with executed known-bads: F-1vglb-01 (broad) the pin resolved by upstream only and the shared arctic upstream pinned the WRONG revision for onnx-src; F-1vglb-02 (medium) a commit-hash download writes no `refs/main`; F-1vglb-03 (medium) a legacy set-2 cache attested without the asset kept its 41-byte ref forever. Ledger: `code-reviewer`, `qa-reviewer`, `release-reviewer` delivery approvals recorded; readiness approvals recorded earlier. Suite **7254 tests OK across 62 files**; docs-lint ok. CHANGELOG `## [1.17.1] - 2026-08-16` staged.
+
+**Next release (1.17.1) can use the one-command path:** commit the tree, then `build_pack.py --version 1.17.1 --with-models --release`. It rebuilds the companion (content-identical to the `models`-tag copy, different sha256 because of zip timestamps; the `models`-tag copy is canonical).
+
+**Open questions / Deferred decisions (info, not planned):** companion zips are not byte-reproducible across builds; `_ensure_ref_main`/`_normalize_refs_in_place` write refs non-atomically (same pattern as the marker restore path); `accel_embedder._CLEAN_ONNX_CACHE` ignores `WAVEFOUNDRY_ONNX_SRC_CACHE` while `model_bundle` honors it (pre-existing). Pre-existing unrelated: `test_reranker_fp16_matches_fp32_when_available` fails on direct CoreML runs and skips under `run_tests.py`'s cpu pin.
 
 ### 1.17.0 RELEASED 2026-08-15
 

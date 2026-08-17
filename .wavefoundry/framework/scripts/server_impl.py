@@ -11567,6 +11567,17 @@ def wf_audit_response(
         pass
 
     # --- Harness sub-checks ---
+    try:
+        agent_surface_integrity = _load_script("agent_surface_integrity")
+        agent_surface_data = agent_surface_integrity.audit_agent_surfaces(root)
+    except Exception as exc:  # pragma: no cover - advisory must never block audit
+        agent_surface_data = {"available": False, "finding_count": 0, "error": str(exc)}
+    if agent_surface_data.get("finding_count", 0):
+        diagnostics.append(_diagnostic(
+            "agent_surface_integrity_drift",
+            f"{agent_surface_data['finding_count']} agent-surface integrity finding(s) detected; merge before retiring duplicates. This is advisory and does not block readiness.",
+            recovery_tools=["wf_audit"], recovery_usage="wf_audit()",
+        ))
     commit_governance = _audit_commit_governance(root)
     harnessability = _audit_harnessability(root)
     harness_coverage = _audit_harness_coverage(root)
@@ -11658,6 +11669,7 @@ def wf_audit_response(
             "validation": val_result,
             "index": index_data,
             "doc_drift": doc_drift_data,
+            "agent_surface_integrity": agent_surface_data,
             **({"memory_advisories": _mem_advisories} if _mem_advisories else {}),
             **({"estimated_exploration_avoided": _est_avoided} if _est_avoided else {}),
             "commit_governance": commit_governance,

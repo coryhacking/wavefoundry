@@ -488,6 +488,14 @@ Last verified: <YYYY-MM-DD>
 
 An unconditional "all roles available" stub is factually wrong before role docs exist, hides the missing-seed-050 failure mode behind a misleading availability claim, and was a documented retrospective failure (wave `1p35d` / `1p35l`). The conditional shape lets `wf_audit_install` and the dashboard report honest state.
 
+**Skills subsection (wave 1vk4c).** Whenever a skill host root exists (`.claude/`, `.codex/`, or `.agents/`, the same activation predicate seed-100 and `render_agent_surfaces.render_skills` use), `platform-mapping.md` also carries a **Skills** subsection (any heading level, heading text beginning with `Skills`, anywhere in the file after the header block; this framework repository keeps it under the auto-Guru routing tier-3 notes), because seed-100 tells `docs/prompts/index.md` to point at `docs/agents/platform-mapping.md` § Skills for rendering and gating detail. Like the matrix it is a record of on-disk fact: write it after the `render_agent_surfaces` pass (task 20) has produced the skill directories, and refresh it whenever that pass runs again. It states:
+
+- the active host skill directories (`.claude/skills/`, `.codex/skills/`, `.agents/skills/`, whichever roots exist);
+- the skills actually rendered in this repository, listed from disk (never copied from a seed or from another repository), so a doc-gated skill is claimed only where its backing doc exists;
+- the gating rules: skills render on `wf setup` and **Upgrade Wavefoundry**; a `requires_doc`-gated skill renders only where its backing doc exists (`wf-guru` on `docs/agents/guru.md`; `wf-package` and `wf-code-cleanup` on their prompt docs); skill rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills; every skill body is a thin pointer to the backing `docs/prompts/*.prompt.md`, so the phrase and the skill run the identical workflow.
+
+Upgrades re-verify the listed set against the rendered directories (seed-160 checklist), so registry growth cannot leave the section stale.
+
 ## Canonical Agent Doc Structure
 
 Agent docs in `docs/agents/` are rendered directly in the dashboard — write them for human readability, not just machine parsing. The dashboard renders the full document body with markdown formatting (headings, bold, bullet lists). Authors should treat `## Operating Identity` and `## Responsibilities` as the primary human-facing sections.
