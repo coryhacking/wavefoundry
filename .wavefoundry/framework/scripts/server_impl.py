@@ -8586,7 +8586,7 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
     if template_path.exists():
         template = template_path.read_text(encoding="utf-8")
     else:
-        template = _default_template()
+        template = _default_template(root)
 
     import time
     today = time.strftime("%Y-%m-%d")
@@ -11709,7 +11709,8 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
     """Run the three-check install audit and return the first failure or the next step.
 
     Check sequence (stops on first failure):
-      1. docs-lint — surface lint errors before advancing.
+      0. resolve and parse the install log.
+      1. docs-lint — block on real findings while carrying expected pending absences.
       2. checked-row artifact validation — for every ``[x]`` row, verify its
          expected artifact exists on disk. Mismatch surfaces the agent-recovery
          path.
@@ -11752,33 +11753,6 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
             usage="wf_audit_install()",
         )
 
-    # CHECK 1 — docs-lint. Block advancement on errors.
-    lint_result = run_validate(root)
-    if not lint_result.get("passed", False):
-        return _response(
-            "error",
-            {
-                "status": "lint_errors",
-                "phase": phase,
-                "errors": lint_result.get("errors", []),
-                "warnings": lint_result.get("warnings", []),
-                "next_action": (
-                    "Fix the docs-lint errors above before advancing the install log. "
-                    "After fixing, re-call wf_audit_install."
-                ),
-            },
-            diagnostics=[
-                _diagnostic(
-                    "docs_lint_error",
-                    error,
-                    recovery_tools=["wf_audit_install", "wf_validate_docs"],
-                )
-                for error in lint_result.get("errors", [])
-            ],
-            next_tools=["wf_audit_install"],
-            usage="wf_audit_install()",
-        )
-
     rows = install_log_lib.parse_log(log_text)
 
     # Wave 1p9bh: a present log that parsed to ZERO rows is corrupted (typically a non-UTF-8 write
@@ -11811,6 +11785,65 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
             usage="wf_audit_install()",
         )
 
+    # CHECK 1 — docs-lint. Expected missing future artifacts are carried as
+    # pending context; every other finding still blocks advancement.
+    lint_result = run_validate(root)
+    lint_errors = list(lint_result.get("errors", []))
+    synthesized_failure = None
+    if not lint_result.get("passed", False) and not lint_errors:
+        # Wave 1viyu (CODE-DEL-2): a lint run that FAILED without emitting any
+        # `ERROR:` line (subprocess crash, traceback, or the docs-less
+        # `docs/: missing repository docs root` exit path) must still block.
+        # The synthesized entry bypasses the classifier entirely (RTD-1): even
+        # an output tail that happens to quote an absence-marker phrase can
+        # never be deferred, so the audit fails closed exactly as the
+        # pre-classifier code did.
+        detail = str(lint_result.get("output") or "").strip().splitlines()
+        synthesized_failure = (
+            "docs-lint failed without an ERROR line: "
+            + (detail[-1] if detail else "no output captured")
+        )
+    blocking, expected_pending = install_log_lib.classify_lint_errors(
+        lint_errors, rows, root
+    )
+    if synthesized_failure is not None:
+        blocking = [synthesized_failure, *blocking]
+    pending_cap = 25
+    pending_lint = {
+        "count": len(expected_pending),
+        "errors": expected_pending[:pending_cap],
+        "truncated": len(expected_pending) > pending_cap,
+        "note": (
+            "These missing artifacts are expected while Phase 2 seed rows remain pending; "
+            "they become blocking at the final install gate."
+        ),
+    }
+    if blocking:
+        return _response(
+            "error",
+            {
+                "status": "lint_errors",
+                "phase": phase,
+                "errors": blocking,
+                "warnings": lint_result.get("warnings", []),
+                "pending_lint": pending_lint,
+                "next_action": (
+                    "Fix the blocking docs-lint errors above before advancing the install log. "
+                    "After fixing, re-call wf_audit_install."
+                ),
+            },
+            diagnostics=[
+                _diagnostic(
+                    "docs_lint_error",
+                    error,
+                    recovery_tools=["wf_audit_install", "wf_validate_docs"],
+                )
+                for error in blocking
+            ],
+            next_tools=["wf_audit_install"],
+            usage="wf_audit_install()",
+        )
+
     scope_rows = install_log_lib.filter_phase(rows, phase)
 
     # CHECK 2 — checked-row artifact validation. Block on missing artifacts.
@@ -11831,6 +11864,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                     }
                     for r, p in missing
                 ],
+                "pending_lint": pending_lint,
                 "next_action": (
                     f"Row {first_row.number} is marked [x] but its expected artifact "
                     f"({first_row.target}) does not exist at {first_path}. "
@@ -11868,6 +11902,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                     if complete_overall
                     else f"Phase {phase} complete; other phases still have pending rows."
                 ),
+                "pending_lint": pending_lint,
             },
             diagnostics=[],
             next_tools=[],
@@ -11886,6 +11921,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                 f"reached, mark this row [x] in .wavefoundry/install-log.md and call "
                 f"wf_audit_install again."
             ),
+            "pending_lint": pending_lint,
         },
         diagnostics=[],
         next_tools=["wf_audit_install"],
@@ -18439,96 +18475,20 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
     return _attach_lint_to_response(envelope, root, "create")
 
 
-def _default_template() -> str:
-    return """# [Change Title]
+def _default_template(root: Path | None = None) -> str:
+    """Read the single shipped change template, target copy first when supplied."""
 
-Change ID: `<id>`
-Change Status: `planned`
-Owner: Engineering
-Status: planned
-Last verified: <date>
-Wave: TBD
-
-## Rationale
-
-## Requirements
-
-## Scope
-
-**Problem statement:**
-
-**In scope:**
-
-**Out of scope:**
-
-## Acceptance Criteria
-
-- [ ] AC-1:
-- [ ] AC-2:
-
-## Tasks
-
-- [ ]
-- [ ]
-
-## Serialization Points
-
-(Declare review targets in EITHER form shown below, then replace this note.
-The examples are fenced so this scaffold declares nothing until you edit it.
-
-```
-- `src/app/handler.py`, `docs/specs/`
-```
-
-or, when a target contains a space, an explicit block:
-
-```
-**Review targets (repo-relative paths):**
-
-- `docs/waves/1abc some slug/wave.md`
-```
-
-Prepare selects automatic review lanes from those declared paths and from
-nothing else — never from Scope, Rationale, or other narrative, and never from
-prose, in either declaration form. A bullet declares only when it is entirely
-targets: one stray English word makes the whole bullet prose, including inside
-the block, and a bullet whose text wraps is prose in its entirety. Adoption is
-per document, so a change doc that declares no path keeps legacy whole-document
-scoring and coverage is never silently lost, but it forfeits the precision.
-Path scoring is a floor, not a ceiling: ANY lane may also be requested by
-judgment in the wave record's `Requested review lanes`, and architecture,
-security and performance risk are usually judgment calls that no path expresses.)
-
-## Affected Architecture Docs
-
-## AC Priority
-
-(Populate one row per AC at plan time, before the prepare council runs. Filling
-this table after readiness is recorded supersedes the review-policy receipt and
-lapses the approvals it just collected.)
-
-| AC | Priority | Rationale |
-|----|----------|-----------|
-
-## Progress Log
-
-| Date | Update | Evidence |
-|------|--------|---------|
-
-## Decision Log
-
-| Date | Decision | Reason | Alternatives |
-|------|----------|--------|-------------|
-
-## Risks
-
-| Risk | Mitigation |
-|------|-----------|
-
-## Session Handoff
-
-See `docs/agents/session-handoff.md` for current session state.
-"""
+    candidates: list[Path] = []
+    if root is not None:
+        candidates.append(root / ".wavefoundry" / "framework" / "install" / "plan-template.md")
+    candidates.append(Path(__file__).resolve().parent.parent / "install" / "plan-template.md")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8")
+    raise RuntimeError(
+        "missing plan-template.md install asset; expected one of: "
+        + ", ".join(str(path) for path in candidates)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -30475,16 +30435,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_audit_install(phase: Optional[int] = None, **kwargs: Any) -> dict[str, Any]:
-        """Audit install state via .wavefoundry/install-log.md. Three-check sequence: lint, artifact validation, next step.
+        """Audit install state via .wavefoundry/install-log.md.
 
         Use during Wavefoundry install Phase 2 (after restart) to gate advancement
-        through the install log. On each call, runs docs-lint, validates that every
-        ``[x]`` row's expected artifact exists on disk, and returns the first unchecked
-        row's seed pointer + the instruction to mark ``[x]`` and re-call.
+        through the install log. The log is resolved and parsed before lint. Missing or
+        unparseable logs return ``missing_log`` / ``unparseable_log`` without running
+        lint and without ``pending_lint``. A valid log is linted, checked artifacts are
+        validated, and the first unchecked row is returned.
 
-        Stops on the first failure: lint errors block; checked-but-missing artifacts
-        block; only then returns the next unchecked row. When all rows are ``[x]``
-        or ``[~]``, returns ``status: complete``.
+        Statuses are ``missing_log``, ``unparseable_log``, ``lint_errors``,
+        ``checked_but_missing``, ``next_step``, ``phase_complete``, and ``complete``.
+        Only the last five carry ``pending_lint``. ``lint_errors.errors`` contains
+        blocking findings only; expected absences while seed rows remain pending are
+        carried separately and become blocking at the final gate. When all rows are
+        ``[x]`` or ``[~]`` and lint passes, returns ``complete``.
 
         Distinct from ``wf_audit`` (post-install repo health). Do NOT use
         ``wf_audit`` to check install state — see ``docs/references/install-log-format.md``

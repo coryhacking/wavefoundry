@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-08-18
 
 The canonical schema for the **Wavefoundry install log**, the markdown-native state machine that gates Wavefoundry's two-phase install.
 
@@ -23,7 +23,7 @@ There are four row kinds, distinguished by the parenthesized source tag:
 |---|---|---|
 | **Seed-driven** | `- [STATE] N.M — <slug> (seed-NNN) — artifact: <path>` | `- [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: docs/repo-profile.json` |
 | **Script-driven** | `- [STATE] N.M — <slug> (<script>.py) — artifact: <path>` | `- [ ] 1.2 — Create venv (setup_wavefoundry.py) — artifact: .wavefoundry/venv/` |
-| **Verification** | `- [STATE] N.M — <slug> (verify) — expects: <return shape>` | `- [ ] 2.1 — Audit Phase 1 (verify) — expects: wf_audit_install(phase=1) returns next_step` |
+| **Verification** | `- [STATE] N.M — <slug> (verify) — expects: <return shape>` | `- [ ] 2.1 — Audit Phase 1 (verify) — expects: wf_audit_install(phase=1) returns phase_complete` |
 | **Instruction** | `- [STATE] N.M — <slug> (instruction)` | `- [ ] 1.7 — STOP: restart agent (instruction)` |
 
 Common fields:
@@ -34,7 +34,7 @@ Common fields:
 - **`(seed-NNN)`** → execute the seed; read from `.wavefoundry/framework/seeds/NNN-*.prompt.md`. Phase 1 reads seeds from disk directly; Phase 2 may use `seed_get` since MCP is available.
 - **`(<script>.py)`** → invoke the script: `python3 .wavefoundry/framework/scripts/<script>.py`.
 - **`(verify)`** → run the named tool/check. `expects:` describes the return shape that confirms success.
-- **`(instruction)`** → operator/agent action with no on-disk artifact (e.g., restart the agent, deliver a summary).
+- **`(instruction)`** → operator/agent action with no on-disk artifact (e.g., restart the agent, remove a consumed bootstrap, or prepare a summary). The source tag must be the literal row ending `(instruction)`; details belong in adjacent prose, and a suffix such as `(instruction) — covers: ...` is not parser-compatible.
 - **`artifact:`** (seed and script rows) — names the expected on-disk artifact whose presence proves the row's step was completed. Single path per row; multiple artifacts use multiple rows. No globs in v1.
 - **`expects:`** (verify rows) — describes the expected tool return shape.
 
@@ -53,14 +53,14 @@ The log is divided into two sections by H2 headings: `## Phase 1 — Harness (no
 - **Phase 1** rows must not depend on MCP. The agent reads seeds from disk, runs shell + Python, edits files. `wf_audit_install` is NOT callable during Phase 1 (it lives in the MCP server). Phase 1 row kinds are limited to seed-driven (read seed from disk), script-driven, and instruction.
 - The **last row of Phase 1** is an `(instruction)` row marked STOP — restart agent. After it is marked `[x]`, the operator restarts their agent. The MCP server becomes available.
 - **Phase 2** rows may use any MCP tool. The **first row of Phase 2** is a `(verify)` row calling `wf_audit_install(phase=1)` to confirm Phase 1 actually produced its artifacts before Phase 2 begins.
-- The **second-to-last row of Phase 2** is a `(verify)` row calling `wf_audit_install()` (no phase arg) for the end-to-end completion check.
-- The **last row of Phase 2** is an `(instruction)` row delivering the operator summary handoff.
+- The final two Phase 2 rows are executable `(instruction)` rows: 2.14 removes the consumed bootstrap and 2.15 prepares the structured operator summary. After 2.15 is prepared and marked terminal, `wf_audit_install()` performs the end-to-end completion check; the prepared summary is delivered only after the audit returns `complete`.
+- The observable final-tail transitions are `next_step` for 2.14, then `next_step` for 2.15, then `complete`. A pending verification row must never expect its own terminal result, because it would return itself as `next_step` until marked.
 
 ## Trustworthy-invariant rule
 
-**The install log is trustworthy when the last operation against it was a `wf_audit_install` call that returned `status: "next_step"` or `status: "complete"`.** Any other resumption (fresh agent session, partial recovery from an abort) MUST start by calling `wf_audit_install` before trusting the `[x]` markers on existing rows.
+**The install log is trustworthy when the last operation against it was a `wf_audit_install` call that returned `status: "next_step"`, `status: "phase_complete"`, or `status: "complete"`.** Any other resumption (fresh agent session, partial recovery from an abort) MUST start by calling `wf_audit_install` before trusting the `[x]` markers on existing rows.
 
-Reason: an agent can in principle mark `[x]` without producing the artifact (a bug or interruption mid-step). The tool's check 2 (artifact validation) is what catches that drift. The tool runs that check on every call, so the log returning to a `next_step`/`complete` state is the assurance that all `[x]` rows truly have their artifacts on disk.
+Reason: an agent can in principle mark `[x]` without producing the artifact (a bug or interruption mid-step). The tool's checked-row artifact validation is what catches that drift. The tool runs that check on every call, so returning to a `next_step`, `phase_complete`, or `complete` state is the assurance that all `[x]` rows truly have their artifacts on disk.
 
 ## Phase 1 MCP-free invariant
 
@@ -77,9 +77,24 @@ If a future change adds a Phase 1 row that needs MCP, the install is broken by c
 
 On each call, the tool:
 
-1. **Runs `docs-lint`.** Lint errors block advancement; tool returns `{status: "lint_errors", errors: [...]}` without continuing.
-2. **Validates artifacts for each `[x]` row.** For every checked row, the tool parses the `artifact: <path>` field and verifies the file/directory exists. Missing artifact → `{status: "checked_but_missing", row, expected, next_action}`.
-3. **Returns the first `[ ]` row.** Skipping `[~]` rows. If no `[ ]` rows remain (all are `[x]` or `[~]`), returns `{status: "complete"}`. Otherwise `{status: "next_step", row, seed, instructions}`.
+1. **Resolves and parses the live log before lint.** A missing log returns `missing_log`; an unreadable or unparseable log returns `unparseable_log`. These two statuses take precedence over docs lint and never carry `pending_lint`.
+2. **Runs `docs-lint` and classifies its findings.** Missing-path findings that are expected while at least one Phase 2 seed row is pending are separated into `pending_lint`; all other findings are blocking. Blocking findings return `lint_errors`, whose `errors` list contains only the blocking findings. Expected absences become blocking at the final gate, when no seed row remains pending.
+3. **Validates artifacts for each `[x]` row.** For every checked row, the tool parses the `artifact: <path>` field and verifies the file/directory exists. Missing artifact → `{status: "checked_but_missing", row, expected, next_action, pending_lint}`.
+4. **Returns install state.** Skipping `[~]` rows, a no-argument call returns the first `[ ]` row as `{status: "next_step", row, seed, instructions, pending_lint}`. If a requested phase has no pending row, it returns `{status: "phase_complete", phase, pending_lint}`. If no row remains anywhere, it returns `{status: "complete", pending_lint}`.
+
+The complete status/field matrix is:
+
+| Status | Carries `pending_lint`? |
+|---|---|
+| `missing_log` | No |
+| `unparseable_log` | No |
+| `lint_errors` | Yes |
+| `checked_but_missing` | Yes |
+| `next_step` | Yes |
+| `phase_complete` | Yes |
+| `complete` | Yes |
+
+`pending_lint` has `{count, errors, truncated, note}`. Its error list is capped; `count` remains the total, `truncated` reports whether entries were omitted, and `note` explains that the absences are expected only while Phase 2 seed rows remain pending and become blocking at the final gate.
 
 The tool does not auto-execute steps. It points at the next action and instructs the agent to complete it manually, then re-call.
 

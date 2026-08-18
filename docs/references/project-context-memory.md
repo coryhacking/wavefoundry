@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-08-18
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -45,3 +45,8 @@ The first-party MCP tool surface uses subsystem prefixes: `wf_` (framework/serve
 ## Context Efficiency Stage Model (wave 1t3gt)
 
 Stage accounting writes exactly three values: `plan` (create/prepare and adopted pre-wave exploration), `implement`, and `review` (review/close). The vocabulary is enforced in `context_efficiency.set_focus`; there is no legacy mapping (pre-rename history was cleaned once, by hand). The wave.md checkpoint publishes at mutating lifecycle boundaries; close seals and compacts.
+
+## Fresh-Install Gate Coherence (wave 1viyu)
+
+Three rules that came out of the 2026-08-17 fresh-install field report and its delivery review. (1) Anything the docs gate requires on a fresh install ships as data under `.wavefoundry/framework/install/` and is applied by code at setup Step 0 (absent-only), never as a seed prose step; the seven `workflow-config.json` sections were lost exactly that way in the 1p35d install split. (2) Every `docs/**` file the renderer materializes (lifecycle prompt baselines, scaffolds, pointer-form carriers) must satisfy `check_metadata` on first lint, so it carries `Owner` / `Status` / `Last verified: {{generated_at}}` and every baseline family stamps the date on write; a fixture that claims a "Phase-1-complete" tree must be built by the real producers (Step 0 provisioners plus `render_agent_surfaces`) and judged by the real validator, or it cannot see this class. (3) Install-log rows are never renumbered (retire by removal, insert by decimal extension); seed-012 mirrors the template's numbered rows and `test_install_log_lib.FreshInstallContractParityTests` holds the parity. Typed memory records `1vnka`, `1vn0v`, `1vn8p`, `1vlnj`, `1vkk1` carry the detail.
+

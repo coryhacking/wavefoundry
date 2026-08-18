@@ -1,0 +1,27 @@
+{
+  "wave_implement": {
+    "enabled": true
+  },
+  "wave_review": {
+    "enabled": true,
+    "delivery_mode": "targeted"
+  },
+  "agent_memory": {
+    "enabled": true,
+    "record_model": "typed_memory_records"
+  },
+  "project_persona_generation": {
+    "enabled": true
+  },
+  "prompt_generation": {
+    "seed_framework_source": ".wavefoundry/framework"
+  },
+  "factor_review_policy": {
+    "required": true,
+    "applicable_factors": []
+  },
+  "persona_review_policy": {
+    "required": true,
+    "enabled": true
+  }
+}

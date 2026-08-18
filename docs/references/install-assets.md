@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-08-18
 
 The single index of every Wavefoundry **install-related asset** — where each one lives and the role it plays. The framework-side install assets are consolidated under `.wavefoundry/framework/install/`; each plays a role in the **source → ship → provision** flow. Use this page to find an install asset and understand its role before moving or editing one.
 
@@ -23,6 +23,8 @@ An asset's location is wired into its consumers (`build_pack` constants, `server
 | Install-flow seeds | Framework source of the two-phase install prompt | `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md`, `011-install-wavefoundry-phase-1.prompt.md`, `012-install-wavefoundry-phase-2.prompt.md` | Seed authoring/rendering; install/upgrade flow |
 | Install-prompt surface | The project's install prompt (lint-required surface) | `docs/prompts/install-wavefoundry.prompt.md` | Docs lint (core validators); operators invoking "Install Wavefoundry" |
 | Bootstrap entry point | Agent-readable file the operator extracts at repo root to start the install | `.wavefoundry/framework/install/install-wavefoundry.template.md` | `build_pack` (ships in zip) |
+| Workflow-config defaults | Framework-generic required sections merged absent-only during setup Step 0 | `.wavefoundry/framework/install/workflow-config.defaults.json` | `setup_wavefoundry`; `build_pack` (ships in zip) |
+| Plan-template baseline | Shipped change-doc scaffold materialized missing-only with a stamped verification date | `.wavefoundry/framework/install/plan-template.md` | `render_agent_surfaces`, `server_impl._default_template`; `build_pack` (ships in zip) |
 | Install-log template | Scaffold for the install-log state machine | `.wavefoundry/framework/install/install-log.template.md` | `build_pack` (ships in zip); referenced by `server_impl`, `install_log_lib` |
 | Install-log live state | Operator-owned install log, copied from the template on first install; **never shipped** | `.wavefoundry/install-log.md` (target project) | install/upgrade flow; `wf_audit_install` |
 | Install-log format spec | Canonical schema for the install log | canonical: `docs/references/install-log-format.md` · shipped template: `.wavefoundry/framework/install/install-log-format.md` | `install_log_lib`, `server_impl`, install seeds; provisioned to targets (`1p4dc`) |

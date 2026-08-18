@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-18
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -928,6 +928,15 @@ Ten kind-specific tools, each scaffolding a change doc and returning its ID and 
 All tools: on apply/create, request a background docs-index refresh for the new change doc.
 
 ### Framework Operations
+
+`wf_audit_install(phase: int | None = None)`
+
+- Audits the live `.wavefoundry/install-log.md` without executing steps or mutating the log.
+- Resolves and parses the log before running docs lint. `missing_log` and `unparseable_log` therefore take precedence over lint, and neither response carries `pending_lint`.
+- Returns exactly one of seven install statuses: `missing_log`, `unparseable_log`, `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, or `complete`.
+- After a valid parse, docs-lint findings expected from artifacts whose Phase 2 seed rows are still pending are separated into `pending_lint`; `lint_errors.errors` contains only blocking findings. Expected absences become blocking at the final gate, when no seed-driven row remains pending.
+- The exact `pending_lint` field matrix is: absent on `missing_log` and `unparseable_log`; present on `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, and `complete`. The object carries `{count, errors, truncated, note}`; its errors list is capped, while `count` preserves the total and `note` explains the final-gate behavior.
+- With `phase=1`, a terminal Phase 1 returns `phase_complete`. Without a phase argument, the tool returns the first pending row as `next_step`, or `complete` only when every row is terminal. The shipped final tail is `next_step` for instruction row 2.14 (remove the consumed bootstrap), then `next_step` for instruction row 2.15 (prepare the structured operator summary), then `complete`; the prepared summary is delivered only after that terminal audit.
 
 `wf_server_info()`
 

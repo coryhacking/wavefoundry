@@ -132,16 +132,16 @@ Quit and relaunch your agent, or use your host's MCP reload command. After resta
 
 #### Phase 2 — Project discovery (MCP-driven)
 
-With the MCP server reachable, the agent walks through `.wavefoundry/install-log.md` row-by-row, calling `wf_audit_install` between rows to enforce lint-as-you-go (lint errors and missing artifacts block advancement). Phase 2 bootstraps project-specific artifacts tailored to your repo — this is where Wavefoundry stops looking like a generic install and starts looking like *your* repo's framework. The agent:
+With the MCP server reachable, the agent walks through `.wavefoundry/install-log.md` row-by-row, calling `wf_audit_install` between rows to enforce lint-as-you-go. Blocking lint errors and missing artifacts on checked rows stop advancement; absences expected from still-pending Phase 2 seed rows appear separately in `pending_lint` and become blocking at the final gate. Phase 2 bootstraps project-specific artifacts tailored to your repo — this is where Wavefoundry stops looking like a generic install and starts looking like *your* repo's framework. The agent:
 
-- **Audits Phase 1 artifacts** (`wf_audit_install(phase=1)`) — recovers if any are missing.
+- **Audits Phase 1 artifacts** (`wf_audit_install(phase=1)`) — expects `phase_complete` and recovers if any checked artifact is missing.
 - **Profiles your repo** — `docs/repo-profile.json` (archetype, traits, applicable factors), `docs/repo-index.md`.
 - **Bootstraps the canonical `docs/` structure** — `architecture/`, `contributing/`, `plans/`, `references/`, `prompts/`, `waves/`, `agents/`.
 - **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`wave-council`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
 - **Maps your architecture** — `docs/ARCHITECTURE.md` plus `current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 - **Establishes posture** — `QUALITY_SCORE.md`, `RELIABILITY.md`, `SECURITY.md`, `PERFORMANCE.md` (when applicable).
 - **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, and **registers drift expectations**.
-- **Confirms complete.** Final `wf_audit_install()` returns `{status: "complete"}`. The agent delivers an operator summary covering what was seeded, the workflow, commands, roles, and the docs gate.
+- **Finishes truthfully.** The agent removes the consumed bootstrap file, prepares and marks the structured operator-summary row, calls final `wf_audit_install()` until it returns `{status: "complete"}`, and only then delivers the prepared summary covering what was seeded, the workflow, commands, roles, and the docs gate.
 
 ---
 

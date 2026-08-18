@@ -810,6 +810,53 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
+
+    def test_workflow_defaults_cover_required_sections_and_review_authority(self):
+        import json
+        import review_policy
+        from wave_lint_lib.constants import WORKFLOW_REQUIRED_KEYS
+        from wave_lint_lib.core_validators import check_workflow_config
+
+        self.assertEqual(self.mod._provision_lifecycle_policy_if_absent(self.root), 0)
+        self.assertEqual(self.mod._provision_workflow_defaults_if_absent(self.root), 0)
+        data = json.loads(self.cfg.read_text(encoding="utf-8"))
+        required = {item if isinstance(item, str) else item[0] for item in WORKFLOW_REQUIRED_KEYS}
+        self.assertTrue(required.issubset(data))
+        self.assertEqual(data["wave_review"], review_policy.migrate_wave_review_policy(None))
+        self.assertEqual(data["factor_review_policy"]["applicable_factors"], [])
+        self.assertNotIn("sensitivity", data["agent_memory"])
+        self.assertEqual(check_workflow_config(self.root), [])
+
+    def test_workflow_defaults_are_absent_only(self):
+        import json
+
+        operator_review = {"enabled": False, "delivery_mode": "universal", "custom": "keep"}
+        self.cfg.write_text(json.dumps({"wave_review": operator_review}), encoding="utf-8")
+        self.assertEqual(self.mod._provision_workflow_defaults_if_absent(self.root), 0)
+        data = json.loads(self.cfg.read_text(encoding="utf-8"))
+        self.assertEqual(data["wave_review"], operator_review)
+        self.assertIn("agent_memory", data)
+
+    def test_review_policy_carriers_are_clean_before_and_after_prompt_render(self):
+        import render_agent_surfaces
+        from wave_lint_lib.core_validators import check_review_policy_carriers
+
+        self.assertEqual(self.mod._provision_lifecycle_policy_if_absent(self.root), 0)
+        self.assertEqual(self.mod._provision_workflow_defaults_if_absent(self.root), 0)
+        self.assertEqual(check_review_policy_carriers(self.root), [])
+        prompt = self.root / "docs/prompts/upgrade-wavefoundry.prompt.md"
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        prompt.write_text("# Upgrade Wavefoundry\n", encoding="utf-8")
+        render_agent_surfaces.render_agent_surfaces(self.root)
+        self.assertEqual(check_review_policy_carriers(self.root), [])
+
+    def test_workflow_defaults_refuse_corrupt_config_without_write(self):
+        self.cfg.write_text("{corrupt", encoding="utf-8")
+        before = self.cfg.read_bytes()
+        with redirect_stdout(io.StringIO()), patch("sys.stderr", new=io.StringIO()):
+            rc = self.mod._provision_workflow_defaults_if_absent(self.root)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.cfg.read_bytes(), before)
     def test_existing_policy_block_left_untouched(self):
         import json
         original = json.dumps({"lifecycle_id_policy": {
@@ -866,19 +913,25 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
                 return 0
 
         real = self.mod._provision_lifecycle_policy_if_absent
+        real_defaults = self.mod._provision_workflow_defaults_if_absent
 
         def traced(root):
             order.append("provision")
             return real(root)
 
+        def traced_defaults(root):
+            order.append("defaults")
+            return real_defaults(root)
+
         with patch.object(self.mod, "_provision_lifecycle_policy_if_absent", traced), \
+             patch.object(self.mod, "_provision_workflow_defaults_if_absent", traced_defaults), \
              patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
              patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
              patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
              redirect_stdout(io.StringIO()):
             rc = self.mod.main(["--root", str(self.root)])
         self.assertEqual(rc, 0)
-        self.assertEqual(order, ["provision", "setup_deps", "setup_index"])
+        self.assertEqual(order, ["provision", "defaults", "setup_deps", "setup_index"])
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
 

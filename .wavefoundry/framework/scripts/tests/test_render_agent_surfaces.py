@@ -176,6 +176,35 @@ class MemoryReviewPromptTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), before)
 
 
+class ScaffoldBaselineTests(unittest.TestCase):
+    def test_plan_template_materializes_missing_with_date_and_preserves_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            ras.time, "strftime", return_value="2026-08-17"
+        ):
+            root = Path(temp_dir)
+            written = ras.reconcile_scaffold_baselines(root)
+            target = root / "docs" / "plans" / "plan-template.md"
+            self.assertEqual(written, ["docs/plans/plan-template.md"])
+            text = target.read_text(encoding="utf-8")
+            self.assertIn("Last verified: 2026-08-17", text)
+            self.assertNotIn("{{generated_at}}", text)
+            snapshot = target.read_bytes()
+            self.assertEqual(ras.reconcile_scaffold_baselines(root), [])
+            self.assertEqual(target.read_bytes(), snapshot)
+
+    def test_plan_template_resolves_target_file_then_module_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target_asset = root / ".wavefoundry/framework/install/plan-template.md"
+            target_asset.parent.mkdir(parents=True)
+            target_asset.write_text("# Target\n\nLast verified: {{generated_at}}\n", encoding="utf-8")
+            self.assertEqual(ras._resolve_install_asset(root, "plan-template.md"), target_asset)
+            target_asset.unlink()
+            resolved = ras._resolve_install_asset(root, "plan-template.md")
+            self.assertEqual(resolved.name, "plan-template.md")
+            self.assertTrue(resolved.is_file())
+
+
 class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
     def test_policy_lifecycle_baselines_are_derived_from_the_registry(self) -> None:
         derived = {

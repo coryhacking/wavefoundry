@@ -1913,14 +1913,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         ))
 
     def test_the_shipped_scaffolds_declare_nothing_until_an_author_edits_them(self):
-        """The placeholder currently declares a real target on every new doc.
-
-        `_default_template()`'s example bullet extracts `src/app/handler.py`,
-        so every freshly scaffolded change document is born in declared mode
-        with a code-reviewer-only roster before its author has declared
-        anything. Reads the canonical producers rather than a copied literal,
-        because a literal goes vacuous the moment either drifts.
-        """
+        """Both project and shipped scaffold authorities declare no targets."""
 
         root = Path(__file__).resolve().parents[4]
         template = (root / "docs/plans/plan-template.md").read_text("utf-8")
@@ -1928,18 +1921,21 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             review_policy.serialization_point_paths(template), (),
             "the plan template must scaffold zero declared targets",
         )
+        shipped = (
+            root / ".wavefoundry/framework/install/plan-template.md"
+        ).read_text("utf-8")
+        self.assertEqual(
+            review_policy.serialization_point_paths(shipped), (),
+            "the shipped fallback template must scaffold zero declared targets",
+        )
         server_impl_src = (
             root / ".wavefoundry/framework/scripts/server_impl.py"
         ).read_text("utf-8")
-        marker = "## Serialization Points"
-        self.assertIn(marker, server_impl_src)
-        for chunk in server_impl_src.split(marker)[1:]:
-            embedded = marker + chunk.split('"""')[0].split("\n## ")[0]
-            self.assertEqual(
-                review_policy.serialization_point_paths(embedded), (),
-                "an embedded scaffold must declare nothing:\n"
-                + embedded[:400],
-            )
+        self.assertNotIn(
+            'return """# [Change Title]',
+            server_impl_src,
+            "server_impl must not retain a second inline template authority",
+        )
 
     def test_body_prose_status_line_is_never_normalized(self):
         """Readiness finding: the carrier boundary was a line SHAPE, not a key.

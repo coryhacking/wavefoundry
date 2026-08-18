@@ -29,14 +29,14 @@ For full schema (row format, trustworthy-invariant rule, parser semantics), see 
 After Phase 1 completes, you must restart your AI agent so the MCP server becomes available.
 
 - [ ] 1.1 — Bootstrap harness: lifecycle-ID policy auto-provision + venv + framework deps + semantic indexes + `wf` dispatcher shim + host configs + MCP dry-run smoke test (setup_wavefoundry.py) — artifact: the platform renderer emits each enabled host's canonical MCP config and `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root
-- [ ] 1.2 — Verify lifecycle-ID policy provisioned by setup (verify) — expects: `docs/workflow-config.json` carries `lifecycle_id_policy.scheme_version` `"v2"`; if absent run `wf upgrade --materialize-lifecycle-policy` (never hand-edit epoch/offset/scheme_version)
+- [ ] 1.2 — Verify lifecycle policy and workflow defaults provisioned by setup (verify) — expects: `docs/workflow-config.json` carries `lifecycle_id_policy.scheme_version` `"v2"` plus `wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`, `prompt_generation`, `factor_review_policy`, and `persona_review_policy`; rerun setup for missing default sections, and if only the lifecycle policy is absent run `wf upgrade --materialize-lifecycle-policy` (never hand-edit epoch/offset/scheme_version)
 - [ ] 1.3 — STOP: instruct operator to restart agent for MCP availability (instruction)
 
 ## Phase 2 — Project discovery (MCP required)
 
-After every step, call `wf_audit_install` — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
+After every step, call `wf_audit_install` — it reports expected missing artifacts from pending seed rows in `pending_lint`, blocks only on blocking lint errors or invalid checked-row artifacts, and returns the next unchecked row.
 
-- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: `wf_audit_install(phase=1)` returns `{status: "next_step"}`
+- [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: `wf_audit_install(phase=1)` returns `{status: "phase_complete"}`; `pending_lint` may list expected absences while Phase 2 seed rows remain pending, and `lint_errors.errors` lists only blocking findings
 - [ ] 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional) — artifact: `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (or mark `[~]` if no legacy corpora detected)
 - [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`
 - [ ] 2.4 — Create canonical docs structure and topical artifact homes (seed-040) — artifact: `docs/README.md`
@@ -45,9 +45,10 @@ After every step, call `wf_audit_install` — it runs docs-lint, validates check
 - [ ] 2.7 — Establish quality, reliability, security, performance posture (seed-070) — artifact: `docs/QUALITY_SCORE.md`
 - [ ] 2.8 — Wire docs gate mechanics (seed-080 + seed-090) — artifact: `docs/contributing/build-and-verification.md`
 - [ ] 2.9 — Generate repo-local prompt surface (seed-100) — artifact: `docs/prompts/prompt-surface-manifest.json`
-- [ ] 2.10 — Bootstrap wave artifacts and journals tree (seed-110) — artifact: `docs/waves/README.md`
+- [ ] 2.10 — Bootstrap wave artifacts (seed-110) — artifact: `docs/waves/README.md`
 - [ ] 2.11 — Synthesize project-specific personas (seed-120) — artifact: `docs/agents/personas/README.md`
-- [ ] 2.12 — Bootstrap per-role journals (seed-130) — artifact: `docs/agents/journals/`
 - [ ] 2.13 — Register drift and reindex expectations (seed-140) — artifact: drift entries in `docs/workflow-config.json`
-- [ ] 2.14 — Final install completeness gate (verify) — expects: `wf_audit_install()` returns `{status: "complete"}`
-- [ ] 2.15 — Deliver structured operator summary handoff (instruction) — covers: what was seeded, workflow, commands, agents/personas, docs/gates, configuration, first-time-operator rules (see seed-012 § Operator summary handoff)
+- [ ] 2.14 — Remove the consumed bootstrap file (instruction)
+- [ ] 2.15 — Prepare the structured operator summary (instruction)
+
+Row 2.14 removes the single-use `install-wavefoundry.md` from the project root. Row 2.15 prepares the operator handoff covering what was seeded, workflow, commands, agents/personas, docs/gates, configuration, and first-time-operator rules (see seed-012 step 2.15, which lists the seven summary topics). After preparing the summary, mark 2.15 `[x]`, call `wf_audit_install()`, require `{status: "complete"}`, and only then deliver the prepared summary.

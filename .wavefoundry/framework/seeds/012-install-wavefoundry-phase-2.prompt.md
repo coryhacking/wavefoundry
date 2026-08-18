@@ -6,29 +6,35 @@
 
 ## State machine
 
-Continue reading `.wavefoundry/install-log.md`. Phase 2 rows live under `## Phase 2 — Project discovery (MCP required)`. Each row points at a seed prompt and an expected artifact. Execute the seed, verify the artifact, mark `[x]`, and **call `wf_audit_install` after every step** — it runs docs-lint, validates checked-row artifacts, and returns the next unchecked row.
+Continue reading `.wavefoundry/install-log.md`. Phase 2 rows live under `## Phase 2 — Project discovery (MCP required)`. Each row points at a seed prompt or executable instruction and its expected outcome. Execute the work, verify the outcome, mark `[x]`, and **call `wf_audit_install` after every step** — it classifies lint findings, validates checked-row artifacts, and returns the next unchecked row.
 
-Lint-as-you-go is the install-time discipline: lint errors block advancement; missing artifacts on `[x]` rows block advancement. The agent fixes the surface and re-calls.
+Lint-as-you-go is the install-time discipline: blocking lint errors and missing artifacts on `[x]` rows block advancement. Missing future artifacts that are expected while Phase 2 seed rows remain pending are reported separately in `pending_lint`; they become blocking when no seed row remains pending. The agent fixes blocking findings and re-calls.
 
 ## Steps (mirror `.wavefoundry/install-log.md` Phase 2)
 
-### 2.1 — Run `wf_audit_install(phase=1)`
+### 2.1 — Audit Phase 1 outputs (verify)
 
-**Action:** Call the MCP tool. The expected return is `{status: "next_step", row: "2.2 ...", seed: "seed-030", ...}`.
+**Action:** Call `wf_audit_install(phase=1)`. The expected return is `{status: "phase_complete", phase: 1, ...}`. A no-argument call still returns `{status: "next_step", row: ...}` for the first pending row across the whole log.
 
 If the return is `{status: "checked_but_missing", ...}`, Phase 1 didn't actually produce the artifact for some row. Return to seed-011 and fix.
 
-If the return is `{status: "lint_errors", ...}`, fix the lint errors before proceeding.
+If the return is `{status: "lint_errors", ...}`, its `errors` list contains only blocking findings; fix them before proceeding. The companion `pending_lint` object may list expected absences while Phase 2 seed rows remain pending and does not block this row.
 
-### 2.2 — Bootstrap the evidence base (seed-030)
+### 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional)
+
+**Action:** If legacy wave/spec/change corpora are detected, read `seed-110` and capture the reserved closed baseline at `docs/waves/00000 wave-zero-plans-and-specs/wave.md`. If no legacy corpora apply, mark this row `[~]`.
+
+**Expected artifact:** `docs/waves/00000 wave-zero-plans-and-specs/wave.md`, or a truthful `[~]` marker when no legacy baseline is needed.
+
+### 2.3 — Bootstrap the evidence base (seed-030)
 
 **Action:** Read `seed-030` and execute. Outputs go to `docs/repo-profile.json` plus inventory and architecture-grounding artifacts.
 
 **Expected artifact:** `docs/repo-profile.json` with archetype, traits, evidence sources, and `factor_review` applicability.
 
-Call `wf_audit_install` after marking 2.2 done.
+Call `wf_audit_install` after marking 2.3 done.
 
-### 2.3 — Create canonical `docs/` structure (seed-040)
+### 2.4 — Create canonical `docs/` structure (seed-040)
 
 **Action:** Read `seed-040` and execute. Outputs include `docs/README.md`, `docs/architecture/`, `docs/contributing/`, `docs/plans/`, `docs/references/`, `docs/prompts/`, `docs/waves/`, `docs/agents/`, plus topical artifact homes.
 
@@ -36,7 +42,7 @@ Call `wf_audit_install` after marking 2.2 done.
 
 > **Provision the install-log-format reference (once):** if `docs/references/install-log-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/install/install-log-format.md` (verbatim — do not author a thin version). It is the canonical install-log row format + the trustworthy-`[x]`-marker invariant that `seed-011` and `seed-010` reference; the upgrade flow (`seed-160`) refreshes it from the same template.
 
-### 2.3a — Set secrets-scan confirmation threshold in `docs/scan-rules.toml`
+### 2.4a — Set secrets-scan confirmation threshold in `docs/scan-rules.toml`
 
 > **Provision the findings-format reference (once):** if `docs/references/scan-findings-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/docs/scan-findings-format.md` (verbatim — do not author a thin version). It documents the `docs/scan-findings.json` schema, the `pending → false-positive / suspected-secret / confirmed-secret` lifecycle, and the `[policy] false_positive_confirmations_required` contract this step sets; the upgrade flow (`seed-160`) refreshes it from the same template.
 
@@ -79,9 +85,9 @@ Call `wf_audit_install` after marking 2.2 done.
 
 **Expected artifact:** `docs/scan-rules.toml` exists and contains a `[policy]` section with `false_positive_confirmations_required` and `confirmation_valid_days`.
 
-### 2.3b — Full-repo secrets baseline scan (wave 1p450)
+### 2.4b — Full-repo secrets baseline scan (wave 1p450)
 
-**Action:** Immediately after the policy is written (step 2.3a), run ONE full-repo secrets baseline scan so every tracked file — not just changed ones — is classified into `docs/scan-findings.json` in a single up-front triage pass:
+**Action:** Immediately after the policy is written (step 2.4a), run ONE full-repo secrets baseline scan so every tracked file — not just changed ones — is classified into `docs/scan-findings.json` in a single up-front triage pass:
 
 - With the Wavefoundry MCP attached: `wf_scan_secrets(mode="full")`.
 - CLI fallback: `wf secrets-scan --mode full`.
@@ -92,7 +98,7 @@ Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hoo
 
 **Expected artifact:** `docs/scan-findings.json` contains the consolidated baseline findings (or is absent/empty when the repo is clean); each finding awaits the security-reviewer triage (seed-213).
 
-### 2.4 — Generate per-role agent docs (seed-050)
+### 2.5 — Generate per-role agent docs (seed-050)
 
 **Action:** Read `seed-050` and execute. Generate `docs/agents/<role>.md` for each role in `enabled_agent_roles` (workflow-config.json). For applicable factors, generate `docs/agents/factor-<nn>-<name>.md`.
 
@@ -120,37 +126,39 @@ For richer per-role content on the other roles, consult the authoritative per-ro
 
 **Expected artifact:** `docs/agents/<role>.md` for each enabled role, each with `Role:` frontmatter. The three council role docs are present in the fresh-install layout under `docs/agents/specialists/`; established repos may keep a flat `docs/agents/` layout. `docs-lint` accepts either location — the presence of the three role docs is what's load-bearing, not the directory they live in.
 
-### 2.5 — Map architecture (seed-060)
+### 2.6 — Map architecture (seed-060)
 
 **Action:** Read `seed-060`. Generate `docs/ARCHITECTURE.md` hub plus `docs/architecture/current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 
 **Expected artifact:** `docs/ARCHITECTURE.md` and the architecture sub-docs.
 
-### 2.6 — Establish posture (seed-070)
+### 2.7 — Establish posture (seed-070)
 
 **Action:** Read `seed-070`. Generate `docs/QUALITY_SCORE.md`, `docs/RELIABILITY.md`, `docs/SECURITY.md`, `docs/PERFORMANCE.md` (when applicable).
 
 **Expected artifact:** Posture docs exist with project-specific content (not generic boilerplate).
 
-### 2.7 — Wire docs gate (seeds 080 + 090)
+### 2.8 — Wire docs gate (seeds 080 + 090)
 
 **Action:** Read `seed-080` and `seed-090`. Seed-080 spec covers two hooks (pre-edit, post-edit) — wave 1p35d (1p35n) removed the previous third pycache-cleanup hook in favor of fixing docs-lint to exclude pycache. Refresh `.wavefoundry/bin/` launchers and ensure the host configs reflect the current spec.
 
 **Expected artifact:** Two hooks wired in the host config (settings.json or equivalent); `.wavefoundry/bin/` launchers current.
 
-### 2.8 — Generate prompt surface (seed-100)
+### 2.9 — Generate prompt surface (seed-100)
 
-**Action:** Read `seed-100`. Generate `docs/prompts/*.prompt.md` for every public framework prompt and `docs/prompts/prompt-surface-manifest.json`. Include the public-prompt entries for seeds 175 (interrogate-plan) and 176 (evaluate-decision) — these are easy to miss; verify they're present. Do NOT generate a migrate-journals prompt at install time (seed 210 is upgrade-only: fresh installs have no journals to migrate).
+**Action:** Read `seed-100`. Generate `docs/prompts/*.prompt.md` for every public framework prompt and `docs/prompts/prompt-surface-manifest.json`. Include the public-prompt entries for seeds 175 (interrogate-plan) and 176 (evaluate-decision) — these are easy to miss; verify they're present. Do NOT generate a migrate-journals prompt at install time (seed 210 is upgrade-only: fresh installs have no journals to migrate). After the prompt surface exists, run `wf render-surfaces`: an explicit `wave_review.delivery_mode` requires the renderer-owned `wavefoundry:review-policy-upgrade` region in `docs/prompts/upgrade-wavefoundry.prompt.md`, and the render upserts it without hand-editing the generated carrier.
 
 **Expected artifact:** `docs/prompts/index.md`, `docs/prompts/prompt-surface-manifest.json`, individual prompt files.
 
-### 2.9 — Bootstrap wave artifacts (seed-110)
+### 2.10 — Bootstrap wave artifacts (seed-110)
 
 **Action:** Read `seed-110`. Create `docs/waves/README.md` and any other wave-coordination artifacts (journals are retired; do not create a journals directory).
 
 **Expected artifact:** `docs/waves/README.md` exists.
 
-### 2.10 — Synthesize project personas (seed-120)
+**Retired journals note:** Per-role journals have no checklist row and no directory. Durable capture uses typed memory records under `docs/agents/memory/` with close-time validation; do not create `docs/agents/journals/`.
+
+### 2.11 — Synthesize project personas (seed-120)
 
 **Action:** Read `seed-120`. Apply the **four-item persona coverage checklist** before declaring done (per wave 1p35d (1p35l)):
 
@@ -163,25 +171,15 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 
 **Expected artifact:** `docs/agents/personas/<persona>.md` for each persona that applies; `docs/agents/personas/README.md`.
 
-### 2.11 — Per-role journals (retired)
-
-**Action:** None. The journal system is retired; durable capture uses typed memory records (`docs/agents/memory/`) with close-time validation. Do not create `docs/agents/journals/`.
-
-### 2.12 — Register drift expectations (seed-140)
+### 2.13 — Register drift expectations (seed-140)
 
 **Action:** Read `seed-140`. Wire drift/reindex policy entries in `docs/workflow-config.json`.
 
 **Expected artifact:** Drift entries in workflow-config.
 
-### 2.13 — Final `wf_audit_install()` confirms complete
+### 2.14 — Remove the consumed bootstrap file (instruction)
 
-**Action:** Call `wf_audit_install()` with no arguments. Expected return: `{status: "complete", message: "install complete"}`.
-
-If anything other than `complete` is returned, the install isn't done — work the named blocker and re-call.
-
-### 2.14 — Remove the bootstrap file from the project root
-
-**Action:** Once `wf_audit_install()` returns `complete`, delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you could discover the install instructions before `.wavefoundry/` existed; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — delete it, so it does not clutter the operator's project root.
+**Action:** Delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you can discover the install instructions before `.wavefoundry/` exists; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — remove it so it does not clutter the operator's project root.
 
 ```bash
 rm -f install-wavefoundry.md
@@ -189,9 +187,11 @@ rm -f install-wavefoundry.md
 
 **Expected artifact:** No `install-wavefoundry.md` at the repository root.
 
-## Operator summary (handoff)
+After confirming removal, mark row 2.14 `[x]` and call `wf_audit_install()`; the expected result is `next_step` for row 2.15.
 
-After 2.13 returns `complete`, deliver a concise summary to the operator covering:
+### 2.15 — Prepare the structured operator summary (instruction)
+
+**Action:** Prepare, but do not yet deliver, a concise summary to the operator covering:
 
 1. **What was seeded** — paths to canonical `docs/`, `AGENTS.md`, legacy baseline (if applicable), native agent affordances
 2. **High-level workflow** — change-doc + wave flow, stage gate
@@ -201,4 +201,6 @@ After 2.13 returns `complete`, deliver a concise summary to the operator coverin
 6. **Important configuration** — `docs/workflow-config.json`, `docs/repo-profile.json`
 7. **First-time operator rules** — reading order, plans vs waves, git commits, implementation guard, closing a wave
 
-The operator summary content was originally in seed-010 (lines 148-195) — it remains the authoritative source for the topic structure. Tailor every bullet with this project's actual paths and detection results; avoid generic filler.
+This seven-topic list is the authoritative structure for the operator summary (it moved here from the pre-1.5.0 seed-010 body, which is now a router). Tailor every bullet with this project's actual paths and detection results; avoid generic filler.
+
+When the summary is ready, mark row 2.15 `[x]`, then call `wf_audit_install()` with no arguments. The expected return is `{status: "complete", message: "install complete"}`. If anything other than `complete` is returned, the install is not done: work the named blocker and re-call. Deliver the prepared summary only after the terminal audit returns `complete`.

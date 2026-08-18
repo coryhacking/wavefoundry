@@ -1,5 +1,9 @@
 # Create Wave
 
+Owner: Engineering
+Status: active
+Last verified: {{generated_at}}
+
 Shortcut: **`Create wave`**
 
 ## Purpose

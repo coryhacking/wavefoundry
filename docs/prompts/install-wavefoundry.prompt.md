@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-08-18
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -17,8 +17,8 @@ Initialize a target repository with the Wave Framework operating surface. Detect
 3. For greenfield repos (no prior context): skips baseline wave; proceeds directly to bootstrap.
 4. For repos with legacy corpus (pre-wave plans/specs): captures and closes a `00000 wave-zero-plans-and-specs` baseline wave before bootstrapping.
 5. Bootstraps the full Wave Framework operating surface: docs structure, agent entry files, architecture docs, quality posture, prompt surface, wave artifacts, personas, and typed memory records.
-6. Delivers an operator summary covering what was seeded, the workflow, commands, roles, and docs gate.
-7. Removes the single-use bootstrap file `install-wavefoundry.md` from the project root once install completes — it ships at the zip root only so the agent can discover the install instructions before `.wavefoundry/` exists; afterwards it is consumed (the canonical instructions live in this doc). Delete it (`rm -f install-wavefoundry.md`), do not move it.
+6. Removes the single-use bootstrap file `install-wavefoundry.md` from the project root once the final `wf_audit_install()` gate is the only remaining step (install-log row 2.14) — it ships at the zip root only so the agent can discover the install instructions before `.wavefoundry/` exists; afterwards it is consumed (the canonical instructions live in this doc). Delete it (`rm -f install-wavefoundry.md`), do not move it.
+7. Delivers the operator summary after `wf_audit_install()` returns `complete` (row 2.15) covering what was seeded, the workflow, commands, roles, and docs gate.
 
 ## Required Outputs
 

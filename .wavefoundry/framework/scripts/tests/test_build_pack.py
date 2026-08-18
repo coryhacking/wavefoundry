@@ -20,6 +20,15 @@ FAKE_VERSION = "1.0.0"
 
 class BuildPackTests(unittest.TestCase):
 
+    _ALLOWED_PACK_PREFIXES = (
+        ".wavefoundry/framework/",
+        ".wavefoundry/README.md",
+        ".wavefoundry/CHANGELOG.md",
+        # The only visible bootstrap file at the archive root. The live install
+        # log is operator-owned state and must never ship in the pack.
+        "install-wavefoundry.md",
+    )
+
     def setUp(self):
         import tempfile
         self._tmp = tempfile.mkdtemp()
@@ -40,6 +49,21 @@ class BuildPackTests(unittest.TestCase):
     def _zip_names(self, zip_path):
         with zipfile.ZipFile(zip_path) as zf:
             return zf.namelist()
+
+    def _assert_pack_member_contract(self, names):
+        self.assertNotIn(
+            "wavefoundry-install-log.md",
+            names,
+            "the operator-owned live install log must never ship at the zip root",
+        )
+        for name in names:
+            self.assertTrue(
+                any(
+                    name.startswith(prefix) or name == prefix
+                    for prefix in self._ALLOWED_PACK_PREFIXES
+                ),
+                f"Entry does not start with expected prefix: {name}",
+            )
 
     # ------------------------------------------------------------------
     # Filename format
@@ -201,22 +225,13 @@ class BuildPackTests(unittest.TestCase):
 
     def test_all_entries_begin_with_wavefoundry_prefix(self):
         path = self._build()
-        allowed_prefixes = (
-            ".wavefoundry/framework/",
-            ".wavefoundry/README.md",
-            ".wavefoundry/CHANGELOG.md",
-            # Top-level visible marker files (see build_pack template
-            # injection). macOS Finder hides `.wavefoundry/` by default,
-            # so these give consumers visible landing files at the root.
-            # Replaced INSTALL.md in wave 1p35d (1p35f).
-            "install-wavefoundry.md",
-            "wavefoundry-install-log.md",
-        )
-        for name in self._zip_names(path):
-            self.assertTrue(
-                any(name.startswith(p) or name == p for p in allowed_prefixes),
-                f"Entry does not start with expected prefix: {name}",
-            )
+        self._assert_pack_member_contract(self._zip_names(path))
+
+    def test_phantom_root_install_log_fails_the_public_member_contract(self):
+        path = self._build()
+        names = self._zip_names(path)
+        with self.assertRaises(AssertionError):
+            self._assert_pack_member_contract(names + ["wavefoundry-install-log.md"])
 
     def test_wavefoundry_readme_included_in_pack(self):
         path = self._build()
@@ -1651,7 +1666,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
 
 
 class InstallTemplateInjectionTests(unittest.TestCase):
-    """Tests for `install-wavefoundry.md` and `wavefoundry-install-log.md` at zip root."""
+    """Tests for the root bootstrap entry and framework-tree install assets."""
 
     def setUp(self):
         import tempfile
@@ -1695,6 +1710,18 @@ class InstallTemplateInjectionTests(unittest.TestCase):
         # Live log MUST NOT be in the zip — that's the operator-preserved instance.
         self.assertNotIn("install-log.md", names)
         self.assertNotIn(".wavefoundry/install-log.md", names)
+        self.assertNotIn("wavefoundry-install-log.md", names)
+
+    def test_fresh_install_assets_ship_in_framework_tree(self):
+        names = set(self._zip_names(self._build()))
+        expected = {
+            ".wavefoundry/framework/install/plan-template.md",
+            ".wavefoundry/framework/install/workflow-config.defaults.json",
+        }
+        self.assertTrue(
+            expected.issubset(names),
+            f"missing fresh-install assets: {sorted(expected - names)}",
+        )
 
     def test_lifecycle_prompt_baselines_ship_in_framework_tree(self):
         zp = self._build()
@@ -1754,9 +1781,15 @@ class InstallTemplateInjectionTests(unittest.TestCase):
         """AC-5: first Phase 2 row is a wf_audit_install call."""
         zp = self._build()
         body = self._zip_read(zp, ".wavefoundry/framework/install/install-log.template.md")
-        phase_2_section = body.split("Phase 2", 1)[1]  # everything after the heading
-        head = phase_2_section[:1200]
-        self.assertIn("wf_audit_install", head)
+        heading = "## Phase 2 — Project discovery (MCP required)"
+        self.assertIn(heading, body)
+        phase_2_section = body.split(heading, 1)[1]
+        first_row = next(
+            line for line in phase_2_section.splitlines()
+            if line.startswith("- [")
+        )
+        self.assertIn("2.1", first_row)
+        self.assertIn("wf_audit_install", first_row)
 
     def test_install_wavefoundry_md_explains_template_to_log_copy(self):
         """The entry doc instructs the agent to copy template -> .wavefoundry/install-log.md."""

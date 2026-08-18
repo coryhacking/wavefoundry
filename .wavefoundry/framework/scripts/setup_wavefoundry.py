@@ -7,8 +7,9 @@ an MCP server dry-run smoke test, historical-memory inventory/validation, and
 only then semantic + graph index publication (via setup_index.py).
 
 Run after the lifecycle epoch is set in `docs/workflow-config.json` (Phase 1
-step 1.1 in `wavefoundry-install-log.md`). On clean exit, restart your AI agent
-so the MCP server becomes available; Phase 2 begins.
+step 1.1 in the live `.wavefoundry/install-log.md`, created from
+`.wavefoundry/framework/install/install-log.template.md`). On clean exit,
+restart your AI agent so the MCP server becomes available; Phase 2 begins.
 
 Forwards argv to setup_index.py for venv / dep / index configuration. The
 render and dry-run steps receive the resolved target repository root. Setup
@@ -188,6 +189,70 @@ def _provision_lifecycle_policy_if_absent(root: Path) -> int:
     return 0
 
 
+def _workflow_defaults_path(root: Path) -> Path:
+    """Resolve the shipped workflow defaults per file, target first then module."""
+
+    target = root / ".wavefoundry" / "framework" / "install" / "workflow-config.defaults.json"
+    if target.is_file():
+        return target
+    packaged = Path(__file__).resolve().parent.parent / "install" / "workflow-config.defaults.json"
+    if packaged.is_file():
+        return packaged
+    raise RuntimeError(
+        "missing workflow-config defaults: expected "
+        f"{target} or packaged fallback {packaged}"
+    )
+
+
+def _provision_workflow_defaults_if_absent(root: Path) -> int:
+    """Merge shipped top-level workflow defaults without replacing operator values."""
+
+    if not (root / ".wavefoundry" / "framework").is_dir():
+        print("workflow config: no extracted framework — skipping defaults", flush=True)
+        return 0
+    cfg = root / "docs" / "workflow-config.json"
+    try:
+        defaults_path = _workflow_defaults_path(root)
+        defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
+        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg.is_file() else {}
+    except (OSError, json.JSONDecodeError, RuntimeError) as exc:
+        print(
+            f"ERROR: workflow config defaults could not be provisioned ({exc}); "
+            "fix the JSON or framework install assets and re-run setup.",
+            file=sys.stderr,
+        )
+        return 1
+    if not isinstance(defaults, dict) or not isinstance(data, dict):
+        print(
+            "ERROR: workflow config and workflow-config.defaults.json must contain JSON objects; "
+            "fix them and re-run setup.",
+            file=sys.stderr,
+        )
+        return 1
+
+    added = [key for key in defaults if key not in data]
+    if not added:
+        print("workflow config: already complete", flush=True)
+        return 0
+    for key in added:
+        data[key] = defaults[key]
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    # Wave 1viyu (REL-DEL-2 / CODE-DEL-4): reuse the lifecycle-policy writer so
+    # the merge is atomic (same-directory temp + os.replace) and non-ASCII
+    # operator values survive as-is (`ensure_ascii=False`) instead of being
+    # rewritten as \uXXXX escapes; a write-time OSError surfaces as an ERROR
+    # line rather than a traceback.
+    import upgrade_wavefoundry
+
+    try:
+        upgrade_wavefoundry._atomic_write_json(cfg, data)
+    except OSError as exc:
+        print(f"ERROR: could not write {cfg}: {exc}", file=sys.stderr)
+        return 1
+    print(f"workflow config: provisioned {len(added)} default section(s)", flush=True)
+    return 0
+
+
 def _load_provider_policy():
     # Plain import (not importlib spec): registers as "provider_policy" in sys.modules so the
     # frozen @dataclass annotation evaluation resolves; provider_policy imports onnxruntime lazily
@@ -222,14 +287,21 @@ def main(argv: list[str] | None = None) -> int:
     if "--check-gpu" in args:
         return _run_gpu_check()
     repo_root = _resolve_setup_root(args)
-    # Step 0: provision the lifecycle-ID policy for un-provisioned (fresh) repos.
+    # Step 0: provision lifecycle policy and required workflow defaults.
     # Runs BEFORE indexing so no ID is ever minted pre-policy and the docs index
     # embeds the final config. No-op when a policy block already exists.
-    _print_step("Step 0/4: lifecycle-ID policy (fresh repos auto-provision; existing configs untouched)")
+    _print_step("Step 0/4: workflow config policy + required defaults (absent-only)")
     rc = _provision_lifecycle_policy_if_absent(repo_root)
     if rc != 0:
         print(
             f"\nERROR: lifecycle policy provisioning failed with rc={rc}. Harness setup aborted.",
+            file=sys.stderr,
+        )
+        return rc
+    rc = _provision_workflow_defaults_if_absent(repo_root)
+    if rc != 0:
+        print(
+            f"\nERROR: workflow config default provisioning failed with rc={rc}. Harness setup aborted.",
             file=sys.stderr,
         )
         return rc

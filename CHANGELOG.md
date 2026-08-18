@@ -6,6 +6,40 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Fresh installs pass their own docs gate.** A new target repository no longer ends Phase 2 with a
+  wall of docs-lint errors it has to hand-repair (wave `1viyu fresh-install-gate-coherence`, from the
+  2026-08-17 field report):
+  - `wf setup` Step 0 now provisions the seven `docs/workflow-config.json` sections the docs gate
+    requires (`wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`,
+    `prompt_generation`, `factor_review_policy`, `persona_review_policy`) from a shipped
+    `install/workflow-config.defaults.json`, key-wise and absent-only, so an operator-edited section is
+    never touched and a config that already carries the keys is left byte-identical. The `wave_review`
+    default is the same value every upgrade provisions.
+  - `docs/plans/plan-template.md` is materialized from a shipped `install/plan-template.md` (missing-only,
+    date stamped) at setup and upgrade instead of being authored by the install agent from prose; the
+    shipped scaffold declares no review targets, so change docs created from it are not born in
+    declared mode. `wf_new_*` scaffolds from the same file when a project template is absent.
+  - `wf_audit_install` no longer blocks a fresh Phase 2 entry on artifacts later install rows will
+    create: absence-class lint errors about not-yet-existing files are carried as `pending_lint`
+    (count, capped list, note) while any seed row is still pending, and only real findings in existing
+    files block. `phase=1` now reaches `phase_complete`, the no-argument call reaches `next_step`, and
+    the final gate still blocks on everything once no seed row remains. A lint run that fails without
+    emitting an `ERROR:` line still blocks (fail-closed).
+  - The five shipped lifecycle prompt baselines and the two minimum review carriers materialized at
+    setup now carry `Owner` / `Status` / `Last verified` metadata, so the Phase 1 render is lint-clean
+    on its own. Existing target repositories that already hold the older metadata-less copies of
+    `docs/prompts/{create,prepare,implement,review,close}-wave.prompt.md` are not rewritten by upgrade
+    (missing-only) and `wf_garden_docs` only refreshes an existing date: add the three metadata lines
+    after the title by hand, or delete an untouched baseline copy and re-run `wf render-surfaces`.
+  - The install-log template no longer lists the retired per-role journals row (`seed-130`); existing
+    row numbers are unchanged, seed-012's Phase 2 steps mirror the template row for row, seed-010/011
+    name the real live-log path, seed-040 states the exact design-token dot-path grammar the validator
+    enforces, and the framework README no longer names retired seeds or artifact homes.
+
 ## [1.17.1] - 2026-08-16
 
 ### Added

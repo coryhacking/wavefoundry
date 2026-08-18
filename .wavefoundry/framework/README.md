@@ -98,7 +98,6 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `100-project-prompt-surface-bootstrap.prompt.md` — generate the repo-local prompt surface
 - `110-wave-memory-bootstrap.prompt.md` — wave artifacts, wave status rules, and handoff contracts
 - `120-project-persona-synthesis.prompt.md` — evidence-driven project-specific SME persona generation
-- `130-agent-journal-bootstrap.prompt.md` — journal scaffolding, distillation, and promotion contracts
 - `140-reindex-ongoing.prompt.md` — ongoing drift detection across docs, prompts, personas, and memory
 - `150-refresh-wavefoundry.prompt.md` — internal targeted/full refresh helper
 - `160-upgrade-wavefoundry.prompt.md` — public upgrade and legacy-to-Wavefoundry migration entrypoint
@@ -107,7 +106,7 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `180-implement-feature.prompt.md` — wave execution and coordination
 - `190-finalize-feature.prompt.md` — closure, promotion, and archival
 - `200-wave-reconciliation.prompt.md` — internal helper for starting, updating, and completing waves
-- `210-agent-journal-distillation.prompt.md` — internal helper for journal cleanup and promotion candidates
+- `210-migrate-journals.prompt.md` — one-time retirement of remaining journal files into typed memory records (upgrade-only)
 - `220-legacy-framework-migration.prompt.md` — internal helper for migrating from legacy non-wave context footprints
 - `230-author-spec.prompt.md` — spec authoring and behavior-contract refresh helper
 - `250-migrate-existing-wave-project.prompt.md` — explicit migration from legacy vendored framework layout to Wavefoundry layout
@@ -130,7 +129,6 @@ Rules:
 - `003-prompt-numbering-philosophy.md` — numbering ranges, insertion strategy, and how to place new shared docs vs prompts
 - `004-wave-memory-overview.md` — shared model for wave state, handoffs, carry-forward, and durable workflow memory
 - `005-persona-system-overview.md` — how project-specific personas are synthesized and used alongside generic roles
-- `006-agent-journal-system-overview.md` — how journals capture low-noise lessons and promotion candidates over time
 - `007-review-system-overview.md` — shared review lanes, gates, and how repo-local policies specialize them
 - `008-framework-map.md` — maintainer-facing map of package layers, prompt tiers, repo-local outputs, and shared-to-local boundaries
 - `009-framework-maintenance-contract.md` — completeness criteria, repo-generation contract, golden-path examples, and prompt-to-doc maintenance rules
@@ -159,7 +157,7 @@ After planting this pack into another project's repository and running init or u
 - a repo-local prompt surface under `docs/prompts/`
 - supporting agent-oriented prompt bodies under `docs/prompts/agents/` when the seeded project keeps checked-in planning/context prompt bodies
 - `docs/workflow-config.json` with wave, memory, persona, and prompt-generation settings
-- refreshable artifacts in topical homes such as `docs/prompts/prompt-surface-manifest.json`, `docs/waves/`, `docs/agents/journals/`, and `docs/agents/session-handoff.md`
+- refreshable artifacts in topical homes such as `docs/prompts/prompt-surface-manifest.json`, `docs/waves/`, typed memory records under `docs/agents/memory/`, and `docs/agents/session-handoff.md`
 - `docs/agents/personas/`
 - root agent entry files and thin platform-native pointers when enabled
 - the cross-OS `wf` dispatcher shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) backing `wf docs-lint` and `wf docs-gardener` (no repo-root shims in this repository)
@@ -173,6 +171,7 @@ The more explicit create/refresh/preserve rules, final review checklist, and gol
 When this pack initializes or upgrades another project, the generated `docs/workflow-config.json` should explicitly include sections for:
 
 - `wave_implement`
+- `wave_review`
 - `agent_memory`
 - `project_persona_generation`
 - `prompt_generation`
@@ -187,11 +186,18 @@ Suggested `wave_implement` anchors:
 - whether readiness review is required before implementation and rerun before closure
 - contract freeze policy before parallelism
 
+Suggested `wave_review` anchors:
+
+- whether Wave Council review is enabled
+- delivery review mode (`universal`, `targeted`, or `disabled` as valid for the enabled state)
+- project-specific fixed-seat or rotating-seat overrides
+- transition policy between readiness and delivery evidence
+
 Suggested `agent_memory` anchors:
 
-- journal root path
-- promotion behavior
-- distillation behavior
+- typed memory-record root (`docs/agents/memory/`)
+- candidate validation and promotion behavior
+- consolidation behavior
 - entry schema version
 - retention and cleanup policy
 - sensitivity and access expectations
@@ -237,7 +243,7 @@ Suggested `prompt_generation` anchors:
 - public prompt files
 - enabled internal features
 - generated personas
-- journal root
+- memory root
 - wave root
 - upgrade merge notes
 

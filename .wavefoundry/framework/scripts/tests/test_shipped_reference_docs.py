@@ -59,6 +59,49 @@ class ShippedReferenceDocParityTests(unittest.TestCase):
                 )
 
 
+class FreshInstallReferenceCarrierTests(unittest.TestCase):
+    """Wave 1viyu: shipped-reference inventory and framework README keep their install contracts."""
+
+    def _read(self, rel: str) -> str:
+        path = REPO_ROOT / rel
+        self.assertTrue(path.is_file(), f"missing: {rel}")
+        return path.read_text(encoding="utf-8")
+
+    def test_install_asset_inventory_names_both_new_shipped_assets(self) -> None:
+        inventory = self._read("docs/references/install-assets.md")
+        self.assertIn(".wavefoundry/framework/install/plan-template.md", inventory)
+        self.assertIn(".wavefoundry/framework/install/workflow-config.defaults.json", inventory)
+
+    def test_framework_readme_has_no_retired_journal_seed_or_artifact_home(self) -> None:
+        readme = self._read(".wavefoundry/framework/README.md")
+        numbered = readme.split("## Numbered Overview Docs", 1)[1].split("## Seeding Overview", 1)[0]
+        outputs = readme.split("## Minimal Required Repo-Local Outputs", 1)[1].split(
+            "## Suggested Workflow Config Anchors", 1
+        )[0]
+        self.assertNotIn("006-agent-journal-system-overview.md", numbered)
+        self.assertNotIn("docs/agents/journals/", outputs)
+
+    def test_framework_readme_seed_filenames_all_ship(self) -> None:
+        """Wave 1viyu (DC-DEL-1): every backticked ``NNN-*.md`` the framework README lists
+        must exist under ``.wavefoundry/framework/seeds/`` (the line-133 fix missed
+        ``130-agent-journal-bootstrap`` and ``210-agent-journal-distillation``, which the
+        old assertion could not see because it matched one literal name)."""
+        import re
+        readme = self._read(".wavefoundry/framework/README.md")
+        seeds_dir = REPO_ROOT / ".wavefoundry" / "framework" / "seeds"
+        listed = sorted(set(re.findall(r"`(\d{3}-[a-z0-9-]+\.(?:prompt\.)?md)`", readme)))
+        self.assertTrue(listed, "README lists no seed filenames; the regex or the README changed shape")
+        missing = [name for name in listed if not (seeds_dir / name).is_file()]
+        self.assertEqual(missing, [], f"framework README names seed files that do not ship: {missing}")
+
+    def test_framework_readme_workflow_anchors_name_review_and_typed_memory(self) -> None:
+        readme = self._read(".wavefoundry/framework/README.md")
+        anchors = readme.split("## Suggested Workflow Config Anchors", 1)[1]
+        self.assertIn("wave_review", anchors)
+        self.assertRegex(anchors.lower(), r"typed[- ]memory")
+        self.assertNotIn("journal root path", anchors.lower())
+
+
 class ScanFindingsFormatReferenceSafetyTests(unittest.TestCase):
     """Wave 1p8o5 #3 / AC-3: seed-213 references `docs/references/scan-findings-format.md`. A consumer
     mirroring the seed must NOT hit a docs-lint broken-link error for that reference. Two independent

@@ -2263,6 +2263,19 @@ class NewChangeTests(unittest.TestCase):
         result = self.srv.new_change(self.root, "feat", "no-template")
         text = (self.root / result["path"]).read_text(encoding="utf-8")
         self.assertIn("Acceptance Criteria", text)
+        self.assertIn("## Agent Execution Graph", text)
+        self.assertNotIn("{{generated_at}}", text)
+
+    def test_default_template_resolves_target_file_before_module(self):
+        target = self.root / ".wavefoundry/framework/install/plan-template.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Target template\n", encoding="utf-8")
+        self.assertEqual(self.srv._default_template(self.root), "# Target template\n")
+        packaged = SCRIPTS_ROOT.parent / "install" / "plan-template.md"
+        self.assertEqual(
+            self.srv._default_template(),
+            packaged.read_text(encoding="utf-8"),
+        )
 
     def test_supports_all_lifecycle_change_kinds(self):
         kind_slugs = {
@@ -26624,6 +26637,44 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         tool = tools.get(tool_name)
         return str(getattr(tool, "description", "") or "")
 
+    def test_audit_install_public_carriers_pin_status_and_pending_lint_matrix(self):
+        description = self._tool_description("wf_audit_install")
+        for anchor in (
+            "missing_log", "unparseable_log", "lint_errors",
+            "checked_but_missing", "next_step", "phase_complete", "complete",
+            "Only the last five carry ``pending_lint``",
+            "parsed before lint",
+        ):
+            self.assertIn(anchor, description)
+
+        repo_root = SCRIPTS_ROOT.parents[2]
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        phase_two = readme.split("#### Phase 2", 1)[1].split("\n---", 1)[0]
+        for anchor in ("Blocking lint errors", "pending_lint", "final gate", "complete"):
+            self.assertIn(anchor, phase_two)
+
+        spec = (repo_root / "docs/specs/mcp-tool-surface.md").read_text(encoding="utf-8")
+        detail = spec.split("`wf_audit_install(phase: int | None = None)`", 1)[1].split(
+            "`wf_server_info()`", 1
+        )[0]
+        for anchor in (
+            "missing_log", "unparseable_log", "lint_errors",
+            "checked_but_missing", "next_step", "phase_complete", "complete",
+            "absent on `missing_log` and `unparseable_log`",
+            "present on `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, and `complete`",
+        ):
+            self.assertIn(anchor, detail)
+
+        for broken, anchor in (
+            (description.replace("Only the last five carry ``pending_lint``", "", 1),
+             "Only the last five carry ``pending_lint``"),
+            (phase_two.replace("pending_lint", "", 1), "pending_lint"),
+            (detail.replace("absent on `missing_log` and `unparseable_log`", "", 1),
+             "absent on `missing_log` and `unparseable_log`"),
+        ):
+            with self.assertRaises(AssertionError):
+                self.assertIn(anchor, broken)
+
     def test_review_evidence_description_carries_guided_lane_recipe(self):
         """1tvbs: normal flow is guided; list remains explicitly forensic."""
         description = self._tool_description("wf_review_event")
@@ -33579,6 +33630,7 @@ Status: in-progress
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["status"], "missing_log")
         self.assertIn("install-log.md", result["data"]["expected_path"])
+        self.assertNotIn("pending_lint", result["data"])  # 1viyu: pre-lint status carries none
         codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("install_log_missing", codes)
 
@@ -33593,6 +33645,147 @@ Status: in-progress
         result = self._call()  # must not raise
         codes = [d["code"] for d in result.get("diagnostics", [])]
         self.assertIn("install_log_unparseable", codes)
+
+    def test_unparseable_log_precedes_lint_and_has_no_pending_lint(self):
+        from unittest.mock import patch
+        log_path = self.root / ".wavefoundry" / "install-log.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_bytes(self._MINIMAL_LOG.encode("utf-16"))
+        with patch.object(self.srv, "run_validate") as mock_validate:
+            result = self.srv.wf_audit_install_response(self.root)
+        mock_validate.assert_not_called()
+        self.assertEqual(result["data"]["status"], "unparseable_log")
+        self.assertNotIn("pending_lint", result["data"])
+
+    def test_expected_absence_advances_and_is_carried_as_pending_lint(self):
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG)
+        missing = "docs/prompts/index.md: missing required Wavefoundry file"
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": [missing], "warnings": [], "output": "fail"
+        }):
+            result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["data"]["status"], "next_step")
+        self.assertEqual(result["data"]["pending_lint"]["errors"], [missing])
+
+    def _build_phase_one_complete_tree(self):
+        """Wave 1viyu (CODE-DEL-1): a FAITHFUL Phase-1-complete tree.
+
+        Mirrors what ``wf setup`` leaves behind before the operator restarts for
+        Phase 2: the shipped ``seeds/`` and ``install/`` trees under
+        ``.wavefoundry/framework/``, Step 0 provisioning (lifecycle policy plus
+        the seven workflow-config default sections), and the Phase 1
+        ``render_agent_surfaces`` pass that materializes the lifecycle prompt
+        baselines, the plan-template scaffold, and the review carriers. The
+        install log is the shipped template with every Phase 1 row ``[x]``.
+        The earlier fixture (bare framework dir, empty ``docs/``) never
+        exercised the renderer's own output against the real validator, which
+        is exactly where the fresh-install failure lived.
+        """
+        import shutil
+        import setup_wavefoundry
+        import render_agent_surfaces
+
+        real_fw = Path(self.srv.__file__).resolve().parent.parent
+        target_fw = self.root / ".wavefoundry" / "framework"
+        for name in ("seeds", "install"):
+            shutil.copytree(real_fw / name, target_fw / name)
+        for name in ("VERSION", "README.md"):
+            if (real_fw / name).is_file():
+                shutil.copy2(real_fw / name, target_fw / name)
+        self.assertEqual(setup_wavefoundry._provision_lifecycle_policy_if_absent(self.root), 0)
+        self.assertEqual(setup_wavefoundry._provision_workflow_defaults_if_absent(self.root), 0)
+        render_agent_surfaces.render_agent_surfaces(self.root)
+        template = (target_fw / "install" / "install-log.template.md").read_text(encoding="utf-8")
+        lines = []
+        for line in template.splitlines():
+            if line.startswith("- [ ] 1."):
+                line = line.replace("- [ ] 1.", "- [x] 1.", 1)
+            lines.append(line)
+        self._write_log("\n".join(lines) + "\n")
+
+    def test_real_validator_phase_one_complete_repo_reaches_phase_two_seed(self):
+        import contextlib
+        import io
+        import install_log_lib
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self._build_phase_one_complete_tree()
+        # Real validator, no mock: the point of the test.
+        scoped = self.srv.wf_audit_install_response(self.root, phase=1)
+        self.assertEqual(scoped["data"]["status"], "phase_complete", scoped)
+        result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["data"]["status"], "next_step", result)
+        self.assertEqual(result["data"]["row"]["number"], "2.1")
+        pending = result["data"]["pending_lint"]
+        self.assertGreater(pending["count"], 0)
+        # Every deferred entry is an absence-class message about a path a later
+        # seed row will create; nothing the Phase 1 render itself wrote may be
+        # among the deferred set, and nothing at all may be blocking.
+        markers = install_log_lib.INSTALL_PENDING_ERROR_MARKERS
+        for entry in pending["errors"]:
+            self.assertTrue(any(marker in entry for marker in markers), entry)
+        # And the renderer's own outputs are lint-clean on their own (the
+        # CODE-DEL-1 defect: 21 metadata errors on materialized carriers).
+        for entry in pending["errors"]:
+            self.assertNotIn("Owner", entry)
+            self.assertNotIn("Last verified", entry)
+
+    def test_lint_failure_without_error_lines_fails_closed(self):
+        """Wave 1viyu (CODE-DEL-2): passed=False with zero ERROR lines still blocks."""
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG.replace("- [ ]", "- [x]"))
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": [], "warnings": [], "output": "docs/: missing repository docs root"
+        }):
+            result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["status"], "lint_errors")
+        self.assertEqual(len(result["data"]["errors"]), 1)
+        self.assertIn("missing repository docs root", result["data"]["errors"][0])
+        self.assertEqual(result["data"]["pending_lint"]["count"], 0)
+        # RTD-1 (delivery council): the synthesized entry bypasses the classifier,
+        # so an output tail that quotes an absence-marker phrase while a seed row
+        # is still pending is STILL blocking, never deferred.
+        self._write_log(self._MINIMAL_LOG)
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": [], "warnings": [],
+            "output": "WARNING: docs/x.md: missing required Wavefoundry file",
+        }):
+            tricky = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(tricky["data"]["status"], "lint_errors")
+        self.assertEqual(tricky["data"]["pending_lint"]["count"], 0)
+        self.assertIn("missing required Wavefoundry file", tricky["data"]["errors"][0])
+
+    def test_blocking_error_is_separated_from_pending_absence(self):
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG)
+        pending = "docs/prompts/index.md: missing required Wavefoundry file"
+        blocking = "docs/workflow-config.json: invalid policy value"
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": [pending, blocking], "warnings": [], "output": "fail"
+        }):
+            result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["data"]["status"], "lint_errors")
+        self.assertEqual(result["data"]["errors"], [blocking])
+        self.assertEqual(result["data"]["pending_lint"]["errors"], [pending])
+
+    def test_final_tail_advances_214_then_215_then_complete(self):
+        tail = """# Install\n\n## Phase 2\n\n- [ ] 2.14 — Remove bootstrap installer (instruction)\n- [ ] 2.15 — Prepare structured operator summary (instruction)\n"""
+        self._write_log(tail)
+        first = self._call()
+        self.assertEqual(first["data"]["row"]["number"], "2.14")
+        self._write_log(tail.replace("- [ ] 2.14", "- [x] 2.14"))
+        second = self._call()
+        self.assertEqual(second["data"]["row"]["number"], "2.15")
+        self._write_log(tail.replace("- [ ]", "- [x]"))
+        final = self._call()
+        self.assertEqual(final["data"]["status"], "complete")
+        # 1viyu matrix: next_step / complete carry pending_lint (empty here);
+        # missing_log / unparseable_log never do (asserted in their own tests).
+        self.assertIn("pending_lint", first["data"])
+        self.assertIn("pending_lint", final["data"])
+        self.assertEqual(final["data"]["pending_lint"]["count"], 0)
 
     def test_lint_errors_block_and_no_artifact_check(self):
         from unittest.mock import patch
@@ -33621,6 +33814,26 @@ Status: in-progress
         self.assertEqual(result["data"]["status"], "checked_but_missing")
         self.assertEqual(result["data"]["row"]["number"], "1.1")
         self.assertIn("docs/workflow-config.json", result["data"]["expected_artifact"])
+        self.assertIn("pending_lint", result["data"])  # 1viyu matrix
+
+    def test_checked_row_missing_artifact_still_flagged_while_absences_pend(self):
+        """Wave 1viyu (1vitr test f): a [x] seed row whose OWN artifact is absent
+        returns checked_but_missing even while other seed rows pend and lint carries
+        expected absences; CHECK 2 is unaffected by the classifier."""
+        from unittest.mock import patch
+        log = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+        )
+        self._write_log(log)
+        pending = "docs/prompts/index.md: missing required Wavefoundry file"
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": [pending], "warnings": [], "output": "fail"
+        }):
+            result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["data"]["status"], "checked_but_missing")
+        self.assertEqual(result["data"]["row"]["number"], "1.1")
+        self.assertEqual(result["data"]["pending_lint"]["errors"], [pending])
 
     def test_next_step_returned_when_all_clean(self):
         self._write_log(self._MINIMAL_LOG)
@@ -33672,6 +33885,7 @@ Status: in-progress
         result = self._call(phase=1)
         self.assertEqual(result["status"], "ok")
         self.assertIn(result["data"]["status"], ("complete", "phase_complete"))
+        self.assertIn("pending_lint", result["data"])  # 1viyu matrix
 
     def test_mf6_integration_walk_through_state_transitions(self):
         """MF-6: walk a realistic install log through lint-fail -> fix -> checked-but-missing -> fix -> next-step -> complete."""

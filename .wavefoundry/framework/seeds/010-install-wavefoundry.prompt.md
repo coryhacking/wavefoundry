@@ -13,12 +13,12 @@ This seed used to carry the full install body. As of wave `1p35d` (1.5.0), insta
 
 ## Where the state lives
 
-The install state machine is `wavefoundry-install-log.md`, a pre-populated checkbox list that ships at the zip root next to `install-wavefoundry.md` (the agent-readable entry doc). The agent reads the first unchecked row, executes the named seed step, marks `[x]`, advances. After the restart between phases, Phase 2 uses `wf_audit_install` for end-to-end validation.
+The install state machine is the live project file `.wavefoundry/install-log.md`, created from the shipped `.wavefoundry/framework/install/install-log.template.md`. The agent reads the first unchecked row, executes the named seed step, marks `[x]`, and advances. After the restart between phases, Phase 2 uses `wf_audit_install` for end-to-end validation.
 
 ## How to enter
 
-- **From a fresh zip** (the common case): the zip is unpacked into the repo root with a **scoped** extraction — only `.wavefoundry/*` and `install-wavefoundry.md` (`unzip -o <zip> '.wavefoundry/*' 'install-wavefoundry.md' -d .`). The release zip also carries its own zipapp installer members at the zip root (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`); an unscoped extraction dumps them into the project root as debris and can overwrite same-named project files — never delete those names to compensate, scope the extraction instead. Agent finds `install-wavefoundry.md` and follows the install log.
-- **From the shortcut phrase** (`Install Wavefoundry` etc.): if the install log already exists, continue from the first unchecked row. If the install log doesn't exist (rare — only when the entry doc was deleted), regenerate it from `.wavefoundry/framework/templates/wavefoundry-install-log.md.template`.
+- **From a fresh zip** (the common case): the zip is unpacked into the repo root with a **scoped** extraction — only `.wavefoundry/*` and `install-wavefoundry.md` (`unzip -o <zip> '.wavefoundry/*' 'install-wavefoundry.md' -d .`). The release zip also carries its own zipapp installer members at the zip root (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`); an unscoped extraction dumps them into the project root as debris and can overwrite same-named project files — never delete those names to compensate, scope the extraction instead. The agent finds `install-wavefoundry.md`, creates `.wavefoundry/install-log.md` from the shipped template, and follows that live log.
+- **From the shortcut phrase** (`Install Wavefoundry` etc.): if `.wavefoundry/install-log.md` already exists, continue from its first unchecked row. If it does not exist, regenerate it from `.wavefoundry/framework/install/install-log.template.md` and stamp `{{generated_at}}` with today's date.
 - **Mid-install resumption**: a new agent session entering this surface MUST call `wf_audit_install` first to confirm the log's `[x]` markers actually have their expected artifacts. The trustworthy-invariant rule is captured in `docs/references/install-log-format.md`.
 
 ## What about Upgrade?

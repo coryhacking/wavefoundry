@@ -1,5 +1,9 @@
 # Prepare Wave
 
+Owner: Engineering
+Status: active
+Last verified: {{generated_at}}
+
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
 ## Purpose

@@ -7,6 +7,7 @@ import copy
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
@@ -150,6 +151,26 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
         for carrier in REVIEW_POLICY_CARRIER_REGISTRY
         if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
     ),
+)
+
+SCAFFOLD_BASELINES: tuple[tuple[str, str], ...] = (
+    ("docs/plans/plan-template.md", "plan-template.md"),
+)
+
+PLAN_TEMPLATE_REQUIRED_HEADINGS: tuple[str, ...] = (
+    "Rationale",
+    "Requirements",
+    "Scope",
+    "Acceptance Criteria",
+    "Tasks",
+    "Agent Execution Graph",
+    "Serialization Points",
+    "Affected Architecture Docs",
+    "AC Priority",
+    "Progress Log",
+    "Decision Log",
+    "Risks",
+    "Session Handoff",
 )
 
 INDEPENDENT_REFERENCE_CARRIER_BLOCK = dedent(
@@ -1380,8 +1401,14 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
     } and seed_path.is_file():
         return seed_path.read_text(encoding="utf-8")
     title = Path(carrier.destination).stem.replace(".prompt", "").replace("-", " ").title()
+    # Wave 1viyu (CODE-DEL-1): a fresh pointer carrier is a `docs/**/*.md`
+    # file that `check_metadata` requires Owner/Status/Last verified on, so
+    # the materialized minimum carries them (stamped with today's date).
     return (
         f"# {title}\n\n"
+        "Owner: Engineering\n"
+        "Status: active\n"
+        f"Last verified: {time.strftime('%Y-%m-%d')}\n\n"
         f"Canonical framework source: `.wavefoundry/framework/seeds/{carrier.source_seed}`.\n\n"
         "This minimum carrier was materialized by the public Wavefoundry "
         "setup/upgrade renderer. Project-specific guidance may be added "
@@ -1512,6 +1539,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
     destinations = [
         *(carrier.destination for carrier in review_protocol_carriers(repo_root)),
         *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
+        *(destination for destination, _template in SCAFFOLD_BASELINES),
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
         *_skill_output_destinations(repo_root),
@@ -1618,6 +1646,7 @@ def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
             / "install"
             / "lifecycle-prompts"
         )
+    today = time.strftime("%Y-%m-%d")
     for destination, template_name in LIFECYCLE_PROMPT_BASELINES:
         path = _contained_review_carrier_path(repo_root, destination)
         if path.is_file():
@@ -1629,7 +1658,43 @@ def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
                 f"{template.as_posix()}"
             )
         with template.open("r", encoding="utf-8", newline="") as handle:
-            content = handle.read()
+            # Wave 1viyu (CODE-DEL-1): the shipped baselines carry a
+            # `Last verified: {{generated_at}}` placeholder so a freshly
+            # materialized carrier satisfies `check_metadata` on the first
+            # docs-lint pass; stamp it exactly as the scaffold baselines do.
+            content = handle.read().replace("{{generated_at}}", today)
+        _write_review_carrier_text(path, content)
+        written.append(destination)
+    return written
+
+
+def _resolve_install_asset(repo_root: Path, template_name: str) -> Path:
+    """Resolve one install asset per file, target first then packaged module."""
+
+    target = repo_root / ".wavefoundry" / "framework" / "install" / template_name
+    if target.is_file():
+        return target
+    packaged = Path(__file__).resolve().parent.parent / "install" / template_name
+    if packaged.is_file():
+        return packaged
+    raise RuntimeError(
+        f"missing install scaffold baseline: expected {target.as_posix()} "
+        f"or packaged fallback {packaged.as_posix()}"
+    )
+
+
+def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
+    """Materialize missing project scaffolds without replacing operator copies."""
+
+    written: list[str] = []
+    today = time.strftime("%Y-%m-%d")
+    for destination, template_name in SCAFFOLD_BASELINES:
+        path = _contained_review_carrier_path(repo_root, destination)
+        if path.is_file():
+            continue
+        template = _resolve_install_asset(repo_root, template_name)
+        with template.open("r", encoding="utf-8", newline="") as handle:
+            content = handle.read().replace("{{generated_at}}", today)
         _write_review_carrier_text(path, content)
         written.append(destination)
     return written
@@ -1708,6 +1773,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Guru-gated (per-skill gates live in the registry).
     skills_written = render_skills(repo_root)
     lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root)
+    scaffold_written = reconcile_scaffold_baselines(repo_root)
     # The phase-0c in-process reconciler can still be old code on the upgrade
     # that installs this release. Replay only its shared upgrade-policy marker
     # from the extracted renderer so this one surface converges in that run.
@@ -1726,6 +1792,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             [
                 *skills_written,
                 *lifecycle_written,
+                *scaffold_written,
                 *upgrade_policy_written,
                 *review_written,
                 *policy_written,

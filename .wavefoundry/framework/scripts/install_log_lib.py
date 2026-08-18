@@ -32,6 +32,14 @@ from typing import Optional
 # Lives at .wavefoundry/install-log.md (under the project's .wavefoundry/ dir).
 INSTALL_LOG_REL_PATH = ".wavefoundry/install-log.md"
 
+# Absence-only docs-lint classes that are expected while seed-driven install
+# rows remain pending. Keep this tuple as the single authority used by the
+# install audit classifier.
+INSTALL_PENDING_ERROR_MARKERS = (
+    "missing required Wavefoundry file",
+    "missing required Wavefoundry generated artifact",
+)
+
 
 # Row regex
 # Group 1: state character ( | x | ~)
@@ -298,6 +306,35 @@ def checked_rows_missing_artifact(rows: list[Row], project_root: Path) -> list[t
         if not artifact_path.exists():
             missing.append((r, artifact_path))
     return missing
+
+
+def classify_lint_errors(
+    errors: list[str], rows: list[Row], project_root: Path
+) -> tuple[list[str], list[str]]:
+    """Split docs-lint errors into blocking findings and expected pending absences.
+
+    An absence is pending only while at least one seed-driven row remains
+    unchecked, its message belongs to the explicit marker tuple, and the path
+    before the first ``: `` is genuinely absent. Repeated leading ``ERROR:``
+    prefixes are ignored when extracting that path.
+    """
+
+    has_pending_seed = any(row.kind == "seed" and row.is_pending for row in rows)
+    blocking: list[str] = []
+    expected_pending: list[str] = []
+    for error in errors:
+        normalized = str(error).strip()
+        while normalized.startswith("ERROR:"):
+            normalized = normalized[len("ERROR:"):].lstrip()
+        path_text, separator, _message = normalized.partition(": ")
+        marker_match = any(marker in normalized for marker in INSTALL_PENDING_ERROR_MARKERS)
+        candidate = path_text.strip().strip("`")
+        path_absent = bool(separator and candidate) and not (project_root / candidate).exists()
+        if has_pending_seed and marker_match and path_absent:
+            expected_pending.append(error)
+        else:
+            blocking.append(error)
+    return blocking, expected_pending
 
 
 def is_complete(rows: list[Row]) -> bool:

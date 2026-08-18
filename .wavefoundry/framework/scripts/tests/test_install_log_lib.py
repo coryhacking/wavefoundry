@@ -5,6 +5,8 @@ Wave 1p35d (1p35h).
 
 from __future__ import annotations
 
+import ast
+import re
 import sys
 import tempfile
 import unittest
@@ -311,6 +313,38 @@ class ReadLogTests(unittest.TestCase):
 TEMPLATE_PATH = (
     SCRIPTS_DIR / ".." / "install" / "install-log.template.md"
 ).resolve()
+FRAMEWORK_ROOT = SCRIPTS_DIR.parent
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SEEDS_DIR = FRAMEWORK_ROOT / "seeds"
+SEED_012_PATH = SEEDS_DIR / "012-install-wavefoundry-phase-2.prompt.md"
+
+_SEED_STEP_HEADING_RE = re.compile(
+    r"^###\s+(2\.\d+)([a-z]?)\s+—\s+(.+?)\s*$",
+    re.MULTILINE,
+)
+_STEP_MENTION_RE = re.compile(
+    r"\b(?:Phase\s+2\s+)?steps?\s+(2\.\d+[a-z]?)\b",
+    re.IGNORECASE,
+)
+
+
+def _seed_012_sections() -> dict[str, tuple[str, str]]:
+    text = SEED_012_PATH.read_text(encoding="utf-8")
+    matches = list(_SEED_STEP_HEADING_RE.finditer(text))
+    sections: dict[str, tuple[str, str]] = {}
+    for index, match in enumerate(matches):
+        step = match.group(1) + match.group(2)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        if step in sections:
+            raise AssertionError(f"duplicate seed-012 heading for step {step}")
+        sections[step] = (match.group(3), text[match.start():end])
+    return sections
+
+
+def _seed_numbers(text: str) -> tuple[str, ...]:
+    if "seed" not in text.lower():
+        return ()
+    return tuple(re.findall(r"\b\d{3}\b", text))
 
 
 class DescriptionAsPathTests(unittest.TestCase):
@@ -446,6 +480,206 @@ class TemplateParserParityTests(unittest.TestCase):
                         marker, f" {p} ",
                         f"row {r.number}: stat-able artifact_path '{p}' contains prose marker {marker!r}",
                     )
+
+
+class FreshInstallContractParityTests(unittest.TestCase):
+    """Wave 1viyu: the shipped checklist, phase-2 seed, and referenced carriers stay executable."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.template_text = TEMPLATE_PATH.read_text(encoding="utf-8")
+        cls.template_rows = [
+            row for row in install_log_lib.parse_log(cls.template_text)
+            if row.phase == 2
+        ]
+        cls.seed_text = SEED_012_PATH.read_text(encoding="utf-8")
+        cls.seed_sections = _seed_012_sections()
+
+    def test_every_template_seed_reference_resolves(self):
+        for row in self.template_rows:
+            if row.kind != "seed":
+                continue
+            refs = re.findall(r"seed-(\d{3})", row.source)
+            self.assertTrue(refs, f"row {row.number}: seed row has no seed reference")
+            for number in refs:
+                with self.subTest(row=row.number, seed=number):
+                    matches = sorted(SEEDS_DIR.glob(f"{number}-*.md"))
+                    self.assertEqual(
+                        len(matches),
+                        1,
+                        f"row {row.number}: seed-{number} must resolve to exactly one shipped seed",
+                    )
+
+    def test_numbered_template_rows_and_seed_headings_are_one_to_one(self):
+        template_by_number = {row.number: row for row in self.template_rows}
+        expected_numbers = {
+            *(f"2.{number}" for number in range(1, 12)),
+            "2.13",
+            "2.14",
+            "2.15",
+        }
+        self.assertEqual(
+            len(template_by_number),
+            len(self.template_rows),
+            "duplicate template row number",
+        )
+        self.assertEqual(set(template_by_number), expected_numbers)
+        numbered_sections = {
+            step: section
+            for step, section in self.seed_sections.items()
+            if not step[-1].isalpha()
+        }
+        self.assertEqual(set(template_by_number), set(numbered_sections))
+
+        for number, row in template_by_number.items():
+            title, section = numbered_sections[number]
+            with self.subTest(step=number):
+                if row.kind == "seed":
+                    self.assertEqual(_seed_numbers(title), _seed_numbers(row.source))
+                elif row.kind == "verify":
+                    self.assertIn("wf_audit_install", section)
+                elif row.kind == "instruction":
+                    self.assertIn(number, {"2.14", "2.15"})
+
+    def test_final_tail_is_parser_visible_and_has_exact_actions(self):
+        by_number = {row.number: row for row in self.template_rows}
+        self.assertNotIn("2.12", by_number, "the retired seed-130 row must stay absent")
+
+        expected_words = {
+            "2.14": ("remove", "bootstrap"),
+            "2.15": ("prepare", "summary"),
+        }
+        template_lines = {
+            match.group(1): match.group(0)
+            for match in re.finditer(
+                r"^\s*-\s+\[[ x~]\]\s+(2\.1[45])\b.*$",
+                self.template_text,
+                re.MULTILINE,
+            )
+        }
+        for number, words in expected_words.items():
+            with self.subTest(step=number):
+                row = by_number[number]
+                self.assertEqual(row.kind, "instruction")
+                self.assertIsNone(row.target)
+                self.assertTrue(template_lines[number].rstrip().endswith("(instruction)"))
+                template_action = row.slug.lower()
+                seed_title = self.seed_sections[number][0].lower()
+                for word in words:
+                    self.assertIn(word, template_action)
+                    self.assertIn(word, seed_title)
+        self.assertNotIn("deliver", by_number["2.15"].slug.lower())
+
+        bad_suffix = template_lines["2.15"] + " — covers: workflow, commands"
+        self.assertIsNone(
+            install_log_lib.parse_row(bad_suffix, phase=2),
+            "control: an instruction-row suffix must make the row parser-invisible",
+        )
+
+    def test_seed_orders_prepare_mark_final_audit_then_delivery(self):
+        _, final_section = self.seed_sections["2.15"]
+        lowered = final_section.lower()
+        prepare_pos = lowered.find("prepare")
+        mark_pos = lowered.find("mark", prepare_pos + 1)
+        audit_pos = lowered.find("wf_audit_install", mark_pos + 1)
+        complete_pos = lowered.find("complete", audit_pos + 1)
+        deliver_pos = lowered.find("deliver", complete_pos + 1)
+        positions = [prepare_pos, mark_pos, audit_pos, complete_pos, deliver_pos]
+        self.assertTrue(all(position >= 0 for position in positions), positions)
+        self.assertEqual(positions, sorted(positions))
+
+    def test_framework_path_literals_in_install_seeds_resolve(self):
+        for seed_name in (
+            "010-install-wavefoundry.prompt.md",
+            "011-install-wavefoundry-phase-1.prompt.md",
+            "012-install-wavefoundry-phase-2.prompt.md",
+        ):
+            text = (SEEDS_DIR / seed_name).read_text(encoding="utf-8")
+            paths = sorted(set(re.findall(r"`(\.wavefoundry/framework/[^`]+)`", text)))
+            self.assertTrue(paths, f"{seed_name}: expected at least one framework path fixture")
+            for rel in paths:
+                with self.subTest(seed=seed_name, path=rel):
+                    self.assertTrue((REPO_ROOT / rel).exists(), f"unresolved framework path: {rel}")
+
+    def test_phase_2_step_mentions_resolve_to_seed_012(self):
+        known_steps = set(self.seed_sections)
+        candidates = sorted(SEEDS_DIR.glob("*.md")) + sorted((FRAMEWORK_ROOT / "install").glob("*.md"))
+        for path in candidates:
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for match in _STEP_MENTION_RE.finditer(line):
+                    step = match.group(1)
+                    with self.subTest(path=path.name, line=line_number, step=step):
+                        self.assertIn(step, known_steps)
+                        _, section = self.seed_sections[step]
+                        if "wf_audit_install" in line:
+                            self.assertIn("wf_audit_install", section)
+
+    def test_setup_docstring_names_live_log_not_phantom_root_log(self):
+        setup_path = SCRIPTS_DIR / "setup_wavefoundry.py"
+        module = ast.parse(setup_path.read_text(encoding="utf-8"))
+        docstring = ast.get_docstring(module) or ""
+        self.assertIn(".wavefoundry/install-log.md", docstring)
+        self.assertIn("install-log.template.md", docstring)
+        self.assertNotIn("wavefoundry-install-log.md", docstring)
+
+
+class InstallPendingLintClassifierTests(unittest.TestCase):
+    def test_pending_seed_defers_only_absent_marker_paths_and_strips_prefixes(self):
+        rows = install_log_lib.parse_log(
+            "## Phase 2\n- [ ] 2.2 — Bootstrap evidence (seed-030) — artifact: docs/repo-profile.json\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            existing = root / "docs/existing.md"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("present\n", encoding="utf-8")
+            pending = "ERROR: ERROR: docs/missing.md: missing required Wavefoundry file"
+            present = "docs/existing.md: missing required Wavefoundry file"
+            # Wave 1viyu (CODE-DEL-3): the load-bearing direction of prefix
+            # stripping. Every real `run_validate` line carries `ERROR: `; without
+            # stripping, `partition(": ")` yields the candidate path "ERROR", which
+            # never exists, so a stale absence about a PRESENT file would be
+            # deferred. This case must classify as blocking.
+            present_prefixed = "ERROR: ERROR: docs/existing.md: missing required Wavefoundry file"
+            ordinary = "docs/config.md: invalid policy value"
+            blocking, expected = install_log_lib.classify_lint_errors(
+                [pending, present, present_prefixed, ordinary], rows, root
+            )
+        self.assertEqual(expected, [pending])
+        self.assertEqual(blocking, [present, present_prefixed, ordinary])
+
+    def test_only_seed_rows_pending_defers_absences(self):
+        """Wave 1viyu (CODE-DEL-3): rule (i) is SEED-row pending, not any-row pending.
+
+        A log whose only pending rows are verify/instruction rows (the final tail after
+        every seed row is terminal) must classify an absence-class error as blocking,
+        because nothing left to run will create the file.
+        """
+        rows = install_log_lib.parse_log(
+            "## Phase 2\n"
+            "- [x] 2.2 — Bootstrap evidence (seed-030) — artifact: docs/repo-profile.json\n"
+            "- [ ] 2.14 — Final install completeness gate (verify) — expects: complete\n"
+            "- [ ] 2.15 — Deliver operator summary (instruction)\n"
+        )
+        error = "ERROR: docs/missing.md: missing required Wavefoundry file"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blocking, expected = install_log_lib.classify_lint_errors(
+                [error], rows, Path(temp_dir)
+            )
+        self.assertEqual(blocking, [error])
+        self.assertEqual(expected, [])
+
+    def test_no_pending_seed_makes_every_lint_error_blocking(self):
+        rows = install_log_lib.parse_log(
+            "## Phase 2\n- [x] 2.2 — Bootstrap evidence (seed-030) — artifact: docs/repo-profile.json\n"
+        )
+        error = "docs/missing.md: missing required Wavefoundry generated artifact"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blocking, expected = install_log_lib.classify_lint_errors(
+                [error], rows, Path(temp_dir)
+            )
+        self.assertEqual(blocking, [error])
+        self.assertEqual(expected, [])
 
 
 class CheckTwoIsNotVacuousTests(unittest.TestCase):

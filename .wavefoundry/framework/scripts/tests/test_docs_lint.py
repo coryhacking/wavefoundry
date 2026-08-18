@@ -4399,6 +4399,90 @@ class MemoryRecordValueParityLintTests(MemoryRecordLintTests):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+class DesignTokenSeedGrammarTests(unittest.TestCase):
+    """Wave 1viyu: seed-040 normalization guidance must match the enforced dot-path grammar."""
+
+    SEED_040 = SCRIPTS_ROOT.parent / "seeds" / "040-docs-structure-bootstrap.prompt.md"
+
+    def test_seed_normalization_examples_match_the_validator(self):
+        from wave_lint_lib.design_system_validators import _DOT_PATH_RE
+
+        valid = ("font.size", "kpi.card", "in.review", "color.primary.500", "spacing.4")
+        invalid = ("fontSize", "kpi-card", "in-review", "size.2xl", "size.4xl")
+
+        for token in valid:
+            with self.subTest(token=token, expected="valid"):
+                self.assertIsNotNone(_DOT_PATH_RE.fullmatch(token))
+        for token in invalid:
+            with self.subTest(token=token, expected="invalid"):
+                self.assertIsNone(_DOT_PATH_RE.fullmatch(token))
+
+    def test_seed_states_the_enforced_normalizations_and_digit_leading_negative(self):
+        text = self.SEED_040.read_text(encoding="utf-8")
+        for source, normalized in (
+            ("fontSize", "font.size"),
+            ("kpi-card", "kpi.card"),
+            ("in-review", "in.review"),
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, text)
+                self.assertIn(normalized, text)
+        self.assertIn("spacing.4", text)
+        self.assertIn("size.2xl", text)
+        self.assertIn("size.4xl", text)
+        self.assertIn("normalizedFrom", text)
+        self.assertIn("design_system_validators._DOT_PATH_RE", text)
+
+
+class FreshPlanTemplateTests(unittest.TestCase):
+    def test_shipped_template_has_required_headings_and_declares_nothing(self):
+        import render_agent_surfaces as ras
+        from review_policy import serialization_point_paths
+
+        path = SCRIPTS_ROOT.parent / "install" / "plan-template.md"
+        text = path.read_text(encoding="utf-8")
+        for heading in ras.PLAN_TEMPLATE_REQUIRED_HEADINGS:
+            self.assertIn(f"## {heading}", text)
+        self.assertEqual(serialization_point_paths(text), ())
+
+        unfenced = text.replace(
+            "```\n- `src/app/handler.py`, `docs/specs/`\n```",
+            "- `src/app/handler.py`, `docs/specs/`",
+            1,
+        )
+        self.assertTrue(serialization_point_paths(unfenced))
+        missing_heading = text.replace("## Agent Execution Graph", "", 1)
+        with self.assertRaises(AssertionError):
+            self.assertIn("## Agent Execution Graph", missing_heading)
+
+    def test_materialized_template_passes_full_docs_lint(self):
+        import render_agent_surfaces as ras
+
+        root = Path(tempfile.mkdtemp(prefix="wave-plan-template-fixture-"))
+        try:
+            shutil.copytree(FIXTURE_ROOT, root, dirs_exist_ok=True)
+            target = root / "docs/plans/plan-template.md"
+            target.unlink(missing_ok=True)
+            self.assertEqual(
+                ras.reconcile_scaffold_baselines(root),
+                ["docs/plans/plan-template.md"],
+            )
+            env = os.environ.copy()
+            env["PROJECT_ROOT"] = str(root)
+            env["PYTHONPATH"] = str(SCRIPTS_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+            result = subprocess.run(
+                [os.environ.get("PYTHON", "python3"), str(DOCS_LINT_SCRIPT)],
+                cwd=PROJECT_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        finally:
+            shutil.rmtree(root)
+
+
 class ScaffoldDeclaresNothingTests(unittest.TestCase):
     """A scaffold that declares review targets silently removes coverage.
 
