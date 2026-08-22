@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-16
+Last verified: 2026-08-21
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -179,6 +179,8 @@ The command must always print the final bound URL, even when it opens the browse
 ## Protected Surfaces
 
 Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/`, `AGENTS.md`, or hook configs require `framework_edit_allowed` guard approval and a concise file-level plan before execution.
+
+- **Backstage/TechDocs baseline (wave 1vj4e).** The upgrade does **not** generate `catalog-info.yaml`, `mkdocs.yml`, or `docs/index.md` and never rewrites them: nothing about them runs in the pipeline, in `wf render-surfaces`, or in setup. Point operators at **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`; alias **Author TechDocs**; the doc-gated `wf-techdocs` skill), which runs the baseline (`wf_techdocs_baseline` over MCP, the CLI dispatcher `./.wavefoundry/bin/wf techdocs-baseline` as the fallback) missing-only and is safe to rerun: existing files are preserved byte-for-byte, each generated file carries a one-line generated-by stamp (not a review-protocol marker; nothing to repair or re-render), the command runs only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist, and when the trio is mixed (some files generated, some project-owned) it prints one `techdocs-baseline: WARNING` naming the project-owned files (the `--json` envelope carries the same `partial` record) without claiming the mixed result is a validated site. Make **Refresh TechDocs** discoverable in `AGENTS.md`, `docs/prompts/index.md`, and the manifest like **Review memories** above. On the upgrade that first ships seed `178`, backfill `docs/prompts/refresh-techdocs.prompt.md` per `seed-100` and then run `wf render-surfaces` **again**, because the render passes at steps 2 and 4 of the agent procedure below ran before that prompt existed and the doc-gated `wf-techdocs` skill renders only once it does. After an upgrade, `wf_techdocs_audit` (CLI dispatcher `./.wavefoundry/bin/wf techdocs-audit`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-audit`) is the safe read-only check: it reports the publication boundary, the nav targets, links that escape that boundary and the audience invariant, and writes nothing. A new MCP tool appears to a host only after a reconnect, so use the CLI until then (wave 1vqqi).
 
 ## Git Commits
 

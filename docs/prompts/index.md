@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-21
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
-If you're new to Wavefoundry, the [README](../../README.md) walks the install path and a first wave end-to-end; this index is the reference for everything else.
+If you're new to Wavefoundry, the repository `README.md` walks the install path and a first wave end-to-end; this index is the reference for everything else.
 
 ## Operating principles
 
@@ -38,6 +38,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
+| **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')` after a `mode='dry_run'` preview; CLI: `wf techdocs-baseline`; `catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`; gated on the navigation targets existing), then author the published pages with the technical-writer-coordinated collaboration and validate with the publication audit (MCP: `wf_techdocs_audit`; CLI: `wf techdocs-audit`); an explicit read-only request selects the review-only branch, which runs the audit alone and writes nothing; registration and publication stay operator-owned | `docs/prompts/refresh-techdocs.prompt.md` |
 | **Reopen wave** | Reopen a prematurely closed or paused wave | MCP: `wf_reopen_wave(wave_id, purpose="review"\|"implement")` — `purpose` is required: it selects the context-efficiency stage the following work is attributed to. A missing or unrecognized value is rejected before anything changes. |
 | **Index build status** | Poll background index refresh progress | MCP: `index_build_status(layer?)` — use after `wf setup --background-code`, `wf setup --background-docs`, or any detached refresh |
 | **GPU doctor** | Embedding-provider / GPU capability diagnostic (platform, ONNX providers, selected provider, CUDA ABI-gap) | MCP: `wf_gpu_doctor()`; CLI: `wf gpu-doctor` (same report; also `wf setup --check-gpu`) |

@@ -1723,6 +1723,24 @@ class InstallTemplateInjectionTests(unittest.TestCase):
             f"missing fresh-install assets: {sorted(expected - names)}",
         )
 
+    def test_techdocs_baseline_templates_ship_in_framework_tree(self):
+        """Wave 1vj4e (1vj4d AC-6): the three Backstage/TechDocs templates ship under
+        `*.template.*` names (never a literal catalog-info.yaml a Backstage location glob
+        could ingest) and travel with the framework tree scan."""
+        names = set(self._zip_names(self._build()))
+        expected = {
+            ".wavefoundry/framework/install/catalog-info.template.yaml",
+            ".wavefoundry/framework/install/mkdocs.template.yml",
+            ".wavefoundry/framework/install/techdocs-index.template.md",
+        }
+        self.assertTrue(expected.issubset(names), f"missing techdocs templates: {sorted(expected - names)}")
+        self.assertNotIn(".wavefoundry/framework/install/catalog-info.yaml", names)
+        self.assertNotIn(".wavefoundry/framework/install/mkdocs.yml", names)
+        # The generated trio itself is project state, never a pack member.
+        for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md"):
+            self.assertNotIn(rel, names)
+        self.assertIn(".wavefoundry/framework/scripts/techdocs_baseline.py", names)
+
     def test_lifecycle_prompt_baselines_ship_in_framework_tree(self):
         zp = self._build()
         names = set(self._zip_names(zp))

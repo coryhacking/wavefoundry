@@ -157,6 +157,15 @@ def _set_mcp(mcp: Any) -> None:
 # wf_reload_mcp is defined in build_server (this module) rather than in
 # server_impl.register_mcp_surface, so it must not be removed during refresh.
 _RELOAD_SURVIVOR_TOOLS: frozenset[str] = frozenset({"wf_reload_mcp"})
+_MCP_RELOAD_NOTIFICATION_DISPATCH_STATES: frozenset[str] = frozenset(
+    {"not_needed", "deferred", "scheduled", "no_running_loop", "completed", "failed"}
+)
+_MCP_RELOAD_DIRECT_PUBLIC_DISPATCH_STATES: frozenset[str] = frozenset(
+    {"not_needed", "completed", "failed"}
+)
+_MCP_RELOAD_UPGRADE_PUBLIC_DISPATCH_STATES: frozenset[str] = frozenset(
+    {"not_needed", "scheduled", "failed"}
+)
 
 
 def _configure_stdio_for_mcp_transport() -> None:
@@ -302,7 +311,7 @@ def _refresh_mcp_tool_surface(
     return re_added, description_changed, added_tools, removed_tools, warnings
 
 
-def perform_mcp_reload() -> dict[str, Any]:
+def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
     """Reload server_impl + refresh FastMCP tool schemas. Returns version payload.
 
     Wave 131bt (131d8): after reloading ``server_impl`` for response-shape
@@ -311,8 +320,16 @@ def perform_mcp_reload() -> dict[str, Any]:
     restart. A tool-list notification asks clients to refetch, but adoption is
     not observable here: check from a fresh model turn first, reconnect the MCP
     session if it remains stale, and restart the host only as the final fallback.
+
+    ``notify="schedule"`` is the synchronous upgrade-path default and reports
+    only that the send task was scheduled. ``notify="defer"`` returns a private
+    boolean handoff for the async runner-owned tool, which removes it before
+    serialization and awaits the send itself. ``no_running_loop`` is defensive
+    helper output; neither production caller exposes it.
     """
     global server_impl
+    if notify not in {"schedule", "defer"}:
+        raise ValueError(f"unsupported MCP reload notification mode: {notify}")
     with _reload_lock:
         try:
             old = _get_handler()
@@ -372,32 +389,27 @@ def perform_mcp_reload() -> dict[str, Any]:
             removed_tools,
             refresh_warnings,
         ) = _refresh_mcp_tool_surface(_mcp)
-        notification_sent = False
         notification_dispatch = "not_needed"
         notification_send_error: str | None = None
         tool_list_changed = bool(description_changed or added_tools or removed_tools)
         if tool_list_changed:
-            try:
-                ctx = _mcp.get_context()
-                session = ctx.request_context.session
-                # send_tool_list_changed is async; schedule synchronously via
-                # asyncio.run_coroutine_threadsafe or run on the existing loop.
+            if notify == "defer":
+                notification_dispatch = "deferred"
+            else:
                 import asyncio
                 try:
                     loop = asyncio.get_running_loop()
-                    # A synchronous reload cannot await work on its own active
-                    # loop. Record this as queued, not completed delivery.
-                    loop.create_task(session.send_tool_list_changed())
-                    notification_sent = True
-                    notification_dispatch = "queued"
                 except RuntimeError:
-                    # No running loop — synchronously run the coroutine.
-                    asyncio.run(session.send_tool_list_changed())
-                    notification_sent = True
-                    notification_dispatch = "completed"
-            except Exception as exc:
-                notification_dispatch = "failed"
-                notification_send_error = f"{type(exc).__name__}: {exc}"
+                    notification_dispatch = "no_running_loop"
+                else:
+                    try:
+                        ctx = _mcp.get_context()
+                        session = ctx.request_context.session
+                        loop.create_task(session.send_tool_list_changed())
+                        notification_dispatch = "scheduled"
+                    except Exception as exc:
+                        notification_dispatch = "failed"
+                        notification_send_error = f"{type(exc).__name__}: {exc}"
         payload = server_impl.version_payload(
             old.root, server_runner_version=SERVER_RUNNER_VERSION
         )
@@ -406,8 +418,9 @@ def perform_mcp_reload() -> dict[str, Any]:
         payload["description_changed_tools"] = description_changed
         payload["added_tools"] = added_tools
         payload["removed_tools"] = removed_tools
-        payload["tool_list_changed_notification_sent"] = notification_sent
         payload["tool_list_changed_notification_dispatch"] = notification_dispatch
+        if notify == "defer":
+            payload["tool_list_changed_notification_required"] = tool_list_changed
         diagnostics = close_warnings + refresh_warnings
         # Wave 1u2b0: a reload cannot load new runner bytes, so when the runner set changed on
         # disk the reload response must say so in its own voice rather than leaving a bare
@@ -436,24 +449,11 @@ def perform_mcp_reload() -> dict[str, Any]:
                 )
                 if part
             )
-            if notification_dispatch == "completed":
+            if notification_dispatch == "scheduled":
                 diagnostics.append(
                     server_impl._diagnostic(
-                        "tool_list_changed_notification_sent",
-                        "The MCP tool list changed ({changes}). "
-                        "Completed the server-side `notifications/tools/list_changed` "
-                        "send. Client adoption is not observable here, and the current "
-                        "model turn may retain its start-of-turn tool list. Check from "
-                        "a fresh turn first; if the list is still stale, reconnect the "
-                        "MCP server, then restart the host as the final fallback."
-                        .format(changes=change_summary),
-                    )
-                )
-            elif notification_dispatch == "queued":
-                diagnostics.append(
-                    server_impl._diagnostic(
-                        "tool_list_changed_notification_queued",
-                        "The MCP tool list changed ({changes}). Queued "
+                        "tool_list_changed_notification_scheduled",
+                        "The MCP tool list changed ({changes}). Scheduled "
                         "`notifications/tools/list_changed` on the active event loop; "
                         "this response does not claim completed delivery or client "
                         "adoption. Check from a fresh turn first; if the list is still "
@@ -461,6 +461,18 @@ def perform_mcp_reload() -> dict[str, Any]:
                         "final fallback.".format(changes=change_summary),
                     )
                 )
+            elif notification_dispatch == "no_running_loop":
+                diagnostics.append(
+                    server_impl._diagnostic(
+                        "tool_list_changed_notification_no_running_loop",
+                        "The MCP tool list changed ({changes}), but the synchronous "
+                        "notification helper found no running event loop and did not "
+                        "attempt a send. Reconnect the MCP server, then restart the "
+                        "host if the list remains stale.".format(changes=change_summary),
+                    )
+                )
+            elif notification_dispatch == "deferred":
+                pass
             else:
                 diagnostics.append(
                     server_impl._diagnostic(
@@ -500,7 +512,7 @@ def build_server(root: Path):
     _MUTATING_TOOL = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_reload_mcp(**kwargs: Any) -> dict[str, Any]:
+    async def wf_reload_mcp(**kwargs: Any) -> dict[str, Any]:
         """Reload MCP implementation module without restarting the stdio server.
 
         Returns ``framework_version``, ``server_runner_version`` (the capture-at-launch
@@ -515,11 +527,18 @@ def build_server(root: Path):
           derived description differs from the pre-reload snapshot.
         - ``added_tools`` / ``removed_tools`` (list[str]): callable tool-set
           changes detected across the reload.
-        - ``tool_list_changed_notification_sent`` (bool): compatibility signal
-          that dispatch was accepted synchronously or queued.
         - ``tool_list_changed_notification_dispatch`` (str): ``not_needed``,
-          ``queued``, ``completed``, or ``failed``. Only ``completed`` means the
-          server-side send coroutine completed; no value proves client adoption.
+          ``completed``, or ``failed``. ``completed`` means the server-side
+          send coroutine completed before this tool returned; no value proves
+          client adoption.
+
+        The synchronous upgrade caller instead receives ``not_needed``,
+        ``scheduled``, or ``failed``. The helper-only ``deferred`` and
+        ``no_running_loop`` states, plus the private
+        ``tool_list_changed_notification_required`` handoff key, never appear
+        in this tool's response. Older transcripts may contain the retired
+        ``queued`` value, ``tool_list_changed_notification_sent`` field, and
+        ``tool_list_changed_notification_queued`` diagnostic.
 
         When descriptions or the callable tool set changed, the response also includes a
         structured diagnostic with actionable next steps. A newly added tool may
@@ -548,7 +567,75 @@ def build_server(root: Path):
                 ],
                 usage="Resolve the projection failure, then call wf_reload_mcp() again.",
             )
-        return perform_mcp_reload()
+        result = perform_mcp_reload(notify="defer")
+        data = result.get("data")
+        notification_required = False
+        if isinstance(data, dict):
+            notification_required = bool(
+                data.pop("tool_list_changed_notification_required", False)
+            )
+            if data.get("tool_list_changed_notification_dispatch") == "deferred":
+                data["tool_list_changed_notification_dispatch"] = "not_needed"
+        if not notification_required:
+            return result
+
+        change_summary = ", ".join(
+            part
+            for part in (
+                (
+                    "description changes: "
+                    + ", ".join(data.get("description_changed_tools", []))
+                    if isinstance(data, dict) and data.get("description_changed_tools")
+                    else ""
+                ),
+                (
+                    "added: " + ", ".join(data.get("added_tools", []))
+                    if isinstance(data, dict) and data.get("added_tools")
+                    else ""
+                ),
+                (
+                    "removed: " + ", ".join(data.get("removed_tools", []))
+                    if isinstance(data, dict) and data.get("removed_tools")
+                    else ""
+                ),
+            )
+            if part
+        )
+        try:
+            ctx = _mcp.get_context()
+            session = ctx.request_context.session
+            await session.send_tool_list_changed()
+        except Exception as exc:
+            if isinstance(data, dict):
+                data["tool_list_changed_notification_dispatch"] = "failed"
+            result.setdefault("diagnostics", []).append(
+                server_impl._diagnostic(
+                    "tool_list_changed_notification_failed",
+                    "The MCP tool list changed ({changes}). The awaited "
+                    "notifications/tools/list_changed send failed ({err}). "
+                    "The MCP host may not refetch; reconnect the server, then "
+                    "restart the host if the list remains stale.".format(
+                        changes=change_summary,
+                        err=f"{type(exc).__name__}: {exc}",
+                    ),
+                )
+            )
+        else:
+            if isinstance(data, dict):
+                data["tool_list_changed_notification_dispatch"] = "completed"
+            result.setdefault("diagnostics", []).append(
+                server_impl._diagnostic(
+                    "tool_list_changed_notification_sent",
+                    "The MCP tool list changed ({changes}). Completed the "
+                    "server-side notifications/tools/list_changed send before "
+                    "returning. Client adoption is not observable here, and "
+                    "the current model turn may retain its start-of-turn tool "
+                    "list. Check from a fresh turn first; if the list is still "
+                    "stale, reconnect the MCP server, then restart the host as "
+                    "the final fallback.".format(changes=change_summary),
+                )
+            )
+        return result
 
     # ``wf_reload_mcp`` is registered by this runner after server_impl's main
     # surface normalization. Normalize once more so the runner-owned survivor

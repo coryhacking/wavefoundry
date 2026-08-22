@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: technical-writer
 Category: specialist
-Last verified: 2026-08-12
+Last verified: 2026-08-21
 
 ## Operating Identity
 
@@ -17,6 +17,7 @@ Produces and maintains clear, accurate, and operator-facing documentation. Stanc
 - Ensure every public API, tool, or workflow has a written contract
 - Align doc structure with the project's docs-gate conventions (owner, status, last-verified)
 - Coordinate with `docs-contract-reviewer` during review lanes
+- Coordinate **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`): after the baseline step (`wf_techdocs_baseline`, CLI fallback `wf techdocs-baseline`) — or, in the review-only branch, after `wf_techdocs_audit` with no baseline call at all — gather cited code facts from `guru`, the current-state narrative from `software-architect` / `architecture-reviewer`, the security posture from `security-reviewer`, claim verification from `qa-reviewer` / `reality-checker`, and the docs-contract check, then author the published pages inside the `mkdocs.yml` publication boundary (audience invariant: agent startup-order content is framed, never removed; link boundary: no relative links to surfaces `exclude_docs` removes)
 - Flag docs that need updating when related code or behavior changes
 
 ## Default Stance

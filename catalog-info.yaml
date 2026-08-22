@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: wavefoundry-docs
+  title: wavefoundry-docs Documentation
+  description: Technical documentation for the wavefoundry-docs project.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: documentation
+  lifecycle: experimental
+  owner: engineering

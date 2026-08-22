@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-08-21
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -1014,6 +1014,121 @@ All tools: on apply/create, request a background docs-index refresh for the new 
   the knob is not a weaker link than the file it lives in, but it is not framework-isolated from
   agents either.
 
+`wf_techdocs_audit(compare_to: str = "")`
+
+- The read-tier publication audit over the same surface (wave 1vqqi); both public entries call
+  `techdocs_audit_lib.run_techdocs_audit`, which runs the single raw `audit_techdocs`
+  implementation in an isolated worker. Computes the publication
+  boundary (`docs_dir`, the `nav` list, and the survivors of `exclude_docs` under MkDocs' own
+  last-match-wins semantics with its `.*` / `/templates/` defaults prepended), then reports
+  `nav` targets that are missing, that escape `docs_dir`, or that `exclude_docs` removes.
+  A logical `nav` entry whose symlink resolves outside the repository is refused before
+  `is_file()` or content access, named under `publication.unsafe_nav_targets`, and degrades with
+  `nav_target_escapes_root`. A markdown survivor candidate that resolves outside the repository
+  is refused on the same boundary, named under `publication.unsafe_survivor_targets`, and
+  degrades with `survivor_target_escapes_root`; links to its logical path are reported rather
+  than accepted merely because the symlink itself exists. It also reports relative links on survivor pages that dangle or
+  escape the boundary, published-page metadata, the trio's marker-derived ownership, and the
+  audience invariant on the agent startup-order documents.
+- Envelope (`data`): `repo_root`, `trio` (per member `absent` / `generated` / `project_owned`
+  from `techdocs_member_states`, plus the mixed-trio `partial` record or `null`), `publication`
+  (`docs_dir`, `nav`, `exclude_docs`, `survivor_pages`, `survivor_count`,
+  `unsupported_patterns` **only when a pattern was refused**, and `unsafe_nav_targets` **only
+  when a nav symlink resolves outside the repository**, and `unsafe_survivor_targets` **only
+  when survivor enumeration refuses an escaping file or directory symlink**), `findings`,
+  `audience` (per doc: `checked`, `baseline_ref`, `baseline_identical`, `preserved`,
+  `missing_headings`, and `degrade` when the check could not run), `summary`
+  (`finding_count`, per-code `counts`, `verdict`), and `degraded`.
+- Path bases differ by section AND by finding code, and are not interchangeable. Never join
+  `docs_dir` to a `path` without checking the code first (measured on a `docs_dir: site`
+  fixture, which is the only layout where the difference is visible):
+  - **`docs_dir`-relative:** `publication.survivor_pages`,
+    `publication.unsafe_survivor_targets` (a refused directory ends in `/`; a refused file does
+    not), and the paths of
+    `techdocs_nav_target_missing`, `techdocs_nav_target_excluded`, `techdocs_link_missing`,
+    `techdocs_link_outside_boundary`, `techdocs_metadata_incomplete`.
+  - **Repository-relative:** `audience` keys, and the paths of `techdocs_trio_partial`
+    (a trio member name such as `mkdocs.yml`), `techdocs_index_generated` (`docs/index.md`),
+    and `techdocs_audience_heading_lost` (`docs/ARCHITECTURE.md`).
+  The CLI text format prints whatever base the finding carries.
+- **Hard worker deadline and I/O-free expiry.** Matcher-local ceilings do not bound aggregate
+  cost, so both public entries use one isolated subprocess runner with a ten-second worker
+  timeout. Expiry terminates the worker and constructs a constant-size report with empty
+  unavailable sections and `degraded: ["audit_timeout"]`, without trio, filesystem, git, or other
+  repository-derived work in the parent. Fixed interpreter/serialization overhead is outside the
+  worker deadline; no unbounded repository I/O is. Other worker failures keep the could-not-run path.
+- The MCP payload is **bounded** and says so: `findings`,
+  `publication.survivor_pages`, and `publication.unsafe_survivor_targets` each cap at 200.
+  `findings_total` and `truncated` are **always** present;
+  `publication.unsafe_survivor_targets_total` is present whenever that refusal channel is
+  present. `findings_omitted`, `publication.survivor_pages_omitted`, and
+  `publication.unsafe_survivor_targets_omitted` appear **only when their respective cap
+  actually fires**, so read them with a default rather than by direct index.
+  `publication.survivor_count` always reports the true survivor total. The CLI entry streams
+  the uncapped raw report to stdout.
+- **It gates nothing.** Findings live in `data.findings` and are never diagnostics. Severities are
+  `low` / `medium` / `high` (never `blocking`, which is this framework's derived review-evidence
+  boolean, and never `critical`). Findings sort by the canonical code sequence, then path, then
+  href.
+- Verdicts: `clean`, `findings`, `not_applicable` (no `mkdocs.yml`; the trio state is still
+  reported), and `degraded`. **A run that could not compute something never reports `clean`** —
+  an unevaluated check would otherwise read as a clean site. The degrade tokens are
+  `mkdocs_absent`, `mkdocs_shape`, `exclude_docs_absent` (a parsed file with no block is never an
+  empty boundary, because `techdocs-cli generate` re-serializes and drops unknown keys),
+  `docs_dir_escapes_root`, `nav_target_escapes_root`, `survivor_target_escapes_root`, `audit_timeout`, `draft_docs_present` (a `draft_docs` block removes pages from a build
+  and is not modelled, so the survivor list is an over-count), `audience_not_informative`,
+  `git_unavailable`, `baseline_untracked`, `baseline_missing`, `working_tree_missing`, and
+  `compare_to_refused`. `mkdocs_shape` also covers a pattern the matcher declines to translate:
+  an exclusion the tool cannot reproduce faithfully is refused and degrades rather than being
+  approximated into a boundary that measurement disproves.
+- The audience baseline is HEAD content, so the check is informative against an **uncommitted**
+  authoring edit and is an identity check on a clean tree, which is reported as
+  `baseline_identical` plus `audience_not_informative` rather than as a pass. Every git read routes
+  through the sanctioned wrapper, and a `compare_to` beginning with `-` is refused before any argv
+  is built.
+- Read tier (rendered into the default permission allowlist), no lock, no publication-writer
+  registration, and it never writes. `not_applicable` and `degraded` surface as **advisory**
+  diagnostics. A new MCP tool appears to a host only after a reconnect.
+
+`wf_techdocs_baseline(mode: str = "dry_run")`
+
+- The MCP entry of the Backstage catalog + TechDocs baseline (wave 1vj4e); the same
+  `render_agent_surfaces.render_techdocs_baseline` the `wf techdocs-baseline` CLI calls, so both
+  entries generate the root `catalog-info.yaml`, the root `mkdocs.yml`, and `docs/index.md`
+  missing-only, only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and
+  `docs/prompts/index.md` exist, each with a one-line generated-by stamp; existing members are
+  preserved byte-for-byte. Nothing runs at setup, `wf render-surfaces`, or upgrade; the Refresh
+  TechDocs workflow calls this first.
+- `mode`: `"dry_run"` (default, read-first) runs the precondition and the containment
+  classification, reports what `run` would write, and writes nothing (`status: "dry_run"`, plus a
+  `dry_run` diagnostic naming the absent members); `"run"` writes the absent members under the
+  project publication lock (`status: "ok"`); any other value is `status: "error"` with
+  `invalid_arguments` and no writes.
+- Envelope (`data`): `mode`, the CLI `--json` envelope's six members (`written_paths`,
+  `preserved_paths`, `generated_paths`, `missing_targets`, `partial`, `refusal`), plus
+  `absent_paths` (the members absent before the call; equal to `written_paths` after a real run)
+  and, after a real run, `lint`. On the success path `preserved_paths` means "present at
+  classification" and `generated_paths` means "carries the marker now", so the two OVERLAP (a rerun
+  of a fully generated trio returns all three members in both); read `partial` for project-owned
+  versus generated. On the write-failure path both are derived from `techdocs_member_states` and are
+  disjoint (the precondition and preflight-refusal errors never reach that helper and return empty
+  lists). `partial` is the marker-derived record for a mixed trio (some members generated, some
+  project-owned) or `null`; the same record is surfaced as the advisory diagnostic
+  `backstage_techdocs_partial` (its `detail` is the warning text).
+- Errors, all `status: "error"`. Two are raised before any write: `techdocs_precondition_unmet`
+  (missing navigation targets, listed in `missing_targets`) and `techdocs_destination_refused` (a
+  preflight refusal: an escaping symlink, a directory, a dangling symlink, or another non-regular
+  object at one of the three destinations; an in-root symlink to a regular file is preserved
+  instead). Any `RuntimeError`, `OSError`, or `UnicodeDecodeError` raised after preflight (an
+  unreadable packaged template, one saved in another encoding, a write refused on a later member,
+  a write error) is `techdocs_write_failed`, where an
+  earlier member may have been written: `written_paths` names what that run wrote before failing,
+  `preserved_paths` / `generated_paths` / `absent_paths` report every member as it is on disk now
+  (independent of whether the trio is mixed, unlike `partial`), and the repo cache is invalidated.
+- Write tier (rendered into `.claude/settings.json` only with the operator knob), a registered
+  `fail_fast` publisher (refuses under an upgrade checkpoint like every project-state writer),
+  cost-accounted on `written_paths`. A new tool appears to a host only after an MCP reconnect.
+
 `index_health()`
 
 - Returns the semantic index health for the single project index (the project `docs` and `code` tables; framework seeds and the top-level `README` are folded into the project `docs` table at setup/upgrade).
@@ -1073,6 +1188,39 @@ not rely on `status` to signal index absence.
 - Response includes `mode`, `effective_mode` (reflects auto-escalation), `rules_hash_changed`, `escalated_to_full`, `clean` (boolean), `elapsed_s`, `total_findings`, `by_status` (count per status value), `failures_total`, and `failures` (first 20 lint-blocking entries).
 - Runs in a subprocess so `ProcessPoolExecutor` workers and the multiprocessing `resource_tracker` exit with the scan process rather than accumulating in the MCP server. Falls back to an in-process serial scan when the subprocess path is unavailable.
 - **`wf_close_wave` gate:** `wf_close_wave` hard-blocks on any `pending` or `suspected-secret` entry (unresolved — classify via the security reviewer, `seed-213`). `confirmed-secret` entries do **not** block (wave 1p5pz); every close returns a non-blocking `confirmed_secrets` list + `secrets_reminder` string in `data` for the agent to surface to the operator. Re-run `wf_close_wave` after classifying unresolved entries.
+
+`wf_reload_mcp()`
+
+- Reloads `server_impl.py`, rebuilds the handler, and refreshes the FastMCP
+  tool registry without replacing the runner process. The tool is async so a
+  changed tool list's `notifications/tools/list_changed` send is awaited
+  before the response reports `completed`.
+- The direct response field
+  `data.tool_list_changed_notification_dispatch` has exactly
+  `not_needed | completed | failed`. A failed awaited send names its
+  exception type in the diagnostic and never claims delivery. Completion says
+  only that the server-side send coroutine finished; client adoption and the
+  current model turn's cached tool list remain unobservable.
+- The synchronous `wf_upgrade.data.mcp_reload` path keeps its separate
+  `not_needed | scheduled | failed` domain. `scheduled` means handed to
+  the active event loop, not completed. The private helper states `deferred`
+  and `no_running_loop`, and the private
+  `tool_list_changed_notification_required` handoff key, never serialize
+  through either public caller. `no_running_loop` uses diagnostic code
+  `tool_list_changed_notification_no_running_loop` when the helper is called
+  defensively outside a running loop.
+- Retired transcript vocabulary: the boolean response field
+  `tool_list_changed_notification_sent`, the `queued` dispatch value, and the
+  `tool_list_changed_notification_queued` diagnostic code. The
+  `tool_list_changed_notification_sent` diagnostic code remains the direct
+  tool's completed-send record. The rename from `queued` to
+  `scheduled` does not strengthen the upgrade-path observation; the honesty
+  gain is removal of the former schedule-time `sent: true` claim.
+- Transition class: changes to this tool's behavioral runner bytes in
+  `server.py` are seed-160 class (c). An in-process reload cannot load them;
+  fully restart every attached host before judging the new behavior. After a
+  restarted-host send, check a fresh turn, reconnect if the host remains
+  stale, and restart as the final fallback.
 
 `wf_upgrade(phase: str = "preflight_to_docs_gate")`
 

@@ -87,5 +87,6 @@ These belong to Phase 2 (seed-012):
 - Generating the prompt surface (seed-100)
 - Bootstrapping wave artifacts (seed-110)
 - Setting drift expectations (seed-140)
+- Generating the Backstage catalog and TechDocs baseline (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`): Phase 1 never generates them and `wf setup` never writes them; **Refresh TechDocs** at row 2.13.5 runs `wf_techdocs_baseline` (CLI fallback `wf techdocs-baseline`) once the Phase 2 navigation targets (`docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, `docs/prompts/index.md`) exist
 
 These need either MCP for validation, or sit on top of the harness Phase 1 installs.

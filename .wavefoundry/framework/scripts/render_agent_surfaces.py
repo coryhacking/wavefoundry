@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Render agent routing surfaces (auto-Guru tier 2–3), never MCP host config."""
+"""Render agent routing surfaces (auto-Guru tier 2–3), never MCP host config.
+
+Also hosts the explicit-command Backstage/TechDocs baseline family (wave 1vj4e):
+``render_techdocs_baseline`` has exactly two callers, the ``wf techdocs-baseline`` thin
+entry and the ``wf_techdocs_baseline`` MCP tool; never the render pass, setup, or upgrade.
+It lives here because it reuses this module's private containment/asset/write helpers.
+"""
 
 from __future__ import annotations
 
 import copy
 import os
 import re
+import stat
 import sys
 import time
 from dataclasses import dataclass
@@ -623,6 +630,20 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             ),
         ),
         requires_doc="docs/prompts/codebase-cleanup-review.prompt.md",
+    ),
+    Skill(
+        name="wf-techdocs",
+        description="Generate the missing-only Backstage catalog and TechDocs baseline with the wf_techdocs_baseline MCP tool (CLI fallback wf techdocs-baseline), then have the technical-writer specialist author the published pages with Guru, architecture, security, qa, and docs-contract collaboration (Refresh TechDocs / Author TechDocs). An explicit read-only request selects the review-only branch, which runs the wf_techdocs_audit publication audit (CLI fallback wf techdocs-audit) and returns findings and proposed edits without writing. Renders once docs/prompts/refresh-techdocs.prompt.md exists (every target after seed-100 reconciliation).",
+        body=_thin_pointer_body(
+            "Refresh TechDocs",
+            "docs/prompts/refresh-techdocs.prompt.md",
+            (
+                "Step 1 runs the baseline, `wf_techdocs_baseline(mode='dry_run')` then `mode='run'` over MCP or the `wf techdocs-baseline` CLI without MCP (missing-only; existing files are preserved byte-for-byte; a mixed trio yields one warning). Steps 2 and 3 author and validate the published pages, and Step 3 runs the `wf_techdocs_audit` publication audit. On an explicit read-only request, use the prompt's read-only procedure instead: it runs the audit only, never the baseline, and writes nothing.",
+                "The workflow writes only inside the `mkdocs.yml` publication boundary; the one exception is removing the generated-by line from the trio's root members when the writer takes ownership of the trio.",
+                "Registration with a Backstage instance and publication of the site stay operator/Backstage-owned; the prompt's follow-up checklist lists what remains.",
+            ),
+        ),
+        requires_doc="docs/prompts/refresh-techdocs.prompt.md",
     ),
 )
 
@@ -1491,11 +1512,17 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
     return resolved
 
 
-def _write_review_carrier_text(path: Path, content: str) -> None:
-    """Write a checked carrier without following a raced final symlink."""
+def _write_review_carrier_text(path: Path, content: str, *, exclusive: bool = False) -> None:
+    """Write a checked carrier without following a raced final symlink.
+
+    ``exclusive=True`` (wave 1vj4e, the Backstage/TechDocs trio) opens with
+    ``O_EXCL`` instead of ``O_TRUNC``, so a missing-only write can never
+    truncate a member that appeared between the presence check and the open;
+    the sibling baseline families keep the default check-then-truncate.
+    """
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
@@ -1698,6 +1725,361 @@ def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
         _write_review_carrier_text(path, content)
         written.append(destination)
     return written
+
+
+# ---------------------------------------------------------------------------
+# Backstage catalog + TechDocs baseline (wave 1vj4e / change 1vj4d)
+#
+# An EXPLICIT command family, not a render-pass family: `wf techdocs-baseline`
+# (thin entry `techdocs_baseline.py`) and the `wf_techdocs_baseline` MCP tool
+# (`server_impl`) both call `render_techdocs_baseline`, which
+# materializes the root `catalog-info.yaml`, root `mkdocs.yml`, and
+# `docs/index.md` MISSING-ONLY from packaged `*.template.*` assets. Nothing in
+# `render_agent_surfaces()`, setup, or upgrade calls it (opt-in auto-generation
+# is a deferred change). Ownership has exactly one signal, the generated-by
+# marker written into each generated file: a member that carries it is
+# generated, a member without it is project-owned, and the trio is PARTIAL
+# when it is mixed. Any later reader recomputes the same fact from the tree
+# (`classify_techdocs_baseline`), so no lock record or nonce is persisted.
+# The precondition (the three navigation targets exist) and the containment
+# classification of the three destinations live HERE, not in the CLI entry,
+# so a later flag-gated render/upgrade caller inherits both. This module never
+# imports `techdocs_baseline` (the entry self-activates the venv at import).
+# ---------------------------------------------------------------------------
+
+TECHDOCS_BASELINE_MARKER = (
+    "wavefoundry: generated missing-only Backstage/TechDocs baseline; "
+    "project-owned, edit freely."
+)
+
+# Canonical path order; every list this family emits follows it.
+TECHDOCS_BASELINES: "tuple[tuple[str, str, str], ...]" = (
+    ("catalog-info.yaml", "catalog-info.template.yaml", f"# {TECHDOCS_BASELINE_MARKER}"),
+    ("mkdocs.yml", "mkdocs.template.yml", f"# {TECHDOCS_BASELINE_MARKER}"),
+    ("docs/index.md", "techdocs-index.template.md", f"<!-- {TECHDOCS_BASELINE_MARKER} -->"),
+)
+
+# The generated landing page links exactly these three documents, so the
+# command refuses to run until they exist: no generated tree ever links to
+# an absent document (that keeps every touched tree docs-lint clean).
+TECHDOCS_PRECONDITION_TARGETS: "tuple[str, ...]" = (
+    "docs/references/project-overview.md",
+    "docs/ARCHITECTURE.md",
+    "docs/prompts/index.md",
+)
+
+TECHDOCS_PARTIAL_CHANNEL = "backstage-techdocs"
+TECHDOCS_PARTIAL_CODE = "backstage_techdocs_partial"
+TECHDOCS_PARTIAL_WARNING = (
+    "Backstage/TechDocs baseline is partial; preserved project-owned files: "
+    "{paths}. Generated missing files only. Verify backstage.io/techdocs-ref: "
+    "dir:., root mkdocs.yml docs_dir/navigation/exclude_docs, and docs/index.md "
+    "before registration or publication; align the files or remove the "
+    "generated-by line to take ownership."
+)
+
+_TECHDOCS_ENTITY_MAX = 63
+_TECHDOCS_ENTITY_SUFFIX = "-docs"
+_TECHDOCS_ENTITY_STEM_MAX = _TECHDOCS_ENTITY_MAX - len(_TECHDOCS_ENTITY_SUFFIX)
+
+
+class TechdocsDestinationRefused(RuntimeError):
+    """A preflight refusal of one trio destination (containment escape, dangling
+    symlink, directory, or other non-regular object). Raised BEFORE any trio
+    write; still a ``RuntimeError`` so the sibling-family callers and the CLI
+    keep their one ``except RuntimeError`` channel, while the MCP tool can tell
+    a preflight refusal (nothing written) from a later write failure."""
+
+
+class TechdocsWriteFailed(RuntimeError):
+    """A failure AFTER preflight, while writing the missing members.
+
+    Carries ``written_paths``: the members this run wrote before the failure,
+    so neither entry point has to claim that nothing was written when the
+    tree says otherwise. Still a ``RuntimeError``, so a caller that keeps one
+    channel behaves as before.
+    """
+
+    def __init__(self, message: str, *, written_paths: "tuple[str, ...] | list[str]" = ()) -> None:
+        super().__init__(message)
+        self.written_paths = tuple(written_paths)
+
+
+@dataclass(frozen=True)
+class TechdocsBaselineResult:
+    """Typed outcome of one `render_techdocs_baseline` run.
+
+    ``missing_targets`` non-empty means the precondition failed and nothing was
+    written. ``absent_paths`` are the members absent before the render (equal
+    to ``written_paths`` after a real run; what a ``dry_run`` would write).
+    ``partial`` is the marker-derived record (or ``None``) computed from the
+    tree after the render. Containment and non-regular refusals are not
+    represented here: they raise ``TechdocsDestinationRefused`` (a
+    ``RuntimeError``) exactly where the sibling baseline families raise, before
+    any trio write.
+    """
+
+    written_paths: "tuple[str, ...]"
+    preserved_paths: "tuple[str, ...]"
+    generated_paths: "tuple[str, ...]"
+    missing_targets: "tuple[str, ...]"
+    partial: "dict | None"
+    absent_paths: "tuple[str, ...]" = ()
+
+
+def techdocs_entity_name(basename: str) -> str:
+    """Derive the Backstage entity name for the documentation component.
+
+    Lowercase; each maximal run outside ``[a-z0-9]`` becomes one ``-``; trim
+    ``-``; remove one terminal ``-docs``; truncate the stem to 58 characters
+    and trim a trailing ``-``; fall back to ``project``; append exactly one
+    ``-docs``. The result is at most 63 characters (Backstage's name limit).
+    """
+
+    slug = re.sub(r"[^a-z0-9]+", "-", basename.lower()).strip("-")
+    if slug.endswith(_TECHDOCS_ENTITY_SUFFIX):
+        slug = slug[: -len(_TECHDOCS_ENTITY_SUFFIX)]
+    stem = slug[:_TECHDOCS_ENTITY_STEM_MAX].rstrip("-")
+    if not stem:
+        stem = "project"
+    return f"{stem}{_TECHDOCS_ENTITY_SUFFIX}"
+
+
+def techdocs_member_is_generated(path: Path, marker_line: str) -> bool:
+    """True when a regular file carries its destination's generated-by line.
+
+    Read as ``utf-8-sig`` and compare per line after stripping line endings
+    and surrounding whitespace, so a BOM, CRLF, or an editor-prepended header
+    never reclassifies a generated file. Undecodable bytes or a non-regular
+    path classify as NOT generated (project-owned): the classifier never
+    raises. The marker form is per destination (YAML ``#`` line vs the
+    landing page's HTML comment).
+    """
+
+    try:
+        if not path.is_file():
+            return False
+        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as handle:
+            for line in handle:
+                if line.strip() == marker_line:
+                    return True
+    except (OSError, UnicodeDecodeError):
+        return False
+    return False
+
+
+def techdocs_member_states(
+    repo_root: Path,
+) -> "tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]":
+    """Per-member tree state as ``(generated, preserved, absent)``.
+
+    The same marker rule :func:`classify_techdocs_baseline` applies, without
+    its mixed-trio condition, so a failure path can report the tree as it is
+    even when the trio is not mixed. Read-only and never raises.
+    """
+
+    generated: list[str] = []
+    preserved: list[str] = []
+    absent: list[str] = []
+    for destination, _template, marker_line in TECHDOCS_BASELINES:
+        candidate = repo_root / destination
+        try:
+            candidate.lstat()
+        except OSError:
+            absent.append(destination)
+            continue
+        try:
+            resolved = _contained_review_carrier_path(repo_root, destination)
+        except RuntimeError:
+            # Resolves outside the root: project-owned, and never read.
+            preserved.append(destination)
+            continue
+        # A non-regular object at the destination (directory, FIFO, dangling
+        # symlink) is not absent: it is project-owned. A regular file (or an
+        # in-root symlink to one) is classified by its marker line.
+        if resolved.is_file() and techdocs_member_is_generated(resolved, marker_line):
+            generated.append(destination)
+        else:
+            preserved.append(destination)
+    return tuple(generated), tuple(preserved), tuple(absent)
+
+
+def classify_techdocs_baseline(repo_root: Path) -> "dict | None":
+    """Read-only, marker-derived partial record for the trio, or ``None``.
+
+    Public so a later opt-in auto-generation change (upgrade summary scan)
+    reuses the one rule: ``preserved_paths`` are the present, unmarked
+    (project-owned) members; ``generated_paths`` are the marked members; the
+    record exists only when both lists are non-empty (a mixed trio). Absent
+    members are in neither list. This is a property of the tree, so a rerun
+    of the command or an operator inspection derives the same record.
+    """
+
+    generated_t, preserved_t, _absent = techdocs_member_states(repo_root)
+    preserved = list(preserved_t)
+    generated = list(generated_t)
+    if not preserved or not generated:
+        return None
+    return {
+        "channel": TECHDOCS_PARTIAL_CHANNEL,
+        "code": TECHDOCS_PARTIAL_CODE,
+        "detail": TECHDOCS_PARTIAL_WARNING.format(paths=", ".join(preserved)),
+        "preserved_paths": list(preserved),
+        "generated_paths": list(generated),
+    }
+
+
+def techdocs_missing_targets(repo_root: Path) -> "tuple[str, ...]":
+    """Navigation targets that are not regular files (precondition input)."""
+
+    return tuple(
+        target
+        for target in TECHDOCS_PRECONDITION_TARGETS
+        if not (repo_root / target).is_file()
+    )
+
+
+def _classify_techdocs_destination(repo_root: Path, destination: str) -> "tuple[bool, Path]":
+    """Return ``(present, resolved_path)`` for one trio destination.
+
+    Containment is the shared helper's (escape refused, resolved path returned).
+    Presence is the sibling families' rule: a destination that resolves to a
+    regular file inside the root, including through an in-root symlink, is
+    present and preserved (never opened for writing). The deliberate
+    tightening owned by this family: an exact destination that is a dangling
+    symlink, a directory, or any other non-regular object is refused HERE, in
+    preflight for all three destinations, before the first trio write (the
+    siblings materialize through a dangling in-root symlink and refuse a
+    directory only at write time). Classification uses ``lstat`` on the
+    unresolved candidate because the helper returns the resolved path.
+    """
+
+    try:
+        resolved = _contained_review_carrier_path(repo_root, destination)
+    except RuntimeError as exc:
+        raise TechdocsDestinationRefused(str(exc)) from exc
+    candidate = repo_root / destination
+    try:
+        st = candidate.lstat()
+    except FileNotFoundError:
+        return False, resolved
+    except OSError as exc:
+        raise TechdocsDestinationRefused(
+            f"techdocs baseline destination cannot be classified: {destination}: {exc}"
+        ) from exc
+    if stat.S_ISLNK(st.st_mode):
+        if resolved.is_file():
+            return True, resolved
+        raise TechdocsDestinationRefused(
+            "techdocs baseline destination is a dangling or non-regular symlink: "
+            f"{destination}"
+        )
+    if stat.S_ISREG(st.st_mode):
+        return True, resolved
+    raise TechdocsDestinationRefused(
+        f"techdocs baseline destination is not a regular file: {destination}"
+    )
+
+
+def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> TechdocsBaselineResult:
+    """Materialize the missing members of the Backstage/TechDocs trio.
+
+    Order: precondition (nothing written when a navigation target is
+    missing), then containment/presence classification of all three
+    destinations (``TechdocsDestinationRefused`` refuses before any write),
+    then the missing-only writes with ``exclusive=True`` (``O_EXCL``, so a
+    member that appears between the check and the write is never truncated).
+    Present members are preserved byte-for-byte whether or not they carry the
+    marker. ``dry_run=True`` (the MCP tool's read-first default) stops after
+    the classification and reports the members it would write as
+    ``absent_paths``, with the CURRENT tree's ``partial`` record (not the
+    post-run one: forewarning of a mixed result is ``preserved_paths`` and
+    ``absent_paths`` both non-empty). The returned ``partial`` record is
+    recomputed from the tree by :func:`classify_techdocs_baseline`, the same
+    rule any later reader applies.
+    """
+
+    missing_targets = techdocs_missing_targets(repo_root)
+    if missing_targets:
+        return TechdocsBaselineResult(
+            written_paths=(),
+            preserved_paths=(),
+            generated_paths=(),
+            missing_targets=missing_targets,
+            partial=None,
+            absent_paths=(),
+        )
+    # Classify all three destinations before the first write (refusal raises
+    # here), then resolve every absent member's template, so after preflight
+    # only an ``O_EXCL`` collision can interrupt the writes.
+    classified = [
+        (destination, marker_line, *_classify_techdocs_destination(repo_root, destination))
+        for destination, _template_name, marker_line in TECHDOCS_BASELINES
+    ]
+    templates = {
+        destination: _resolve_install_asset(repo_root, template_name)
+        for (destination, template_name, _marker), (_d, _m, present, _p) in zip(
+            TECHDOCS_BASELINES, classified
+        )
+        if not present
+    }
+    absent = tuple(destination for destination, _m, present, _p in classified if not present)
+    if dry_run:
+        return TechdocsBaselineResult(
+            written_paths=(),
+            preserved_paths=tuple(d for d, _m, present, _p in classified if present),
+            generated_paths=tuple(
+                destination
+                for destination, marker_line, present, path in classified
+                if present and techdocs_member_is_generated(path, marker_line)
+            ),
+            missing_targets=(),
+            partial=classify_techdocs_baseline(repo_root),
+            absent_paths=absent,
+        )
+    entity_name = techdocs_entity_name(repo_root.resolve().name)
+    today = time.strftime("%Y-%m-%d")
+    written: list[str] = []
+    preserved: list[str] = []
+    for destination, _marker_line, present, path in classified:
+        if present:
+            preserved.append(destination)
+            continue
+        try:
+            with templates[destination].open("r", encoding="utf-8", newline="") as handle:
+                content = (
+                    handle.read()
+                    .replace("{{generated_at}}", today)
+                    .replace("{{entity_name}}", entity_name)
+                )
+            _write_review_carrier_text(path, content, exclusive=True)
+        except (RuntimeError, OSError, UnicodeDecodeError) as exc:
+            # Preflight already passed, so earlier members may be on disk. Carry
+            # them on the exception rather than let a caller report "nothing
+            # written" against a tree that says otherwise. UnicodeDecodeError is a
+            # ValueError, not an OSError: a target-local template saved in another
+            # encoding raises it from handle.read(), and the sibling classifier
+            # techdocs_member_is_generated already treats it as a read failure.
+            # Normalizing every post-preflight failure here is what lets both
+            # entry points keep one typed channel.
+            raise TechdocsWriteFailed(
+                f"techdocs baseline write failed at {destination}: {exc}",
+                written_paths=tuple(written),
+            ) from exc
+        written.append(destination)
+    generated = [
+        destination
+        for destination, marker_line, _present, path in classified
+        if techdocs_member_is_generated(path, marker_line)
+    ]
+    return TechdocsBaselineResult(
+        written_paths=tuple(written),
+        preserved_paths=tuple(preserved),
+        generated_paths=tuple(generated),
+        missing_targets=(),
+        partial=classify_techdocs_baseline(repo_root),
+        absent_paths=absent,
+    )
 
 
 def reconcile_review_policy_surfaces(repo_root: Path) -> list[str]:

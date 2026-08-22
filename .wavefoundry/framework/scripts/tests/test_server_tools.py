@@ -9896,6 +9896,48 @@ class WaveMcpReloadTests(unittest.TestCase):
             "runner_stale", [item["code"] for item in result.get("diagnostics", [])]
         )
 
+    def test_reload_notification_state_domains_are_closed(self):
+        self.assertEqual(
+            self.runner._MCP_RELOAD_NOTIFICATION_DISPATCH_STATES,
+            {
+                "not_needed",
+                "deferred",
+                "scheduled",
+                "no_running_loop",
+                "completed",
+                "failed",
+            },
+        )
+        self.assertEqual(
+            self.runner._MCP_RELOAD_DIRECT_PUBLIC_DISPATCH_STATES,
+            {"not_needed", "completed", "failed"},
+        )
+        self.assertEqual(
+            self.runner._MCP_RELOAD_UPGRADE_PUBLIC_DISPATCH_STATES,
+            {"not_needed", "scheduled", "failed"},
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported MCP reload"):
+            self.runner.perform_mcp_reload(notify="unknown")
+
+    def test_reload_helper_has_exactly_two_production_call_sites(self):
+        observed: list[tuple[str, int]] = []
+        for path in (SERVER_PATH, SCRIPTS_ROOT / "server_impl.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (
+                    func.id
+                    if isinstance(func, ast.Name)
+                    else func.attr
+                    if isinstance(func, ast.Attribute)
+                    else ""
+                )
+                if name == "perform_mcp_reload":
+                    observed.append((path.name, node.lineno))
+        self.assertEqual([name for name, _line in observed], ["server.py", "server_impl.py"])
+
     def test_reload_reports_launch_identity_not_a_recomputed_one(self):
         """Wave 1u2b0 (AC-2), falsifiable form: the reported identity is the one captured at
         LAUNCH, so an implementation that recomputed it during the reload fails here.
@@ -10028,19 +10070,14 @@ class WaveMcpReloadTests(unittest.TestCase):
         self.assertEqual(result["data"].get("description_changed_tools"), [])
         self.assertEqual(result["data"].get("added_tools"), [])
         self.assertEqual(result["data"].get("removed_tools"), [])
-        self.assertFalse(
-            result["data"].get("tool_list_changed_notification_sent"),
-            "Notification should not fire when no descriptions changed",
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"],
+            "not_needed",
         )
 
-    def test_perform_mcp_reload_detects_description_change_and_sends_notification(self):
-        """131bu: when a tool's docstring-derived description changes between
-        snapshots, perform_mcp_reload sends the MCP `notifications/tools/list_changed`
-        protocol notification to the connected client. Spec-conformant clients
-        re-fetch tools/list on receipt and surface the new descriptions without
-        requiring a host restart. Response carries ``description_changed_tools``
-        and ``tool_list_changed_notification_sent: True``, plus a structured
-        diagnostic with code ``tool_list_changed_notification_sent``."""
+    def test_perform_mcp_reload_defers_a_description_change_without_sending(self):
+        """The defer helper returns only private handoff state for the async tool."""
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
@@ -10054,27 +10091,26 @@ class WaveMcpReloadTests(unittest.TestCase):
         original = tools_reg[target_name].description
         tools_reg[target_name].description = "STALE PLACEHOLDER DESCRIPTION"
         try:
-            result = self.runner.perform_mcp_reload()
+            result = self.runner.perform_mcp_reload(notify="defer")
         finally:
             if tools_reg[target_name].description == "STALE PLACEHOLDER DESCRIPTION":
                 tools_reg[target_name].description = original
         self.assertEqual(result["status"], "ok")
         self.assertIn(target_name, result["data"]["description_changed_tools"])
-        # Notification may or may not have actually sent depending on whether
-        # the test harness has an active MCP session — the field should be
-        # present either way. If it failed, the failed-diagnostic should be
-        # present; if it succeeded, the sent-diagnostic should be present.
-        self.assertIn("tool_list_changed_notification_sent", result["data"])
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertIs(
+            result["data"]["tool_list_changed_notification_required"], True
+        )
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "deferred"
+        )
         diag_codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertTrue(
-            "tool_list_changed_notification_sent" in diag_codes
-            or "tool_list_changed_notification_failed" in diag_codes,
-            f"Expected one of the notification diagnostics; got: {diag_codes}",
+        self.assertFalse(
+            any("tool_list_changed_notification" in str(c) for c in diag_codes)
         )
 
-    def test_perform_mcp_reload_notifies_when_new_tool_is_registered(self):
-        """A tool-set addition must invalidate the client tool list even when
-        no surviving tool description changed."""
+    def test_perform_mcp_reload_names_no_running_loop_without_attempting_send(self):
+        """Off-loop schedule mode reports its defensive helper-only outcome."""
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
@@ -10083,20 +10119,29 @@ class WaveMcpReloadTests(unittest.TestCase):
         self.assertIn(target_name, self.srv._registered_mcp_tool_names(mcp))
         mcp.remove_tool(target_name)
 
-        result = self.runner.perform_mcp_reload()
+        with patch.object(
+            mcp,
+            "get_context",
+            side_effect=AssertionError("no-loop branch must not attempt a send"),
+        ):
+            result = self.runner.perform_mcp_reload()
 
         self.assertEqual(result["status"], "ok", result)
         self.assertIn(target_name, result["data"]["added_tools"])
         self.assertIn(target_name, self.srv._registered_mcp_tool_names(mcp))
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"],
+            "no_running_loop",
+        )
         diag_codes = [d.get("code") for d in result.get("diagnostics", [])]
-        self.assertTrue(
-            "tool_list_changed_notification_sent" in diag_codes
-            or "tool_list_changed_notification_failed" in diag_codes,
-            f"Expected tool-list notification diagnostic; got: {diag_codes}",
+        self.assertIn(
+            "tool_list_changed_notification_no_running_loop",
+            diag_codes,
         )
 
-    def test_reload_reports_completed_notification_when_send_finishes(self):
-        """A no-loop dispatch runs the send coroutine to completion."""
+    def test_reload_tool_awaits_notification_before_returning_completed(self):
+        """The async direct tool observes completion before its response exists."""
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
@@ -10112,15 +10157,21 @@ class WaveMcpReloadTests(unittest.TestCase):
         context = types.SimpleNamespace(
             request_context=types.SimpleNamespace(session=session)
         )
-        with patch.object(mcp, "get_context", return_value=context), patch.object(
-            self.runner,
-            "_refresh_mcp_tool_surface",
-            return_value=(1, [], ["memory_consolidate"], [], []),
-        ):
-            result = self.runner.perform_mcp_reload()
+        async def exercise():
+            tool = mcp._tool_manager._tools["wf_reload_mcp"]
+            with patch.object(mcp, "get_context", return_value=context), patch.object(
+                self.runner,
+                "_refresh_mcp_tool_surface",
+                return_value=(1, [], ["memory_consolidate"], [], []),
+            ):
+                result = await tool.run({})
+            self.assertTrue(session.completed)
+            return result
 
+        result = asyncio.run(exercise())
         self.assertTrue(session.completed)
-        self.assertIs(result["data"]["tool_list_changed_notification_sent"], True)
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertNotIn("tool_list_changed_notification_required", result["data"])
         self.assertEqual(
             result["data"]["tool_list_changed_notification_dispatch"], "completed"
         )
@@ -10129,50 +10180,222 @@ class WaveMcpReloadTests(unittest.TestCase):
             [item["code"] for item in result["diagnostics"]],
         )
 
-    def test_reload_reports_queued_notification_on_active_event_loop(self):
-        """An active-loop create_task is queued, not completed delivery."""
+    def test_reload_tool_not_needed_never_resolves_a_session_or_leaks_handoff(self):
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        async def exercise():
+            tool = mcp._tool_manager._tools["wf_reload_mcp"]
+            with patch.object(
+                mcp,
+                "get_context",
+                side_effect=AssertionError("no notification means no session lookup"),
+            ), patch.object(
+                self.runner,
+                "_refresh_mcp_tool_surface",
+                return_value=(1, [], [], [], []),
+            ):
+                return await tool.run({})
+
+        result = asyncio.run(exercise())
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "not_needed"
+        )
+        self.assertNotIn("tool_list_changed_notification_required", result["data"])
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+
+    def test_upgrade_helper_schedules_notification_on_active_event_loop(self):
+        """The synchronous upgrade helper puts list_changed on a real MCP stream."""
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        async def exercise():
+            import anyio
+            from mcp import types as mcp_types
+            from mcp.server.models import InitializationOptions
+            from mcp.server.session import ServerSession
+
+            inbound_send, inbound_receive = anyio.create_memory_object_stream(1)
+            wire_send, wire_receive = anyio.create_memory_object_stream(1)
+            session = ServerSession(
+                inbound_receive,
+                wire_send,
+                InitializationOptions(
+                    server_name="wavefoundry-test",
+                    server_version="test",
+                    capabilities=mcp_types.ServerCapabilities(),
+                ),
+            )
+            context = types.SimpleNamespace(
+                request_context=types.SimpleNamespace(session=session)
+            )
+            async with session:
+                with patch.object(
+                    mcp, "get_context", return_value=context
+                ), patch.object(
+                    self.runner,
+                    "_refresh_mcp_tool_surface",
+                    return_value=(1, [], ["memory_purge"], [], []),
+                ):
+                    result = self.runner.perform_mcp_reload()
+                wire_message = await wire_receive.receive()
+            await inbound_send.aclose()
+            await inbound_receive.aclose()
+            await wire_send.aclose()
+            await wire_receive.aclose()
+            return result, wire_message
+
+        result, wire_message = asyncio.run(exercise())
+        wire_payload = wire_message.message.model_dump(by_alias=True)
+        self.assertEqual(
+            wire_payload["method"], "notifications/tools/list_changed"
+        )
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "scheduled"
+        )
+        self.assertIn(
+            "tool_list_changed_notification_scheduled",
+            [item["code"] for item in result["diagnostics"]],
+        )
+
+    def test_upgrade_helper_reports_schedule_failure_without_claiming_delivery(self):
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        async def exercise():
+            with patch.object(
+                mcp, "get_context", side_effect=PermissionError("session unavailable")
+            ), patch.object(
+                self.runner,
+                "_refresh_mcp_tool_surface",
+                return_value=(1, [], ["memory_purge"], [], []),
+            ):
+                return self.runner.perform_mcp_reload()
+
+        result = asyncio.run(exercise())
+        self.assertEqual(
+            result["data"]["tool_list_changed_notification_dispatch"], "failed"
+        )
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        failed = [
+            item
+            for item in result["diagnostics"]
+            if item["code"] == "tool_list_changed_notification_failed"
+        ]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("PermissionError", failed[0]["message"])
+
+    def test_reload_tool_reports_awaited_send_failure_without_private_state(self):
         try:
             mcp = self.runner.build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
 
         class Session:
-            completed = False
-
             async def send_tool_list_changed(self):
-                await asyncio.sleep(0)
-                self.completed = True
+                raise LookupError("notification transport unavailable")
 
-        session = Session()
         context = types.SimpleNamespace(
-            request_context=types.SimpleNamespace(session=session)
+            request_context=types.SimpleNamespace(session=Session())
         )
 
         async def exercise():
+            tool = mcp._tool_manager._tools["wf_reload_mcp"]
             with patch.object(mcp, "get_context", return_value=context), patch.object(
                 self.runner,
                 "_refresh_mcp_tool_surface",
                 return_value=(1, [], ["memory_purge"], [], []),
             ):
-                result = self.runner.perform_mcp_reload()
-            self.assertFalse(
-                session.completed,
-                "the reload response must not claim an active-loop task already completed",
-            )
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            return result
+                return await tool.run({})
 
         result = asyncio.run(exercise())
-        self.assertTrue(session.completed)
-        self.assertIs(result["data"]["tool_list_changed_notification_sent"], True)
         self.assertEqual(
-            result["data"]["tool_list_changed_notification_dispatch"], "queued"
+            result["data"]["tool_list_changed_notification_dispatch"], "failed"
         )
-        self.assertIn(
-            "tool_list_changed_notification_queued",
-            [item["code"] for item in result["diagnostics"]],
-        )
+        self.assertNotIn("tool_list_changed_notification_sent", result["data"])
+        self.assertNotIn("tool_list_changed_notification_required", result["data"])
+        failed = [
+            item
+            for item in result["diagnostics"]
+            if item["code"] == "tool_list_changed_notification_failed"
+        ]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("LookupError", failed[0]["message"])
+
+    def test_cancellation_drops_awaited_send_but_not_scheduled_control(self):
+        try:
+            mcp = self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        class Session:
+            def __init__(self):
+                self.entered = asyncio.Event()
+                self.release = asyncio.Event()
+                self.delivered = False
+
+            async def send_tool_list_changed(self):
+                self.entered.set()
+                await self.release.wait()
+                self.delivered = True
+
+        async def exercise():
+            tool = mcp._tool_manager._tools["wf_reload_mcp"]
+            awaited = Session()
+            awaited_context = types.SimpleNamespace(
+                request_context=types.SimpleNamespace(session=awaited)
+            )
+            with patch.object(
+                mcp, "get_context", return_value=awaited_context
+            ), patch.object(
+                self.runner,
+                "_refresh_mcp_tool_surface",
+                return_value=(1, [], ["memory_purge"], [], []),
+            ):
+                direct = asyncio.create_task(tool.run({}))
+                await awaited.entered.wait()
+                direct.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await direct
+            self.assertFalse(awaited.delivered)
+
+            scheduled = Session()
+            scheduled_context = types.SimpleNamespace(
+                request_context=types.SimpleNamespace(session=scheduled)
+            )
+
+            async def schedule_then_wait():
+                with patch.object(
+                    mcp, "get_context", return_value=scheduled_context
+                ), patch.object(
+                    self.runner,
+                    "_refresh_mcp_tool_surface",
+                    return_value=(1, [], ["memory_purge"], [], []),
+                ):
+                    result = self.runner.perform_mcp_reload()
+                self.assertEqual(
+                    result["data"]["tool_list_changed_notification_dispatch"],
+                    "scheduled",
+                )
+                await asyncio.Event().wait()
+
+            caller = asyncio.create_task(schedule_then_wait())
+            await scheduled.entered.wait()
+            caller.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await caller
+            scheduled.release.set()
+            await asyncio.sleep(0)
+            self.assertTrue(scheduled.delivered)
+
+        asyncio.run(exercise())
 
     def test_reload_keeps_resource_callback_behavior_current(self):
         """Retained FastMCP resource wrappers resolve freshly reloaded globals.
@@ -18222,8 +18445,21 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # read-only retrieval advisory on a query tool, not a lifecycle
                 # gate; it can soften nothing because code_impact gates nothing.
                 ("_code_impact_graph_response", "_diagnostic", "test_callers_not_visible"),
+                # Wave 1vj4e (1vj4d Requirement 10): the mixed-trio record of the
+                # Backstage/TechDocs baseline is a fact about the tree the tool
+                # just wrote (some members generated, some project-owned), never
+                # a lifecycle gate; the tool gates nothing and the same record is
+                # in `data.partial`, so the advisory softens no blocker.
+                ("wf_techdocs_baseline_response", "_diagnostic", "backstage_techdocs_partial"),
+                # Wave 1vqqi: the audit is a read-only report that gates nothing, so its
+                # not-applicable verdict and its degrade notice are advisory for the same
+                # reason code_impact's visibility note is. Each is emitted from its own
+                # call site with a LITERAL code, because this test resolves the code by
+                # AST and falls back to "<helper-call>" for anything computed.
+                ("wf_techdocs_audit_response", "_diagnostic", "techdocs_audit_not_applicable"),
+                ("wf_techdocs_audit_response", "_diagnostic", "techdocs_audit_degraded"),
             },
-            "exactly these four sites may be advisory. A tag added, removed, or "
+            "exactly these seven sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
             "does not -- moving it onto missing_wave_council_signoff or "
             "another_wave_active would otherwise open the readiness stage gate "
@@ -26576,10 +26812,11 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
         def assert_tool_registry(candidate: list[str]) -> None:
-            self.assertEqual(len(candidate), 88)
+            self.assertEqual(len(candidate), 90)  # 1vqqi added the read-tier wf_techdocs_audit
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
-                "1534b270fb83577cc060303b72dcf921ba3cba60e967a395974d749c25b4a223",
+                # 1vqqi: roster digest re-measured after wf_techdocs_audit joined the surface.
+                "e497f88258818f415468d708ac1624f74862ba5934c095012875e160edb8b7cb",
             )
 
         assert_tool_registry(names)
@@ -27935,7 +28172,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             "mcp__wavefoundry__wave_review",
             "mcp__wavefoundry__wave_implement",
         ]
-        self.assertEqual(len(added), 88, "write-tier roster size changed; re-measure this test")
+        # NOTE the name: allow_rules(include_write=True) returns read UNION write, so this
+        # count moves on a READ-tier add too (1vqqi: wf_techdocs_audit took it 89 -> 90).
+        self.assertEqual(len(added), 90, "roster size changed; re-measure this test")
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
         # test would fail against the pre-repair producer/consumer pair.
@@ -28624,9 +28863,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
                      "server_runner_version": "0a1b2c3d4e5f",
                      "runner_disk_identity": "0a1b2c3d4e5f", "runner_stale": False,
                      "server_impl_version": "v1", "impl_matches_disk": True,
-                     "tool_list_changed_notification_dispatch": "queued"},
+                     "tool_list_changed_notification_dispatch": "scheduled"},
             "diagnostics": [{
-                "code": "tool_list_changed_notification_queued",
+                "code": "tool_list_changed_notification_scheduled",
                 "message": "Check from a fresh turn, reconnect, then restart.",
             }],
         }
@@ -28638,9 +28877,79 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertIn("mcp_reload", result["data"])
         self.assertTrue(result["data"]["mcp_reload"]["ok"])
         self.assertIn(
-            "tool_list_changed_notification_queued",
+            "tool_list_changed_notification_scheduled",
             [item["code"] for item in result.get("diagnostics", [])],
         )
+
+    def test_cleanup_apply_preserves_real_reload_wire_and_escalation_response(self):
+        """The upgrade caller exercises the unmocked scheduled reload contract."""
+        import server as _server_mod
+
+        mock_proc = MagicMock(returncode=0, stdout="Lock removed\n", stderr="")
+        try:
+            mcp = _server_mod.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+        async def exercise():
+            import anyio
+            from mcp import types as mcp_types
+            from mcp.server.models import InitializationOptions
+            from mcp.server.session import ServerSession
+
+            inbound_send, inbound_receive = anyio.create_memory_object_stream(1)
+            wire_send, wire_receive = anyio.create_memory_object_stream(1)
+            session = ServerSession(
+                inbound_receive,
+                wire_send,
+                InitializationOptions(
+                    server_name="wavefoundry-upgrade-test",
+                    server_version="test",
+                    capabilities=mcp_types.ServerCapabilities(),
+                ),
+            )
+            context = types.SimpleNamespace(
+                request_context=types.SimpleNamespace(session=session)
+            )
+            async with session:
+                with patch(
+                    "subprocess.run", return_value=mock_proc
+                ), patch.object(
+                    mcp, "get_context", return_value=context
+                ), patch.object(
+                    _server_mod,
+                    "_refresh_mcp_tool_surface",
+                    return_value=(1, [], ["memory_purge"], [], []),
+                ):
+                    result = self.srv.wf_upgrade_response(
+                        self.root, phase="cleanup", mode="apply"
+                    )
+                wire_message = await wire_receive.receive()
+            await inbound_send.aclose()
+            await inbound_receive.aclose()
+            await wire_send.aclose()
+            await wire_receive.aclose()
+            return result, wire_message
+
+        result, wire_message = asyncio.run(exercise())
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(
+            wire_message.message.model_dump(by_alias=True)["method"],
+            "notifications/tools/list_changed",
+        )
+        reload_data = result["data"]["mcp_reload"]
+        self.assertEqual(
+            reload_data["tool_list_changed_notification_dispatch"], "scheduled"
+        )
+        self.assertNotIn("tool_list_changed_notification_sent", reload_data)
+        scheduled = [
+            item
+            for item in result["diagnostics"]
+            if item["code"] == "tool_list_changed_notification_scheduled"
+        ]
+        self.assertEqual(len(scheduled), 1)
+        for rung in ("fresh", "reconnect", "restart"):
+            self.assertIn(rung, scheduled[0]["message"].lower())
 
     # ── Wave 1to78 — cutover-scoped reload suppression (AC-3) ─────────────────
 
@@ -33731,6 +34040,44 @@ Status: in-progress
             self.assertNotIn("Owner", entry)
             self.assertNotIn("Last verified", entry)
 
+    def test_techdocs_baseline_precondition_fails_on_the_faithful_phase_one_tree(self):
+        """Wave 1vj4e (1vj4d AC-3): on a FAITHFUL Phase-1-complete tree the three navigation
+        targets do not exist yet, so `wf techdocs-baseline` writes none of the trio, names all
+        three missing targets on stderr, exits 1, and leaves the tree byte-identical; the
+        faithful audit still reaches the Phase 2 seed with nothing blocking."""
+        import contextlib
+        import hashlib
+        import io
+        import wf_cli
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self._build_phase_one_complete_tree()
+
+        def digest() -> dict:
+            out = {}
+            for path in sorted(self.root.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    out[str(path.relative_to(self.root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+            return out
+
+        before = digest()
+        err = io.StringIO()
+        with patch.object(wf_cli.venv_bootstrap, "activate_tool_venv"), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = wf_cli.main(["techdocs-baseline", "--root", str(self.root)])
+        self.assertEqual(rc, 1)
+        lines = err.getvalue().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("techdocs-baseline: ERROR precondition unmet"), lines)
+        for target in ("docs/references/project-overview.md", "docs/ARCHITECTURE.md", "docs/prompts/index.md"):
+            self.assertIn(target, lines[0])
+        for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md"):
+            self.assertFalse((self.root / rel).exists(), rel)
+        self.assertEqual(digest(), before)
+        result = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(result["data"]["status"], "next_step", result)
+        self.assertEqual(result["data"]["row"]["number"], "2.1")
+
     def test_lint_failure_without_error_lines_fails_closed(self):
         """Wave 1viyu (CODE-DEL-2): passed=False with zero ERROR lines still blocks."""
         from unittest.mock import patch
@@ -36509,6 +36856,587 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
         close_source = inspect.getsource(self.srv.wf_close_wave_response)
         self.assertEqual(review_source.count("_evaluate_shared_delivery_state("), 1)
         self.assertEqual(close_source.count("_evaluate_shared_delivery_state("), 1)
+
+
+class TechdocsAuditToolTests(unittest.TestCase):
+    """Wave 1vqqi: `wf_techdocs_audit`, the read-tier MCP entry of the publication audit.
+
+    Read tier means: no lock, no publication-writer registration, findings as data
+    rather than diagnostics, and advisory diagnostics for the states where the tool
+    could not compute an answer.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = (Path(self.tmp.name) / "Example_Project").resolve()
+        _make_repo(self.root)
+        meta = "Owner: Engineering\nStatus: active\nLast verified: 2026-08-18\n"
+        for rel, title in (
+            ("docs/index.md", "Home"),
+            ("docs/ARCHITECTURE.md", "Architecture"),
+            ("docs/references/project-overview.md", "Project overview"),
+            ("docs/prompts/index.md", "Commands"),
+        ):
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {title}\n\n{meta}\n", encoding="utf-8")
+        (self.root / "catalog-info.yaml").write_text("kind: Component\n", encoding="utf-8")
+        block = "\n".join(
+            "  " + line for line in
+            ["/*", "!/index.md", "!/ARCHITECTURE.md", "!/architecture/", "!/architecture/**",
+             "!/references/", "!/references/**", "!/prompts/", "/prompts/*", "!/prompts/index.md"]
+        )
+        (self.root / "mkdocs.yml").write_text(
+            "site_name: Example\ndocs_dir: docs\nnav:\n  - Home: index.md\n"
+            "  - Project overview: references/project-overview.md\n"
+            "  - Architecture: ARCHITECTURE.md\n  - Workflow: prompts/index.md\n"
+            "exclude_docs: |\n" + block + "\n",
+            encoding="utf-8",
+        )
+
+    def test_the_read_tier_payload_is_bounded_and_says_what_it_dropped(self):
+        """DEL-4: an unbounded envelope overruns hosts and floods agent context.
+
+        A published tree large enough to matter (the non-default docs_dir case
+        Requirement 3 keeps the metadata and link codes for) produced 12001
+        findings in a 1.8MB envelope with no truncation marker. Bounding without
+        a marker would be worse than not bounding, so the totals and the omitted
+        counts are asserted, not just the caps.
+        """
+        pages = self.srv.TECHDOCS_AUDIT_FINDING_CAP + 40
+        refs = self.root / "docs" / "references"
+        for index in range(pages):
+            (refs / f"bulk{index}.md").write_text("# Bulk\n\n[gone](./nope.md)\n",
+                                                  encoding="utf-8")
+
+        response = self.srv.wf_techdocs_audit_response(self.root)
+        data = response["data"]
+        self.assertEqual(response["status"], "ok")
+        self.assertTrue(data["truncated"])
+        self.assertEqual(len(data["findings"]), self.srv.TECHDOCS_AUDIT_FINDING_CAP)
+        self.assertGreater(data["findings_total"], self.srv.TECHDOCS_AUDIT_FINDING_CAP)
+        self.assertEqual(
+            data["findings_total"] - self.srv.TECHDOCS_AUDIT_FINDING_CAP,
+            data["findings_omitted"])
+        publication = data["publication"]
+        self.assertEqual(len(publication["survivor_pages"]),
+                         self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP)
+        self.assertEqual(publication["survivor_count"], pages + 4,
+                         "the true total must survive truncation")
+        self.assertIn("survivor_pages_omitted", publication,
+                      "a capped survivor list must SAY that it was capped")
+        self.assertEqual(
+            publication["survivor_count"] - self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP,
+            publication["survivor_pages_omitted"],
+            "a capped survivor list must SAY how many pages it dropped")
+        finding_codes = {f["code"] for f in data["findings"]}
+        diagnostic_codes = {d["code"] for d in response["diagnostics"]}
+        self.assertEqual(finding_codes & diagnostic_codes, set(),
+                         "findings stay data; truncation must not turn them into diagnostics")
+
+    def test_a_small_report_carries_no_truncation_claim(self):
+        """The control for the test above: caps must not fire on an ordinary tree."""
+        response = self.srv.wf_techdocs_audit_response(self.root)
+        data = response["data"]
+        self.assertFalse(data["truncated"])
+        self.assertNotIn("findings_omitted", data)
+        self.assertNotIn("survivor_pages_omitted", data["publication"])
+        self.assertEqual(data["findings_total"], len(data["findings"]))
+
+    def test_the_survivor_cap_marks_its_own_truncation_when_it_fires_alone(self):
+        """The survivor cap must mark itself without the finding cap firing too.
+
+        In the test above both caps fire, so `truncated` and the omitted counts are
+        satisfied by the finding half alone and the survivor marker rides along
+        unpinned. This is the case the audit tool actually meets on a large clean
+        tree: hundreds of published pages, no findings. Without the marker the
+        envelope reports a 200-entry list, no omitted count and `truncated` False
+        while the list really is capped, which is the silent truncation the bounding
+        docstring calls worse than a large payload.
+        """
+        pages = self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP + 7
+        meta = "Owner: Engineering\nStatus: active\nLast verified: 2026-08-18\n"
+        refs = self.root / "docs" / "references"
+        for index in range(pages):
+            (refs / f"clean{index}.md").write_text(f"# Clean {index}\n\n{meta}\n",
+                                                   encoding="utf-8")
+
+        response = self.srv.wf_techdocs_audit_response(self.root)
+        data = response["data"]
+        self.assertEqual(response["status"], "ok")
+        publication = data["publication"]
+        # Precondition: the finding cap must NOT fire, or it masks the survivor cap.
+        self.assertLess(data["findings_total"], self.srv.TECHDOCS_AUDIT_FINDING_CAP)
+        self.assertNotIn("findings_omitted", data)
+        self.assertGreater(publication["survivor_count"],
+                           self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP)
+        # The survivor half alone must carry the whole truncation claim.
+        self.assertTrue(data["truncated"])
+        self.assertEqual(len(publication["survivor_pages"]),
+                         self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP)
+        self.assertEqual(publication["survivor_count"], pages + 4,
+                         "the true total must survive truncation")
+        self.assertIn("survivor_pages_omitted", publication,
+                      "a capped survivor list must SAY that it was capped")
+        self.assertEqual(
+            publication["survivor_count"] - self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP,
+            publication["survivor_pages_omitted"],
+            "a capped survivor list must SAY how many pages it dropped")
+
+    def test_the_unsafe_survivor_cap_marks_its_own_truncation(self):
+        """The cycle-3 refusal channel is tree-sized and obeys the MCP cap too."""
+        if not hasattr(os, "symlink"):  # pragma: no cover
+            self.skipTest("symlinks unavailable")
+        outside = Path(self.tmp.name) / "outside.md"
+        outside.write_text("# Outside\n", encoding="utf-8")
+        refs = self.root / "docs" / "references"
+        target_count = self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP + 7
+        try:
+            for index in range(target_count):
+                os.symlink(outside, refs / f"leak{index:04d}.md")
+        except OSError:  # pragma: no cover
+            self.skipTest("symlink creation not permitted")
+
+        response = self.srv.wf_techdocs_audit_response(self.root)
+        data = response["data"]
+        publication = data["publication"]
+        self.assertEqual(response["status"], "ok")
+        self.assertTrue(data["truncated"])
+        self.assertEqual(len(publication["unsafe_survivor_targets"]),
+                         self.srv.TECHDOCS_AUDIT_SURVIVOR_CAP)
+        self.assertEqual(publication["unsafe_survivor_targets_total"], target_count)
+        self.assertEqual(publication["unsafe_survivor_targets_omitted"], 7)
+        self.assertNotIn("findings_omitted", data,
+                         "the unsafe-list cap must own the truncation claim")
+        self.assertNotIn("survivor_pages_omitted", publication,
+                         "the unsafe-list cap must own the truncation claim")
+
+    def test_a_small_unsafe_survivor_list_keeps_its_total_without_truncation(self):
+        if not hasattr(os, "symlink"):  # pragma: no cover
+            self.skipTest("symlinks unavailable")
+        outside = Path(self.tmp.name) / "outside-small.md"
+        outside.write_text("# Outside\n", encoding="utf-8")
+        try:
+            os.symlink(outside, self.root / "docs" / "references" / "leak.md")
+        except OSError:  # pragma: no cover
+            self.skipTest("symlink creation not permitted")
+
+        data = self.srv.wf_techdocs_audit_response(self.root)["data"]
+        publication = data["publication"]
+        self.assertFalse(data["truncated"])
+        self.assertEqual(publication["unsafe_survivor_targets"], ["references/leak.md"])
+        self.assertEqual(publication["unsafe_survivor_targets_total"], 1)
+        self.assertNotIn("unsafe_survivor_targets_omitted", publication)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def _digest(self) -> dict:
+        out = {}
+        for path in sorted(self.root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                out[str(path.relative_to(self.root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return out
+
+    def test_findings_are_data_never_blocking_diagnostics(self):
+        (self.root / "docs" / "references" / "links.md").write_text(
+            "# Links\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-08-18\n\n"
+            "[gone](./missing.md)\n", encoding="utf-8")
+        before = self._digest()
+        resp = self.srv.wf_techdocs_audit_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        codes = [f["code"] for f in resp["data"]["findings"]]
+        self.assertIn("techdocs_link_missing", codes)
+        # The finding is NOT a diagnostic: this tool gates nothing.
+        self.assertNotIn("techdocs_link_missing", [d["code"] for d in resp["diagnostics"]])
+        self.assertEqual(self._digest(), before)
+
+    def test_not_applicable_is_an_advisory_diagnostic_not_an_error(self):
+        (self.root / "mkdocs.yml").unlink()
+        resp = self.srv.wf_techdocs_audit_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["summary"]["verdict"], "not_applicable")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_audit_not_applicable"])
+        self.assertTrue(resp["diagnostics"][0].get("advisory"))
+        self.assertEqual(resp["next_tools"], ["wf_techdocs_baseline"])
+
+    def test_degraded_run_is_advisory_and_never_reports_clean(self):
+        resp = self.srv.wf_techdocs_audit_response(self.root)
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["summary"]["verdict"], "degraded")
+        self.assertIn("git_unavailable", resp["data"]["degraded"])
+        diagnostic = [d for d in resp["diagnostics"] if d["code"] == "techdocs_audit_degraded"]
+        self.assertEqual(len(diagnostic), 1)
+        self.assertTrue(diagnostic[0].get("advisory"))
+
+    def test_registered_read_tier_and_not_a_publication_writer(self):
+        import mcp_tool_roster
+        import publication_control
+
+        self.assertEqual(mcp_tool_roster.TOOL_TIERS["wf_techdocs_audit"], mcp_tool_roster.TIER_READ)
+        self.assertIn("mcp__wavefoundry__wf_techdocs_audit", mcp_tool_roster.allow_rules())
+        # Asserted literally: publication_block_reason returns None for ANY unregistered
+        # tool (it fails open), so absence is not enforced by the guard itself.
+        self.assertNotIn(
+            "wf_techdocs_audit",
+            {writer.tool_name for writer in publication_control.PUBLICATION_WRITER_REGISTRY},
+        )
+
+    def test_the_registered_tool_is_read_only_and_shares_the_library(self):
+        try:
+            mcp = load_thin_runner().build_server(self.root)
+        except Exception as exc:  # pragma: no cover
+            self.skipTest(f"mcp package not installed: {exc}")
+        tools = getattr(mcp, "_tool_manager", mcp)
+        registry = getattr(tools, "_tools", None) or getattr(mcp, "_tools")
+        tool = registry["wf_techdocs_audit"]
+        self.assertTrue(tool.annotations.readOnlyHint)
+        self.assertFalse(tool.annotations.destructiveHint)
+        self.assertIn("hard ten-second worker deadline", tool.description)
+        self.assertIn("nav_target_escapes_root", tool.description)
+        # One patch is observed by both entries: the response function imports the
+        # public bounded runner at call time rather than binding a private copy.
+        import techdocs_audit_lib
+
+        sentinel = techdocs_audit_lib.run_techdocs_audit
+        with patch.object(techdocs_audit_lib, "run_techdocs_audit", side_effect=sentinel) as spy:
+            self.srv.wf_techdocs_audit_response(self.root)
+        spy.assert_called_once()
+
+    def test_timeout_is_advisory_data_and_never_a_blocking_finding(self):
+        """AC-10: MCP returns the bounded runner's timeout envelope as read-tier data."""
+        import techdocs_audit_lib
+
+        before = self._digest()
+        timeout_report = techdocs_audit_lib._timeout_report(self.root)
+        with patch.object(techdocs_audit_lib, "run_techdocs_audit",
+                          return_value=timeout_report) as run:
+            resp = self.srv.wf_techdocs_audit_response(self.root)
+
+        self.assertEqual(resp["status"], "ok")
+        self.assertEqual(resp["data"]["degraded"], ["audit_timeout"])
+        self.assertEqual(resp["data"]["summary"]["verdict"], "degraded")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]],
+                         ["techdocs_audit_degraded"])
+        self.assertTrue(resp["diagnostics"][0]["advisory"])
+        run.assert_called_once_with(self.root, compare_to=None)
+        self.assertEqual(self._digest(), before)
+
+    def test_a_compare_to_that_looks_like_an_option_is_refused(self):
+        resp = self.srv.wf_techdocs_audit_response(self.root, compare_to="--upload-pack=x")
+        self.assertIn("compare_to_refused", resp["data"]["degraded"])
+
+
+class TechdocsBaselineToolTests(unittest.TestCase):
+    """Wave 1vj4e (1vj4d Requirement 10 / AC-8): `wf_techdocs_baseline`, the MCP entry of the
+    Backstage/TechDocs baseline, wraps the same `render_agent_surfaces.render_techdocs_baseline`
+    the CLI calls: read-first `dry_run` default, missing-only `run`, typed envelope, error codes,
+    write tier, publication registry, and the upgrade-checkpoint guard."""
+
+    TRIO = ("catalog-info.yaml", "mkdocs.yml", "docs/index.md")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = (Path(self.tmp.name) / "Example_Project").resolve()
+        _make_repo(self.root)
+        (self.root / "docs" / "references").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs" / "prompts").mkdir(parents=True, exist_ok=True)
+
+    def _targets(self):
+        for rel in ("docs/references/project-overview.md", "docs/ARCHITECTURE.md", "docs/prompts/index.md"):
+            (self.root / rel).write_text("# t\n", encoding="utf-8")
+
+    def _digest(self) -> dict:
+        out = {}
+        for path in sorted(self.root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                out[str(path.relative_to(self.root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return out
+
+    def _call(self, mode=None, cache=None):
+        with patch.object(self.srv, "_run_post_write_lint", return_value={"passed": True, "errors": [], "warnings": [], "output": "ok"}, create=True), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths", return_value={}) as refresh:
+            if mode is None:
+                resp = self.srv.wf_techdocs_baseline_response(self.root, cache=cache)
+            else:
+                resp = self.srv.wf_techdocs_baseline_response(self.root, mode=mode, cache=cache)
+        self._last_refresh = refresh
+        return resp
+
+    def test_dry_run_default_writes_nothing_and_reports_absent_paths(self):
+        self._targets()
+        before = self._digest()
+        resp = self._call()
+        self.assertEqual(resp["status"], "dry_run", resp)
+        data = resp["data"]
+        self.assertEqual(data["mode"], "dry_run")
+        self.assertEqual(data["missing_targets"], [])
+        self.assertEqual(data["absent_paths"], list(self.TRIO))
+        self.assertEqual(data["written_paths"], [])
+        self.assertEqual(data["preserved_paths"], [])
+        self.assertIsNone(data["partial"])
+        self.assertIsNone(data["refusal"])
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["dry_run"])
+        self.assertIn("mode='run'", resp["diagnostics"][0]["message"])
+        self.assertNotIn("lint", data)  # nothing written, nothing linted
+        self.assertEqual(self._digest(), before)
+
+    def test_run_writes_exactly_the_absent_members_then_rerun_is_silent(self):
+        self._targets()
+        before = self._digest()
+        cache = MagicMock()
+        resp = self._call(mode="run", cache=cache)
+        self.assertEqual(resp["status"], "ok", resp)
+        data = resp["data"]
+        self.assertEqual(data["written_paths"], list(self.TRIO))
+        self.assertEqual(data["absent_paths"], list(self.TRIO))
+        self.assertEqual(data["generated_paths"], list(self.TRIO))
+        self.assertEqual(data["preserved_paths"], [])
+        self.assertIsNone(data["partial"])
+        self.assertEqual(resp["diagnostics"], [])
+        self.assertIn("lint", data)
+        after = self._digest()
+        self.assertEqual(sorted(set(after) - set(before)), sorted(self.TRIO))
+        for rel in self.TRIO:
+            self.assertEqual(before.get(rel), None)
+        cache.invalidate.assert_called_once()
+        self._last_refresh.assert_called_once_with(self.root, ["docs/index.md"])
+        # Envelope shape: the CLI's six keys plus mode/absent_paths (and the attached lint).
+        self.assertEqual(
+            sorted(k for k in data if k != "lint"),
+            ["absent_paths", "generated_paths", "missing_targets", "mode", "partial", "preserved_paths", "refusal", "written_paths"],
+        )
+        # A marker-preserving user edit survives the rerun (missing-only, not overwrite).
+        marked = self.root / "mkdocs.yml"
+        marked.write_text(marked.read_text(encoding="utf-8") + "extra_key: kept\n", encoding="utf-8")
+        snapshot = {rel: (self.root / rel).read_bytes() for rel in self.TRIO}
+        cache2 = MagicMock()
+        rerun = self._call(mode="run", cache=cache2)
+        self.assertEqual(rerun["status"], "ok")
+        self.assertEqual(rerun["data"]["written_paths"], [])
+        self.assertEqual(rerun["data"]["absent_paths"], [])
+        self.assertEqual(rerun["data"]["preserved_paths"], list(self.TRIO))
+        self.assertIsNone(rerun["data"]["partial"])
+        self.assertEqual({rel: (self.root / rel).read_bytes() for rel in self.TRIO}, snapshot)
+        cache2.invalidate.assert_not_called()
+
+    def test_precondition_unmet_is_an_error_with_no_writes(self):
+        before = self._digest()
+        resp = self._call(mode="run")
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_precondition_unmet"])
+        self.assertEqual(len(resp["data"]["missing_targets"]), 3)
+        self.assertEqual(resp["data"]["written_paths"], [])
+        for rel in self.TRIO:
+            self.assertFalse((self.root / rel).exists(), rel)
+        self.assertEqual(self._digest(), before)
+
+    def test_non_regular_destination_is_refused_before_any_write(self):
+        self._targets()
+        (self.root / "docs" / "index.md").mkdir()
+        before = self._digest()
+        resp = self._call(mode="run")
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_destination_refused"])
+        self.assertIn("not a regular file", resp["data"]["refusal"])
+        self.assertFalse((self.root / "catalog-info.yaml").exists())
+        self.assertFalse((self.root / "mkdocs.yml").exists())
+        self.assertEqual(self._digest(), before)
+
+    def test_write_failure_after_preflight_is_reported_and_invalidates_the_cache(self):
+        self._targets()
+        import render_agent_surfaces as ras
+        real = ras._write_review_carrier_text
+        calls = []
+
+        def flaky(path, content, *, exclusive=False):
+            calls.append(path.name)
+            if path.name == "mkdocs.yml":
+                raise RuntimeError(f"review carrier write refused for {path}: simulated EACCES")
+            return real(path, content, exclusive=exclusive)
+
+        cache = MagicMock()
+        with patch.object(ras, "_write_review_carrier_text", side_effect=flaky):
+            resp = self._call(mode="run", cache=cache)
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_write_failed"])
+        self.assertIn("simulated EACCES", resp["data"]["refusal"])
+        # catalog-info.yaml was written before the failure; the envelope reports the tree.
+        self.assertTrue((self.root / "catalog-info.yaml").is_file())
+        self.assertFalse((self.root / "mkdocs.yml").exists())
+        # written_paths names what THIS run wrote before failing, and the member lists
+        # report the tree as it is now even though a lone generated member is not a
+        # mixed trio (partial stays None). Reporting [] here would contradict the tree.
+        self.assertEqual(resp["data"]["written_paths"], ["catalog-info.yaml"])
+        self.assertEqual(resp["data"]["generated_paths"], ["catalog-info.yaml"])
+        self.assertEqual(resp["data"]["preserved_paths"], [])
+        self.assertEqual(resp["data"]["absent_paths"], ["mkdocs.yml", "docs/index.md"])
+        self.assertIsNone(resp["data"]["partial"])
+        cache.invalidate.assert_called_once()
+
+    def test_non_runtimeerror_failures_are_normalized_into_an_envelope(self):
+        """The module normalizes OSError and UnicodeDecodeError into TechdocsWriteFailed.
+
+        Neither is a RuntimeError (UnicodeDecodeError is a ValueError), so before the
+        module wrapped them they escaped both entry points uncaught: the CLI printed a
+        traceback with empty stdout under --json and the tool returned no envelope at all.
+        """
+
+        self._targets()
+        import render_agent_surfaces as ras
+        real = ras._write_review_carrier_text
+
+        def flaky(path, content, *, exclusive=False):
+            if path.name == "mkdocs.yml":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, content, exclusive=exclusive)
+
+        cache = MagicMock()
+        with patch.object(ras, "_write_review_carrier_text", side_effect=flaky):
+            resp = self._call(mode="run", cache=cache)
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_write_failed"])
+        self.assertIn("Permission denied", resp["data"]["refusal"])
+        self.assertEqual(resp["data"]["written_paths"], ["catalog-info.yaml"])
+        self.assertEqual(resp["data"]["generated_paths"], ["catalog-info.yaml"])
+        cache.invalidate.assert_called_once()
+
+    def test_a_non_utf8_template_is_an_envelope_not_a_traceback(self):
+        """A target-local template in another encoding raises UnicodeDecodeError.
+
+        It is a ValueError, so the (RuntimeError, OSError) clause did not hold it and it
+        escaped the tool with a half-written tree and no cache invalidation.
+        """
+
+        self._targets()
+        # _resolve_install_asset is target-first per file, so one operator-edited
+        # template in the target tree is enough; the other two fall back to packaged.
+        install = self.root / ".wavefoundry" / "framework" / "install"
+        install.mkdir(parents=True, exist_ok=True)
+        (install / "mkdocs.template.yml").write_bytes(b"site_name: \xff\xfe broken\n")
+
+        cache = MagicMock()
+        resp = self._call(mode="run", cache=cache)
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_write_failed"])
+        self.assertEqual(resp["data"]["written_paths"], ["catalog-info.yaml"])
+        self.assertTrue((self.root / "catalog-info.yaml").is_file())
+        self.assertFalse((self.root / "mkdocs.yml").exists())
+        cache.invalidate.assert_called_once()
+
+    def test_mixed_trio_carries_the_partial_advisory_and_all_generated_does_not(self):
+        self._targets()
+        (self.root / "mkdocs.yml").write_text("site_name: Mine\n", encoding="utf-8")
+        resp = self._call(mode="run")
+        self.assertEqual(resp["status"], "ok")
+        codes = [d["code"] for d in resp["diagnostics"]]
+        self.assertEqual(codes, ["backstage_techdocs_partial"])
+        self.assertTrue(resp["diagnostics"][0].get("advisory"))
+        self.assertEqual(resp["diagnostics"][0]["message"], resp["data"]["partial"]["detail"])
+        self.assertEqual(resp["data"]["partial"]["preserved_paths"], ["mkdocs.yml"])
+        self.assertEqual(resp["data"]["written_paths"], ["catalog-info.yaml", "docs/index.md"])
+        # dry_run on the (now mixed) tree carries it too, still writing nothing.
+        dry = self._call(mode="dry_run")
+        self.assertEqual([d["code"] for d in dry["diagnostics"]], ["backstage_techdocs_partial", "dry_run"])
+        # Negative control: an all-generated tree carries no advisory.
+        for rel in self.TRIO:
+            (self.root / rel).unlink()
+        clean = self._call(mode="run")
+        self.assertEqual(clean["diagnostics"], [])
+
+    def test_invalid_mode_is_rejected_without_writes(self):
+        self._targets()
+        before = self._digest()
+        resp = self._call(mode="write")
+        self.assertEqual(resp["status"], "error")
+        self.assertEqual([d["code"] for d in resp["diagnostics"]], ["invalid_arguments"])
+        self.assertEqual(self._digest(), before)
+
+    def test_cli_and_mcp_share_the_module_function(self):
+        import render_agent_surfaces as ras
+        import techdocs_baseline as cli
+        import io
+        self._targets()
+        seen = []
+        real = ras.render_techdocs_baseline
+
+        def spy(repo_root, *, dry_run=False):
+            seen.append((repo_root, dry_run))
+            return real(repo_root, dry_run=dry_run)
+
+        with patch.object(ras, "render_techdocs_baseline", side_effect=spy):
+            self._call(mode="dry_run")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                rc = cli.main(["--root", str(self.root), "--json"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen, [(self.root, True), (self.root, False)])
+        # No re-implementation in the tool body: it delegates and never opens the trio itself.
+        src = inspect.getsource(self.srv.wf_techdocs_baseline_response)
+        self.assertIn("render_techdocs_baseline(", src)
+        for forbidden in ("os.open(", "TECHDOCS_BASELINES", "_write_review_carrier_text", "_load_script("):
+            self.assertNotIn(forbidden, src)
+
+    def test_registration_tier_registry_extractor_and_checkpoint_guard(self):
+        import mcp_tool_roster as roster
+        import publication_control
+        self.assertEqual(roster.TOOL_TIERS["wf_techdocs_baseline"], roster.TIER_WRITE)
+        writer = publication_control._BY_TOOL["wf_techdocs_baseline"]
+        self.assertEqual((writer.producer, writer.contention_policy, writer.surface), ("techdocs_baseline", "fail_fast", "tool"))
+        self.assertIn("wf_techdocs_baseline", publication_control.registered_publication_tool_names())
+        # Cost accounting credits the written members on a real run only.
+        extractor = self.srv._ARTIFACT_EXTRACTORS["wf_techdocs_baseline"]
+        self._targets()
+        run = self._call(mode="run")
+        tokens, digest = extractor(self.root, run)
+        self.assertEqual(len(tokens), 3)
+        self.assertIsNone(digest)
+        self.assertEqual(extractor(self.root, self._call(mode="dry_run")), ([], None))
+        # Upgrade checkpoint: the guard wraps the tool by name and refuses every mode.
+        calls = []
+
+        def original(*args, **kwargs):
+            calls.append((args, kwargs))
+            return {"status": "ok"}
+
+        tool = types.SimpleNamespace(fn=original)
+        mcp = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools={"wf_techdocs_baseline": tool}))
+        checkpoint = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps({"current_phase": "surface_rendering"}), encoding="utf-8")
+        self.srv._wrap_upgrade_publication_guard(mcp, lambda: types.SimpleNamespace(root=self.root))
+        result = tool.fn(mode="run")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual([d["code"] for d in result["diagnostics"]], ["upgrade_in_progress"])
+        self.assertEqual(calls, [])
+
+    def test_registered_tool_is_mutating_and_locks_only_on_run(self):
+        runner = load_thin_runner()
+        try:
+            mcp = runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+        tool = mcp._tool_manager._tools["wf_techdocs_baseline"]
+        self.assertIs(tool.annotations.readOnlyHint if hasattr(tool.annotations, "readOnlyHint") else tool.annotations["readOnlyHint"], False)
+        schema = tool.parameters.get("properties", {})
+        self.assertEqual(schema.get("mode", {}).get("default"), "dry_run")
+        self._targets()
+        with patch.object(self.srv, "project_state_publication_lock", wraps=self.srv.project_state_publication_lock) as lock, \
+             patch.object(self.srv, "_run_post_write_lint", return_value={"passed": True, "errors": [], "warnings": [], "output": "ok"}, create=True), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths", return_value={}):
+            dry = tool.fn()
+            self.assertEqual(dry["status"], "dry_run")
+            lock.assert_not_called()
+            run = tool.fn(mode="run")
+            self.assertEqual(run["status"], "ok")
+            lock.assert_called_once()
+        self.assertEqual(run["data"]["written_paths"], list(self.TRIO))
 
 
 class UpgradePublicationWrapperContractTests(unittest.TestCase):

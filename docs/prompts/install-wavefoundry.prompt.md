@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-08-21
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -17,6 +17,7 @@ Initialize a target repository with the Wave Framework operating surface. Detect
 3. For greenfield repos (no prior context): skips baseline wave; proceeds directly to bootstrap.
 4. For repos with legacy corpus (pre-wave plans/specs): captures and closes a `00000 wave-zero-plans-and-specs` baseline wave before bootstrapping.
 5. Bootstraps the full Wave Framework operating surface: docs structure, agent entry files, architecture docs, quality posture, prompt surface, wave artifacts, personas, and typed memory records.
+5a. Generates the Backstage catalog and TechDocs baseline at the end of Phase 2 through **Refresh TechDocs** (install-log row 2.13.5, `(seed-178)`): `wf_techdocs_baseline` over MCP, or the `wf techdocs-baseline` CLI, writes the root `catalog-info.yaml`, the root `mkdocs.yml`, and `docs/index.md` missing-only, each with a one-line generated-by stamp, and only once `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist (otherwise it writes nothing, names the missing targets, and exits non-zero). Existing files are preserved byte-for-byte; when the trio is mixed (some generated, some project-owned) the command prints one `techdocs-baseline: WARNING` naming the project-owned files and never claims the mixed result is a validated site. Conservative defaults (`kind: Component`, `spec.type: documentation`, `spec.lifecycle: experimental`, `spec.owner: engineering`, `backstage.io/techdocs-ref: dir:.`, a `-docs` entity name, deny-by-default `exclude_docs`) are project-owned after generation. Wavefoundry validates the modeled publication contract through its Python tools but does not render or preview the downstream site; rendering and publication are owned by the operator's chosen Backstage/CI environment. Mark row 2.13.5 `[~]` when the precondition is unmet or the operator declines TechDocs. The operator follow-up checklist (verify the owner and the catalog-unique name, rendering/publication ownership, production CI generation plus external storage, optional `repo_url`/`edit_uri` edit links, and the organization-specific files intentionally not generated) lives in `docs/prompts/refresh-techdocs.prompt.md`.
 6. Removes the single-use bootstrap file `install-wavefoundry.md` from the project root once the final `wf_audit_install()` gate is the only remaining step (install-log row 2.14) — it ships at the zip root only so the agent can discover the install instructions before `.wavefoundry/` exists; afterwards it is consumed (the canonical instructions live in this doc). Delete it (`rm -f install-wavefoundry.md`), do not move it.
 7. Delivers the operator summary after `wf_audit_install()` returns `complete` (row 2.15) covering what was seeded, the workflow, commands, roles, and docs gate.
 

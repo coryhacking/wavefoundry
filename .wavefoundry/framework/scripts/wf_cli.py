@@ -56,6 +56,12 @@ _SUBCOMMANDS: dict[str, dict] = {
     "render-surfaces": {"module": "render_platform_surfaces", "script": "render_platform_surfaces.py"},
     "secrets-scan": {"module": "run_secrets_scan", "script": "run_secrets_scan.py"},
     "gpu-doctor": {"module": "gpu_doctor", "script": "gpu_doctor.py"},
+    # Wave 1vj4e: the missing-only Backstage catalog + TechDocs baseline; an explicit command
+    # (invoked by the Refresh TechDocs workflow), never part of render-surfaces/setup/upgrade.
+    "techdocs-baseline": {"module": "techdocs_baseline", "script": "techdocs_baseline.py"},
+    # Wave 1vqqi: the read-only publication audit over the same surface; findings are
+    # data, not a gate, and the entry never writes.
+    "techdocs-audit": {"module": "techdocs_audit", "script": "techdocs_audit.py"},
     "memory-backfill": {
         "module": "memory_cli",
         "script": "memory_cli.py",
@@ -101,6 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "render-surfaces": "Regenerate host configs, hooks, bin shims, and agent surfaces (render_platform_surfaces.py).",
         "secrets-scan": "Run the secrets scanner fallback CLI (run_secrets_scan.py).",
         "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wf_gpu_doctor (gpu_doctor.py).",
+        "techdocs-baseline": "Generate the missing-only Backstage catalog + TechDocs baseline: catalog-info.yaml, mkdocs.yml, docs/index.md (techdocs_baseline.py).",
+        "techdocs-audit": "Audit the TechDocs publication surface read-only: nav targets, link boundary, page metadata, audience headings (techdocs_audit.py).",
         "memory-backfill": "Inventory historical waves and draft one bounded memory batch.",
         "memory-validate": "Record focused agent judgment for one historical candidate.",
     }

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-23
+Last verified: 2026-08-21
 
 Specialists extend the generic Wave Framework role set when a repository needs deeper domain coverage than the default planner / implementer / reviewer lanes provide. Specialist docs carry `Category: specialist` so the dashboard can group them consistently.
 
@@ -49,7 +49,7 @@ Classification key: **adopt** = author role doc and seed now; **adapt** = adopt 
 |------|------|----------------|-----------|
 | `software-architect` | `227-software-architect.prompt.md` | **adopt** | Applicable across every repo type; clear routing contract around architectural decisions and system design. |
 | `security-engineer` | `229-security-engineer.prompt.md` | **adopt** | Security concerns (threat modeling, vulnerability review, dependency audit) arise in virtually all software projects. |
-| `technical-writer` | `233-technical-writer.prompt.md` | **adopt** | Documentation is universally needed; distinct from code authoring with a clear deliverable shape. |
+| `technical-writer` | `233-technical-writer.prompt.md` | **adopt** | Documentation is universally needed; distinct from code authoring with a clear deliverable shape. Coordinates **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`) with `guru`, `software-architect` or `architecture-reviewer`, `security-reviewer`, `qa-reviewer` / `reality-checker`, and `docs-contract-reviewer`. |
 | `codebase-onboarding-engineer` | — | **adopt** | Guides agents and contributors through unfamiliar codebases; high value on first-session orientation and handoff. |
 | `devops-automator` | — | **adopt** | CI/CD pipelines, deployment automation, and developer workflow tooling; distinct from BPM and system architecture. |
 | `reality-checker` | `216-reality-checker.prompt.md` | **adopt** | Adversarial assumption validation with no domain overlap; uniquely reduces blind-spot risk on any project. |

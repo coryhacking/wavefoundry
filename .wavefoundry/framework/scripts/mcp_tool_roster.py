@@ -139,6 +139,8 @@ TOOL_TIERS: dict[str, str] = {
     "index_optimize": TIER_WRITE,
     "wf_garden_docs": TIER_WRITE,
     "wf_sync_surfaces": TIER_WRITE,
+    "wf_techdocs_baseline": TIER_WRITE,
+    "wf_techdocs_audit": TIER_READ,
     # ── Evals / sensors / scans (not proven report-only: they persist
     #    findings or eval artifacts) ──────────────────────────────────────
     "wf_context_efficiency_eval": TIER_WRITE,

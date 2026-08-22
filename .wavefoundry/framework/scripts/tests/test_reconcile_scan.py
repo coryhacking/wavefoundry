@@ -587,7 +587,9 @@ class RenamedMcpToolScanTests(unittest.TestCase):
             for node in _ast.walk(tree):
                 if isinstance(node, _ast.FunctionDef) and node.name == fn_name:
                     for inner in _ast.walk(node):
-                        if isinstance(inner, _ast.FunctionDef) and any(
+                        if isinstance(
+                            inner, (_ast.FunctionDef, _ast.AsyncFunctionDef)
+                        ) and any(
                             isinstance(d, _ast.Call) for d in inner.decorator_list
                         ):
                             registered.add(inner.name)

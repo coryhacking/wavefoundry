@@ -1,0 +1,13 @@
+# wavefoundry: generated missing-only Backstage/TechDocs baseline; project-owned, edit freely.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: {{entity_name}}
+  title: {{entity_name}} Documentation
+  description: Technical documentation for the {{entity_name}} project.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: documentation
+  lifecycle: experimental
+  owner: engineering

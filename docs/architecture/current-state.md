@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-21
 
 ## Runtime Topology
 
@@ -17,7 +17,9 @@ Developer/agent
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), source-only feature ZIP and optional independently versioned model-set asset (write)
   ├── python3 .wavefoundry/framework/scripts/render_platform_surfaces.py  →  .claude/, .cursor/, .github/hooks/, .junie/mcp/, .mcp.json, .wavefoundry/bin/register-codex-mcp (write)
   ├── python3 .wavefoundry/framework/scripts/setup_wavefoundry.py / setup_index.py  →  local model cache (write/verify), .wavefoundry/index/ (write)
-  └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/dashboard-server.json (write), browser loopback session (serve)
+  ├── wf techdocs-baseline (techdocs_baseline.py → render_agent_surfaces.render_techdocs_baseline) / wf_techdocs_baseline MCP tool (same function, in-process)  →  catalog-info.yaml, mkdocs.yml, docs/index.md (missing-only, project-owned after creation; explicit command or tool, never run by the render pass, setup, or upgrade; gated on docs/references/project-overview.md, docs/ARCHITECTURE.md, docs/prompts/index.md existing)
+  ├── wf techdocs-audit / wf_techdocs_audit MCP tool (techdocs_audit_lib.run_techdocs_audit → isolated audit_techdocs worker, 10 s worker deadline plus I/O-free expiry, read tier)  →  mkdocs.yml, catalog-info.yaml, docs/** , git baseline (read only; writes nothing)
+  └── python3 .wavefoundry/framework/scripts/dashboard_server.py [--open]  →  docs/ tree + .wavefoundry/framework/VERSION (read), .wavefoundry/locks/dashboard-server.lock (write; the lifetime lock doubles as the endpoint-metadata carrier), browser loopback session (serve)
 ```
 
 **MCP topology (active):**
@@ -59,6 +61,10 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       └── .wavefoundry/index/ (read/write), indexer.py (subprocess)
               ├── wf_validate_docs / wf_garden_docs / wf_sync_surfaces
               │       └── docs_lint.py / docs_gardener.py / render_platform_surfaces.py (subprocess)
+              ├── wf_techdocs_audit (read tier; publication boundary, nav, links, metadata, trio, audience)
+              │       └── techdocs_audit_lib.run_techdocs_audit → isolated audit_techdocs worker (10 s worker deadline; I/O-free expiry report)  →  report only, no writes
+              ├── wf_techdocs_baseline (mode='dry_run' | 'run')
+              │       └── render_agent_surfaces.render_techdocs_baseline (in-process import)  →  catalog-info.yaml, mkdocs.yml, docs/index.md (write, missing-only, mode='run' only)
               ├── [resources] wavefoundry://overview, wavefoundry://prompts, wavefoundry://architecture/current-state
               │       wavefoundry://wave/current, wavefoundry://session-handoff
               │       wavefoundry://agents, wavefoundry://index/status, wavefoundry://graph/status,
@@ -107,12 +113,12 @@ dashboard_server.py
   ├── reads docs/workflow-config.json dashboard settings
   ├── reads docs/waves/, docs/plans/, docs/prompts/prompt-surface-manifest.json, docs/agents/session-handoff.md
   ├── serves .wavefoundry/framework/dashboard/{dashboard.html,dashboard.css,dashboard.js}
-  └── writes .wavefoundry/dashboard-server.json for host-local endpoint discovery
+  └── writes .wavefoundry/locks/dashboard-server.lock (lock file plus host-local endpoint metadata) for host-local endpoint discovery
 ```
 
 **Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. MCP and the cross-platform `wf` / `wf.cmd` dispatcher own the executable flow; human display commands are rendered for the detected host while structured argv remains authoritative.
 
-**Model set contract:** the active embedding bundle is model set v2 (Arctic Embed S plus the MiniLM L6 reranker), and upgrade cleanup removes retired v1 model-cache components only after reading the semantic authority in `index-state.sqlite`, a one-way inspection boundary per `layering-rules.md`.
+**Model set contract:** the active embedding bundle is model set 3 (Arctic Embed S plus the MiniLM L6 reranker; the same weights and embedding fingerprint as set 2, one reference file corrected), and upgrade cleanup removes retired v1 model-cache components only after reading the semantic authority in `index-state.sqlite`, a one-way inspection boundary per `layering-rules.md`.
 
 **Release versioning contract:** Wavefoundry uses semver-only packaging and upgrade code paths. `check_version.py` compares `MAJOR.MINOR.PATCH` tuples and rejects non-semver strings, release zips default to `~/.wavefoundry/dist/`, and packaging requires `--version 1.0.0` or later. `VERSION` and manifest `framework_revision` are stamped as `MAJOR.MINOR.PATCH+<build>` during packaging.
 

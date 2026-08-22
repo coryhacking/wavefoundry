@@ -68,7 +68,7 @@ Trigger at most one targeted challenge round when the `seat_agreement_aggregate`
 
 ### Synthesis
 
-`wave-council` synthesizes across primer + all seat outputs. See `docs/agents/wave-council.md`.
+`wave-council` synthesizes across primer + all seat outputs. See `docs/agents/specialists/wave-council.md`.
 
 The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped, labeled `Seat 1..N` in randomized order) so findings are weighed on merit before identity is re-attached. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and is never merit-weighted below blocking.
 

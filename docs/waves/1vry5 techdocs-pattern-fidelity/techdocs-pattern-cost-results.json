@@ -1,0 +1,1418 @@
+{
+  "claim_scope": "slowest observed in the named AC-5 corpus; not a universal ceiling",
+  "collapse_differential": {
+    "alphabet": [
+      "alpha",
+      "beta",
+      "/",
+      "**/",
+      "**/**/",
+      "*",
+      "?",
+      "[a-c]",
+      "[!z]",
+      "\\",
+      "\\*",
+      "\\?",
+      "\\\\"
+    ],
+    "answer_comparisons": 17973,
+    "changed_regex_emissions": 1025,
+    "changed_regex_floor": 400,
+    "directed_pattern_count": 32,
+    "failure_count": 0,
+    "failures": [],
+    "intentional_classification_deltas": [
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "/a\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "/a\\/b"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "a\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "a\\/b"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "!a\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "!a\\/b"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "a\\/b/"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "a\\/b/"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "pre\\/post.md"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "pre\\/post.md"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "\\/a"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "\\/a"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "**/a\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "**/a\\/b"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "a/\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "a/\\/b"
+      },
+      {
+        "after": "refused",
+        "after_unsupported": [
+          "a\\\\\\/b"
+        ],
+        "before": "ok",
+        "before_unsupported": [],
+        "pattern": "a\\\\\\/b"
+      }
+    ],
+    "pattern_count": 6000,
+    "random_changed_regex_emissions": 993,
+    "random_pattern_count": 5955,
+    "seed": 20260819,
+    "subjects": [
+      "a.md",
+      "deep/a/b/c.md",
+      "templates/index.md"
+    ]
+  },
+  "depths": [
+    201,
+    401,
+    801
+  ],
+  "modules": {
+    "after": {
+      "path": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/techdocs_audit_lib.py",
+      "sha256": "31aa4e64bcee2c15aa2fabe51a2f98d674766f79f40f8b7df116b1ad821e53e2"
+    },
+    "before": {
+      "path": "/private/tmp/1vry5-baseline/techdocs_audit_lib.py",
+      "sha256": "81ee30055e1b84e35102303c635ffe808a23bbf4ca704dac41193c0db18e74cc"
+    }
+  },
+  "patterns": [
+    "**/**/*aX",
+    "**/a/**/*aX",
+    "**/**/a/**/*aX",
+    "**/a/**/b/**/*aX",
+    "*/*/*/*.md",
+    "/*?*?*?*?*?*?x.md"
+  ],
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "publication_boundary": {
+    "blocks_compared": 7200,
+    "blocks_per_seed": 1200,
+    "escaped_slash_oracle": [
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "/a\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "a\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "!a\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "a\\/b/",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "pre\\/post.md",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "\\/a",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "**/a\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "a/\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "refused",
+        "expected": "refused",
+        "mkdocs": false,
+        "pathspec": false,
+        "pattern": "a\\\\\\/b",
+        "translator": "refused"
+      },
+      {
+        "declared_partition": "ok",
+        "expected": "ok",
+        "mkdocs": true,
+        "pathspec": true,
+        "pattern": "a\\\\/b",
+        "translator": "ok"
+      },
+      {
+        "declared_partition": "ok",
+        "expected": "ok",
+        "mkdocs": true,
+        "pathspec": true,
+        "pattern": "\\\\/x.md",
+        "translator": "ok"
+      },
+      {
+        "declared_partition": "ok",
+        "expected": "ok",
+        "mkdocs": true,
+        "pathspec": true,
+        "pattern": "a\\\\/b/c",
+        "translator": "ok"
+      },
+      {
+        "declared_partition": "ok",
+        "expected": "ok",
+        "mkdocs": true,
+        "pathspec": true,
+        "pattern": "x/\\\\/y",
+        "translator": "ok"
+      }
+    ],
+    "fail_closed": 0,
+    "fail_open": 0,
+    "failures": [],
+    "mkdocs_version": "1.6.1",
+    "pathspec_version": "1.1.1",
+    "seeds": [
+      20260819,
+      20260820,
+      20260821,
+      20260822,
+      20260823,
+      20260824
+    ]
+  },
+  "python_version": "3.13.5",
+  "rows": [
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.03008620798937045,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.030115457979263738,
+        0.030077582981903106,
+        0.03008620798937045
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.22894308299873956,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.22928704100195318,
+        0.22894308299873956,
+        0.22876416699727997
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.8286209170182701,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        1.8114017079933546,
+        1.8286209170182701,
+        1.8327552500122692
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.030035666975891218,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.030220291984733194,
+        0.030035666975891218,
+        0.029999166989000514
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.2341296669910662,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.2332606249838136,
+        0.2344466249924153,
+        0.2341296669910662
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.8025854169973172,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        1.8181654579821043,
+        1.8025854169973172,
+        1.794274374988163
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.029322750022402033,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.029322750022402033,
+        0.029237415990792215,
+        0.02935129197430797
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.22843200000352226,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.2285038749978412,
+        0.22843200000352226,
+        0.22716170799685642
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.8038776250032242,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        1.805157082999358,
+        1.8038776250032242,
+        1.8030199170170818
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.029689666989725083,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.029731417016591877,
+        0.029689666989725083,
+        0.029599041998153552
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.23292612499790266,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.23353825000231154,
+        0.23114045901456848,
+        0.23292612499790266
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.812183083005948,
+      "module": "before",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        1.8151121249829885,
+        1.812183083005948,
+        1.8104297499812674
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "before",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.0009242499945685267,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.0008987920009531081,
+        0.0009242499945685267,
+        0.0009538750164210796
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.0032609579793643206,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.0033056249958463013,
+        0.0032078340009320527,
+        0.0032609579793643206
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 0.012416791985742748,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.012468500004615635,
+        0.012320457986788824,
+        0.012416791985742748
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.0009268329886253923,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.0008938749961089343,
+        0.0009295420022681355,
+        0.0009268329886253923
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.003240958001697436,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.0032262500026263297,
+        0.003240958001697436,
+        0.0032638339907862246
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 0.012532374996226281,
+      "module": "after",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.012598957982845604,
+        0.012532374996226281,
+        0.012519125011749566
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.029883749986765906,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.029883749986765906,
+        0.029743999999482185,
+        0.031595958018442616
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.2302775829739403,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        0.2308961249946151,
+        0.22975204201065935,
+        0.2302775829739403
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.816010583017487,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        1.813033207989065,
+        1.816010583017487,
+        1.834957042010501
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 201,
+      "median_seconds": 0.02996033400995657,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.02996033400995657,
+        0.029805791011312976,
+        0.030211999983293936
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 401,
+      "median_seconds": 0.23002391698537394,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        0.23002391698537394,
+        0.22998741597984917,
+        0.23017195900320075
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.8061610830191057,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": [
+        1.790939167025499,
+        1.8061610830191057,
+        1.811224208009662
+      ]
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/**/a/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "**/a/**/b/**/*aX",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "*/*/*/*.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_aY",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 201,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 401,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    },
+    {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "refused",
+      "depth": 801,
+      "median_seconds": null,
+      "module": "after",
+      "pattern": "/*?*?*?*?*?*?x.md",
+      "subject_shape": "deep_markdown",
+      "timings_seconds": []
+    }
+  ],
+  "schema_version": 1,
+  "slowest_observed_admitted": {
+    "after": {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.816010583017487,
+      "module": "after",
+      "pattern": "**/a/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        1.813033207989065,
+        1.816010583017487,
+        1.834957042010501
+      ]
+    },
+    "before": {
+      "answers": [
+        false,
+        false,
+        false
+      ],
+      "classification": "ok",
+      "depth": 801,
+      "median_seconds": 1.8286209170182701,
+      "module": "before",
+      "pattern": "**/**/*aX",
+      "subject_shape": "deep_aY",
+      "timings_seconds": [
+        1.8114017079933546,
+        1.8286209170182701,
+        1.8327552500122692
+      ]
+    }
+  },
+  "statistic": "median wall-clock seconds",
+  "subject_shapes": [
+    "deep_aY",
+    "deep_markdown"
+  ],
+  "timed_runs_per_row": 3,
+  "warmups_per_row": 1
+}

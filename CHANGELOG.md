@@ -6,9 +6,155 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.19.0] - 2026-08-21
+
+### Added
+
+- **TechDocs publication audit, read-only.** `wf techdocs-audit` and the read-tier
+  `wf_techdocs_audit` MCP tool report what the Refresh TechDocs workflow's rules imply but nothing
+  computed before: which pages the built site actually publishes (the `mkdocs.yml` `nav` plus the
+  survivors of `exclude_docs`, matched the way MkDocs matches them), `nav` targets that are missing
+  or excluded, relative links on published pages that dangle or escape the publication boundary,
+  published-page metadata, the Backstage/TechDocs trio's ownership, and whether the agent
+  startup-order documents kept their heading order (wave `1vqqi techdocs-audit-and-review-branch`,
+  change `1vmt2`). It gates nothing: findings are data, severities are `low`/`medium`/`high`, and a
+  run that could not compute something reports `degraded` rather than `clean` so an unevaluated
+  check never reads as a clean site. No `mkdocs.yml` is a first-class `not_applicable` result. **Exit codes follow the report's content, not its verdict:** `1` whenever any finding is present or the run degraded, `2` when the audit could not run, `0` otherwise, so a plain `not_applicable` exits `0` while `not_applicable` alongside trio findings exits `1`. This deliberately differs from the sibling `wf techdocs-baseline`, where `1` means precondition-unmet: there `1` is a refusal, here it is an informative result. Over MCP the report is **bounded** at 200 findings and 200 survivor pages, with `findings_total`, `truncated`, and `publication.survivor_count` carrying the true totals; the CLI is uncapped. The
+  audit's repository-derived work is bounded by a ten-second worker deadline at both public
+  entries; expiry terminates the isolated worker and constructs `audit_timeout` without any
+  parent-side repository I/O. A `nav` symlink resolving outside the repository is classified by
+  realpath (which may read metadata) and then refused before `is_file`, open, or content read, and reported as
+  `nav_target_escapes_root` under its logical path. A markdown survivor candidate whose symlink
+  resolves outside the repository is likewise named under
+  `publication.unsafe_survivor_targets`, degrades as
+  `survivor_target_escapes_root`, and is included in link-boundary scoring for both an exact
+  normalized unsafe directory node and its descendants rather than being silently dropped;
+  neither refusal performs external `is_file`, open, or content read. The MCP response caps this
+  new tree-sized list at 200, reports `unsafe_survivor_targets_total` and the conditional
+  `unsafe_survivor_targets_omitted`, and includes that cap in `truncated`; the CLI remains
+  uncapped. The
+  audience check is honest about its scope: its baseline is HEAD content, so it is informative
+  against an uncommitted authoring edit and reports an identity check as such on a clean tree.
+  **Refresh TechDocs** gains a review-only branch, selected by an explicit read-only request, that
+  runs the audit and returns findings and proposed edits while writing nothing on either host type.
+  A new MCP tool requires a one-time reconnect after upgrade to appear.
+
+- **Backstage catalog and TechDocs baseline, one command.** `wf techdocs-baseline` generates the
+  standalone-documentation `Component` descriptor (`catalog-info.yaml`), the TechDocs configuration
+  (`mkdocs.yml`), and a landing page (`docs/index.md`) for the installing project, missing-only and
+  only once `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md`
+  exist (wave `1vj4e backstage-techdocs-baseline`, change `1vj4d`). Conservative defaults
+  (`spec.type: documentation`, `spec.lifecycle: experimental`, `spec.owner: engineering`,
+  `backstage.io/techdocs-ref: dir:.`, a `<name>-docs` entity name, deny-by-default `exclude_docs`
+  that publishes only the landing page, architecture, references, and the prompt index) are
+  project-owned after generation. Existing files are preserved byte-for-byte; each generated file
+  carries a one-line generated-by stamp, and when the trio is mixed (some generated, some
+  project-owned) the command prints one `techdocs-baseline: WARNING` naming the project-owned files
+  (`--json` returns the same `partial` record in a typed envelope; exit codes 0 / 1 precondition
+  unmet / 2 refused or failed, where a post-preflight failure reports the members it wrote
+  before failing instead of claiming nothing was written). Nothing runs at setup, `wf render-surfaces`, or upgrade; opt-in auto-generation
+  is a later change. This repository ships its own trio (`wavefoundry-docs`).
+- **`wf_techdocs_baseline` MCP tool.** The same baseline as an MCP tool for agents (the CLI stays
+  the no-MCP and install-row fallback): `mode='dry_run'` (default) runs the precondition and the
+  containment classification and reports what a run would write, writing nothing; `mode='run'`
+  writes the absent members under the project publication lock and returns the CLI envelope plus
+  `absent_paths`. Precondition failure and a refused destination are `status: error` with nothing
+  written; a mixed trio adds the advisory `backstage_techdocs_partial`. Write tier, a registered
+  publisher (refuses during an upgrade checkpoint like every project-state writer). A new MCP tool
+  requires a one-time reconnect after upgrade to appear.
+- **Refresh TechDocs workflow and `wf-techdocs` skill.** A public shortcut (**Refresh TechDocs**, alias
+  **Author TechDocs**; seed `178`, rendered to `docs/prompts/refresh-techdocs.prompt.md`) runs the
+  baseline command and then has the `technical-writer` specialist author the published pages with
+  cited facts from Guru, the architecture narrative, the security posture, qa/reality-checker
+  verification, and a docs-contract check, bounded by an audience invariant (agent startup-order
+  content is framed, never removed) and a link-boundary rule (no relative links to surfaces
+  `exclude_docs` removes); the workflow carries the operator follow-up checklist (owner, catalog-unique
+  name, preview, production CI plus storage, edit links, files intentionally not generated). The
+  skill renders wherever the prompt exists (every target after seed-100 reconciliation). Fresh
+  installs run it at install-log row 2.13.5 (end of Phase 2, `[~]` when declined or the precondition
+  is unmet); upgrades point at it and, on the upgrade that first ships seed 178, re-run
+  `wf render-surfaces` after the prompt backfill so the skill appears (change `1vmpz`).
+
+### Changed
+
+- **Refresh TechDocs no longer asks you to run an external renderer.** The workflow previously
+  told agents to run `npx @techdocs/cli` / `techdocs-cli generate --no-docker` under a condition
+  that did not actually establish those tools were available or wanted. Validation is now entirely
+  Python and in-repo: docs validation, nav existence, the publication audit, citation
+  re-resolution, and the supplier report. **No Wavefoundry surface requires Docker, Node, the
+  TechDocs CLI, MkDocs, or `mkdocs-techdocs-core`.**
+
+  **Existing installs do not pick this up automatically.**
+  `docs/prompts/refresh-techdocs.prompt.md` is project-owned, not renderer-owned: it is
+  materialized once by seed-100 reconciliation and no renderer or upgrade phase writes it again.
+  A repository that already has that file keeps its old copy, with the external-renderer
+  instructions intact, after upgrading. Nothing in the upgrade or the reconciliation scan detects
+  the divergence. Reconcile the file by hand against
+  `.wavefoundry/framework/seeds/178-refresh-techdocs.prompt.md`: remove the build-smoke bullet,
+  generalize the read-only branch's prohibition from `techdocs-cli generate` to any renderer or
+  preview command, and confirm zero residual `npx` / `techdocs-cli` references.
+
+  This is not specific to this file. **No upgrade or render phase overwrites an existing prompt
+  doc.** The renderer materializes a missing one and then leaves it alone; the manifest states the
+  intent directly ("preserve repo-grown adaptations in `docs/prompts/` during upgrade; do not
+  overwrite project-specific guidance"). All 27 top-level `*.prompt.md` files under `docs/prompts/`
+  are project-owned as whole files once materialized. Nine prompt docs carry marker-fenced regions
+  that the renderer does rewrite, so those regions self-heal; the rest, `refresh-techdocs.prompt.md`
+  among them, carry no fence at all. Seed prose that lives outside a marker fence therefore never
+  reaches a repository that has already materialized the file.
+
+  Two consequences worth knowing if you maintain a long-lived target. Your prompt docs can be
+  *behind* the framework as well as ahead of it, so a document you have never edited may still be
+  missing instructions later releases added. And the reverse also happens: an upgrade's
+  agent-driven reconciliation step does sometimes rewrite these documents, so the propagation is
+  partial and unpredictable rather than absent. If a workflow behaves differently than the release
+  notes describe, compare your `docs/prompts/` copy against
+  `.wavefoundry/framework/install/lifecycle-prompts/` and the backing seed before assuming the
+  behavior changed.
 
 ### Fixed
+
+- **`nav` targets containing spaces are audited instead of being dropped.** The `mkdocs.yml`
+  reader recognized a nav path only as a single non-whitespace token, so a valid entry such as
+  `decisions/1abc-adr architecture choice.md` was not seen as a published page and never took part
+  in the publication boundary. Plain, single-quoted and double-quoted forms now yield the same
+  target. A genuinely unreadable nav shape still degrades with `mkdocs_shape` rather than being
+  guessed at (wave `1vvei techdocs-python-only-validation`).
+
+- **Council role-doc citations in freshly materialized prompt docs resolve again.** Six seed
+  citations named `docs/agents/wave-council.md` and `docs/agents/archetype-council.md` while the
+  framework emits those role docs under `docs/agents/specialists/`, so a repository materializing
+  the upgrade or council-review prompt from the seeds inherited references its agents could not
+  open. The six sites now cite the `specialists/` paths, each verified against the shipped
+  canonical role map. The deliberate both-layouts accommodation for `red-team` is untouched:
+  targets keeping the flat layout remain supported, and existing project-owned prompt docs are
+  not rewritten by this change (wave `1vwyc prompt-surface-correctness`).
+
+
+- **TechDocs validation stays inside Wavefoundry's Python toolchain.** **Refresh TechDocs** no longer
+  probes for or prescribes a local external renderer, preview, or build smoke. Its required contract
+  remains full docs validation, explicit navigation-target existence, the read-only publication
+  audit, citation re-resolution, and supplier reporting. Wavefoundry does not render downstream
+  sites; operators own rendering and publication in their chosen Backstage/CI environment. The
+  bounded Python parser now accepts plain and quoted `nav` paths containing spaces while degrading
+  on unsupported YAML shapes instead of guessing (wave `1vvei techdocs-python-only-validation`,
+  change `1vrzu`).
+- **TechDocs audit boundary: redundant pattern work removed, and a mismatched escape now degrades
+  instead of guessing.** Adjacent `**/` prefixes in an `exclude_docs` block compile to one matcher
+  rather than several, which removes a large amount of redundant backtracking on patterns like
+  `**/**/*.md` without changing which pages the audit reports as published. Separately, a pattern
+  escaping a path separator (`a\/b`) is now refused and named in `publication.unsupported_patterns`,
+  because MkDocs itself refuses to load such a config; an escaped backslash followed by a separator
+  (`a\\/b`) is still accepted, as MkDocs accepts it. Note that this does not change the audit's
+  worst-case run time: the ten-second worker deadline remains the guard (wave
+  `1vry5 techdocs-pattern-fidelity`).
+- **`wf_reload_mcp` now reports what actually happened to its tool-list notification.** The tool
+  awaits the notification instead of scheduling it and reporting success it never observed, so the
+  response carries a real outcome rather than an optimistic one. The upgrade path keeps its existing
+  behaviour and its escalation guidance unchanged. Retired values: the `queued` dispatch state and
+  the `tool_list_changed_notification_sent` field. **This fix lives in the un-reloadable runner, so
+  no `wf_reload_mcp` can load it: a full host restart is required, and the first reload that behaves
+  correctly is the one after that restart** (wave `1vt2q mcp-reload-notification-delivery`).
 
 - **Fresh installs pass their own docs gate.** A new target repository no longer ends Phase 2 with a
   wall of docs-lint errors it has to hand-repair (wave `1viyu fresh-install-gate-coherence`, from the

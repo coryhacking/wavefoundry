@@ -807,6 +807,7 @@ class SkillRegistryTests(unittest.TestCase):
     _DOC_GATED = {
         "wf-package": "docs/prompts/package-wavefoundry.prompt.md",
         "wf-code-cleanup": "docs/prompts/codebase-cleanup-review.prompt.md",
+        "wf-techdocs": "docs/prompts/refresh-techdocs.prompt.md",
     }
 
     def _repo(
@@ -1890,6 +1891,833 @@ class FreshCarrierAgentFrontmatterTests(unittest.TestCase):
             # Exactly one Role:/Category: each — no duplicate injection on the update path.
             self.assertEqual(text.count("Role: red-team"), 1)
             self.assertEqual(text.count("Category: specialist"), 1)
+
+
+# ---------------------------------------------------------------------------
+# Wave 1vj4e (1vj4d): Backstage catalog + TechDocs baseline command
+# ---------------------------------------------------------------------------
+
+_TECHDOCS_GOLDEN_CATALOG = """\
+# wavefoundry: generated missing-only Backstage/TechDocs baseline; project-owned, edit freely.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: example-project-docs
+  title: example-project-docs Documentation
+  description: Technical documentation for the example-project-docs project.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: documentation
+  lifecycle: experimental
+  owner: engineering
+"""
+
+_TECHDOCS_GOLDEN_MKDOCS = """\
+# wavefoundry: generated missing-only Backstage/TechDocs baseline; project-owned, edit freely.
+site_name: example-project-docs Documentation
+site_description: Technical documentation for the example-project-docs project.
+docs_dir: docs
+plugins:
+  - techdocs-core
+nav:
+  - Home: index.md
+  - Project overview: references/project-overview.md
+  - Architecture: ARCHITECTURE.md
+  - Workflow and agent commands: prompts/index.md
+exclude_docs: |
+  /*
+  !/index.md
+  !/ARCHITECTURE.md
+  !/architecture/
+  !/architecture/**
+  !/references/
+  !/references/**
+  !/prompts/
+  /prompts/*
+  !/prompts/index.md
+"""
+
+_TECHDOCS_GOLDEN_INDEX = """\
+# example-project-docs Documentation
+
+Owner: Engineering
+Status: active
+Last verified: 2026-08-18
+
+<!-- wavefoundry: generated missing-only Backstage/TechDocs baseline; project-owned, edit freely. -->
+
+Technical documentation for the `example-project-docs` project.
+
+- [Project overview](references/project-overview.md)
+- [Architecture](ARCHITECTURE.md)
+- [Workflow and agent commands](prompts/index.md)
+"""
+
+_TECHDOCS_GOLDEN = {
+    "catalog-info.yaml": _TECHDOCS_GOLDEN_CATALOG,
+    "mkdocs.yml": _TECHDOCS_GOLDEN_MKDOCS,
+    "docs/index.md": _TECHDOCS_GOLDEN_INDEX,
+}
+_TECHDOCS_TRIO = tuple(destination for destination, _t, _m in ras.TECHDOCS_BASELINES)
+_TECHDOCS_MARKER_LINE = {destination: marker for destination, _t, marker in ras.TECHDOCS_BASELINES}
+
+
+def _techdocs_repo(temp_dir: str, *, name: str = "Example_Project", targets: bool = True) -> Path:
+    """A target root whose navigation targets exist (the command's precondition)."""
+
+    root = (Path(temp_dir) / name).resolve()
+    (root / "docs" / "references").mkdir(parents=True)
+    (root / "docs" / "prompts").mkdir(parents=True)
+    if targets:
+        for target in ras.TECHDOCS_PRECONDITION_TARGETS:
+            (root / target).write_text(f"# {target}\n", encoding="utf-8")
+    return root
+
+
+def _techdocs_render(root: Path):
+    with patch.object(ras.time, "strftime", return_value="2026-08-18"):
+        return ras.render_techdocs_baseline(root)
+
+
+def _techdocs_snapshot(root: Path) -> dict:
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+    }
+
+
+class TechdocsBaselineGoldenTests(unittest.TestCase):
+    """AC-1: literal UTF-8/LF golden bytes, marker lines, one terminal newline; normalization vectors."""
+
+    def test_all_absent_generates_the_literal_golden_trio(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            result = _techdocs_render(root)
+            self.assertEqual(result.written_paths, _TECHDOCS_TRIO)
+            self.assertEqual(result.preserved_paths, ())
+            self.assertEqual(result.generated_paths, _TECHDOCS_TRIO)
+            self.assertEqual(result.missing_targets, ())
+            self.assertIsNone(result.partial)
+            for destination, golden in _TECHDOCS_GOLDEN.items():
+                raw = (root / destination).read_bytes()
+                self.assertEqual(raw, golden.encode("utf-8"), destination)
+                self.assertNotIn(b"\r", raw, destination)
+                self.assertTrue(raw.endswith(b"\n") and not raw.endswith(b"\n\n"), destination)
+                marker = _TECHDOCS_MARKER_LINE[destination]
+                self.assertEqual(raw.decode("utf-8").count(marker), 1, destination)
+            # The landing page's marker sits immediately after the metadata block.
+            index_lines = _TECHDOCS_GOLDEN_INDEX.splitlines()
+            self.assertEqual(index_lines[4], "Last verified: 2026-08-18")
+            self.assertEqual(index_lines[6], _TECHDOCS_MARKER_LINE["docs/index.md"])
+            # Templates on disk still hold the placeholders (substitution is per render).
+            for _destination, template_name, _marker in ras.TECHDOCS_BASELINES:
+                template = ras._resolve_install_asset(root, template_name)
+                self.assertIn("{{entity_name}}", template.read_text(encoding="utf-8"), template_name)
+
+    def test_templates_ship_under_names_no_discovery_glob_matches(self) -> None:
+        # A literal catalog-info.yaml shipped into every target would be found by
+        # Backstage `**/catalog-info.yaml` location globs and ingest a placeholder.
+        install_dir = SCRIPTS_ROOT.parent / "install"
+        for _destination, template_name, _marker in ras.TECHDOCS_BASELINES:
+            self.assertIn(".template.", template_name)
+            self.assertTrue((install_dir / template_name).is_file(), template_name)
+        self.assertFalse((install_dir / "catalog-info.yaml").exists())
+        self.assertFalse((install_dir / "mkdocs.yml").exists())
+
+    def test_name_normalization_vectors(self) -> None:
+        vectors = [
+            ("My...__Repo", "my-repo-docs"),
+            ("project-docs", "project-docs"),
+            ("sample", "sample-docs"),
+            ("\U0001f525", "project-docs"),
+            ("", "project-docs"),
+            ("a" * 58, ("a" * 58) + "-docs"),
+            ("a" * 59, ("a" * 58) + "-docs"),
+            (("a" * 57) + "-b", ("a" * 57) + "-docs"),
+            ("Example_Project", "example-project-docs"),
+        ]
+        for raw, expected in vectors:
+            with self.subTest(raw=raw):
+                name = ras.techdocs_entity_name(raw)
+                self.assertEqual(name, expected)
+                self.assertLessEqual(len(name), 63)
+                self.assertRegex(name, r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-docs$")
+
+    def test_entity_name_derives_from_the_resolved_root_basename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir, name="Sample.Repo")
+            _techdocs_render(root)
+            text = (root / "catalog-info.yaml").read_text(encoding="utf-8")
+            self.assertIn("  name: sample-repo-docs\n", text)
+
+
+class TechdocsBaselineStateMatrixTests(unittest.TestCase):
+    """AC-2: all 27 absent / present-unmarked / present-marked states from the single rule."""
+
+    _UNMARKED = {
+        "catalog-info.yaml": "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: mine\n",
+        "mkdocs.yml": "site_name: Mine\n",
+        "docs/index.md": "# Mine\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n",
+    }
+
+    @staticmethod
+    def _marked(destination: str) -> str:
+        # A marked pre-existing member from ANOTHER project: foreign content, our marker.
+        marker = _TECHDOCS_MARKER_LINE[destination]
+        if destination == "docs/index.md":
+            return f"# Foreign\n\nOwner: X\nStatus: active\nLast verified: 2026-01-01\n\n{marker}\n\nforeign\n"
+        return f"{marker}\nforeign: true\n"
+
+    def _seed(self, root: Path, state: tuple) -> dict:
+        before = {}
+        for destination, member_state in zip(_TECHDOCS_TRIO, state):
+            if member_state == "absent":
+                continue
+            content = self._UNMARKED[destination] if member_state == "unmarked" else self._marked(destination)
+            path = root / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8", newline="")
+            before[destination] = path.read_bytes()
+        return before
+
+    def test_every_state_writes_absent_members_only_and_warns_iff_mixed(self) -> None:
+        import itertools
+
+        states = list(itertools.product(("absent", "unmarked", "marked"), repeat=3))
+        self.assertEqual(len(states), 27)
+        for state in states:
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp_dir:
+                root = _techdocs_repo(temp_dir)
+                before = self._seed(root, state)
+                absent = tuple(d for d, s in zip(_TECHDOCS_TRIO, state) if s == "absent")
+                unmarked = [d for d, s in zip(_TECHDOCS_TRIO, state) if s == "unmarked"]
+                marked = [d for d, s in zip(_TECHDOCS_TRIO, state) if s == "marked"]
+                present = tuple(d for d, s in zip(_TECHDOCS_TRIO, state) if s != "absent")
+
+                result = _techdocs_render(root)
+
+                self.assertEqual(result.written_paths, absent)
+                self.assertEqual(result.preserved_paths, present)
+                self.assertEqual(result.missing_targets, ())
+                expected_generated = tuple(d for d in _TECHDOCS_TRIO if d in marked or d in absent)
+                self.assertEqual(result.generated_paths, expected_generated)
+                for destination, raw in before.items():
+                    self.assertEqual((root / destination).read_bytes(), raw, destination)
+                for destination in absent:
+                    self.assertEqual(
+                        (root / destination).read_bytes(),
+                        _TECHDOCS_GOLDEN[destination].encode("utf-8"),
+                        destination,
+                    )
+                if unmarked and expected_generated:
+                    self.assertIsNotNone(result.partial, state)
+                    record = result.partial
+                    self.assertEqual(record["channel"], "backstage-techdocs")
+                    self.assertEqual(record["code"], "backstage_techdocs_partial")
+                    self.assertEqual(record["preserved_paths"], unmarked)
+                    self.assertEqual(record["generated_paths"], list(expected_generated))
+                    expected_detail = ras.TECHDOCS_PARTIAL_WARNING.format(paths=", ".join(unmarked))
+                    self.assertEqual(record["detail"], expected_detail)
+                    self.assertTrue(record["detail"].startswith("Backstage/TechDocs baseline is partial; preserved project-owned files: "))
+                    for word in ("success", "validated", "valid TechDocs", "verified"):
+                        self.assertNotIn(word, record["detail"].lower())
+                else:
+                    self.assertIsNone(result.partial, state)
+
+                # Recomputation: the read-only classifier agrees, before and after a rerun,
+                # and the rerun is byte-idempotent and writes nothing.
+                classified = ras.classify_techdocs_baseline(root)
+                self.assertEqual(classified, result.partial)
+                snapshot = {d: (root / d).read_bytes() for d in _TECHDOCS_TRIO}
+                rerun = _techdocs_render(root)
+                self.assertEqual(rerun.written_paths, ())
+                self.assertEqual(rerun.preserved_paths, _TECHDOCS_TRIO)
+                self.assertEqual(rerun.generated_paths, expected_generated)
+                self.assertEqual(rerun.partial, result.partial)
+                self.assertEqual({d: (root / d).read_bytes() for d in _TECHDOCS_TRIO}, snapshot)
+                self.assertEqual(ras.classify_techdocs_baseline(root), result.partial)
+
+    def test_warning_names_unmarked_paths_in_canonical_order_exactly_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            self._seed(root, ("unmarked", "absent", "unmarked"))
+            result = _techdocs_render(root)
+            self.assertEqual(result.partial["preserved_paths"], ["catalog-info.yaml", "docs/index.md"])
+            self.assertIn("preserved project-owned files: catalog-info.yaml, docs/index.md.", result.partial["detail"])
+            self.assertEqual(result.partial["detail"].count("Backstage/TechDocs baseline is partial"), 1)
+
+
+class TechdocsBaselineClassifierTests(unittest.TestCase):
+    """AC-2 tolerance: BOM/CRLF/prepended header/edited-but-marked stay generated; unmarked,
+    wrong-form, undecodable, non-regular, and escaping members are project-owned."""
+
+    def _classify(self, root: Path, destination: str, raw: bytes) -> bool:
+        path = root / destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        return ras.techdocs_member_is_generated(path, _TECHDOCS_MARKER_LINE[destination])
+
+    def test_bom_on_a_yaml_member_with_the_marker_on_line_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            raw = b"\xef\xbb\xbf" + _TECHDOCS_GOLDEN_CATALOG.encode("utf-8")
+            self.assertTrue(self._classify(root, "catalog-info.yaml", raw))
+            # Control: a first-line-only, non-sig reader would fail this fixture.
+            first_line = raw.split(b"\n", 1)[0].decode("utf-8")
+            self.assertNotEqual(first_line, _TECHDOCS_MARKER_LINE["catalog-info.yaml"])
+
+    def test_crlf_marked_member_is_generated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            raw = _TECHDOCS_GOLDEN_MKDOCS.replace("\n", "\r\n").encode("utf-8")
+            self.assertTrue(self._classify(Path(temp_dir), "mkdocs.yml", raw))
+
+    def test_prepended_header_and_user_edits_keep_the_landing_page_generated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            prepended = ("<!-- editor header -->\n\n" + _TECHDOCS_GOLDEN_INDEX).encode("utf-8")
+            self.assertTrue(self._classify(root, "docs/index.md", prepended))
+            edited = (_TECHDOCS_GOLDEN_INDEX + "\n## Added by a user\n\nStill marked.\n").encode("utf-8")
+            self.assertTrue(self._classify(root, "docs/index.md", edited))
+
+    def test_unmarked_and_wrong_form_members_are_project_owned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            unmarked = _TECHDOCS_GOLDEN_INDEX.replace(_TECHDOCS_MARKER_LINE["docs/index.md"] + "\n\n", "")
+            self.assertNotIn("wavefoundry:", unmarked)
+            self.assertFalse(self._classify(root, "docs/index.md", unmarked.encode("utf-8")))
+            # docs/index.md carrying only the YAML `#` form is project-owned...
+            yaml_form = _TECHDOCS_GOLDEN_INDEX.replace(
+                _TECHDOCS_MARKER_LINE["docs/index.md"], _TECHDOCS_MARKER_LINE["catalog-info.yaml"]
+            )
+            self.assertFalse(self._classify(root, "docs/index.md", yaml_form.encode("utf-8")))
+            # ...and its mirror: a YAML member carrying only the HTML-comment form.
+            html_form = _TECHDOCS_GOLDEN_CATALOG.replace(
+                _TECHDOCS_MARKER_LINE["catalog-info.yaml"], _TECHDOCS_MARKER_LINE["docs/index.md"]
+            )
+            self.assertFalse(self._classify(root, "catalog-info.yaml", html_form.encode("utf-8")))
+
+    def test_undecodable_non_regular_and_escaping_members_are_project_owned_and_never_raise(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            # Undecodable bytes around the marker: project-owned, no exception.
+            raw = b"\xff\xfe" + _TECHDOCS_GOLDEN_MKDOCS.encode("utf-8")
+            self.assertFalse(self._classify(root, "mkdocs.yml", raw))
+            (root / "mkdocs.yml").unlink()
+            # A directory at a destination and an escaping symlink at another:
+            # both project-owned in the read-only classifier, which never raises
+            # and never reads outside the root.
+            (root / "mkdocs.yml").mkdir()
+            outside = Path(temp_dir) / "outside.yaml"
+            outside.write_text(_TECHDOCS_GOLDEN_CATALOG, encoding="utf-8")
+            (root / "catalog-info.yaml").symlink_to(outside)
+            (root / "docs" / "index.md").write_text(_TECHDOCS_GOLDEN_INDEX, encoding="utf-8")
+            record = ras.classify_techdocs_baseline(root)
+            self.assertEqual(record["preserved_paths"], ["catalog-info.yaml", "mkdocs.yml"])
+            self.assertEqual(record["generated_paths"], ["docs/index.md"])
+            # Absent members are in neither list; a fully absent trio is None.
+            (root / "docs" / "index.md").unlink()
+            (root / "mkdocs.yml").rmdir()
+            (root / "catalog-info.yaml").unlink()
+            self.assertIsNone(ras.classify_techdocs_baseline(root))
+
+
+class TechdocsBaselinePreconditionAndPathTests(unittest.TestCase):
+    """AC-3 precondition and negative render/setup/upgrade paths; AC-4 containment."""
+
+    def test_precondition_failure_writes_nothing_and_names_missing_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir, targets=False)
+            before = _techdocs_snapshot(root)
+            result = _techdocs_render(root)
+            self.assertEqual(result.missing_targets, ras.TECHDOCS_PRECONDITION_TARGETS)
+            self.assertEqual(result.written_paths, ())
+            self.assertIsNone(result.partial)
+            self.assertEqual(_techdocs_snapshot(root), before)
+            for destination in _TECHDOCS_TRIO:
+                self.assertFalse((root / destination).exists(), destination)
+            # One missing target names exactly that one.
+            for target in ras.TECHDOCS_PRECONDITION_TARGETS[:-1]:
+                (root / target).write_text("# t\n", encoding="utf-8")
+            result = _techdocs_render(root)
+            self.assertEqual(result.missing_targets, (ras.TECHDOCS_PRECONDITION_TARGETS[-1],))
+            self.assertEqual(result.written_paths, ())
+
+    def test_render_setup_and_upgrade_paths_never_write_the_trio(self) -> None:
+        # Non-vacuous: the fixture satisfies the precondition, and the positive
+        # control at the end proves the command itself writes all three here.
+        import os
+        import setup_wavefoundry
+        import venv_bootstrap
+        from test_upgrade_wavefoundry import load_upgrade_module
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            (root / ".claude").mkdir()
+            (root / "docs" / "agents").mkdir(parents=True)
+            (root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
+
+            ras.render_agent_surfaces(root)
+            for destination in _TECHDOCS_TRIO:
+                self.assertFalse((root / destination).exists(), f"render pass wrote {destination}")
+
+            env = {**os.environ, "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}
+            # The exact argv setup Step 1 and upgrade Phase 1 spawn.
+            result = subprocess.run(
+                [sys.executable, str(PLATFORM_RENDER_SCRIPT), "--repo-root", str(root), "--include-permissions"],
+                cwd=str(PROJECT_ROOT), text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for destination in _TECHDOCS_TRIO:
+                self.assertFalse((root / destination).exists(), f"render_platform_surfaces wrote {destination}")
+
+            with patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
+                self.assertEqual(setup_wavefoundry._run_render_platform_surfaces(root), 0)
+            for destination in _TECHDOCS_TRIO:
+                self.assertFalse((root / destination).exists(), f"setup Step 1 wrote {destination}")
+
+            upgrade = load_upgrade_module()
+            with patch.object(upgrade, "_preferred_python", return_value=sys.executable), \
+                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False):
+                upgrade.phase_surface_rendering(root)
+            for destination in _TECHDOCS_TRIO:
+                self.assertFalse((root / destination).exists(), f"upgrade Phase 1 wrote {destination}")
+
+            # Positive control.
+            control = _techdocs_render(root)
+            self.assertEqual(control.written_paths, _TECHDOCS_TRIO)
+
+    def test_only_the_two_declared_entries_call_the_command_function(self) -> None:
+        # Static guard for the negative test: no other framework script (setup,
+        # upgrade, render_platform_surfaces) calls render_techdocs_baseline. The
+        # allowlist is exactly the two entry points that share the one function:
+        # the CLI thin entry and the MCP tool in server_impl (1vj4d Requirement 10,
+        # widened deliberately when the MCP tool was added).
+        # rglob, not glob: a call site added under a subpackage (wave_lint_lib/,
+        # for example) must not slip past this guard. Tests are excluded because
+        # they exercise the function on purpose.
+        callers = []
+        for path in sorted(SCRIPTS_ROOT.rglob("*.py")):
+            if path.name in {"render_agent_surfaces.py", "techdocs_baseline.py", "server_impl.py"}:
+                continue
+            if "tests" in path.relative_to(SCRIPTS_ROOT).parts:
+                continue
+            if "render_techdocs_baseline(" in path.read_text(encoding="utf-8"):
+                callers.append(path.name)
+        self.assertEqual(callers, [])
+        self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "techdocs_baseline.py").read_text(encoding="utf-8"))
+        self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8"))
+        # And the render pass itself has no call site.
+        import inspect
+
+        self.assertNotIn("render_techdocs_baseline", inspect.getsource(ras.render_agent_surfaces))
+        self.assertNotIn("techdocs_baseline", inspect.getsource(ras.preflight_agent_surface_paths))
+
+    def test_generated_landing_page_is_lint_clean_with_targets_present(self) -> None:
+        from wave_lint_lib.link_validators import check_markdown_links
+        from wave_lint_lib.metadata_validators import check_metadata
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            _techdocs_render(root)
+            page = root / "docs" / "index.md"
+            self.assertEqual(check_metadata(root, page), [])
+            self.assertEqual(check_markdown_links(root, page), [])
+            # Control: without the targets the same page has exactly three broken links,
+            # which is why the precondition exists.
+            for target in ras.TECHDOCS_PRECONDITION_TARGETS:
+                (root / target).unlink()
+            self.assertEqual(len(check_markdown_links(root, page)), 3)
+
+    def test_in_root_symlink_to_a_regular_file_is_present_and_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            real = root / "docs" / "site.yml"
+            real.write_text("site_name: Mine\n", encoding="utf-8")
+            (root / "mkdocs.yml").symlink_to(Path("docs") / "site.yml")
+            result = _techdocs_render(root)
+            self.assertEqual(result.written_paths, ("catalog-info.yaml", "docs/index.md"))
+            self.assertEqual(result.preserved_paths, ("mkdocs.yml",))
+            self.assertTrue((root / "mkdocs.yml").is_symlink())
+            self.assertEqual(real.read_bytes(), b"site_name: Mine\n")
+            self.assertEqual(result.partial["preserved_paths"], ["mkdocs.yml"])
+
+    def test_non_regular_or_escaping_destinations_are_refused_before_any_write(self) -> None:
+        import os
+        import stat as stat_module
+
+        cases = {
+            "escaping symlink": ("catalog-info.yaml", "escape"),
+            "directory": ("docs/index.md", "dir"),
+            "dangling symlink": ("mkdocs.yml", "dangling"),
+            "symlink to a directory": ("mkdocs.yml", "dirlink"),
+        }
+        if hasattr(os, "mkfifo"):
+            cases["fifo"] = ("catalog-info.yaml", "fifo")
+        for label, (destination, kind) in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temp_dir:
+                root = _techdocs_repo(temp_dir)
+                outside = Path(temp_dir) / "outside.txt"
+                outside.write_text("sentinel\n", encoding="utf-8")
+                target = root / destination
+                if kind == "escape":
+                    target.symlink_to(outside)
+                elif kind == "dir":
+                    target.mkdir()
+                elif kind == "dangling":
+                    target.symlink_to(Path("docs") / "nowhere.yml")
+                elif kind == "dirlink":
+                    target.symlink_to(Path("docs"))
+                else:
+                    os.mkfifo(target)
+                before = {d: (root / d).exists() or (root / d).is_symlink() for d in _TECHDOCS_TRIO}
+                with self.assertRaises(RuntimeError):
+                    _techdocs_render(root)
+                # Nothing written: every trio path is exactly as before, the sentinel untouched.
+                for d in _TECHDOCS_TRIO:
+                    self.assertEqual((root / d).exists() or (root / d).is_symlink(), before[d], (label, d))
+                    if not before[d]:
+                        self.assertFalse((root / d).exists(), (label, d))
+                self.assertEqual(outside.read_text(encoding="utf-8"), "sentinel\n")
+                if kind == "dir":
+                    self.assertTrue(stat_module.S_ISDIR(target.lstat().st_mode))
+
+    def test_refusal_on_the_third_destination_blocks_the_first_two(self) -> None:
+        # Classification runs for all three destinations before the first write.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = _techdocs_repo(temp_dir)
+            (root / "docs" / "index.md").mkdir()
+            with self.assertRaises(RuntimeError):
+                _techdocs_render(root)
+            self.assertFalse((root / "catalog-info.yaml").exists())
+            self.assertFalse((root / "mkdocs.yml").exists())
+
+    def test_exclusive_write_refuses_to_truncate_an_existing_member(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "catalog-info.yaml"
+            path.write_text("mine\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                ras._write_review_carrier_text(path, "generated\n", exclusive=True)
+            self.assertEqual(path.read_text(encoding="utf-8"), "mine\n")
+            # The default (sibling families) still truncates in place.
+            ras._write_review_carrier_text(path, "generated\n")
+            self.assertEqual(path.read_text(encoding="utf-8"), "generated\n")
+
+
+class TechdocsExcludeDocsOracleTests(unittest.TestCase):
+    """AC-5: a stdlib ordered-pattern oracle over the golden `exclude_docs` block, pinned to
+    the MkDocs/pathspec outcomes recorded in the 1vj4d Decision Log (2026-08-18)."""
+
+    SURVIVORS = (
+        "index.md",
+        "ARCHITECTURE.md",
+        "architecture/current-state.md",
+        "architecture/deep/nested.md",
+        "references/project-overview.md",
+        "references/install-assets.md",
+        "prompts/index.md",
+    )
+    REJECTS = (
+        "README.md",
+        "SECURITY.md",
+        "agents/guru.md",
+        "agents/session-handoff.md",
+        "agents/memory/x.md",
+        "prompts/plan-feature.prompt.md",
+        "prompts/prompt-surface-manifest.json",
+        "plans/1abc-x.md",
+        "waves/1vj4e x/wave.md",
+        "reports/foo.md",
+        "workflow-config.json",
+        "repo-profile.json",
+        "scans/secrets.json",
+        "unknown-root.md",
+        "unknown/dir/file.md",
+        "prompts/sub/index.md",
+    )
+
+    @staticmethod
+    def _exclude_block(text: str) -> list[str]:
+        lines = text.splitlines()
+        start = lines.index("exclude_docs: |") + 1
+        block = []
+        for line in lines[start:]:
+            if not line.startswith("  "):
+                break
+            block.append(line[2:])
+        return block
+
+    @staticmethod
+    def _pattern_regex(pattern: str) -> "re.Pattern[str]":
+        # gitignore subset used by the golden block, per-file semantics as MkDocs
+        # applies them (`GitIgnoreSpec.match_file(src_uri)`): a leading `/` anchors
+        # at the docs root; `*` never crosses `/`; `**` crosses; a trailing `/`
+        # names a directory and everything under it; a plain path also matches
+        # everything under it.
+        anchored = pattern.startswith("/")
+        body = pattern[1:] if anchored else pattern
+        directory_only = body.endswith("/")
+        body = body.rstrip("/")
+        parts = []
+        for segment in body.split("/"):
+            if segment == "**":
+                parts.append(".*")
+            else:
+                parts.append(re.escape(segment).replace(r"\*", "[^/]*"))
+        core = "/".join(parts)
+        core = core.replace("/.*/", "(?:/.*/|/)").replace("/.*", "(?:/.*)?")
+        prefix = "^" if anchored else "^(?:.*/)?"
+        suffix = "/.*$" if directory_only else "(?:/.*)?$"
+        return re.compile(prefix + core + suffix)
+
+    @classmethod
+    def _excluded(cls, block: list[str], path: str) -> bool:
+        excluded = False
+        for line in block:
+            negate = line.startswith("!")
+            pattern = line[1:] if negate else line
+            if cls._pattern_regex(pattern).match(path):
+                excluded = not negate
+        return excluded
+
+    def _golden_block(self) -> list[str]:
+        return self._exclude_block(_TECHDOCS_GOLDEN_MKDOCS)
+
+    def test_golden_block_matches_the_change_doc_and_the_template(self) -> None:
+        template = (SCRIPTS_ROOT.parent / "install" / "mkdocs.template.yml").read_text(encoding="utf-8")
+        self.assertEqual(self._exclude_block(template), self._golden_block())
+        self.assertEqual(
+            self._golden_block(),
+            ["/*", "!/index.md", "!/ARCHITECTURE.md", "!/architecture/", "!/architecture/**",
+             "!/references/", "!/references/**", "!/prompts/", "/prompts/*", "!/prompts/index.md"],
+        )
+        for key in ("site_name: example-project-docs Documentation",
+                    "site_description: Technical documentation for the example-project-docs project.",
+                    "docs_dir: docs", "  - techdocs-core",
+                    "  - Home: index.md", "  - Project overview: references/project-overview.md",
+                    "  - Architecture: ARCHITECTURE.md", "  - Workflow and agent commands: prompts/index.md"):
+            self.assertIn(key, _TECHDOCS_GOLDEN_MKDOCS)
+
+    def test_survivors_and_rejects_pinned_to_the_recorded_outcomes(self) -> None:
+        block = self._golden_block()
+        for path in self.SURVIVORS:
+            self.assertFalse(self._excluded(block, path), path)
+        for path in self.REJECTS:
+            self.assertTrue(self._excluded(block, path), path)
+
+    def test_removed_pattern_mutants_fail_the_oracle(self) -> None:
+        block = self._golden_block()
+        without_index = [line for line in block if line != "!/prompts/index.md"]
+        self.assertTrue(self._excluded(without_index, "prompts/index.md"), "survivor must be rejected by the mutant")
+        without_prompt_deny = [line for line in block if line != "/prompts/*"]
+        self.assertFalse(self._excluded(without_prompt_deny, "prompts/plan-feature.prompt.md"), "prompt body admitted by the mutant")
+        # Both mutants still agree with the golden on the other side, so the failure is specific.
+        self.assertFalse(self._excluded(without_index, "index.md"))
+        self.assertTrue(self._excluded(without_prompt_deny, "README.md"))
+
+
+class TechdocsCarrierLiteralPinTests(unittest.TestCase):
+    """Wave 1vj4e: literal pins for the seed/doc carriers of 1vj4d AC-6 and 1vmpz AC-1/AC-4/AC-5."""
+
+    SEEDS = SCRIPTS_ROOT.parent / "seeds"
+    REVIEW_BRANCH_HEADING = "## Read-only procedure (review branch)"
+
+    def _read(self, rel: str) -> str:
+        return (PROJECT_ROOT.parent / rel).read_text(encoding="utf-8")
+
+    def test_seed_178_carries_the_workflow_boundary_and_checklist(self) -> None:
+        text = (self.SEEDS / "178-refresh-techdocs.prompt.md").read_text(encoding="utf-8")
+        for literal in (
+            "- `Refresh TechDocs`", "- `Author TechDocs`",
+            "### Step 1: baseline (`wf_techdocs_baseline`, CLI `wf techdocs-baseline`)",
+            # The citation-form rule and its Step 3 re-resolve are the whole mechanism
+            # that keeps a published page's locators true (delivery finding DEL-4);
+            # without these pins either clause could be deleted with the suite green.
+            "Prefer the symbol form",
+            "recompute every such range against the final tree at Step 3",
+            "after all other edits in this session are complete",
+            "still covers the fact it is cited for",
+            "### Step 2: collaboration (the technical-writer coordinates)",
+            "### Step 3: validation",
+            "**Audience invariant.**", "**Link boundary.**", "**Ownership.**",
+            "### Recording boundary", "never treat a `run` event as evidence",
+            "## Operator follow-up checklist (canonical)",
+            "Wavefoundry does not render or preview the downstream site.",
+            "Rendering and publication are owned by the operator's chosen Backstage/CI environment",
+            "`repo_url` / `edit_uri`",
+            "Mark the row `[~]`",
+            "removing the generated-by line from the trio's root members",
+        ):
+            self.assertIn(literal, text, literal)
+        self.assertNotIn("techdocs_baseline.py", text)
+
+    def test_techdocs_carriers_keep_python_validation_and_no_render_boundary(self) -> None:
+        refresh_surfaces = (
+            ("seed-178", (self.SEEDS / "178-refresh-techdocs.prompt.md").read_text(encoding="utf-8")),
+            ("docs/prompts/refresh-techdocs.prompt.md", self._read("docs/prompts/refresh-techdocs.prompt.md")),
+        )
+        install_surfaces = (
+            ("seed-012", (self.SEEDS / "012-install-wavefoundry-phase-2.prompt.md").read_text(encoding="utf-8")),
+            ("docs/prompts/install-wavefoundry.prompt.md", self._read("docs/prompts/install-wavefoundry.prompt.md")),
+        )
+        for label, text in refresh_surfaces:
+            with self.subTest(surface=label, contract="required-validation"):
+                for literal in (
+                    "These required checks stay inside Wavefoundry's declared Python tool environment",
+                    "Run full docs validation",
+                    "Confirm every `nav` target in `mkdocs.yml` exists",
+                    "Run the publication audit",
+                    "Re-resolve every `path:start-end` citation",
+                    "Report what was written, what each supplier verified",
+                    "An unavailable external renderer is neither a finding nor a degraded lane",
+                ):
+                    self.assertIn(literal, text, f"{label}: {literal}")
+        for label, text in (*refresh_surfaces, *install_surfaces):
+            with self.subTest(surface=label, contract="no-render"):
+                self.assertIn("does not render or preview the downstream site", text, label)
+                self.assertIn(
+                    "rendering and publication are owned by the operator's chosen backstage/ci environment",
+                    text.lower(),
+                    label,
+                )
+                lowered = text.lower()
+                for forbidden in (
+                    "npx ",
+                    "@techdocs/cli",
+                    "techdocs-cli",
+                    "--no-docker",
+                    "mkdocs-techdocs-core",
+                    "run `mkdocs",
+                    "install `mkdocs",
+                    "preview with",
+                ):
+                    self.assertNotIn(forbidden, lowered, f"{label}: {forbidden}")
+
+        def contract_holds(text: str) -> bool:
+            lowered = text.lower()
+            return (
+                "does not render or preview the downstream site" in lowered
+                and "an unavailable external renderer is neither a finding nor a degraded lane" in lowered
+                and "npx @techdocs/cli" not in lowered
+            )
+
+        refresh_text = refresh_surfaces[0][1]
+        self.assertTrue(contract_holds(refresh_text))
+        for mutant in (
+            refresh_text.replace(
+                "does not render or preview the downstream site",
+                "renders or previews the downstream site with npx @techdocs/cli",
+                1,
+            ),
+            refresh_text.replace(
+                "An unavailable external renderer is neither a finding nor a degraded lane",
+                "An unavailable external renderer is a degraded lane",
+                1,
+            ),
+        ):
+            with self.subTest(contract="semantic-known-bad"):
+                self.assertFalse(contract_holds(mutant))
+
+    def _review_branch(self, text: str, label: str) -> str:
+        # Slice the review branch out of the document so the write-tier assertion
+        # below is scoped to it: the authoring branch names the same tool legally,
+        # so a whole-file negative would be vacuous.
+        self.assertIn(self.REVIEW_BRANCH_HEADING, text, label)
+        return text.split(self.REVIEW_BRANCH_HEADING, 1)[1].split("\n## ", 1)[0]
+
+    def test_seed_178_and_the_prompt_carry_the_review_only_branch(self) -> None:
+        # Delivery reverification killed nothing with three mutants against this
+        # prose: deleting the whole review section, deleting the router sentence,
+        # and pointing the review branch at the write-tier baseline tool. The seed
+        # is what ships and the self-hosted prompt is hand-authored, so both carry
+        # the pins; only the seed reaches a target repository.
+        surfaces = (
+            ("seed-178", (self.SEEDS / "178-refresh-techdocs.prompt.md").read_text(encoding="utf-8")),
+            ("docs/prompts/refresh-techdocs.prompt.md", self._read("docs/prompts/refresh-techdocs.prompt.md")),
+        )
+        for label, text in surfaces:
+            with self.subTest(surface=label):
+                # The router sentence is the only thing that sends a read-only
+                # request down the review branch; without it the branch is
+                # present but unreachable.
+                self.assertIn("**Two branches.**", text, label)
+                self.assertIn("run the **read-only procedure** at the end of this document instead", text, label)
+                section = self._review_branch(text, label)
+                for literal in (
+                    "Selected by an explicit read-only request. The deliverable is a report, not an edit.",
+                    "**The rule is the invariant, not a tool list: any read-only operation is fine; nothing may write.**",
+                    "**Never, in this branch:**",
+                    "write or edit any page",
+                    "call `wf_techdocs_baseline` in either mode",
+                    "remove a generated-by marker line, which the authoring branch alone may do",
+                    "call `wf_garden_docs`, `wf_sync_surfaces`, any other docs mutation, or any index mutation",
+                    "call an external renderer or site-preview command",
+                    "Run the audit: `wf_techdocs_audit` over MCP",
+                    "findings and proposed-edits table",
+                    "Write nothing.",
+                ):
+                    self.assertIn(literal, section, f"{label}: {literal}")
+                # The forbidden-write rule, stated as its own falsifiable fact: the
+                # branch promises never to invoke the write-tier baseline, whose CLI
+                # has no dry-run, so no mode-bearing call form belongs in this section.
+                self.assertNotIn("wf_techdocs_baseline(mode=", section, label)
+
+    def test_seed_100_and_seed_050_register_the_shortcut(self) -> None:
+        seed_100 = (self.SEEDS / "100-project-prompt-surface-bootstrap.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("- `docs/prompts/refresh-techdocs.prompt.md`", seed_100)
+        self.assertIn("- **refresh-techdocs** (public-only)", seed_100)
+        self.assertIn("`wf-techdocs`", seed_100)
+        seed_050 = (self.SEEDS / "050-agent-entry-surface-bootstrap.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("**Refresh TechDocs shortcut**", seed_050)
+        self.assertIn("**`Author TechDocs`**", seed_050)
+        self.assertIn("`wf-techdocs` on their prompt docs", seed_050)
+
+    def test_install_seeds_state_the_no_generation_and_pointer_rules(self) -> None:
+        seed_011 = (self.SEEDS / "011-install-wavefoundry-phase-1.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Phase 1 never generates them", seed_011)
+        seed_040 = (self.SEEDS / "040-docs-structure-bootstrap.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Do **not** create `docs/index.md` here", seed_040)
+        self.assertIn("preserved byte-for-byte by that command", seed_040)
+        seed_160 = (self.SEEDS / "160-upgrade-wavefoundry.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("The upgrade does **not** generate `catalog-info.yaml`, `mkdocs.yml`, or `docs/index.md`", seed_160)
+        self.assertIn("run `wf render-surfaces` **again**", seed_160)
+        self.assertIn("**Refresh TechDocs**", seed_160)
+        seed_012 = (self.SEEDS / "012-install-wavefoundry-phase-2.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("### 2.13.5 — Generate the Backstage catalog and TechDocs baseline via Refresh TechDocs (seed-178)", seed_012)
+        self.assertIn("the **Refresh TechDocs** shortcut with its operator follow-up checklist", seed_012)
+        for seed in (seed_011, seed_040, seed_160, seed_012):
+            self.assertNotIn("techdocs_baseline.py", seed)
+
+    def test_self_hosted_surfaces_name_the_command_and_the_skill(self) -> None:
+        index = self._read("docs/prompts/index.md")
+        self.assertIn("| **Refresh TechDocs** / **Author TechDocs** |", index)
+        self.assertIn("`wf techdocs-baseline`", index)
+        agents = self._read("AGENTS.md")
+        self.assertIn("| **Refresh TechDocs** / **Author TechDocs** |", agents)
+        self.assertIn("`wf-techdocs` (Refresh TechDocs", agents)
+        manifest = self._read("docs/prompts/prompt-surface-manifest.json")
+        self.assertIn('"doc": "docs/prompts/refresh-techdocs.prompt.md"', manifest)
+        self.assertIn('"shortcut": "Refresh TechDocs"', manifest)
+        self.assertNotIn("Author TechDocs", manifest)
+        mapping = self._read("docs/agents/platform-mapping.md")
+        self.assertIn("| `wf-techdocs` | `docs/prompts/refresh-techdocs.prompt.md` |", mapping)
+        prompt = self._read("docs/prompts/refresh-techdocs.prompt.md")
+        # The seed carries these pins; the self-hosted twin is hand-authored, so
+        # without these two lines both citation clauses could be deleted here with
+        # the suite green (delivery finding QA-RV2-1).
+        self.assertIn("Prefer the symbol form", prompt)
+        self.assertIn("still covers the fact it is cited for", prompt)
+        workflow = self._read("docs/contributing/agent-team-workflow.md")
+        self.assertIn("**Refresh TechDocs** engages it as coordinator", workflow)
+        catalog = self._read("docs/agents/specialists/README.md")
+        self.assertIn("Coordinates **Refresh TechDocs**", catalog)
+        prompt = self._read("docs/prompts/refresh-techdocs.prompt.md")
+        self.assertIn("**Shortcut phrases:** `Refresh TechDocs` · `Author TechDocs`", prompt)
+        self.assertIn("## Operator follow-up checklist (canonical)", prompt)
+        for rel in ("docs/prompts/install-wavefoundry.prompt.md", "docs/prompts/upgrade-wavefoundry.prompt.md", "docs/references/install-assets.md"):
+            self.assertIn("techdocs-baseline", self._read(rel), rel)
 
 
 if __name__ == "__main__":

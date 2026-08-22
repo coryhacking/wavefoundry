@@ -53,6 +53,7 @@ PUBLICATION_WRITER_REGISTRY = (
     PublicationWriter("wf_scan_secrets", "security_findings", "fail_fast"),
     PublicationWriter("wf_garden_docs", "docs_garden", "fail_fast"),
     PublicationWriter("wf_sync_surfaces", "surface_renderer", "fail_fast"),
+    PublicationWriter("wf_techdocs_baseline", "techdocs_baseline", "fail_fast"),
     PublicationWriter("index_build", "index", "fail_fast"),
     PublicationWriter("index_optimize", "index", "fail_fast"),
     PublicationWriter(

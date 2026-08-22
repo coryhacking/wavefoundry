@@ -48,7 +48,8 @@ After every step, call `wf_audit_install` — it reports expected missing artifa
 - [ ] 2.10 — Bootstrap wave artifacts (seed-110) — artifact: `docs/waves/README.md`
 - [ ] 2.11 — Synthesize project-specific personas (seed-120) — artifact: `docs/agents/personas/README.md`
 - [ ] 2.13 — Register drift and reindex expectations (seed-140) — artifact: drift entries in `docs/workflow-config.json`
+- [ ] 2.13.5 — Generate the Backstage catalog and TechDocs baseline via Refresh TechDocs (seed-178) — artifact: `catalog-info.yaml`
 - [ ] 2.14 — Remove the consumed bootstrap file (instruction)
 - [ ] 2.15 — Prepare the structured operator summary (instruction)
 
-Row 2.14 removes the single-use `install-wavefoundry.md` from the project root. Row 2.15 prepares the operator handoff covering what was seeded, workflow, commands, agents/personas, docs/gates, configuration, and first-time-operator rules (see seed-012 step 2.15, which lists the seven summary topics). After preparing the summary, mark 2.15 `[x]`, call `wf_audit_install()`, require `{status: "complete"}`, and only then deliver the prepared summary.
+Row 2.14 removes the single-use `install-wavefoundry.md` from the project root. Row 2.13.5 runs **Refresh TechDocs** once the Phase 2 documentation targets exist; mark it `[~]` when its precondition is unmet or the operator declines TechDocs (a `[~]` row is not stat-checked; a `[x]` row must have `catalog-info.yaml` on disk). Row 2.15 prepares the operator handoff covering what was seeded (including the Backstage/TechDocs baseline and the **Refresh TechDocs** shortcut), workflow, commands, agents/personas, docs/gates, configuration, and first-time-operator rules (see seed-012 step 2.15, which lists the seven summary topics). After preparing the summary, mark 2.15 `[x]`, call `wf_audit_install()`, require `{status: "complete"}`, and only then deliver the prepared summary.

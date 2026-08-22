@@ -90,6 +90,7 @@
       "mcp__wavefoundry__wf_list_waves",
       "mcp__wavefoundry__wf_map",
       "mcp__wavefoundry__wf_server_info",
+      "mcp__wavefoundry__wf_techdocs_audit",
       "mcp__wavefoundry__wf_upgrade_status",
       "mcp__wavefoundry__wf_validate_docs"
     ]
@@ -135,6 +136,7 @@
     "mcp__wavefoundry__wf_list_waves",
     "mcp__wavefoundry__wf_map",
     "mcp__wavefoundry__wf_server_info",
+    "mcp__wavefoundry__wf_techdocs_audit",
     "mcp__wavefoundry__wf_upgrade_status",
     "mcp__wavefoundry__wf_validate_docs"
   ]

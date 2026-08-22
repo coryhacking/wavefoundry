@@ -177,6 +177,12 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 
 **Expected artifact:** Drift entries in workflow-config.
 
+### 2.13.5 — Generate the Backstage catalog and TechDocs baseline via Refresh TechDocs (seed-178)
+
+**Action:** Run **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`, rendered at step 2.9 from `seed-178`; the `wf-techdocs` skill is the same workflow). Its first step runs `wf_techdocs_baseline` over MCP (CLI fallback: the dispatcher `./.wavefoundry/bin/wf techdocs-baseline`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-baseline`), which generates the root `catalog-info.yaml`, the root `mkdocs.yml`, and `docs/index.md` **missing-only**, each with a one-line generated-by stamp, and only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist (all three are Phase 2 artifacts, which is why this row sits at the end of the phase); existing files are preserved byte-for-byte, and a mixed trio (some generated, some project-owned) prints one `techdocs-baseline: WARNING` naming the project-owned files. Steps 2 and 3 of the workflow author the published pages with the technical-writer-coordinated collaboration and validate through Wavefoundry's Python tools. Wavefoundry does not render or preview the downstream site; rendering and publication are owned by the operator's chosen Backstage/CI environment. Mark this row `[~]` when the precondition is unmet (for example row 2.6 was `[~]`) or when the operator declines TechDocs for this project; nothing runs by accident, the command is explicit and missing-only. The operator follow-up checklist (owner, catalog-unique name, rendering/publication ownership, production CI plus storage, optional edit links, files intentionally not generated) lives in that prompt; carry it into the step 2.15 summary.
+
+**Expected artifact:** `catalog-info.yaml` at the repository root (plus `mkdocs.yml` and `docs/index.md`); when the row is `[~]`, none.
+
 ### 2.14 — Remove the consumed bootstrap file (instruction)
 
 **Action:** Delete the single-use bootstrap file `install-wavefoundry.md` from the repository root. It ships at the zip root purely so you can discover the install instructions before `.wavefoundry/` exists; it is now consumed, and the canonical install instructions live at `docs/prompts/install-wavefoundry.prompt.md`. Do not move it into `.wavefoundry/` — remove it so it does not clutter the operator's project root.
@@ -197,7 +203,7 @@ After confirming removal, mark row 2.14 `[x]` and call `wf_audit_install()`; the
 2. **High-level workflow** — change-doc + wave flow, stage gate
 3. **Commands** — shortcut phrases and lifecycle ID generation
 4. **Agents and personas** — generic roles, factor agents (when applicable), generated personas
-5. **Documentation and gates** — navigation, verification scripts
+5. **Documentation and gates** — navigation, verification scripts, the Backstage/TechDocs baseline (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`; generated at step 2.13.5 or declined with `[~]`) and the **Refresh TechDocs** shortcut with its operator follow-up checklist
 6. **Important configuration** — `docs/workflow-config.json`, `docs/repo-profile.json`
 7. **First-time operator rules** — reading order, plans vs waves, git commits, implementation guard, closing a wave
 

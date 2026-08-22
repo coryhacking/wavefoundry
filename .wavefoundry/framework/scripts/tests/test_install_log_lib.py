@@ -318,12 +318,16 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 SEEDS_DIR = FRAMEWORK_ROOT / "seeds"
 SEED_012_PATH = SEEDS_DIR / "012-install-wavefoundry-phase-2.prompt.md"
 
+# Wave 1vj4e (1vmpz): decimal-extension rows such as `2.13.5` are legal (install-log-format.md
+# forbids renumbering), so both regexes accept `2.N(.M)*` and the mention test asserts the FULL
+# token resolved; before the widening the heading regex missed `### 2.13.5` and the mention regex
+# silently resolved "step 2.13.5" to `2.13`.
 _SEED_STEP_HEADING_RE = re.compile(
-    r"^###\s+(2\.\d+)([a-z]?)\s+—\s+(.+?)\s*$",
+    r"^###\s+(2\.\d+(?:\.\d+)*)([a-z]?)\s+—\s+(.+?)\s*$",
     re.MULTILINE,
 )
 _STEP_MENTION_RE = re.compile(
-    r"\b(?:Phase\s+2\s+)?steps?\s+(2\.\d+[a-z]?)\b",
+    r"\b(?:Phase\s+2\s+)?steps?\s+(2\.\d+(?:\.\d+)*[a-z]?)\b",
     re.IGNORECASE,
 )
 
@@ -515,6 +519,7 @@ class FreshInstallContractParityTests(unittest.TestCase):
         expected_numbers = {
             *(f"2.{number}" for number in range(1, 12)),
             "2.13",
+            "2.13.5",
             "2.14",
             "2.15",
         }
@@ -609,10 +614,95 @@ class FreshInstallContractParityTests(unittest.TestCase):
                 for match in _STEP_MENTION_RE.finditer(line):
                     step = match.group(1)
                     with self.subTest(path=path.name, line=line_number, step=step):
+                        # The token must be the FULL dotted number: a mention like
+                        # "step 2.13.5" must not resolve to `2.13`.
+                        self.assertFalse(
+                            re.match(r"\.\d", line[match.end(1):]),
+                            f"step mention truncated at {step!r}: {line.strip()!r}",
+                        )
                         self.assertIn(step, known_steps)
                         _, section = self.seed_sections[step]
                         if "wf_audit_install" in line:
                             self.assertIn("wf_audit_install", section)
+
+    def test_row_2_13_5_is_a_stat_checked_seed_row_with_the_catalog_artifact(self):
+        """Wave 1vj4e (1vmpz AC-4): the Refresh TechDocs row is a `(seed-178)` seed row (an
+        instruction row could not carry a stat-checked artifact), its artifact is the root
+        `catalog-info.yaml`, CHECK 2 flags a `[x]` row without the file and skips `[~]`."""
+        row = {r.number: r for r in self.template_rows}["2.13.5"]
+        self.assertEqual(row.kind, "seed")
+        self.assertEqual(row.source, "seed-178")
+        self.assertEqual(row.artifact_path, "catalog-info.yaml")
+        self.assertIn("Refresh TechDocs", row.slug)
+        self.assertEqual(sorted(SEEDS_DIR.glob("178-*.md")), [SEEDS_DIR / "178-refresh-techdocs.prompt.md"])
+        title, section = self.seed_sections["2.13.5"]
+        self.assertIn("seed-178", title)
+        self.assertIn("[~]", section)
+        self.assertIn("wf techdocs-baseline", section)
+        self.assertNotIn("techdocs_baseline.py", section)
+        line = "- [x] 2.13.5 — Generate the Backstage catalog and TechDocs baseline via Refresh TechDocs (seed-178) — artifact: `catalog-info.yaml`"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            checked = install_log_lib.parse_log("## Phase 2\n" + line + "\n")
+            self.assertEqual(
+                [(r.number, r.artifact_path) for r, _expected in install_log_lib.checked_rows_missing_artifact(checked, root)],
+                [("2.13.5", "catalog-info.yaml")],
+            )
+            (root / "catalog-info.yaml").write_text("kind: Component\n", encoding="utf-8")
+            self.assertEqual(install_log_lib.checked_rows_missing_artifact(checked, root), [])
+            (root / "catalog-info.yaml").unlink()
+            declined = install_log_lib.parse_log("## Phase 2\n" + line.replace("[x]", "[~]") + "\n")
+            self.assertEqual(install_log_lib.checked_rows_missing_artifact(declined, root), [])
+
+    def test_row_2_13_5_boundary_through_the_install_audit(self):
+        """`[ ]` 2.13.5 is the next step; `[~]` hands over to 2.14; `[x]` without the file is
+        `checked_but_missing` (through `wf_audit_install_response`, `run_validate` mocked)."""
+        import sys as _sys
+        from unittest.mock import patch as _patch
+
+        _sys.path.insert(0, str(SCRIPTS_DIR))
+        import server_impl
+
+        clean = {"passed": True, "errors": [], "warnings": [], "output": "docs-lint: ok"}
+        # The tail of the shipped template (rows 2.13.5, 2.14, 2.15 verbatim); earlier rows are
+        # omitted so no other artifact check interferes with the boundary under test.
+        tail = [
+            line for line in self.template_text.splitlines()
+            if line.startswith("- [ ] 2.13.5 ") or line.startswith("- [ ] 2.14 ") or line.startswith("- [ ] 2.15 ")
+        ]
+        self.assertEqual(len(tail), 3, tail)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / ".wavefoundry").mkdir()
+
+            def write_log(state_2_13_5: str) -> None:
+                lines = ["## Phase 2"]
+                for raw in tail:
+                    if raw.startswith("- [ ] 2.13.5 "):
+                        raw = raw.replace("[ ]", f"[{state_2_13_5}]", 1)
+                    lines.append(raw)
+                (root / ".wavefoundry" / "install-log.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            with _patch.object(server_impl, "run_validate", return_value=clean):
+                write_log(" ")
+                result = server_impl.wf_audit_install_response(root)
+                self.assertEqual(result["data"]["status"], "next_step", result)
+                self.assertEqual(result["data"]["row"]["number"], "2.13.5")
+
+                write_log("~")
+                result = server_impl.wf_audit_install_response(root)
+                self.assertEqual(result["data"]["status"], "next_step", result)
+                self.assertEqual(result["data"]["row"]["number"], "2.14")
+
+                write_log("x")
+                result = server_impl.wf_audit_install_response(root)
+                self.assertEqual(result["data"]["status"], "checked_but_missing", result)
+                self.assertEqual(result["data"]["row"]["number"], "2.13.5")
+
+                (root / "catalog-info.yaml").write_text("kind: Component\n", encoding="utf-8")
+                result = server_impl.wf_audit_install_response(root)
+                self.assertEqual(result["data"]["status"], "next_step", result)
+                self.assertEqual(result["data"]["row"]["number"], "2.14")
 
     def test_setup_docstring_names_live_log_not_phantom_root_log(self):
         setup_path = SCRIPTS_DIR / "setup_wavefoundry.py"

@@ -1,0 +1,22 @@
+# wavefoundry: generated missing-only Backstage/TechDocs baseline; project-owned, edit freely.
+site_name: {{entity_name}} Documentation
+site_description: Technical documentation for the {{entity_name}} project.
+docs_dir: docs
+plugins:
+  - techdocs-core
+nav:
+  - Home: index.md
+  - Project overview: references/project-overview.md
+  - Architecture: ARCHITECTURE.md
+  - Workflow and agent commands: prompts/index.md
+exclude_docs: |
+  /*
+  !/index.md
+  !/ARCHITECTURE.md
+  !/architecture/
+  !/architecture/**
+  !/references/
+  !/references/**
+  !/prompts/
+  /prompts/*
+  !/prompts/index.md

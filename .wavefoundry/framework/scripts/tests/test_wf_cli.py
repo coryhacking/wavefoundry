@@ -73,6 +73,7 @@ class WfCliDispatchTests(unittest.TestCase):
             "render-surfaces": "render_platform_surfaces",
             "secrets-scan": "run_secrets_scan",
             "gpu-doctor": "gpu_doctor",
+            "techdocs-baseline": "techdocs_baseline",
         }
         for sub, module_name in expected.items():
             with self.subTest(sub=sub):
@@ -118,7 +119,7 @@ class WfCliDispatchTests(unittest.TestCase):
     def test_non_setup_subcommand_activates_venv(self):
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
                     "lifecycle-id", "upgrade", "codebase-map", "render-surfaces",
-                    "secrets-scan", "gpu-doctor"):
+                    "secrets-scan", "gpu-doctor", "techdocs-baseline"):
             with self.subTest(sub=sub):
                 self.reexec_mock.reset_mock()
                 self._run([sub], {}, takes_argv=True)
@@ -140,7 +141,7 @@ class WfCliDispatchTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         for sub in ("docs-lint", "docs-gardener", "gate", "dashboard", "update-indexes",
                     "lifecycle-id", "upgrade", "setup", "codebase-map", "render-surfaces",
-                    "secrets-scan", "gpu-doctor"):
+                    "secrets-scan", "gpu-doctor", "techdocs-baseline"):
             self.assertIn(sub, text)
 
     def test_unknown_subcommand_errors(self):
@@ -216,6 +217,440 @@ class GpuDoctorSubcommandTests(unittest.TestCase):
         # AC-2: like every other subcommand, gpu_doctor activates the shared tool venv in-process.
         src = (Path(__file__).resolve().parents[1] / "gpu_doctor.py").read_text(encoding="utf-8")
         self.assertIn("venv_bootstrap.activate_tool_venv()", src)
+
+
+class TechdocsAuditSubcommandTests(unittest.TestCase):
+    """Wave 1vqqi: `wf techdocs-audit` is a thin entry over techdocs_audit_lib.audit_techdocs.
+
+    The dispatch test drives the real module through wf_cli with only the venv
+    activation mocked, and every mode is checked for writes with a digest over
+    git-tracked-shaped state: the entry must never write, and the MCP path's cost
+    telemetry (which is gitignored and not a repository write) is out of scope here.
+    """
+
+    def setUp(self):
+        scripts_dir = str(Path(__file__).resolve().parents[1])
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        self.mod = load_wf_cli()
+        self._orig_argv = list(sys.argv)
+        p = patch.object(self.mod.venv_bootstrap, "activate_tool_venv")
+        self.reexec_mock = p.start()
+        self.addCleanup(p.stop)
+
+    def tearDown(self):
+        sys.argv = self._orig_argv
+
+    @staticmethod
+    def _tree(temp_dir: str, *, with_mkdocs: bool = True) -> Path:
+        root = (Path(temp_dir) / "Example_Project").resolve()
+        meta = "Owner: Engineering\nStatus: active\nLast verified: 2026-08-18\n"
+        for rel, title in (
+            ("docs/index.md", "Home"),
+            ("docs/ARCHITECTURE.md", "Architecture"),
+            ("docs/references/project-overview.md", "Project overview"),
+            ("docs/prompts/index.md", "Commands"),
+        ):
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {title}\n\n{meta}\n", encoding="utf-8")
+        (root / "catalog-info.yaml").write_text("kind: Component\n", encoding="utf-8")
+        if with_mkdocs:
+            block = "\n".join(
+                "  " + line for line in
+                ["/*", "!/index.md", "!/ARCHITECTURE.md", "!/architecture/", "!/architecture/**",
+                 "!/references/", "!/references/**", "!/prompts/", "/prompts/*", "!/prompts/index.md"]
+            )
+            (root / "mkdocs.yml").write_text(
+                "site_name: Example\ndocs_dir: docs\nnav:\n  - Home: index.md\n"
+                "  - Project overview: references/project-overview.md\n"
+                "  - Architecture: ARCHITECTURE.md\n  - Workflow: prompts/index.md\n"
+                "exclude_docs: |\n" + block + "\n",
+                encoding="utf-8",
+            )
+        return root
+
+    @staticmethod
+    def _digest(root: Path) -> dict:
+        import hashlib
+        out = {}
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                out[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return out
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        import io
+        import contextlib
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = self.mod.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_registered_in_subcommands(self):
+        self.assertIn("techdocs-audit", self.mod._SUBCOMMANDS)
+        self.assertEqual(self.mod._SUBCOMMANDS["techdocs-audit"]["module"], "techdocs_audit")
+        self.assertEqual(self.mod._SUBCOMMANDS["techdocs-audit"]["script"], "techdocs_audit.py")
+
+    def test_no_findings_but_ungit_tree_degrades_rather_than_claiming_clean(self):
+        """A run that could not compute something never reports clean, and exit 1 covers it.
+
+        Outside a git work tree the audience invariant cannot be evaluated at all, so the
+        verdict is `degraded` even though no finding fired. That is the whole point of the
+        degraded verdict: silence about an unevaluated check would read as a clean site.
+        """
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir)
+            before = self._digest(root)
+            rc, out, err = self._run(["techdocs-audit", "--root", str(root), "--json"])
+            self.assertEqual(rc, 1, err)
+            self.reexec_mock.assert_called()
+            envelope = json.loads(out)
+            self.assertEqual(envelope["summary"]["verdict"], "degraded")
+            self.assertIn("git_unavailable", envelope["degraded"])
+            self.assertEqual(envelope["publication"]["survivor_count"], 4)
+            self.assertEqual(envelope["findings"], [])
+            self.assertEqual(self._digest(root), before)
+
+    def test_clean_verdict_and_exit_zero_when_every_check_is_informative(self):
+        """The clean verdict is reachable: a git tree with an uncommitted authoring edit,
+        which is exactly the state the workflow's Step 3 runs in."""
+        import json
+        import shutil
+        import subprocess
+        import tempfile
+
+        if shutil.which("git") is None:  # pragma: no cover
+            self.skipTest("git unavailable")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            for args in (("config", "user.email", "t@example.invalid"), ("config", "user.name", "T")):
+                subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "base"], check=True, capture_output=True)
+            for rel in ("docs/references/project-overview.md", "docs/ARCHITECTURE.md"):
+                path = root / rel
+                path.write_text(path.read_text(encoding="utf-8") + "\n## Added by the authoring pass\n",
+                                encoding="utf-8")
+            before = self._digest(root)
+            rc, out, err = self._run(["techdocs-audit", "--root", str(root), "--json"])
+            self.assertEqual(rc, 0, err)
+            envelope = json.loads(out)
+            self.assertEqual(envelope["summary"]["verdict"], "clean")
+            self.assertEqual(envelope["degraded"], [])
+            self.assertTrue(envelope["audience"]["docs/ARCHITECTURE.md"]["checked"])
+            self.assertEqual(self._digest(root), before)
+
+    def test_findings_exit_one_and_text_mode_names_each(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir)
+            (root / "docs" / "references" / "links.md").write_text(
+                "# Links\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-08-18\n\n"
+                "[gone](./missing.md)\n", encoding="utf-8")
+            before = self._digest(root)
+            rc, out, err = self._run(["techdocs-audit", "--root", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertIn("techdocs-audit: medium techdocs_link_missing", out)
+            self.assertIn("techdocs-audit: findings;", out)
+            self.assertEqual(self._digest(root), before)
+
+    def test_not_applicable_exits_zero_because_it_is_a_legitimate_state(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir, with_mkdocs=False)
+            before = self._digest(root)
+            rc, out, err = self._run(["techdocs-audit", "--root", str(root), "--json"])
+            self.assertEqual(rc, 0)
+            envelope = json.loads(out)
+            self.assertEqual(envelope["summary"]["verdict"], "not_applicable")
+            self.assertIn("mkdocs_absent", envelope["degraded"])
+            self.assertIn("techdocs-audit: NOTE degraded: mkdocs_absent", err)
+            self.assertEqual(self._digest(root), before)
+            # Contrast with the sibling verb, where exit 1 means precondition-unmet:
+            # here 1 is an informative result and 0 covers this legitimate state.
+
+    def test_not_applicable_does_not_suppress_an_exit_one_when_findings_exist(self):
+        """DEL-5: `not_applicable` is a forced verdict that wins over findings.
+
+        Keying the exit code on the verdict made this combination exit 0 while
+        both documented exit-1 conditions held, so a CI consumer chaining on
+        exit status read a partial trio and an unauthored landing page as a pass.
+        """
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir, with_mkdocs=False)
+            # The markdown member's marker is an HTML comment; the YAML members
+            # use a `#` comment. A generated landing page beside a project-owned
+            # catalog file is a mixed trio, which is what reports here.
+            marker = ("<!-- wavefoundry: generated missing-only Backstage/TechDocs "
+                      "baseline; project-owned, edit freely. -->\n")
+            (root / "docs" / "index.md").write_text(
+                marker + "# Home\n\nOwner: Engineering\nStatus: active\n"
+                "Last verified: 2026-08-18\n", encoding="utf-8")
+            before = self._digest(root)
+            rc, out, err = self._run(["techdocs-audit", "--root", str(root), "--json"])
+            envelope = json.loads(out)
+            self.assertEqual(envelope["summary"]["verdict"], "not_applicable")
+            self.assertTrue(envelope["findings"], "the trio checks must still report")
+            self.assertEqual(rc, 1, err)
+            self.assertEqual(self._digest(root), before)
+
+    def test_an_unresolvable_root_exits_two_rather_than_raising(self):
+        """Root resolution sat outside main()'s try, so this raised.
+
+        `expanduser()` raises RuntimeError for an unknown user, and the entry
+        promises an exit code. Moving the resolution inside the try shipped with
+        no test at all, so the mutation survived.
+        """
+        rc, out, err = self._run(["techdocs-audit", "--root", "~nosuchuser1234/x"])
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("Traceback", err)
+
+    def test_could_not_run_exits_two(self):
+        """AC-5 pins 0 / 1 / 2; only 0 and 1 had an assertion for this subcommand."""
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir)
+            before = self._digest(root)
+            with mock.patch("techdocs_audit_lib.run_techdocs_audit",
+                            side_effect=OSError("unreadable tree")):
+                rc, out, err = self._run(["techdocs-audit", "--root", str(root)])
+            self.assertEqual(rc, 2, out)
+            self.assertIn("ERROR the audit could not run", err)
+            self.assertEqual(self._digest(root), before)
+
+    def test_timeout_is_a_degraded_json_report_and_exit_one(self):
+        """AC-10: the CLI surfaces the bounded runner's timeout envelope."""
+        import json
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._tree(temp_dir)
+            before = self._digest(root)
+            import techdocs_audit_lib
+
+            timeout_report = techdocs_audit_lib._timeout_report(root)
+            with mock.patch("techdocs_audit_lib.run_techdocs_audit",
+                            return_value=timeout_report) as run:
+                rc, out, err = self._run(
+                    ["techdocs-audit", "--root", str(root), "--json"])
+
+            self.assertEqual(rc, 1, err)
+            envelope = json.loads(out)
+            self.assertEqual(envelope["degraded"], ["audit_timeout"])
+            self.assertEqual(envelope["summary"]["verdict"], "degraded")
+            self.assertIn("NOTE degraded: audit_timeout", err)
+            run.assert_called_once_with(root, compare_to=None)
+            self.assertEqual(self._digest(root), before)
+
+    def test_help_lists_the_subcommand_with_a_description(self):
+        import io
+        import contextlib
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.mod.main(["--help"])
+        rendered = out.getvalue()
+        self.assertIn("techdocs-audit", rendered)
+
+        # AC-5 requires it to APPEAR in help, which a bare name does not satisfy.
+        # Asserted over every subcommand rather than just this one, so the next
+        # verb added without a description fails here too.
+        parser = self.mod._build_parser()
+        sub_action = next(a for a in parser._subparsers._group_actions
+                          if getattr(a, "_choices_actions", None))
+        undescribed = sorted(c.dest for c in sub_action._choices_actions if not c.help)
+        self.assertEqual(undescribed, [])
+
+
+class TechdocsBaselineSubcommandTests(unittest.TestCase):
+    """Wave 1vj4e (1vj4d): `wf techdocs-baseline` is a thin entry over
+    render_agent_surfaces.render_techdocs_baseline; the faithful dispatch test drives the real
+    module through wf_cli with only the venv activation mocked."""
+
+    def setUp(self):
+        scripts_dir = str(Path(__file__).resolve().parents[1])
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        self.mod = load_wf_cli()
+        self._orig_argv = list(sys.argv)
+        p = patch.object(self.mod.venv_bootstrap, "activate_tool_venv")
+        self.reexec_mock = p.start()
+        self.addCleanup(p.stop)
+
+    def tearDown(self):
+        sys.argv = self._orig_argv
+
+    @staticmethod
+    def _target(temp_dir: str, *, targets: bool = True) -> Path:
+        import render_agent_surfaces as ras
+
+        root = (Path(temp_dir) / "Example_Project").resolve()
+        (root / "docs" / "references").mkdir(parents=True)
+        (root / "docs" / "prompts").mkdir(parents=True)
+        if targets:
+            for target in ras.TECHDOCS_PRECONDITION_TARGETS:
+                (root / target).write_text("# t\n", encoding="utf-8")
+        return root
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        import io
+        import contextlib
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = self.mod.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_registered_in_subcommands(self):
+        self.assertIn("techdocs-baseline", self.mod._SUBCOMMANDS)
+        self.assertEqual(self.mod._SUBCOMMANDS["techdocs-baseline"]["module"], "techdocs_baseline")
+        self.assertEqual(self.mod._SUBCOMMANDS["techdocs-baseline"]["script"], "techdocs_baseline.py")
+
+    def test_faithful_dispatch_generates_the_trio_and_prints_the_json_envelope(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._target(temp_dir)
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root), "--json"])
+            self.assertEqual(rc, 0, err)
+            # The dispatcher activates the venv in-process (the entry module also does at import).
+            self.reexec_mock.assert_called()
+            for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md"):
+                self.assertTrue((root / rel).is_file(), rel)
+            envelope = json.loads(out)
+            self.assertEqual(
+                sorted(envelope),
+                ["generated_paths", "missing_targets", "partial", "preserved_paths", "refusal", "written_paths"],
+            )
+            self.assertEqual(envelope["written_paths"], ["catalog-info.yaml", "mkdocs.yml", "docs/index.md"])
+            self.assertEqual(envelope["generated_paths"], envelope["written_paths"])
+            self.assertEqual(envelope["preserved_paths"], [])
+            self.assertEqual(envelope["missing_targets"], [])
+            self.assertIsNone(envelope["partial"])
+            self.assertIsNone(envelope["refusal"])
+            self.assertEqual(err, "")
+            self.assertIn("name: example-project-docs", (root / "catalog-info.yaml").read_text(encoding="utf-8"))
+
+            # Text mode on a rerun: preserved lines on stdout, nothing on stderr, exit 0.
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                out.splitlines(),
+                [f"techdocs-baseline: preserved {rel}" for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md")],
+            )
+            self.assertEqual(err, "")
+
+            # Mixed trio: exit 0, one WARNING on stderr, `partial` is the record.
+            (root / "mkdocs.yml").write_text("site_name: Mine\n", encoding="utf-8")
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root), "--json"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(err.count("techdocs-baseline: WARNING Backstage/TechDocs baseline is partial"), 1)
+            envelope = json.loads(out)
+            self.assertEqual(envelope["partial"]["code"], "backstage_techdocs_partial")
+            self.assertEqual(envelope["partial"]["preserved_paths"], ["mkdocs.yml"])
+            self.assertEqual(envelope["written_paths"], [])
+
+    def test_post_preflight_failure_reports_what_was_written(self):
+        """A failure after preflight must not claim 'nothing written' (delivery finding DEL-2).
+
+        Two shapes share exit 2: the preflight refusal, where the tree really is untouched,
+        and a write failure on a later member, where earlier members are on disk. The ERROR
+        line and the envelope have to tell them apart.
+        """
+
+        import json
+        import tempfile
+
+        import render_agent_surfaces as ras
+
+        real = ras._write_review_carrier_text
+
+        def flaky(path, content, *, exclusive=False):
+            if path.name == "mkdocs.yml":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, content, exclusive=exclusive)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._target(temp_dir)
+            with patch.object(ras, "_write_review_carrier_text", side_effect=flaky):
+                rc, out, err = self._run(["techdocs-baseline", "--root", str(root), "--json"])
+            self.assertEqual(rc, 2)
+            self.assertTrue((root / "catalog-info.yaml").is_file())
+            self.assertFalse((root / "mkdocs.yml").exists())
+            envelope = json.loads(out)
+            self.assertEqual(envelope["written_paths"], ["catalog-info.yaml"])
+            self.assertEqual(envelope["generated_paths"], ["catalog-info.yaml"])
+            self.assertIn("Permission denied", envelope["refusal"])
+            self.assertIn("wrote catalog-info.yaml before failing", envelope["refusal"])
+            self.assertEqual(err.count("techdocs-baseline: ERROR"), 1)
+            self.assertNotIn("(nothing written)", err)
+
+            # Control: the preflight refusal on an untouched tree still says nothing was written.
+            other = self._target(temp_dir + "/second")
+            (other / "docs" / "index.md").mkdir()
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(other), "--json"])
+            self.assertEqual(rc, 2)
+            self.assertIn("(nothing written)", err)
+            self.assertEqual(json.loads(out)["written_paths"], [])
+            self.assertFalse((other / "catalog-info.yaml").exists())
+
+    def test_precondition_and_refusal_exit_codes(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._target(temp_dir, targets=False)
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root), "--json"])
+            self.assertEqual(rc, 1)
+            self.assertEqual(err.count("techdocs-baseline: ERROR precondition unmet"), 1)
+            for target in ("docs/references/project-overview.md", "docs/ARCHITECTURE.md", "docs/prompts/index.md"):
+                self.assertIn(target, err)
+            envelope = json.loads(out)
+            self.assertEqual(len(envelope["missing_targets"]), 3)
+            self.assertEqual(envelope["written_paths"], [])
+            for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md"):
+                self.assertFalse((root / rel).exists(), rel)
+            # Text mode: the one stderr line, empty stdout.
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertEqual(out, "")
+            self.assertEqual(len(err.splitlines()), 1)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = self._target(temp_dir)
+            (root / "docs" / "index.md").mkdir()
+            rc, out, err = self._run(["techdocs-baseline", "--root", str(root), "--json"])
+            self.assertEqual(rc, 2)
+            self.assertIn("techdocs-baseline: ERROR", err)
+            envelope = json.loads(out)
+            self.assertIn("not a regular file", envelope["refusal"])
+            self.assertEqual(envelope["written_paths"], [])
+            self.assertFalse((root / "catalog-info.yaml").exists())
+            self.assertFalse((root / "mkdocs.yml").exists())
+
+    def test_thin_entry_delegates_and_self_bootstraps(self):
+        src = (Path(__file__).resolve().parents[1] / "techdocs_baseline.py").read_text(encoding="utf-8")
+        self.assertIn("venv_bootstrap.activate_tool_venv()", src)
+        self.assertIn("render_techdocs_baseline", src)
+        # No re-implemented behavior: the entry never opens or writes the trio itself.
+        for forbidden in ("os.open(", "TECHDOCS_BASELINES", "{{entity_name}}", "def techdocs_entity_name"):
+            self.assertNotIn(forbidden, src)
 
 
 def _load_reconcile_scan():

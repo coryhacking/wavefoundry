@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-26
+Last verified: 2026-08-21
 
 ## Role Routing
 
@@ -66,7 +66,7 @@ Invoke these when the change needs deeper expertise than a generic role normally
 |------------|-------------|
 | `software-architect` | Major topology, subsystem decomposition, or cross-boundary design work |
 | `security-engineer` | Threat-model, authz, sensitive-data, or trust-boundary changes need more than a review lane |
-| `technical-writer` | Operator docs, onboarding docs, or durable reference docs need active authorship |
+| `technical-writer` | Operator docs, onboarding docs, or durable reference docs need active authorship. **Refresh TechDocs** engages it as coordinator with `guru`, `software-architect` or `architecture-reviewer`, `security-reviewer`, `qa-reviewer` / `reality-checker`, and `docs-contract-reviewer` (`docs/prompts/refresh-techdocs.prompt.md`) |
 | `codebase-onboarding-engineer` | Repo discovery, architecture walkthroughs, or onboarding maps are the primary output |
 | `workflow-architect` | Multi-step flows, handoffs, failure modes, or recovery paths need explicit design |
 | `reality-checker` | Claims need adversarial evidence review before closure or release; fixed seat in the default Wave Council template |

@@ -2,7 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-08-21
+
+**For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
 ## What Wavefoundry Is
 
@@ -12,7 +14,7 @@ As a project, Wavefoundry is the canonical repository for the Wave Framework and
 
 **Wavefoundry is a harness and tooling repository, not a target product repository.** It does not ship a networked product application. Its deliverables are:
 
-1. **The Wave Framework seed pack** — numbered seed prompts (001–214+) and reference docs packaged into dated `.zip` distributions and installed into target repositories.
+1. **The Wave Framework seed pack** — numbered seed prompts (001–250) and reference docs packaged into version-stamped `.zip` distributions and installed into target repositories.
 2. **Framework scripts** — CLI tools for lifecycle ID generation, docs linting, docs gardening, platform surface rendering, packaging, test running, index building, and local dashboard serving.
 3. **Local MCP server** — a local-only stdio server exposing structured tools for wave lifecycle management, semantic search, code navigation, secrets scanning, audit, and feedback harness operation.
 4. **Local dashboard surface** — a loopback-only operational dashboard served from `.wavefoundry/framework/dashboard/` by `.wavefoundry/framework/scripts/dashboard_server.py`.
@@ -40,6 +42,8 @@ Wavefoundry is local-only and runs wherever a supported Python and AI host run. 
 
 ## Orient with the codebase map first
 
+*Reader summary:* the [codebase map](codebase-map.md) is a generated table of the code's major areas, key files, and entry points; agents read it before searching, and people can use it the same way.
+
 Before grep-thrashing or opening files, read `docs/references/codebase-map.md` — a generated, graceful-scaling map of this project's own codebase (built offline from the persisted graph + community-cluster artifacts and refreshed with the index build). It is the **index to the index**: it shows the bounded set of top-level areas, each with its responsibility, key files, and entry-point symbols, plus a drill-in handle. To go deeper, pass an area's stable `hub_node_id` to `code_graph_community`, or open its key files with `code_outline`. The map is read-only and regenerates on index build (or on demand via `wf codebase-map --root .`).
 
 **Before working in an area, consult that area's `AGENTS.md` if one is present** — vendor-neutral per-area context (local conventions, gotchas, intent) for major areas only. The map links each area to its `AGENTS.md` when one exists; scaffold empty stubs with `wf codebase-map --scaffold-area-contexts` (humans author the content). The only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge; there are no per-folder `CLAUDE.md` bridge files.
@@ -60,14 +64,18 @@ wavefoundry/
 
 ## Self-Hosting Boundary
 
+*Reader summary:* the repository is two trees with different owners. `.wavefoundry/framework/` is the framework product that gets packaged and installed into every target repository; `docs/` is this repository's own operating surface, which the scripts read but which never imports script internals, and on generic framework behavior the seed source wins ([Domain map](../architecture/domain-map.md), Domains and Dependency Direction Rules items 1 and 3).
+
 Wavefoundry uses the Wave Framework to develop itself:
 
-- `.wavefoundry/framework/` is the **canonical framework directory**. Edits here change the framework for all target repositories. `build_pack.py` packages this directory into dated zip distributions for operators.
+- `.wavefoundry/framework/` is the **canonical framework directory**. Edits here change the framework for all target repositories. `build_pack.py` packages this directory into version-stamped zip distributions for operators.
 - `docs/` is **Wavefoundry's self-hosted project operating surface**. Plans, waves, architecture notes, agent roles, and memory records live here.
 - When `docs/` guidance conflicts with `.wavefoundry/framework/seeds/` on generic framework behavior, the seed source wins.
 - When project-specific policy under `docs/` conflicts with generic framework defaults, the local policy governs Wavefoundry until a wave changes the framework default.
 
 ## Workflow Overview
+
+*Reader summary:* steps 1-3 below prepare work and, in the default `ready` mode, never take the single OPEN slot; step 4 (or `wf_prepare_wave(mode='create')`, prepare-and-open) opens a wave, and only one wave is open at a time (`wf_prepare_wave` docstring, `server_impl.py`). Review evidence from step 5 is recorded in `docs/waves/<wave-id>/events.jsonl`, the sole machine authority; the wave's `wave.md` is a generated projection of it ([Data and control flow](../architecture/data-and-control-flow.md), State Ownership).
 
 Wavefoundry uses the Wave Framework lifecycle for its own development:
 
@@ -78,9 +86,11 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, validate and promote memory candidates, clear handoff.
 
-See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-interrogate-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-interrogate-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`, and the doc-gated `/wf-package`, `/wf-code-cleanup` and `/wf-techdocs`, fifteen in all as of 2026-08-18); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 
 ## Generic Agent Roles
+
+*Reader summary:* these are the roles the framework assigns to AI agents while planning, implementing, and reviewing a wave; the role documents themselves live under `docs/agents/` and are not part of the published site.
 
 Wavefoundry uses the standard Wave Framework generic roles:
 
@@ -110,6 +120,8 @@ Wavefoundry has two active persona agents representing people who use or operate
 
 ## Key Configuration
 
+*Reader summary:* three checked-in JSON files under `docs/` (the workflow config for lifecycle, review, and dashboard settings; the repo profile for archetypes and factor applicability; the prompt-surface manifest for the command catalog); the fourth is a gitignored local approval flag that the edit gates read (`_VALID_GATES`, `server_impl.py`; `render_platform_surfaces.GUARD_OVERRIDES_REL`, line 16).
+
 | File | Purpose |
 |------|---------|
 | `docs/workflow-config.json` | Lifecycle epoch, wave settings, review policies, persona and factor policies, dashboard host/port preferences |
@@ -118,6 +130,8 @@ Wavefoundry has two active persona agents representing people who use or operate
 | `.wavefoundry/guard-overrides.json` | Temporary approval flags for seed/framework edits (gitignored) |
 
 ## How to Start
+
+*Reader summary:* the list below is the agent's reading order, and items 1 and 4 name agent surfaces (`AGENTS.md`, `docs/contributing/`) outside the published site. Readers of this site can start with the [home page](../index.md), then [Architecture](../ARCHITECTURE.md) and the [command catalog](../prompts/index.md).
 
 1. Read `AGENTS.md` → **Start Here** section to understand the shortcut phrase table, stage gate, and git commits policy.
 2. Consult `docs/prompts/index.md` for the full public command surface.

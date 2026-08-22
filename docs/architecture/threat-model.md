@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-15
+Last verified: 2026-08-21
 
 ## Trust Boundaries
 
@@ -63,7 +63,7 @@ Any one of these flips the posture and re-scopes the actor classes above; when a
 
 - No secrets, credentials, tokens, or PII in framework scripts or seed prompts.
 - Guard-overrides file (`.wavefoundry/guard-overrides.json`) is gitignored to prevent accidental commit of approval flags.
-- Dashboard endpoint metadata file (`.wavefoundry/dashboard-server.json`) must stay untracked/host-local.
+- Dashboard endpoint metadata carrier (`.wavefoundry/locks/dashboard-server.lock`, the lifetime lock file) must stay untracked/host-local.
 - Distribution zips are gitignored; they are local transport artifacts only.
 
 ## Future Considerations
