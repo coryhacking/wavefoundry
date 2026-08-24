@@ -166,7 +166,14 @@ class ScanResultShapeTests(unittest.TestCase):
             self.assertEqual(
                 f.as_dict(),
                 {"file": "guide.md", "line": 2, "retired_surface": "docs-lint",
-                 "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"},
+                 "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint",
+                 "disposition_key": self.scan.disposition_key(f),
+                 "disposition_key_version": "v2",
+                 "legacy_disposition_key": self.scan.legacy_disposition_key(f),
+                 "disposition_state": "unrecorded",
+                 "logical_line": "Run `.wavefoundry/bin/docs-lint` here.",
+                 "heading_context": "",
+                 "proposed_v2_key": None},
             )
 
     def test_mcp_server_reference_suggests_remove_rewrite(self):
@@ -228,6 +235,135 @@ class ScanResultShapeTests(unittest.TestCase):
             root = Path(td)
             (root / "ok.py").write_text('p = bin_dir / "wf"\n', encoding="utf-8")
             (root / "ok.md").write_text("`.wavefoundry/bin/docs-lint-extra` is fine\n", encoding="utf-8")
+            self.assertEqual(self.scan.scan_repo(root), [])
+
+
+class RetiredPlanReviewIdentityTests(unittest.TestCase):
+    """1w047 AC-5: retired skill/path forms report; phrase aliases and history do not."""
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def test_exact_skill_prompt_and_seed_references_are_repairable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "guide.md").write_text(
+                "Use `/wf-interrogate-plan`.\n"
+                "Read `docs/prompts/interrogate-plan.prompt.md`.\n"
+                "Merge `docs/prompts/agents/interrogate-plan.prompt.md` manually.\n"
+                "Source: `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md`.\n",
+                encoding="utf-8",
+            )
+
+            findings = self.scan.scan_repo(root)
+
+        self.assertEqual(
+            [(f.line, f.retired_surface, f.suggested) for f in findings],
+            [
+                (1, "wf-interrogate-plan", "wf-review-plan"),
+                (
+                    2,
+                    "docs/prompts/interrogate-plan.prompt.md",
+                    "docs/prompts/review-plan.prompt.md",
+                ),
+                (
+                    3,
+                    "docs/prompts/agents/interrogate-plan.prompt.md",
+                    "merge unique guidance into docs/prompts/review-plan.prompt.md, then remove the obsolete agents prompt",
+                ),
+                (
+                    4,
+                    "175-interrogate-plan.prompt.md",
+                    ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+                ),
+            ],
+        )
+
+    def test_seed_basename_reference_is_also_repairable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "guide.md").write_text(
+                "See `175-interrogate-plan.prompt.md`.\n", encoding="utf-8"
+            )
+            findings = self.scan.scan_repo(root)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].matched, "175-interrogate-plan.prompt.md")
+        self.assertEqual(
+            findings[0].suggested,
+            ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+        )
+
+    def test_legacy_agents_prompt_is_reported_by_file_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            legacy = root / "docs/prompts/agents/interrogate-plan.prompt.md"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(
+                "# Project-specific plan review\n\n"
+                "Keep this unique operator guidance during the rename.\n",
+                encoding="utf-8",
+            )
+
+            findings = self.scan.scan_repo(root)
+
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(finding.file, "docs/prompts/agents/interrogate-plan.prompt.md")
+        self.assertEqual(finding.line, 1)
+        self.assertEqual(
+            finding.retired_surface,
+            "docs/prompts/agents/interrogate-plan.prompt.md",
+        )
+        self.assertEqual(finding.matched, finding.retired_surface)
+        self.assertEqual(
+            finding.suggested,
+            "merge unique guidance into docs/prompts/review-plan.prompt.md, then remove the obsolete agents prompt",
+        )
+
+    def test_supported_phrase_aliases_are_not_retired(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "guide.md").write_text(
+                "Use **Interrogate this plan** or **Stress-test this plan**.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(self.scan.scan_repo(root), [])
+
+    def test_longer_skill_near_misses_are_not_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "guide.md").write_text(
+                "`my-wf-interrogate-plan` and `wf-interrogate-plan-extra`\n"
+                "`mydocs/prompts/interrogate-plan.prompt.md` and "
+                "`docs/prompts/interrogate-plan.prompt.md.bak`\n"
+                "`mydocs/prompts/agents/interrogate-plan.prompt.md` and "
+                "`docs/prompts/agents/interrogate-plan.prompt.md.bak`\n"
+                "`x175-interrogate-plan.prompt.md` and "
+                "`175-interrogate-plan.prompt.md.old`\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(self.scan.scan_repo(root), [])
+
+    def test_declared_history_and_frozen_benchmarks_are_excluded(self):
+        excluded = (
+            "docs/waves/1p6lp/history.md",
+            "docs/waves/1w047 review-plan-naming/change.md",
+            "CHANGELOG.md",
+            ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+            ".wavefoundry/framework/scripts/benchmarks/model_swap_v2_result.json",
+        )
+        body = (
+            "`wf-interrogate-plan`\n"
+            "`docs/prompts/interrogate-plan.prompt.md`\n"
+            "`175-interrogate-plan.prompt.md`\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel in excluded:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
             self.assertEqual(self.scan.scan_repo(root), [])
 
 
@@ -411,10 +547,10 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
             found = self._findings(root)
         self.assertEqual([(f.line, f.retired_surface) for f in found], [(7, "docs/agents/journals")])
 
-    def test_stopgap_disposition_still_suppresses_the_live_hit_until_removed(self):
-        # AC-3: the 1v7a1 key hashes (file, surface, matched TEXT), so a disposition made
-        # for the archive row equals the live High-table hit's key and suppresses it at the
-        # channel boundary; drop the entry and the live hit reappears. Fail-open store unchanged.
+    def test_legacy_disposition_never_suppresses_the_live_hit(self):
+        # 1w3bq AC-3: preserved v1 keys are diagnostic-only. A historical
+        # judgment over the broad file/surface/matched tuple cannot suppress a
+        # current candidate, even when exactly one candidate remains.
         text = (
             "# Missing docs\n\n## High\n\n| Item | Note |\n| --- | --- |\n| docs/agents/journals/ | still open |\n\n"
             "## Resolved / closed\n\n| Date | Item |\n| --- | --- |\n| 2026-04-06 | docs/agents/journals/ retired |\n"
@@ -422,15 +558,13 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = self._root(td, text)
             [live] = self._findings(root)
-            key = self.scan.disposition_key(live)
-            # the key an operator recorded for the ARCHIVE row (same file, surface, matched
-            # text, different line) is byte-identical to the live hit's key
-            archive_row = dataclasses.replace(live, line=13)
-            self.assertEqual(self.scan.disposition_key(archive_row), key)
+            key = self.scan.legacy_disposition_key(live)
             store = root / self.scan.DISPOSITIONS_REL
             store.write_text(json.dumps([{"key": key, "status": self.scan.HISTORICAL_RECORD}]), encoding="utf-8")
             reconciliation, _, _ = self.scan.scan_repo_channels(root)
-            self.assertEqual([f for f in reconciliation if f.file == self.ARCHIVE], [], "stopgap suppresses the live hit too")
+            [reported] = [f for f in reconciliation if f.file == self.ARCHIVE]
+            self.assertEqual(reported.disposition_state, "legacy-reclassification-required")
+            self.assertEqual(reported.as_dict()["proposed_v2_key"], self.scan.disposition_key(reported))
             store.unlink()
             reconciliation, _, _ = self.scan.scan_repo_channels(root)
             self.assertEqual([f.line for f in reconciliation if f.file == self.ARCHIVE], [7])
@@ -1032,3 +1166,174 @@ class UpgradeRenderBeforeScanOrderingTests(unittest.TestCase):
             },
             "the reconciliation scan may only run from the summary emitters",
         )
+
+
+class FindingSpecificDispositionTests(unittest.TestCase):
+    """1w3bq: exact v2 identity, duplicate refusal, and field oracle."""
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    @staticmethod
+    def _write(root: Path, body: str) -> Path:
+        path = root / "docs" / "agents" / "session-handoff.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_exact_downstream_cardinality_and_live_append(self):
+        historical = (
+            "# Handoff\n"
+            "## Rename\n"
+            "The wf-interrogate-plan skill was removed.\n"
+            "The old wf-interrogate-plan directory was pruned.\n"
+            "docs/prompts/interrogate-plan.prompt.md failed the old profile.\n"
+            "Later docs/prompts/interrogate-plan.prompt.md was removed.\n"
+            "The path docs/prompts/interrogate-plan.prompt.md stayed absent.\n"
+            "The seed 175-interrogate-plan.prompt.md was retired.\n"
+            "The old wf-interrogate-plan wrapper no longer renders.\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, historical)
+            raw = self.scan.scan_repo(root)
+            self.assertEqual(len(raw), 7)
+            self.assertEqual(len({self.scan.legacy_disposition_key(f) for f in raw}), 3)
+            self.assertEqual(len({self.scan.disposition_key(f) for f in raw}), 7)
+            self.assertTrue(all(re.fullmatch(r"v2:[0-9a-f]{32}", self.scan.disposition_key(f)) for f in raw))
+
+            store = root / self.scan.DISPOSITIONS_REL
+            store.write_text(
+                json.dumps([
+                    {"key": self.scan.disposition_key(f), "status": self.scan.HISTORICAL_RECORD}
+                    for f in raw
+                ]),
+                encoding="utf-8",
+            )
+            self.assertEqual(self.scan.scan_repo_channels(root)[0], [])
+
+            path.write_text(historical + "Use wf-interrogate-plan for every new plan.\n", encoding="utf-8")
+            self.assertEqual(len(self.scan.scan_repo(root)), 8)
+            [live] = self.scan.scan_repo_channels(root)[0]
+            self.assertIn("Use wf-interrogate-plan", live.logical_line)
+
+    def test_movement_stable_but_line_and_heading_context_change_key(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, "# One\nUse wf-interrogate-plan here.\n")
+            [first] = self.scan.scan_repo(root)
+            path.write_text("Unrelated preface.\n# One\nUse wf-interrogate-plan here.\n", encoding="utf-8")
+            [moved] = self.scan.scan_repo(root)
+            self.assertEqual(self.scan.disposition_key(first), self.scan.disposition_key(moved))
+            path.write_text("# One\nUse wf-interrogate-plan here now.\n", encoding="utf-8")
+            [line_changed] = self.scan.scan_repo(root)
+            self.assertNotEqual(self.scan.disposition_key(first), self.scan.disposition_key(line_changed))
+            path.write_text("# Two\nUse wf-interrogate-plan here.\n", encoding="utf-8")
+            [heading_changed] = self.scan.scan_repo(root)
+            self.assertNotEqual(self.scan.disposition_key(first), self.scan.disposition_key(heading_changed))
+
+    def test_heading_context_ignores_atx_lines_inside_fences(self):
+        for marker in ("```", "~~~"):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._write(
+                    root,
+                    "# Real heading\n"
+                    f"{marker}md\n"
+                    f"{marker}not-a-close\n"
+                    "# Fenced example\n"
+                    f"{marker}\t \n"
+                    "Use wf-interrogate-plan here.\n",
+                )
+                [finding] = self.scan.scan_repo(root)
+
+                self.assertEqual(finding.heading_context, "# Real heading")
+                self.assertEqual(finding.logical_line, "Use wf-interrogate-plan here.")
+
+    def test_duplicate_v2_fingerprint_suppresses_neither(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "# Same\nUse wf-interrogate-plan.\nUse wf-interrogate-plan.\n")
+            raw = self.scan.scan_repo(root)
+            self.assertEqual(len({self.scan.disposition_key(f) for f in raw}), 1)
+            store = root / self.scan.DISPOSITIONS_REL
+            store.write_text(
+                json.dumps([{"key": self.scan.disposition_key(raw[0]), "status": self.scan.HISTORICAL_RECORD}]),
+                encoding="utf-8",
+            )
+            reported = self.scan.scan_repo_channels(root)[0]
+            self.assertEqual(len(reported), 2)
+            self.assertEqual({f.disposition_state for f in reported}, {"v2-ambiguous"})
+
+    def test_legacy_many_and_duplicate_store_entries_fail_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "# H\nPast wf-interrogate-plan one.\nPast wf-interrogate-plan two.\n")
+            raw = self.scan.scan_repo(root)
+            legacy = self.scan.legacy_disposition_key(raw[0])
+            store = root / self.scan.DISPOSITIONS_REL
+            store.write_text(json.dumps([{"key": legacy, "status": self.scan.HISTORICAL_RECORD}]), encoding="utf-8")
+            reported = self.scan.scan_repo_channels(root)[0]
+            self.assertEqual({f.disposition_state for f in reported}, {"legacy-ambiguous"})
+
+            v2 = self.scan.disposition_key(raw[0])
+            store.write_text(
+                json.dumps([
+                    {"key": v2, "status": self.scan.HISTORICAL_RECORD},
+                    {"key": v2, "status": self.scan.HISTORICAL_RECORD},
+                ]),
+                encoding="utf-8",
+            )
+            reported = self.scan.scan_repo_channels(root)[0]
+            self.assertEqual(len(reported), 2)
+            self.assertIn("v2-ambiguous", {f.disposition_state for f in reported})
+
+    def test_malformed_unknown_and_dormant_legacy_entries_fail_open_without_rewrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "# H\nUse wf-interrogate-plan here.\n")
+            [raw] = self.scan.scan_repo(root)
+            v2_digest = self.scan.disposition_key(raw).removeprefix("v2:")
+            store = root / self.scan.DISPOSITIONS_REL
+            original = json.dumps(
+                [
+                    {"key": "0123456789abcdef", "status": self.scan.HISTORICAL_RECORD},
+                    {"key": "v2:not-hex", "status": self.scan.HISTORICAL_RECORD},
+                    {"key": f"v3:{v2_digest}", "status": self.scan.HISTORICAL_RECORD},
+                ],
+                indent=2,
+            ) + "\n"
+            store.write_text(original, encoding="utf-8")
+
+            [reported] = self.scan.scan_repo_channels(root)[0]
+
+            self.assertEqual(reported.disposition_state, "unknown-version")
+            self.assertEqual(store.read_text(encoding="utf-8"), original)
+
+    def test_store_diagnostics_expose_settled_v2_and_dormant_legacy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "# H\nPast wf-interrogate-plan here.\n")
+            [raw] = self.scan.scan_repo(root)
+            settled = self.scan.disposition_key(raw)
+            dormant = "0123456789abcdef"
+            store = root / self.scan.DISPOSITIONS_REL
+            original = json.dumps(
+                [
+                    {"key": settled, "status": self.scan.HISTORICAL_RECORD},
+                    {"key": dormant, "status": self.scan.HISTORICAL_RECORD},
+                ],
+                indent=2,
+            ) + "\n"
+            store.write_text(original, encoding="utf-8")
+
+            diagnostics = self.scan.disposition_diagnostics(root)
+
+            self.assertEqual(
+                [(item["disposition_key"], item["disposition_state"]) for item in diagnostics],
+                [(dormant, "legacy-dormant"), (settled, "v2-historical-record")],
+            )
+            self.assertEqual(diagnostics[0]["candidate_count"], 0)
+            self.assertEqual(diagnostics[1]["candidate_locations"], [f"{raw.file}:{raw.line}"])
+            self.assertEqual(self.scan.scan_repo_channels(root)[0], [])
+            self.assertEqual(store.read_text(encoding="utf-8"), original)

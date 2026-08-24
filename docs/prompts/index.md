@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-23
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -44,7 +44,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **GPU doctor** | Embedding-provider / GPU capability diagnostic (platform, ONNX providers, selected provider, CUDA ABI-gap) | MCP: `wf_gpu_doctor()`; CLI: `wf gpu-doctor` (same report; also `wf setup --check-gpu`) |
 | **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
 | **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
-| **Interrogate this plan** | Stress-test a change doc before admission | `docs/prompts/interrogate-plan.prompt.md` |
+| **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or the current wave when no change is named, before or after admission and before implementation; records no signoff and satisfies no gate | `docs/prompts/review-plan.prompt.md` |
 | **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
 | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact (plan, code, ADR, design, prose, workflow); mode chosen from the red-team specialist's standalone lenses; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
 | **Archetype review** / **Archetype council** | Optional stance-based council review on text-precision / prose / naming / AC artifacts (Sun Tzu / Yoda / Spock / Marcus Aurelius / Feynman; swap Hemingway or Munger for the fifth seat). Complementary to Wave Council; does not record `wave-council-readiness` | `docs/prompts/archetype-council.prompt.md` |
@@ -71,6 +71,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 | Install Wavefoundry / Install wave framework / Install wave context | Init Wavefoundry (greenfield) or Upgrade Wavefoundry (already seeded) |
 | Package wave framework / Package wave context | Package Wavefoundry |
 | Ask codebase / Ask CIA / Code insight | Guru |
+| Interrogate this plan / Stress-test this plan | Review plan |
 
 ## Usage Notes
 
@@ -78,8 +79,8 @@ The following phrases are accepted for backwards compatibility but redirect to p
 - **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: `targeted` is the default and escalates full Council for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers; `universal` applies it to every wave; `disabled` requires review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
 - **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
-- **Stress-testing plans:** After **Plan feature**, use **Interrogate this plan** to walk unresolved decision branches before admission.
-- **Skills (`/wf-…`):** In Claude Code, Codex, and Antigravity, every core lifecycle command above is also a project-local skill under the `wf-` prefix (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-interrogate-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, plus `/wf-guru` and `/wf-upgrade`); typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same prompt doc as its phrase, so either invocation runs the identical workflow. Skills render on `wf setup` and **Upgrade Wavefoundry**; the phrase interface works on every host. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+- **Review plan vs Review wave:** After **Plan feature**, use optional **Review plan** to walk unresolved branches before or after admission and before implementation; it records no typed signoff and satisfies no gate. **Review wave** is the later lifecycle command that runs the open wave's required lanes and records typed evidence.
+- **Skills (`/wf-…`):** In Claude Code, Codex, and Antigravity, every core lifecycle command above is also a project-local skill under the `wf-` prefix (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, plus `/wf-guru` and `/wf-upgrade`); typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same prompt doc as its phrase, so either invocation runs the identical workflow. The legacy phrases remain accepted, but no retired skill alias is rendered. Skills render on `wf setup` and **Upgrade Wavefoundry**; the phrase interface works on every host. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 - **MCP freshness workflow:** Use `wf_audit` for a combined read-only post-change check; `wf_validate_docs` for docs lint; `wf_garden_docs` for metadata-only refresh; `index_health` to decide whether search is ready, stale, missing, or degraded; `index_build_status` only to poll a detached refresh; `index_build` when you need a deterministic update or rebuild.
 - **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map` (served fresh from `docs/references/codebase-map.md`; regenerated fail-safe if missing). Refresh just the map — without a full index rebuild — with `index_build(content="map")` (runs the ~0.09 s generator only; change-only/idempotent, so an unchanged codebase is a no-op; fail-safe). The map is also regenerated automatically on **every** index rebuild path. **Adoption caveat:** a newly registered MCP resource such as `wavefoundry://codebase-map` is startup-bound and requires reconnect/restart. For a new tool or option such as `content="map"`, start a fresh turn first; if it is still absent, reconnect the MCP client, then restart the host only if reconnect does not refresh it.
 - **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.

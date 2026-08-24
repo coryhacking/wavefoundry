@@ -1767,6 +1767,278 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
 
 
+class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
+    """1w047 AC-4: Phase 1 runs the freshly extracted five-state migration."""
+
+    LEGACY_PAIRS = (
+        ("# Interrogate This Plan", "# Review Plan"),
+        (
+            "Shortcut: **`Interrogate this plan`** | Alias: **`Stress-test this plan`**",
+            "Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**",
+        ),
+        (
+            "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+            "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+        ),
+        (
+            "Given a change doc as context:",
+            "Given a change doc as context, or the current wave record when no change is specified:",
+        ),
+        (
+            "- Before admitting a complex or high-risk change",
+            "- Before or after admitting a complex or high-risk change, but before implementation",
+        ),
+        (
+            "**Interrogate this plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after authoring a change doc but before wave admission.",
+            "**Review plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after plan admission, at the operator's discretion, before implementation begins.",
+        ),
+        (
+            "See `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` for the full interrogation contract.",
+            "See `.wavefoundry/framework/seeds/175-review-plan.prompt.md` for the full plan-review contract.",
+        ),
+    )
+    EARLY_LEGACY_REPLACEMENTS = (
+        ("# Interrogate This Plan Prompt", ("# Review Plan Prompt",)),
+        (
+            "- `Interrogate this plan`",
+            ("- `Review plan`", "- `Interrogate this plan`"),
+        ),
+        (
+            "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
+            ("Use `.wavefoundry/framework/seeds/175-review-plan.prompt.md` to:",),
+        ),
+        (
+            "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
+            ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+        ),
+        (
+            "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
+            ("- Do not re-plan or derive new scope during plan review; record emergent scope items as follow-on candidates rather than introducing them inline.",),
+        ),
+        (
+            "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+            ("- Do not treat **Review plan** as a required lifecycle gate; it is entirely voluntary before or after plan admission.",),
+        ),
+        (
+            "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
+            ("- Keep plan review bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",),
+        ),
+        (
+            "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
+            ("- In `--batch` mode (e.g. `Review plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",),
+        ),
+    )
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        framework = self.root / ".wavefoundry" / "framework"
+        shutil.copytree(
+            SCRIPTS_ROOT,
+            framework / "scripts",
+            ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"),
+        )
+        shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install")
+        shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds")
+        (self.root / ".codex" / "skills").mkdir(parents=True)
+        (self.root / "docs" / "prompts").mkdir(parents=True)
+        self.old_path = self.root / "docs" / "prompts" / "interrogate-plan.prompt.md"
+        self.new_path = self.root / "docs" / "prompts" / "review-plan.prompt.md"
+        self.skill_path = self.root / ".codex" / "skills" / "wf-review-plan" / "SKILL.md"
+        self.old_skill_path = (
+            self.root / ".codex" / "skills" / "wf-interrogate-plan" / "SKILL.md"
+        )
+        self.scripts = framework / "scripts"
+
+    def _legacy_bytes(self) -> bytes:
+        lines = ["project-prefix", *(old for old, _new in self.LEGACY_PAIRS), "project-suffix"]
+        return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+    def _migrated_bytes(self, original: bytes) -> bytes:
+        text = original.decode("utf-8")
+        for old, new in self.LEGACY_PAIRS:
+            text = text.replace(old, new)
+        return text.encode("utf-8")
+
+    def _early_legacy_bytes(self) -> bytes:
+        lines = [
+            "# Interrogate This Plan Prompt",
+            "",
+            "Owner: Engineering",
+            "Status: active",
+            "Last verified: 2026-05-02",
+            "",
+            "## Purpose",
+            "",
+            "Optional shortcut for stress-testing a plan before or after admission by walking every unresolved decision branch one question at a time, providing recommendations sourced from project resources, and stopping when all branches are resolved.",
+            "",
+            "## Trigger Phrases",
+            "",
+            "- `Interrogate this plan`",
+            "- `Stress-test this plan`",
+            "",
+            "## Task",
+            "",
+            "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
+            "",
+            "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
+            "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
+            "",
+            "## Required Behavior",
+            "",
+            "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
+            "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+            "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
+            "- Do not repeat questions the operator has already answered.",
+        ]
+        return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+    def _early_migrated_bytes(self, original: bytes) -> bytes:
+        replacements = dict(self.EARLY_LEGACY_REPLACEMENTS)
+        migrated: list[str] = []
+        for line in original.decode("utf-8").splitlines():
+            migrated.extend(replacements.get(line, (line,)))
+        return ("\r\n".join(migrated) + "\r\n").encode("utf-8")
+
+    def _run_phase(self, *, success: bool) -> None:
+        import venv_bootstrap
+
+        with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
+                patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            if success:
+                self.mod.phase_surface_rendering(self.root)
+            else:
+                with self.assertRaises(SystemExit) as raised:
+                    self.mod.phase_surface_rendering(self.root)
+                self.assertEqual(raised.exception.code, 2)
+
+    def _renderer_result(self):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.scripts / "render_platform_surfaces.py"),
+                "--repo-root",
+                str(self.root),
+                "--include-permissions",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+    def test_recognized_old_only_moves_exact_contract_and_first_render_uses_new_skill(self):
+        original = self._legacy_bytes()
+        self.old_path.write_bytes(original)
+
+        self._run_phase(success=True)
+
+        self.assertFalse(self.old_path.exists())
+        self.assertEqual(self.new_path.read_bytes(), self._migrated_bytes(original))
+        skill = self.skill_path.read_text(encoding="utf-8")
+        self.assertIn("docs/prompts/review-plan.prompt.md", skill)
+        self.assertIn("current wave record when no change is specified", skill)
+        self.assertIn("before or after admission", skill)
+        self.assertIn("before implementation", skill)
+
+    def test_recovered_early_prompt_migrates_on_the_installing_upgrade(self):
+        original = self._early_legacy_bytes()
+        self.old_path.write_bytes(original)
+
+        self._run_phase(success=True)
+
+        self.assertFalse(self.old_path.exists())
+        self.assertEqual(self.new_path.read_bytes(), self._early_migrated_bytes(original))
+        migrated = self.new_path.read_text(encoding="utf-8")
+        self.assertIn("- `Review plan`\n- `Interrogate this plan`", migrated)
+        self.assertIn("- `Stress-test this plan`", migrated)
+        self.assertIn("current wave record", migrated)
+        self.assertIn("before or after admission", migrated)
+        self.assertIn("before implementation", self.skill_path.read_text(encoding="utf-8"))
+
+    def test_mixed_early_and_shortcut_profiles_fail_before_rendering(self):
+        original = self._early_legacy_bytes().replace(
+            b"- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+            self.LEGACY_PAIRS[5][0].encode("utf-8"),
+        )
+        self.old_path.write_bytes(original)
+
+        self._run_phase(success=False)
+
+        self.assertEqual(self.old_path.read_bytes(), original)
+        self.assertFalse(self.new_path.exists())
+        self.assertFalse(self.skill_path.exists())
+        diagnostic = self._renderer_result()
+        self.assertNotEqual(diagnostic.returncode, 0)
+        self.assertIn("mixes recognized profiles", diagnostic.stderr)
+
+    def test_customized_old_only_is_non_successful_and_mutates_no_prompt(self):
+        customized = self._legacy_bytes().replace(
+            b"# Interrogate This Plan", b"# Project Interrogation"
+        )
+        self.old_path.write_bytes(customized)
+        self.old_skill_path.parent.mkdir(parents=True)
+        self.old_skill_path.write_bytes(b"legacy generated skill\n")
+
+        self._run_phase(success=False)
+
+        self.assertEqual(self.old_path.read_bytes(), customized)
+        self.assertFalse(self.new_path.exists())
+        self.assertFalse(self.skill_path.exists())
+        self.assertEqual(self.old_skill_path.read_bytes(), b"legacy generated skill\n")
+        diagnostic = self._renderer_result()
+        self.assertNotEqual(diagnostic.returncode, 0)
+        self.assertIn("customized or unrecognized canonical contract lines", diagnostic.stderr)
+        self.assertIn("Heading", diagnostic.stderr)
+
+    def test_new_only_preserves_project_prompt_bytes(self):
+        authored = b"# Project Review Plan\r\n\r\nCustom prose stays byte-identical.\r\n"
+        self.new_path.write_bytes(authored)
+
+        self._run_phase(success=True)
+
+        self.assertEqual(self.new_path.read_bytes(), authored)
+        self.assertFalse(self.old_path.exists())
+        self.assertTrue(self.skill_path.is_file())
+
+    def test_both_is_non_successful_and_mutates_neither_prompt(self):
+        old = self._legacy_bytes()
+        new = b"# Existing Review Plan\nProject-owned new path.\n"
+        self.old_path.write_bytes(old)
+        self.new_path.write_bytes(new)
+        self.old_skill_path.parent.mkdir(parents=True)
+        self.old_skill_path.write_bytes(b"legacy generated skill\n")
+
+        self._run_phase(success=False)
+
+        self.assertEqual(self.old_path.read_bytes(), old)
+        self.assertEqual(self.new_path.read_bytes(), new)
+        self.assertFalse(self.skill_path.exists())
+        self.assertEqual(self.old_skill_path.read_bytes(), b"legacy generated skill\n")
+        diagnostic = self._renderer_result()
+        self.assertNotEqual(diagnostic.returncode, 0)
+        self.assertIn("both were preserved", diagnostic.stderr)
+        self.assertIn("remove the old prompt, and rerun the upgrade", diagnostic.stderr)
+
+    def test_neither_materializes_metadata_complete_seventh_baseline(self):
+        self._run_phase(success=True)
+
+        self.assertFalse(self.old_path.exists())
+        text = self.new_path.read_text(encoding="utf-8")
+        self.assertIn("# Review Plan", text)
+        self.assertIn("Owner: Engineering", text)
+        self.assertIn("Status: active", text)
+        self.assertRegex(text, r"Last verified: \d{4}-\d{2}-\d{2}")
+        self.assertNotIn("{{generated_at}}", text)
+        self.assertTrue(self.skill_path.is_file())
+
+
 class RetiredModelCleanupTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_upgrade_module()
@@ -5368,13 +5640,129 @@ class ReconciliationRecommendationTests(unittest.TestCase):
         # The printed reference is the finding's `matched` text (INV-recline), not a synthesized form.
         findings = [
             {"file": "docs/x.md", "line": 7, "retired_surface": "docs-lint",
-             "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"},
+             "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint",
+             "disposition_key": "v2:0123456789abcdef0123456789abcdef",
+             "disposition_state": "unrecorded"},
         ]
         lines = self.mod._reconciliation_recommendation_lines("1.5.0", "1.6.0", findings)
         joined = "\n".join(lines)
         self.assertIn("docs/x.md:7", joined)
         self.assertIn(".wavefoundry/bin/docs-lint", joined)
         self.assertIn("wf docs-lint", joined)
+        self.assertIn("[disposition_key: v2:0123456789abcdef0123456789abcdef]", joined)
+        self.assertIn("[disposition_state: unrecorded]", joined)
+        self.assertIn("`historical-record`", joined)
+        self.assertIn("`docs/reconcile-dispositions.json`", joined)
+
+    def test_reconciliation_guidance_distinguishes_live_and_historical_findings(self):
+        findings = [
+            {
+                "file": "docs/agents/session-handoff.md",
+                "line": 35,
+                "retired_surface": "wf-interrogate-plan",
+                "matched": "wf-interrogate-plan",
+                "suggested": "wf-review-plan",
+                "disposition_key": "v2:0123456789abcdef0123456789abcdef",
+                "disposition_state": "legacy-reclassification-required",
+            },
+        ]
+        joined = "\n".join(
+            self.mod._reconciliation_recommendation_lines("1.19.0", "1.19.1", findings)
+        )
+        self.assertIn("Repair each live instruction", joined)
+        self.assertIn("truthful historical narrative", joined)
+        self.assertIn("v2:0123456789abcdef0123456789abcdef", joined)
+        self.assertIn("legacy-reclassification-required", joined)
+        self.assertIn("legacy entry remains unchanged", joined)
+        self.assertIn("historical-record", joined)
+        self.assertIn("docs/reconcile-dispositions.json", joined)
+
+    def test_ambiguous_identity_guidance_is_fail_open(self):
+        findings = [{
+            "file": "docs/x.md",
+            "line": 4,
+            "retired_surface": "wf-interrogate-plan",
+            "matched": "wf-interrogate-plan",
+            "suggested": "wf-review-plan",
+            "disposition_key": "v2:0123456789abcdef0123456789abcdef",
+            "disposition_state": "v2-ambiguous",
+        }]
+        joined = "\n".join(
+            self.mod._reconciliation_recommendation_lines("1.19.0", "1.19.0", findings)
+        )
+        self.assertIn("v2-ambiguous", joined)
+        self.assertIn("keep every candidate reported", joined)
+        self.assertIn("text or heading context distinct", joined)
+
+    def test_store_diagnostics_render_settled_and_dormant_states(self):
+        diagnostics = [
+            {
+                "disposition_key": "0123456789abcdef",
+                "disposition_state": "legacy-dormant",
+                "candidate_count": 0,
+                "proposed_v2_keys": [],
+            },
+            {
+                "disposition_key": "v2:0123456789abcdef0123456789abcdef",
+                "disposition_state": "v2-historical-record",
+                "candidate_count": 1,
+                "proposed_v2_keys": ["v2:0123456789abcdef0123456789abcdef"],
+            },
+        ]
+        joined = "\n".join(
+            self.mod._reconciliation_recommendation_lines(
+                "1.19.0",
+                "1.19.0",
+                disposition_diagnostics=diagnostics,
+            )
+        )
+
+        self.assertIn("Disposition-store diagnostics", joined)
+        self.assertIn("0123456789abcdef [legacy-dormant] candidates=0", joined)
+        self.assertIn(
+            "v2:0123456789abcdef0123456789abcdef [v2-historical-record] candidates=1",
+            joined,
+        )
+
+    def test_store_diagnostics_reach_structured_upgrade_summary(self):
+        import reconcile_scan
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            guide = root / "guide.md"
+            guide.write_text("# H\nUse `.wavefoundry/bin/docs-lint`.\n", encoding="utf-8")
+            [raw] = reconcile_scan.scan_repo(root)
+            store = root / reconcile_scan.DISPOSITIONS_REL
+            store.parent.mkdir(parents=True, exist_ok=True)
+            store.write_text(
+                json.dumps(
+                    [
+                        {
+                            "key": reconcile_scan.disposition_key(raw),
+                            "status": reconcile_scan.HISTORICAL_RECORD,
+                        },
+                        {"key": "0123456789abcdef", "status": reconcile_scan.HISTORICAL_RECORD},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            diagnostics = self.mod._run_reconciliation_disposition_diagnostics(root)
+            summary = self.mod._build_upgrade_summary(
+                "1.19.0",
+                "1.19.0",
+                None,
+                0,
+                False,
+                None,
+                [],
+                reconciliation_disposition_diagnostics=diagnostics,
+            )
+
+        self.assertEqual(
+            [item["disposition_state"] for item in summary["reconciliation_disposition_diagnostics"]],
+            ["legacy-dormant", "v2-historical-record"],
+        )
 
     def test_findings_print_matched_text_for_py_join(self):
         # INV-recline: a .py-join finding prints its actual matched text, not `.wavefoundry/bin/<name>`.

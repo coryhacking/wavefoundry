@@ -800,6 +800,301 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             self.assertIn("guru", claude)
 
 
+class ReviewPlanPromptMigrationTests(unittest.TestCase):
+    _EXACT_CONTRACT = (
+        ("Heading", "# Interrogate This Plan", "# Review Plan"),
+        (
+            "Shortcut",
+            "Shortcut: **`Interrogate this plan`** | Alias: **`Stress-test this plan`**",
+            "Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**",
+        ),
+        (
+            "Purpose",
+            "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+            "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+        ),
+        (
+            "Input fallback",
+            "Given a change doc as context:",
+            "Given a change doc as context, or the current wave record when no change is specified:",
+        ),
+        (
+            "When to use",
+            "- Before admitting a complex or high-risk change",
+            "- Before or after admitting a complex or high-risk change, but before implementation",
+        ),
+        (
+            "No-gate timing",
+            "**Interrogate this plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after authoring a change doc but before wave admission.",
+            "**Review plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after plan admission, at the operator's discretion, before implementation begins.",
+        ),
+        (
+            "Canonical source",
+            "See `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` for the full interrogation contract.",
+            "See `.wavefoundry/framework/seeds/175-review-plan.prompt.md` for the full plan-review contract.",
+        ),
+    )
+    _EARLY_CANONICAL_CONTRACT = (
+        ("Heading", "# Interrogate This Plan Prompt", ("# Review Plan Prompt",)),
+        (
+            "Primary trigger",
+            "- `Interrogate this plan`",
+            ("- `Review plan`", "- `Interrogate this plan`"),
+        ),
+        (
+            "Canonical source",
+            "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
+            ("Use `.wavefoundry/framework/seeds/175-review-plan.prompt.md` to:",),
+        ),
+        (
+            "Input fallback",
+            "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
+            ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+        ),
+        (
+            "Scope wording",
+            "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
+            ("- Do not re-plan or derive new scope during plan review; record emergent scope items as follow-on candidates rather than introducing them inline.",),
+        ),
+        (
+            "No-gate identity",
+            "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+            ("- Do not treat **Review plan** as a required lifecycle gate; it is entirely voluntary before or after plan admission.",),
+        ),
+        (
+            "Bounded wording",
+            "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
+            ("- Keep plan review bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",),
+        ),
+        (
+            "Batch example",
+            "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
+            ("- In `--batch` mode (e.g. `Review plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",),
+        ),
+    )
+
+    def _legacy_text(self, newline: str = "\n") -> str:
+        return newline.join(
+            [old_line for _label, old_line, _new_line in self._EXACT_CONTRACT]
+            + ["", "## Project extension", "Keep this authored paragraph byte-identical.", ""]
+        )
+
+    def test_exact_seven_line_contract_and_other_bytes_are_preserved(self) -> None:
+        self.assertEqual(ras.REVIEW_PLAN_LEGACY_CONTRACT_LINES, self._EXACT_CONTRACT)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = root / ras.REVIEW_PLAN_OLD_PROMPT
+            old.parent.mkdir(parents=True)
+            original = self._legacy_text("\r\n")
+            with old.open("w", encoding="utf-8", newline="") as handle:
+                handle.write(original)
+
+            self.assertEqual(
+                ras.migrate_review_plan_prompt(root),
+                [ras.REVIEW_PLAN_OLD_PROMPT, ras.REVIEW_PLAN_NEW_PROMPT],
+            )
+            new = root / ras.REVIEW_PLAN_NEW_PROMPT
+            self.assertFalse(old.exists())
+            with new.open("r", encoding="utf-8", newline="") as handle:
+                actual = handle.read()
+            expected = original
+            for _label, old_line, new_line in self._EXACT_CONTRACT:
+                expected = expected.replace(old_line, new_line)
+            self.assertEqual(actual.encode("utf-8"), expected.encode("utf-8"))
+            self.assertIn("\r\n## Project extension\r\n", actual)
+
+    def test_recovered_early_canonical_profile_migrates_exactly(self) -> None:
+        self.assertEqual(
+            ras.REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES,
+            self._EARLY_CANONICAL_CONTRACT,
+        )
+        recovered_lines = [
+            "# Interrogate This Plan Prompt",
+            "",
+            "Owner: Engineering",
+            "Status: active",
+            "Last verified: 2026-05-02",
+            "",
+            "## Purpose",
+            "",
+            "Optional shortcut for stress-testing a plan before or after admission by walking every unresolved decision branch one question at a time, providing recommendations sourced from project resources, and stopping when all branches are resolved.",
+            "",
+            "## Trigger Phrases",
+            "",
+            "- `Interrogate this plan`",
+            "- `Stress-test this plan`",
+            "",
+            "## Task",
+            "",
+            "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
+            "",
+            "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
+            "- Walk every unresolved decision branch in its **Requirements**, **Acceptance Criteria**, and **Scope** sections.",
+            "- In default interactive mode, ask one question at a time. With each question, provide a recommended answer and cite the project resource (source code, `docs/specs/*.md`, `docs/architecture/`, `docs/references/`, `docs/agents/`, or other checked-in artifact) that supports it.",
+            "- Self-answer without operator input when the answer is derivable from project resources; surface to the operator only questions that genuinely require human judgment (product intent, business priority, or architectural tradeoff not resolvable from evidence).",
+            "- Log self-answered questions briefly so the operator can see what was resolved without their input.",
+            '- Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved — or when the operator says "enough" or "stop".',
+            "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
+            "",
+            "## Required Behavior",
+            "",
+            "- Attempt to self-answer from project resources before surfacing any question to the operator.",
+            "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
+            "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+            "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
+            "- Do not repeat questions the operator has already answered.",
+        ]
+        original = "\r\n".join(recovered_lines) + "\r\n"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = root / ras.REVIEW_PLAN_OLD_PROMPT
+            old.parent.mkdir(parents=True)
+            with old.open("w", encoding="utf-8", newline="") as handle:
+                handle.write(original)
+
+            self.assertEqual(
+                ras.migrate_review_plan_prompt(root),
+                [ras.REVIEW_PLAN_OLD_PROMPT, ras.REVIEW_PLAN_NEW_PROMPT],
+            )
+            with (root / ras.REVIEW_PLAN_NEW_PROMPT).open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                migrated = handle.read()
+
+        self.assertIn(
+            "- `Review plan`\r\n- `Interrogate this plan`\r\n- `Stress-test this plan`",
+            migrated,
+        )
+        self.assertIn("Last verified: 2026-05-02\r\n", migrated)
+        self.assertIn("before or after admission", migrated)
+        self.assertNotIn("175-interrogate-plan.prompt.md", migrated)
+        for label, old_line, new_lines in self._EARLY_CANONICAL_CONTRACT:
+            if label != "Primary trigger":
+                self.assertNotIn(old_line, migrated)
+            for new_line in new_lines:
+                self.assertIn(new_line, migrated)
+
+    def test_early_profile_embedded_contract_lines_block_without_mutation(self) -> None:
+        for changed_label, changed_old, _changed_new in self._EARLY_CANONICAL_CONTRACT:
+            with self.subTest(field=changed_label), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                old = root / ras.REVIEW_PLAN_OLD_PROMPT
+                new = root / ras.REVIEW_PLAN_NEW_PROMPT
+                old.parent.mkdir(parents=True)
+                original = "\n".join(
+                    (
+                        f"PROJECT-PREFIX {old_line} PROJECT-SUFFIX"
+                        if old_line == changed_old
+                        else old_line
+                    )
+                    for _label, old_line, _new_lines in self._EARLY_CANONICAL_CONTRACT
+                ) + "\n"
+                old.write_text(original, encoding="utf-8")
+
+                with self.assertRaisesRegex(RuntimeError, changed_label):
+                    ras.migrate_review_plan_prompt(root)
+
+                self.assertEqual(old.read_text(encoding="utf-8"), original)
+                self.assertFalse(new.exists())
+
+    def test_contract_strings_embedded_in_customized_lines_block_without_mutation(self) -> None:
+        for changed_label, changed_old, _changed_new in self._EXACT_CONTRACT:
+            with self.subTest(field=changed_label), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                old = root / ras.REVIEW_PLAN_OLD_PROMPT
+                new = root / ras.REVIEW_PLAN_NEW_PROMPT
+                old.parent.mkdir(parents=True)
+                original = "\n".join(
+                    (
+                        f"PROJECT-PREFIX {old_line} PROJECT-SUFFIX"
+                        if old_line == changed_old
+                        else old_line
+                    )
+                    for _label, old_line, _new_line in self._EXACT_CONTRACT
+                ) + "\n"
+                old.write_text(original, encoding="utf-8")
+
+                with self.assertRaisesRegex(RuntimeError, changed_label):
+                    ras.migrate_review_plan_prompt(root)
+
+                self.assertEqual(old.read_text(encoding="utf-8"), original)
+                self.assertFalse(new.exists())
+
+    def test_five_prompt_states_fail_closed_or_converge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self.assertEqual(ras.migrate_review_plan_prompt(root), [])  # neither
+
+            new = root / ras.REVIEW_PLAN_NEW_PROMPT
+            new.parent.mkdir(parents=True)
+            new.write_bytes(b"project-owned new prompt\r\n")
+            self.assertEqual(ras.migrate_review_plan_prompt(root), [])  # new-only
+            self.assertEqual(new.read_bytes(), b"project-owned new prompt\r\n")
+
+        for state in ("customized-old-only", "both"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                old = root / ras.REVIEW_PLAN_OLD_PROMPT
+                new = root / ras.REVIEW_PLAN_NEW_PROMPT
+                old.parent.mkdir(parents=True)
+                old_bytes = self._legacy_text().replace(
+                    "# Interrogate This Plan", "# Project-specific plan review"
+                ).encode("utf-8")
+                old.write_bytes(old_bytes)
+                if state == "both":
+                    new_bytes = b"independent new prompt\n"
+                    new.write_bytes(new_bytes)
+                with self.assertRaisesRegex(RuntimeError, "migration blocked"):
+                    ras.migrate_review_plan_prompt(root)
+                self.assertEqual(old.read_bytes(), old_bytes)
+                if state == "customized-old-only":
+                    self.assertFalse(new.exists())
+                else:
+                    self.assertEqual(new.read_bytes(), new_bytes)
+
+    def test_seventh_baseline_is_metadata_stamped_and_missing_only(self) -> None:
+        self.assertEqual(len(ras.LIFECYCLE_PROMPT_BASELINES), 7)
+        self.assertEqual(
+            ras.LIFECYCLE_PROMPT_BASELINES[-1],
+            (ras.REVIEW_PLAN_NEW_PROMPT, "review-plan.prompt.md"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            written = ras.reconcile_lifecycle_prompt_baselines(root)
+            self.assertIn(ras.REVIEW_PLAN_NEW_PROMPT, written)
+            prompt = root / ras.REVIEW_PLAN_NEW_PROMPT
+            first = prompt.read_bytes()
+            text = first.decode("utf-8")
+            self.assertIn("Owner: Engineering", text)
+            self.assertIn("Status: active", text)
+            self.assertRegex(text, r"Last verified: \d{4}-\d{2}-\d{2}")
+            self.assertNotIn("{{generated_at}}", text)
+            self.assertEqual(ras.reconcile_lifecycle_prompt_baselines(root), [])
+            self.assertEqual(prompt.read_bytes(), first)
+
+    def test_full_render_orders_migration_before_skill_and_baseline(self) -> None:
+        order: list[str] = []
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            ras, "preflight_agent_surface_paths", return_value=None
+        ), patch.object(
+            ras, "migrate_review_plan_prompt", side_effect=lambda _root: order.append("migration") or []
+        ), patch.object(
+            ras, "render_skills", side_effect=lambda _root: order.append("skills") or []
+        ), patch.object(
+            ras,
+            "reconcile_lifecycle_prompt_baselines",
+            side_effect=lambda _root: order.append("baselines") or [],
+        ), patch.object(ras, "reconcile_scaffold_baselines", return_value=[]), patch.object(
+            ras, "reconcile_upgrade_policy_surface", return_value=[]
+        ), patch.object(ras, "reconcile_review_protocol_surfaces", return_value=[]), patch.object(
+            ras, "reconcile_review_policy_surfaces", return_value=[]
+        ), patch.object(ras, "reconcile_context_efficiency_surface", return_value=[]), patch.object(
+            ras, "guru_available", return_value=False
+        ):
+            ras.render_agent_surfaces(Path(temp_dir))
+        self.assertEqual(order, ["migration", "skills", "baselines"])
+
+
 class SkillRegistryTests(unittest.TestCase):
     """Wave 1p6lp (1p6lo) — unified skill registry + SKILL.md emitter."""
 
@@ -842,6 +1137,79 @@ class SkillRegistryTests(unittest.TestCase):
     def test_registry_descriptions_are_pairwise_distinct(self) -> None:
         descriptions = [skill.description for skill in ras.SKILL_REGISTRY]
         self.assertEqual(len(descriptions), len(set(descriptions)))
+
+    def test_review_plan_is_the_only_plan_review_skill_and_preserves_boundary(self) -> None:
+        by_name = {skill.name: skill for skill in ras.SKILL_REGISTRY}
+        self.assertIn("wf-review-plan", by_name)
+        self.assertNotIn("wf-interrogate-plan", by_name)
+        skill = by_name["wf-review-plan"]
+        for literal in (
+            "docs/prompts/review-plan.prompt.md",
+            "current wave record",
+            "before or after admission",
+            "before implementation",
+            "no typed signoff",
+            "wf-review-wave",
+        ):
+            self.assertIn(literal, f"{skill.description}\n{skill.body}")
+
+        council = by_name["wf-council"]
+        council_contract = f"{council.description}\n{council.body}"
+        for literal in (
+            "Review plan",
+            "wf-review-plan",
+            "Interrogate this plan",
+            "Stress-test this plan",
+            "Review wave",
+            "wf-review-wave",
+        ):
+            self.assertIn(literal, council_contract)
+
+    def test_first_full_render_migrates_prompt_before_emitting_review_plan_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            old = root / ras.REVIEW_PLAN_OLD_PROMPT
+            old.parent.mkdir(parents=True, exist_ok=True)
+            old.write_text(
+                "\n".join(
+                    old_line
+                    for _label, old_line, _new_line in ras.REVIEW_PLAN_LEGACY_CONTRACT_LINES
+                )
+                + "\n\nProject extension survives.\n",
+                encoding="utf-8",
+            )
+
+            written = ras.render_agent_surfaces(root)
+            self.assertIn(ras.REVIEW_PLAN_OLD_PROMPT, written)
+            self.assertIn(ras.REVIEW_PLAN_NEW_PROMPT, written)
+            self.assertFalse(old.exists())
+            migrated = (root / ras.REVIEW_PLAN_NEW_PROMPT).read_text(encoding="utf-8")
+            self.assertIn("current wave record when no change is specified", migrated)
+            self.assertIn("before or after plan admission", migrated)
+            self.assertIn("Project extension survives.", migrated)
+            for host in (".codex", ".claude", ".agents"):
+                skill = root / host / "skills" / "wf-review-plan" / "SKILL.md"
+                self.assertTrue(skill.is_file())
+                skill_text = skill.read_text(encoding="utf-8")
+                self.assertIn("docs/prompts/review-plan.prompt.md", skill_text)
+                self.assertIn("current wave record", skill_text)
+                self.assertIn("before or after admission", skill_text)
+
+    def test_self_hosted_review_plan_skills_match_registry_bytes(self) -> None:
+        root = TESTS_ROOT.parents[2].parent
+        review_plan = next(
+            skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-review-plan"
+        )
+        expected = ras.skill_document(review_plan).encode("utf-8")
+        for host in (".codex", ".claude", ".agents"):
+            self.assertEqual(
+                (root / host / "skills" / "wf-review-plan" / "SKILL.md").read_bytes(),
+                expected,
+            )
+            self.assertFalse(
+                (root / host / "skills" / "wf-interrogate-plan" / "SKILL.md").exists()
+            )
 
     def test_render_skills_refuses_unprefixed_name(self) -> None:
         bad = ras.Skill(name="upgrade", description="d", body="b")
@@ -887,11 +1255,30 @@ class SkillRegistryTests(unittest.TestCase):
             old_codex = root / ".codex" / "skills" / "auto-guru" / "SKILL.md"
             old_codex.parent.mkdir(parents=True)
             old_codex.write_text("old codex skill\n", encoding="utf-8")
+            retired: list[Path] = []
+            for host in (".codex", ".claude", ".agents"):
+                path = root / host / "skills" / "wf-interrogate-plan" / "SKILL.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("retired plan-review skill\n", encoding="utf-8")
+                retired.append(path)
+            sibling = retired[0].parent / "operator-note.md"
+            sibling.write_text("preserve me\n", encoding="utf-8")
             written = ras.render_skills(root)
             self.assertIn(".claude/skills/upgrade-wave.md", written)
             self.assertIn(".codex/skills/auto-guru/SKILL.md", written)
             self.assertFalse(old_flat.exists())
             self.assertFalse(old_codex.parent.exists(), "emptied per-skill dir removed")
+            for path in retired:
+                self.assertIn(path.relative_to(root).as_posix(), written)
+                self.assertFalse(path.exists())
+            self.assertTrue(retired[0].parent.is_dir(), "non-empty skill dir preserved")
+            self.assertEqual(sibling.read_text(encoding="utf-8"), "preserve me\n")
+            self.assertFalse(retired[1].parent.exists(), "empty Claude skill dir removed")
+            self.assertFalse(retired[2].parent.exists(), "empty agents skill dir removed")
+            for host in (".codex", ".claude", ".agents"):
+                self.assertTrue(
+                    (root / host / "skills" / "wf-review-plan" / "SKILL.md").is_file()
+                )
             self.assertTrue((root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md").is_file())
             self.assertTrue((root / ".codex" / "skills" / "wf-guru" / "SKILL.md").is_file())
 
@@ -952,6 +1339,68 @@ class SkillRegistryTests(unittest.TestCase):
                 (outside / "SKILL.md").read_text(encoding="utf-8"),
                 "external sentinel\n",
             )
+
+    def test_retired_plan_skill_cleanup_is_contained_to_each_declared_host_root(self) -> None:
+        for polarity in (
+            "declared-root",
+            "same-root-parent",
+            "in-repo-parent",
+            "outside-parent",
+            "final-file",
+        ):
+            with self.subTest(polarity=polarity), tempfile.TemporaryDirectory() as temp_dir:
+                outer = Path(temp_dir)
+                root = outer / "repo"
+                self._repo(root)
+                stale_dir = root / ".codex" / "skills" / "wf-interrogate-plan"
+                stale_dir.parent.mkdir(parents=True, exist_ok=True)
+                if polarity == "declared-root":
+                    skills_root = root / ".codex" / "skills"
+                    skills_root.rmdir()
+                    target = root / "unrelated-host-tree"
+                    target.mkdir()
+                    sentinel = target / "wf-interrogate-plan" / "SKILL.md"
+                    sentinel.parent.mkdir()
+                    sentinel.write_text("declared-root sentinel\n", encoding="utf-8")
+                    skills_root.symlink_to(target, target_is_directory=True)
+                elif polarity == "same-root-parent":
+                    target = stale_dir.parent / "operator-owned-skill"
+                    target.mkdir()
+                    sentinel = target / "SKILL.md"
+                    sentinel.write_text("same-root sentinel\n", encoding="utf-8")
+                    stale_dir.symlink_to(target, target_is_directory=True)
+                elif polarity == "in-repo-parent":
+                    target = root / "unrelated" / "borrowed-skill"
+                    target.mkdir(parents=True)
+                    sentinel = target / "SKILL.md"
+                    sentinel.write_text("in-repo sentinel\n", encoding="utf-8")
+                    stale_dir.symlink_to(target, target_is_directory=True)
+                elif polarity == "outside-parent":
+                    target = outer / "outside"
+                    target.mkdir()
+                    sentinel = target / "SKILL.md"
+                    sentinel.write_text("outside sentinel\n", encoding="utf-8")
+                    stale_dir.symlink_to(target, target_is_directory=True)
+                else:
+                    stale_dir.mkdir()
+                    target = root / "unrelated" / "sentinel.md"
+                    target.parent.mkdir(parents=True)
+                    target.write_text("final sentinel\n", encoding="utf-8")
+                    sentinel = target
+                    (stale_dir / "SKILL.md").symlink_to(target)
+                before = sentinel.read_bytes()
+                with self.assertRaisesRegex(RuntimeError, "declared host skill root"):
+                    ras.render_skills(root)
+                self.assertEqual(sentinel.read_bytes(), before)
+                self.assertFalse(
+                    (
+                        root
+                        / ".codex"
+                        / "skills"
+                        / "wf-review-plan"
+                        / "SKILL.md"
+                    ).exists()
+                )
 
     def test_thin_pointer_targets_exist_in_self_hosted_repo(self) -> None:
         # Wave 1p6lw AC-2/AC-6: every prompt doc a skill body points at must

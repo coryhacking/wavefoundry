@@ -30,6 +30,7 @@ Use this when you want a single command-style request such as:
 Intent:
 
 - Define a wave and its admitted changes, turning scope into implementation-ready planning artifacts. The wave is the delivery unit — changes are what it contains.
+- After authoring, **Review plan** may optionally stress-test the change doc, or the current wave record when no change is specified, before or after admission and before implementation. Its natural-language aliases are **Interrogate this plan** and **Stress-test this plan**. It records no typed signoff and satisfies no gate; **Review wave** remains the later required-lane delivery review.
 
 Before planning, consult:
 

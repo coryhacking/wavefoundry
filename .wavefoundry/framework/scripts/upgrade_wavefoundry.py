@@ -3261,6 +3261,19 @@ def _run_reconciliation_scan(
         return [], [], []
 
 
+def _run_reconciliation_disposition_diagnostics(root: Path | None) -> list[dict]:
+    """Return store-level reconciliation states without altering the three finding channels."""
+
+    if root is None:
+        return []
+    try:
+        import reconcile_scan
+
+        return reconcile_scan.disposition_diagnostics(root)
+    except Exception:  # noqa: BLE001 — diagnostics remain report-only and fail-safe
+        return []
+
+
 def _run_renderer_warning_scan(root: Path | None) -> list[dict]:
     """1v4mt: surface the renderer's warn-and-skip findings in the summary.
 
@@ -3327,6 +3340,7 @@ def _reconciliation_recommendation_lines(
     findings: list[dict] | None = None,
     host_permission_flags: list[dict] | None = None,
     renderer_provenance_flags: list[dict] | None = None,
+    disposition_diagnostics: list[dict] | None = None,
 ) -> list[str]:
     """Recommendation to reconcile local surfaces against changed/retired framework surfaces.
 
@@ -3360,7 +3374,12 @@ def _reconciliation_recommendation_lines(
             f"Reconciliation scan ({from_version} → {to_version}) — report-only:",
             "  Local surfaces (docs, prompts, configs, scripts) that named a framework surface this",
             "  upgrade CHANGED or RETIRED — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*`",
-            "  wrappers in favor of the cross-OS `wf` dispatcher. Update each below; never auto-fixed.",
+            "  wrappers in favor of the cross-OS `wf` dispatcher. Repair each live instruction below;",
+            "  for truthful historical narrative, explicitly record its printed v2 key once as",
+            "  `historical-record` in `docs/reconcile-dispositions.json`. Legacy 16-hex entries are",
+            "  preserved but fail open: they never suppress and instead request v2 reclassification.",
+            "  Duplicate v2 fingerprints and malformed or unknown keys also suppress nothing. The scan",
+            "  never auto-fixes findings or rewrites the operator-owned disposition store.",
         ]
         if findings:
             for ref in findings:
@@ -3368,11 +3387,41 @@ def _reconciliation_recommendation_lines(
                 # .py-join text — not an assumed `.wavefoundry/bin/<name>` form (wrong for joins).
                 # Tolerate a missing 'matched' (fail-safe) by falling back to the retired name.
                 matched = ref.get("matched") or f".wavefoundry/bin/{ref['retired_surface']}"
-                lines.append(
-                    f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}"
+                disposition = ref.get("disposition_key")
+                state = ref.get("disposition_state") or "unrecorded"
+                suffix = (
+                    f" [disposition_key: {disposition}] [disposition_state: {state}]"
+                    if disposition
+                    else f" [disposition_state: {state}]"
                 )
+                lines.append(
+                    f"    {ref['file']}:{ref['line']} ({matched}) → {ref['suggested']}{suffix}"
+                )
+                if state == "legacy-reclassification-required" and disposition:
+                    lines.append(
+                        "      Verify this finding is historical, then add the proposed v2 key above; "
+                        "the legacy entry remains unchanged and does not suppress."
+                    )
+                elif state in {"legacy-ambiguous", "v2-ambiguous"}:
+                    lines.append(
+                        "      Ambiguous identity: keep every candidate reported and make the source "
+                        "text or heading context distinct before recording a v2 judgment."
+                    )
         else:
             lines.append("    No stale retired-surface references found in local surfaces.")
+        if disposition_diagnostics:
+            lines.append("")
+            lines.append("  Disposition-store diagnostics (read-only; store bytes unchanged):")
+            for diagnostic in disposition_diagnostics:
+                key = diagnostic.get("disposition_key") or "(missing key)"
+                state = diagnostic.get("disposition_state") or "unrecorded"
+                count = diagnostic.get("candidate_count", 0)
+                lines.append(f"    {key} [{state}] candidates={count}")
+                proposed = diagnostic.get("proposed_v2_keys") or []
+                if proposed and state.startswith("legacy-"):
+                    lines.append(
+                        "      Reclassify explicitly after review with: " + ", ".join(proposed)
+                    )
         # Wave 1p8o5 — host permission/allow-rule files: a SEPARATE operator-flag section. The agent
         # cannot self-edit these under host auto-mode guards; name each stale rule + the new wf form
         # and let the operator make the edit (seed-160). Only emit the section when there are hits.
@@ -3427,6 +3476,7 @@ def _build_upgrade_summary(
     index_update_failed: bool = False,
     retired_model_cleanup: dict | None = None,
     renderer_warnings: list[dict] | None = None,
+    reconciliation_disposition_diagnostics: list[dict] | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -3487,6 +3537,9 @@ def _build_upgrade_summary(
         "failed_phase": failed_phase,
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
+        "reconciliation_disposition_diagnostics": (
+            reconciliation_disposition_diagnostics or []
+        ),
         "host_permission_flags": host_permission_flags or [],
         # 1u2az: stale allow rules inside the permissions renderer's provenance;
         # SELF-HEALING at the next upgrade/install permissions render.
@@ -3559,6 +3612,7 @@ def _emit_primary_phase_summary(
     reconciliation, host_permission_flags, renderer_provenance_flags = (
         _run_reconciliation_scan(root) if root is not None else ([], [], [])
     )
+    disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
     renderer_warnings = _run_renderer_warning_scan(root)
     summary = _build_upgrade_summary(
         from_version=from_version,
@@ -3573,6 +3627,7 @@ def _emit_primary_phase_summary(
         # failure summary is rendered by the cleanup path from the lock marker.
         failed_phase=None,
         reconciliation=reconciliation,
+        reconciliation_disposition_diagnostics=disposition_diagnostics,
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
         renderer_provenance_flags=renderer_provenance_flags,
@@ -3780,6 +3835,7 @@ def _emit_delegated_summary(root: Path) -> int:
     reconciliation, host_permission_flags, renderer_provenance_flags = (
         _run_reconciliation_scan(root)
     )
+    disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
     renderer_warnings = _run_renderer_warning_scan(root)
     summary = _build_upgrade_summary(
         from_version=from_version if isinstance(from_version, str) else None,
@@ -3793,6 +3849,7 @@ def _emit_delegated_summary(root: Path) -> int:
         # it); the audit-and-justify None matches _emit_primary_phase_summary.
         failed_phase=None,
         reconciliation=reconciliation,
+        reconciliation_disposition_diagnostics=disposition_diagnostics,
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=(
             review_sidecar if isinstance(review_sidecar, dict) else None
@@ -3841,8 +3898,10 @@ def _print_operator_summary(
         reconciliation, host_permission_flags, renderer_provenance_flags = (
             _run_reconciliation_scan(root)
         )
+        disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
     else:
         reconciliation, host_permission_flags, renderer_provenance_flags = [], [], []
+        disposition_diagnostics = []
     # 1v4mt: scanned even on a failed phase. The marker condition is exactly
     # what a half-finished render leaves behind, so suppressing it there would
     # withhold the finding in the run most likely to have caused it.
@@ -3855,6 +3914,7 @@ def _print_operator_summary(
         ran_index_rebuild=ran_index_rebuild,
         failed_phase=failed_phase,
         reconciliation=reconciliation,
+        reconciliation_disposition_diagnostics=disposition_diagnostics,
         host_permission_flags=host_permission_flags,
         review_sidecar_cleanup=review_sidecar_cleanup,
         renderer_provenance_flags=renderer_provenance_flags,
@@ -3950,6 +4010,7 @@ def _print_operator_summary(
             reconciliation,
             host_permission_flags,
             renderer_provenance_flags,
+            disposition_diagnostics,
         ):
             _log(line)
     # 1v4mt: NOT inside the `not failed_phase` guard and NOT inside the

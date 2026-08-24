@@ -2,9 +2,32 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-23
 
-## Active wave: none
+## Active wave: `1w047 review-plan-naming` (implementing)
+
+Implementation, including the cycle-4 downstream field repair, is complete for `1w046-enh
+review-plan-command-rename`. The canonical workflow is **Review plan** / `wf-review-plan`; the two
+former natural-language phrases remain accepted aliases, while the retired skill, seed path, and
+prompt path are removed from living surfaces. The fresh renderer now recognizes two exact legacy
+public-prompt profiles: the Shortcut contract and the recovered `1.19.0+pko0` Trigger-Phrases form.
+It preserves CRLF/LF and unrelated bytes, adds explicit current-wave fallback to the older form,
+and still blocks customized, mixed-profile, or dual-file conflicts.
+
+`FIELD-DOWNSTREAM-LEGACY-PROMPT-001` is in repair cycle 4. The implementation also reports the
+project-specific agents-layer prompt for manual merge/removal, prints existing disposition keys,
+and explains truthful `historical-record` handling without repeating the retired path in the living
+self-hosted guidance. The field repair invalidated code, QA, docs-contract, and release delivery
+approvals. Architecture remains current. The amended change requires replacement receipt
+`review-policy-cc5e978d5afe52a2f21d`, a fresh readiness-council signoff, four independent finding
+reverifications, and refreshed specialist delivery approvals before operator signoff/closure.
+
+Current computational evidence: focused repair 84/84; affected matrix 805/805; final framework
+suite 7,488 tests across 64 files OK; `wf_validate_docs` and `git diff --check` clean; frozen
+model-swap hashes unchanged. Follow-up wave `1w3br reconciliation-disposition-key-precision` is
+planned with `1w3bq-bug`; it will replace the broad file+token disposition identity with a versioned,
+context-specific and compatibility-aware design. Do not implement that follow-up inside `1w047`.
+Close `1w047` only on explicit operator instruction after fresh review authority is restored.
 
 ### Last closed: `1vwyc prompt-surface-correctness` (CLOSED 2026-08-21 on explicit operator instruction; tree uncommitted)
 

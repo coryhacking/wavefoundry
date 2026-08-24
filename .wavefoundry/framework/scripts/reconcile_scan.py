@@ -42,7 +42,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterator
 
@@ -187,6 +187,51 @@ _RETIRED_CONTENT_PATTERNS: tuple[
     ),
 )
 
+# ── Retired plan-review identity (wave 1w047) ────────────────────────────────
+#
+# The conversational phrases remain supported aliases.  Only the old HOST
+# SKILL name and old prompt/seed paths are retired, so these patterns stay
+# deliberately literal and case-sensitive.  Each entry is
+# (pattern, retired_surface label, suggested replacement).
+_RETIRED_PLAN_REVIEW_AGENT_PROMPT = (
+    "docs/prompts/agents/interrogate-plan.prompt.md"
+)
+_RETIRED_PLAN_REVIEW_AGENT_PROMPT_SUGGESTION = (
+    "merge unique guidance into docs/prompts/review-plan.prompt.md, then remove "
+    "the obsolete agents prompt"
+)
+_RETIRED_PLAN_REVIEW_PATTERNS: tuple[
+    tuple[re.Pattern[str], str, str], ...
+] = (
+    (
+        re.compile(r"(?<![\w-])wf\-interrogate\-plan(?![\w-])"),
+        "wf-interrogate-plan",
+        "wf-review-plan",
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])docs/prompts/interrogate\-plan\.prompt\.md(?![\w.-])"
+        ),
+        "docs/prompts/interrogate-plan.prompt.md",
+        "docs/prompts/review-plan.prompt.md",
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])docs/prompts/agents/interrogate\-plan\.prompt\.md(?![\w.-])"
+        ),
+        _RETIRED_PLAN_REVIEW_AGENT_PROMPT,
+        _RETIRED_PLAN_REVIEW_AGENT_PROMPT_SUGGESTION,
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+            r"175\-interrogate\-plan\.prompt\.md(?![\w.-])"
+        ),
+        "175-interrogate-plan.prompt.md",
+        ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+    ),
+)
+
 
 def _line_text(text: str, position: int) -> str:
     """Return the full line containing *position* (for line-scoped exemptions)."""
@@ -328,7 +373,12 @@ def _archive_row_spans(text: str, rel: str) -> list[tuple[int, int]]:
             if fence is None:
                 fence = (marker[0], len(marker))
                 continue
-            if marker[0] == fence[0] and len(marker) >= fence[1]:
+            tail = raw[fence_match.end(1):]
+            if (
+                marker[0] == fence[0]
+                and len(marker) >= fence[1]
+                and not tail.strip()
+            ):
                 fence = None
                 continue
             # a shorter or other-character run inside an open fence is content
@@ -584,6 +634,9 @@ class StaleReference:
     suggested: str
     host_permission: bool = False
     renderer_provenance: bool = False
+    logical_line: str = ""
+    heading_context: str = ""
+    disposition_state: str = "unrecorded"
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -592,7 +645,54 @@ class StaleReference:
             "retired_surface": self.retired_surface,
             "matched": self.matched,
             "suggested": self.suggested,
+            "disposition_key": disposition_key(self),
+            "disposition_key_version": "v2",
+            "legacy_disposition_key": legacy_disposition_key(self),
+            "disposition_state": self.disposition_state,
+            "logical_line": self.logical_line,
+            "heading_context": self.heading_context,
+            "proposed_v2_key": (
+                disposition_key(self)
+                if self.disposition_state.startswith("legacy-")
+                else None
+            ),
         }
+
+
+def _finding_context(text: str, line_number: int) -> tuple[str, str]:
+    """Return ``(logical line, preceding ATX heading)`` for a 1-based line.
+
+    Heading capture reuses the scanner's CommonMark-style fence rules. The
+    complete heading line is retained; headings inside fences never become
+    context. Physical line terminators are excluded from both fields.
+    """
+
+    lines = text.splitlines()
+    if not lines:
+        return "", ""
+    target_index = min(max(line_number, 1), len(lines)) - 1
+    heading_context = ""
+    fence: tuple[str, int] | None = None
+    for raw in lines[:target_index]:
+        fence_match = _FENCE_RE.match(raw)
+        if fence_match:
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+                continue
+            tail = raw[fence_match.end(1):]
+            if (
+                marker[0] == fence[0]
+                and len(marker) >= fence[1]
+                and not tail.strip()
+            ):
+                fence = None
+                continue
+        if fence is not None:
+            continue
+        if _ATX_HEADING_RE.match(raw):
+            heading_context = raw
+    return lines[target_index], heading_context
 
 
 def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
@@ -664,12 +764,29 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
     root = Path(root)
     provenance = renderer_provenance_rules(root)
     findings: list[StaleReference] = []
+    file_texts: dict[str, str] = {}
     for path, rel in _iter_scannable_files(root):
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        file_texts[rel] = text
         host_perm = is_host_permission_file(rel)
+        # A project-specific agents-layer prompt is a retired carrier by its
+        # existence, even when its body never spells its own path. It cannot be
+        # migrated safely because its unique guidance is project-owned, so this
+        # remains report-only and directs the operator to merge/remove it.
+        if rel == _RETIRED_PLAN_REVIEW_AGENT_PROMPT:
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=1,
+                    retired_surface=_RETIRED_PLAN_REVIEW_AGENT_PROMPT,
+                    matched=rel,
+                    suggested=_RETIRED_PLAN_REVIEW_AGENT_PROMPT_SUGGESTION,
+                    host_permission=host_perm,
+                )
+            )
         # Renderer-governed regions of the committed Claude settings file (allow +
         # provenance arrays). Computed once per file; empty for every other file, so
         # `_is_renderer_provenance_hit` can only ever fire on a real allow/provenance entry.
@@ -721,6 +838,23 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                 if _archived(m):
                     continue
                 if exempt is not None and exempt.search(_line_text(text, m.start())):
+                    continue
+                findings.append(
+                    StaleReference(
+                        file=rel,
+                        line=text.count("\n", 0, m.start()) + 1,
+                        retired_surface=retired,
+                        matched=m.group(0),
+                        suggested=suggestion,
+                        host_permission=host_perm,
+                    )
+                )
+        # Retired plan-review identity (1w047): unlike the two supported
+        # natural-language aliases, these exact skill/path forms no longer
+        # resolve after the hard skill cutover and are repairable in-place.
+        for pat, retired, suggestion in _RETIRED_PLAN_REVIEW_PATTERNS:
+            for m in pat.finditer(text):
+                if _archived(m):
                     continue
                 findings.append(
                     StaleReference(
@@ -785,6 +919,18 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                     renderer_provenance=_provenance_flag(m),
                 )
             )
+    context_cache: dict[tuple[str, int], tuple[str, str]] = {}
+    contextualized: list[StaleReference] = []
+    for finding in findings:
+        cache_key = (finding.file, finding.line)
+        context = context_cache.get(cache_key)
+        if context is None:
+            context = _finding_context(file_texts.get(finding.file, ""), finding.line)
+            context_cache[cache_key] = context
+        contextualized.append(
+            replace(finding, logical_line=context[0], heading_context=context[1])
+        )
+    findings = contextualized
     findings.sort(key=lambda f: (f.file, f.line, f.retired_surface))
     return findings
 
@@ -803,26 +949,42 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
 # rule becomes two implementations.
 DISPOSITIONS_REL = "docs/reconcile-dispositions.json"
 HISTORICAL_RECORD = "historical-record"
+_V1_KEY_RE = re.compile(r"^[0-9a-f]{16}$")
+_V2_KEY_RE = re.compile(r"^v2:[0-9a-f]{32}$")
+_VERSIONED_KEY_RE = re.compile(r"^(?P<version>v[^:]+):(?P<digest>[0-9a-f]{32})$")
 
 
-def disposition_key(ref: "StaleReference") -> str:
-    """Stable identity for one finding: file, surface, and the MATCHED TEXT.
-
-    Deliberately excludes the line number, and deliberately includes the matched
-    text. Excluding the line means editing prose elsewhere in the file does not
-    resurrect a settled judgment. Including the matched text means a disposition
-    CANNOT outlive the text it was made about: change what the line says and the
-    key changes, so the new text reports as a new finding. A key without it
-    would be a blanket file suppression wearing a per-finding label, hiding a
-    genuinely new stale reference on a line that once held a historical one.
-    """
+def legacy_disposition_key(ref: "StaleReference") -> str:
+    """Return the preserved version-1 file/surface/matched identity."""
 
     payload = "\x1f".join((ref.file, ref.retired_surface, ref.matched))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def load_dispositions(root: Path | str) -> dict[str, str]:
-    """Return ``{disposition_key: status}``; ``{}`` when absent or unreadable.
+def disposition_key(ref: "StaleReference") -> str:
+    """Return the exact version-2 content/context identity for *ref*.
+
+    Each of the five ordered UTF-8 fields is framed as ``byte-length:bytes``.
+    The physical line number is intentionally excluded, so harmless movement is
+    stable while line or nearest-heading changes create a new identity.
+    """
+
+    fields = (
+        ref.file,
+        ref.retired_surface,
+        ref.matched,
+        ref.logical_line,
+        ref.heading_context,
+    )
+    payload = b"".join(
+        str(len(encoded)).encode("ascii") + b":" + encoded
+        for encoded in (field.encode("utf-8") for field in fields)
+    )
+    return "v2:" + hashlib.sha256(payload).hexdigest()[:32]
+
+
+def load_dispositions(root: Path | str) -> dict[str, list[str]]:
+    """Return ``{key: [statuses...]}``; ``{}`` when absent or unreadable.
 
     Fail-open by design: an unreadable or malformed store must not suppress
     findings, because silently hiding stale references is the failure this
@@ -837,20 +999,84 @@ def load_dispositions(root: Path | str) -> dict[str, str]:
         return {}
     if not isinstance(data, list):
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, list[str]] = {}
     for entry in data:
         if not isinstance(entry, dict):
             continue
         key, status = entry.get("key"), entry.get("status")
         if isinstance(key, str) and isinstance(status, str):
-            out[key] = status
+            out.setdefault(key, []).append(status)
     return out
 
 
-def is_dispositioned(ref: "StaleReference", dispositions: dict[str, str]) -> bool:
-    """True when *ref* carries a settled historical-record judgment."""
+def is_dispositioned(ref: "StaleReference", dispositions: dict[str, list[str]]) -> bool:
+    """True for one explicit, syntactically valid v2 historical judgment."""
 
-    return dispositions.get(disposition_key(ref)) == HISTORICAL_RECORD
+    key = disposition_key(ref)
+    return _V2_KEY_RE.fullmatch(key) is not None and dispositions.get(key) == [HISTORICAL_RECORD]
+
+
+def disposition_diagnostics(root: Path | str) -> list[dict[str, object]]:
+    """Return read-only store-level states that cannot live in reported findings.
+
+    The three finding channels remain unchanged. This separate projection makes
+    settled v2 judgments and dormant legacy entries inspectable without
+    re-reporting a suppressed stale reference or inventing a synthetic one.
+    """
+
+    dispositions = load_dispositions(root)
+    raw_findings = scan_repo(root)
+    v2_groups: dict[str, list[StaleReference]] = {}
+    v1_groups: dict[str, list[StaleReference]] = {}
+    for ref in raw_findings:
+        v2_groups.setdefault(disposition_key(ref), []).append(ref)
+        v1_groups.setdefault(legacy_disposition_key(ref), []).append(ref)
+
+    diagnostics: list[dict[str, object]] = []
+    for key, statuses in sorted(dispositions.items()):
+        candidates: list[StaleReference]
+        if _V1_KEY_RE.fullmatch(key):
+            candidates = v1_groups.get(key, [])
+            state = (
+                "legacy-dormant"
+                if not candidates
+                else (
+                    "legacy-reclassification-required"
+                    if len(candidates) == 1
+                    else "legacy-ambiguous"
+                )
+            )
+            version = "v1"
+        elif _V2_KEY_RE.fullmatch(key):
+            candidates = v2_groups.get(key, [])
+            if len(candidates) > 1 or len(statuses) > 1:
+                state = "v2-ambiguous"
+            elif candidates and statuses == [HISTORICAL_RECORD]:
+                state = "v2-historical-record"
+            else:
+                continue
+            version = "v2"
+        else:
+            match = _VERSIONED_KEY_RE.fullmatch(key)
+            if match is None or match.group("version") == "v2":
+                continue
+            candidates = v2_groups.get(f"v2:{match.group('digest')}", [])
+            state = "unknown-version"
+            version = match.group("version")
+
+        proposed = sorted({disposition_key(ref) for ref in candidates})
+        diagnostics.append(
+            {
+                "disposition_key": key,
+                "disposition_key_version": version,
+                "disposition_state": state,
+                "statuses": list(statuses),
+                "candidate_count": len(candidates),
+                "candidate_locations": [f"{ref.file}:{ref.line}" for ref in candidates],
+                "proposed_v2_keys": proposed,
+            }
+        )
+    return diagnostics
 
 
 def scan_repo_channels(
@@ -885,9 +1111,41 @@ def scan_repo_channels(
     # `_ARCHIVE_SECTIONS`, wave 1vk4c) are applied inside `scan_repo`, because
     # they define what is in scope rather than judge a hit.
     dispositions = load_dispositions(root)
-    for ref in scan_repo(root):
-        if is_dispositioned(ref, dispositions):
+    raw_findings = scan_repo(root)
+    v2_groups: dict[str, list[StaleReference]] = {}
+    v1_groups: dict[str, list[StaleReference]] = {}
+    for ref in raw_findings:
+        v2_groups.setdefault(disposition_key(ref), []).append(ref)
+        v1_groups.setdefault(legacy_disposition_key(ref), []).append(ref)
+
+    for ref in raw_findings:
+        v2_key = disposition_key(ref)
+        v1_key = legacy_disposition_key(ref)
+        v2_entries = dispositions.get(v2_key, [])
+        v2_digest = v2_key.removeprefix("v2:")
+        has_matching_unknown_version = any(
+            (match := _VERSIONED_KEY_RE.fullmatch(key)) is not None
+            and match.group("version") != "v2"
+            and match.group("digest") == v2_digest
+            for key in dispositions
+        )
+        duplicate_v2 = len(v2_groups[v2_key]) > 1 or len(v2_entries) > 1
+        if duplicate_v2:
+            ref = replace(ref, disposition_state="v2-ambiguous")
+        elif is_dispositioned(ref, dispositions):
             continue
+        elif has_matching_unknown_version:
+            ref = replace(ref, disposition_state="unknown-version")
+        elif _V1_KEY_RE.fullmatch(v1_key) and HISTORICAL_RECORD in dispositions.get(v1_key, []):
+            legacy_candidates = v1_groups[v1_key]
+            ref = replace(
+                ref,
+                disposition_state=(
+                    "legacy-reclassification-required"
+                    if len(legacy_candidates) == 1
+                    else "legacy-ambiguous"
+                ),
+            )
         if ref.renderer_provenance:
             renderer_provenance_flags.append(ref)
         elif ref.host_permission:

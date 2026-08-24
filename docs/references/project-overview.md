@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-23
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -86,7 +86,7 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
 6. **Close wave / Finalize feature** — record closure, validate and promote memory candidates, clear handoff.
 
-See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-interrogate-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`, and the doc-gated `/wf-package`, `/wf-code-cleanup` and `/wf-techdocs`, fifteen in all as of 2026-08-18); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`, and the doc-gated `/wf-package`, `/wf-code-cleanup` and `/wf-techdocs`, fifteen in all as of 2026-08-21); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. **Review plan** is optional, accepts **Interrogate this plan** and **Stress-test this plan** as natural-language aliases, and records no signoff; **Review wave** is the distinct required-lane delivery review. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 
 ## Generic Agent Roles
 

@@ -1754,11 +1754,24 @@ class InstallTemplateInjectionTests(unittest.TestCase):
                 "review-wave.prompt.md",
                 "close-wave.prompt.md",
                 "memory-review.prompt.md",
+                "review-plan.prompt.md",
             )
         }
         self.assertTrue(expected.issubset(names), expected - names)
         self.assertIn(
             ".wavefoundry/framework/seeds/240-memory-review.prompt.md",
+            names,
+        )
+        self.assertIn(
+            ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+            names,
+        )
+        self.assertNotIn(
+            ".wavefoundry/framework/seeds/175-interrogate-plan.prompt.md",
+            names,
+        )
+        self.assertNotIn(
+            ".wavefoundry/framework/install/lifecycle-prompts/interrogate-plan.prompt.md",
             names,
         )
 

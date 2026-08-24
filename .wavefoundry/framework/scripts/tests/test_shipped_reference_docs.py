@@ -228,6 +228,14 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         self.assertIn("wf upgrade", text)
         # Wave 1p8kz: the reconciliation callout runs on EVERY upgrade (no longer minor+-gated).
         self.assertIn("Reconciliation on every upgrade", text)
+        self.assertIn("disposition_key", text)
+        self.assertIn("v2:", text)
+        self.assertIn("legacy-reclassification-required", text)
+        self.assertIn("legacy-ambiguous", text)
+        self.assertIn("never suppress", text)
+        self.assertIn("historical-record", text)
+        self.assertIn("docs/reconcile-dispositions.json", text)
+        self.assertIn("docs/prompts/agents/interrogate-plan.prompt.md", text)
 
     def test_prompt_leads_with_mcp_first_directive(self) -> None:
         text = self._read(self.PROMPT)
@@ -238,6 +246,14 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         self.assertIn("wf upgrade", text)
         # Wave 1p8et: the recommend-only prose callout became the actionable "Reconciliation scan".
         self.assertIn("Reconciliation scan", text)
+        self.assertIn("disposition_key", text)
+        self.assertIn("v2:", text)
+        self.assertIn("legacy-reclassification-required", text)
+        self.assertIn("legacy-ambiguous", text)
+        self.assertIn("never suppress", text)
+        self.assertIn("historical-record", text)
+        self.assertIn("docs/reconcile-dispositions.json", text)
+        self.assertIn("project-specific agents-layer prompt", text)
 
     def test_mcp_first_directive_leads_the_procedure(self) -> None:
         # AC-1: the MCP-first directive must LEAD the manual/CLI-fallback procedure in both surfaces.

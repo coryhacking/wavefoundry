@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-08-23
 
 ## Single-Change Delivery Path (Implement feature)
 
@@ -27,6 +27,6 @@ Use **Implement wave** for multiple admitted changes with dependencies or parall
 6. **Review wave** → all required lanes complete
 7. **Close wave** → closure reconciliation
 
-## Shortcut: Interrogate Plan
+## Shortcut: Review Plan
 
-After authoring a change doc, use **Interrogate this plan** to stress-test all unresolved decision branches before admission. This is optional but recommended for complex or high-risk changes.
+After authoring a change doc, use **Review plan** to stress-test unresolved decision branches in that change, or in the current wave record when no change is named. It may run before or after admission, but before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. This optional workflow records no typed signoff and satisfies no lifecycle gate; **Review wave** is the separate delivery step that runs required lanes and records typed evidence.

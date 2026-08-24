@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-08-23
 
 Shortcut: **`Plan feature`**
 
@@ -39,7 +39,7 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
    - `## Affected architecture docs` — which architecture docs need updating, or N/A with rationale (required when the change crosses module boundaries, integration contracts, primary data/control paths, or test/release seams)
    - if the operator's request clearly extends work already admitted into the current wave, prefer updating that existing change rather than creating a fresh one; extend that change's Acceptance Criteria and Tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
 6. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
-7. Note: **Interrogate this plan** is available as an optional stress-test before admission.
+7. Note: **Review plan** is available as an optional stress-test of this change doc, or of the current wave when no change is named, before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. It records no typed signoff and satisfies no gate; **Review wave** is the distinct delivery-review lifecycle command.
 
 ## Stage Gate
 

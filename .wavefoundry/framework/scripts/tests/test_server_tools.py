@@ -2323,7 +2323,14 @@ class BackgroundIndexRefreshTests(unittest.TestCase):
 
         self.assertEqual(first, {"project": True})
         self.assertEqual(second, {"project": False})
-        popen.assert_called_once()
+        indexer_spawns = [
+            call
+            for call in popen.call_args_list
+            if call.args
+            and isinstance(call.args[0], list)
+            and any(str(arg).endswith("/indexer.py") for arg in call.args[0])
+        ]
+        self.assertEqual(len(indexer_spawns), 1)
 
     def test_framework_seed_paths_trigger_project_layer_refresh(self):
         # 1p4ww: framework seeds fold into the project docs index, so a seed change
@@ -34020,6 +34027,13 @@ Status: in-progress
 
         with contextlib.redirect_stdout(io.StringIO()):
             self._build_phase_one_complete_tree()
+        review_plan = self.root / "docs" / "prompts" / "review-plan.prompt.md"
+        self.assertTrue(review_plan.is_file())
+        review_plan_text = review_plan.read_text(encoding="utf-8")
+        self.assertIn("Owner: Engineering", review_plan_text)
+        self.assertIn("Status: active", review_plan_text)
+        self.assertRegex(review_plan_text, r"Last verified: \d{4}-\d{2}-\d{2}")
+        self.assertNotIn("{{generated_at}}", review_plan_text)
         # Real validator, no mock: the point of the test.
         scoped = self.srv.wf_audit_install_response(self.root, phase=1)
         self.assertEqual(scoped["data"]["status"], "phase_complete", scoped)

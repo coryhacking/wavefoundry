@@ -158,6 +158,93 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
         for carrier in REVIEW_POLICY_CARRIER_REGISTRY
         if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
     ),
+    ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
+)
+
+REVIEW_PLAN_OLD_PROMPT = "docs/prompts/interrogate-plan.prompt.md"
+REVIEW_PLAN_NEW_PROMPT = "docs/prompts/review-plan.prompt.md"
+REVIEW_PLAN_LEGACY_CONTRACT_LINES: "tuple[tuple[str, str, str], ...]" = (
+    ("Heading", "# Interrogate This Plan", "# Review Plan"),
+    (
+        "Shortcut",
+        "Shortcut: **`Interrogate this plan`** | Alias: **`Stress-test this plan`**",
+        "Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**",
+    ),
+    (
+        "Purpose",
+        "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+        "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+    ),
+    (
+        "Input fallback",
+        "Given a change doc as context:",
+        "Given a change doc as context, or the current wave record when no change is specified:",
+    ),
+    (
+        "When to use",
+        "- Before admitting a complex or high-risk change",
+        "- Before or after admitting a complex or high-risk change, but before implementation",
+    ),
+    (
+        "No-gate timing",
+        "**Interrogate this plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after authoring a change doc but before wave admission.",
+        "**Review plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after plan admission, at the operator's discretion, before implementation begins.",
+    ),
+    (
+        "Canonical source",
+        "See `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` for the full interrogation contract.",
+        "See `.wavefoundry/framework/seeds/175-review-plan.prompt.md` for the full plan-review contract.",
+    ),
+)
+
+REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES: "tuple[tuple[str, str, tuple[str, ...]], ...]" = (
+    ("Heading", "# Interrogate This Plan Prompt", ("# Review Plan Prompt",)),
+    (
+        "Primary trigger",
+        "- `Interrogate this plan`",
+        ("- `Review plan`", "- `Interrogate this plan`"),
+    ),
+    (
+        "Canonical source",
+        "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
+        ("Use `.wavefoundry/framework/seeds/175-review-plan.prompt.md` to:",),
+    ),
+    (
+        "Input fallback",
+        "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
+        ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+    ),
+    (
+        "Scope wording",
+        "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
+        ("- Do not re-plan or derive new scope during plan review; record emergent scope items as follow-on candidates rather than introducing them inline.",),
+    ),
+    (
+        "No-gate identity",
+        "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
+        ("- Do not treat **Review plan** as a required lifecycle gate; it is entirely voluntary before or after plan admission.",),
+    ),
+    (
+        "Bounded wording",
+        "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
+        ("- Keep plan review bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",),
+    ),
+    (
+        "Batch example",
+        "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
+        ("- In `--batch` mode (e.g. `Review plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",),
+    ),
+)
+
+REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = (
+    (
+        "shortcut-contract",
+        tuple(
+            (label, old_line, (new_line,))
+            for label, old_line, new_line in REVIEW_PLAN_LEGACY_CONTRACT_LINES
+        ),
+    ),
+    ("early-trigger-phrases-contract", REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES),
 )
 
 SCAFFOLD_BASELINES: tuple[tuple[str, str], ...] = (
@@ -364,6 +451,9 @@ SKILL_HOSTS: "tuple[tuple[str, str], ...]" = (
 STALE_SKILL_PATHS: "tuple[str, ...]" = (
     ".claude/skills/upgrade-wave.md",
     ".codex/skills/auto-guru/SKILL.md",
+    ".codex/skills/wf-interrogate-plan/SKILL.md",
+    ".claude/skills/wf-interrogate-plan/SKILL.md",
+    ".agents/skills/wf-interrogate-plan/SKILL.md",
 )
 
 
@@ -472,7 +562,7 @@ WF_COUNCIL_SKILL_BODY = dedent(
     - Prose, naming, AC formulation, or decision narrative: **Archetype review**, `docs/prompts/archetype-council.prompt.md`.
     - One sharp adversarial challenge on a single artifact: **Red-team review**, `docs/prompts/red-team-review.prompt.md`.
     - These on-demand reviews record no lifecycle signoffs and satisfy no gate; when a prompt directs recording against a wave, use the `wf_review_event` MCP tool.
-    - Boundary: the open wave's REQUIRED review lanes run under Review wave (`wf_review_wave`), and a change doc heading for admission gets Interrogate this plan; this router is for on-demand reviews outside both.
+    - Boundary: the open wave's REQUIRED review lanes run under Review wave (`wf-review-wave`), and a change doc or current wave record gets Review plan (`wf-review-plan`; aliases: Interrogate this plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both.
     """
 )
 
@@ -541,14 +631,15 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         ),
     ),
     Skill(
-        name="wf-interrogate-plan",
-        description="Stress-test a change doc before wave admission by walking every unresolved decision branch one question at a time. The Interrogate this plan workflow.",
+        name="wf-review-plan",
+        description="Review a change doc, or the current wave record when no change is specified, before implementation by walking every unresolved decision branch one question at a time. The Review plan workflow; distinct from Review wave.",
         body=_thin_pointer_body(
-            "Interrogate a plan",
-            "docs/prompts/interrogate-plan.prompt.md",
+            "Review a plan",
+            "docs/prompts/review-plan.prompt.md",
             (
-                "Load the change doc with the `wf_get_change` MCP tool; the interrogation itself is prompt-driven.",
+                "Review the named change doc, or fall back to the current wave record when no change is specified; this may run before or after admission, but only before implementation.",
                 "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
+                "This optional review records no typed signoff and satisfies no lifecycle gate; use `wf-review-wave` for the open wave's required delivery-review lanes.",
             ),
         ),
     ),
@@ -590,7 +681,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-council",
-        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. Not the open wave's required lanes (Review wave) and not a change-doc stress test (Interrogate this plan).",
+        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. Not the open wave's required lanes (Review wave) and not Review plan, the optional change-doc or current-wave stress test whose aliases are Interrogate this plan and Stress-test this plan.",
         body=WF_COUNCIL_SKILL_BODY,
     ),
     Skill(
@@ -669,6 +760,21 @@ def _skill_output_destinations(repo_root: Path) -> list[str]:
     return destinations
 
 
+def _skill_path_has_symlink_component(root: Path, path: Path) -> bool:
+    """Return whether any lexical component below ``root`` is a symlink."""
+
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return True
+    return False
+
+
 def render_skills(repo_root: Path) -> list[str]:
     """Render every registry skill to each active skill host.
 
@@ -684,23 +790,74 @@ def render_skills(repo_root: Path) -> list[str]:
             raise RuntimeError(
                 f"skill name violates the wf- kebab-case policy: {skill.name!r}"
             )
-    written: list[str] = []
     root = repo_root.resolve()
-    for rel in STALE_SKILL_PATHS:
-        stale = repo_root / rel
-        # Containment before deletion: unlink through a symlinked component
-        # would delete OUTSIDE the repository. A tampered legacy wrapper path
-        # fails loudly (the same refusal contract the old write path had)
-        # rather than being silently skipped or followed.
+    active_skill_roots: dict[str, Path] = {}
+    for host_root, skills_dir in SKILL_HOSTS:
+        if not (root / host_root).is_dir():
+            continue
+        declared_root = root / skills_dir
         try:
+            resolved_root = declared_root.resolve(strict=False)
+        except OSError as exc:
+            raise RuntimeError(
+                f"declared host skill root cannot be resolved safely: {skills_dir}: {exc}"
+            ) from exc
+        if (
+            _skill_path_has_symlink_component(root, declared_root)
+            or resolved_root != declared_root
+        ):
+            raise RuntimeError(
+                "declared host skill root contains a symlink: " f"{skills_dir}"
+            )
+        active_skill_roots[skills_dir] = declared_root
+
+    # Validate every cleanup and write destination before mutating any host.
+    # This preserves all hosts if one later lexical path redirects through a
+    # symlink, including a per-skill directory symlink inside a valid root.
+    for rel in STALE_SKILL_PATHS:
+        stale = root / rel
+        if _skill_path_has_symlink_component(root, stale):
+            raise RuntimeError(
+                "stale skill path escapes its declared host skill root through a symlink: "
+                f"{rel}"
+            )
+    for skill in SKILL_REGISTRY:
+        if skill.requires_doc and not (root / skill.requires_doc).is_file():
+            continue
+        for skills_dir, declared_root in active_skill_roots.items():
+            target = declared_root / skill.name / "SKILL.md"
+            if _skill_path_has_symlink_component(root, target):
+                raise RuntimeError(
+                    "skill output path escapes its declared host skill root through a symlink: "
+                    f"{skills_dir}/{skill.name}/SKILL.md"
+                )
+
+    written: list[str] = []
+    for rel in STALE_SKILL_PATHS:
+        stale = root / rel
+        skills_dir = next(
+            (
+                declared_skills_dir
+                for _host_root, declared_skills_dir in SKILL_HOSTS
+                if rel == declared_skills_dir or rel.startswith(f"{declared_skills_dir}/")
+            ),
+            None,
+        )
+        if skills_dir is None:
+            raise RuntimeError(f"stale skill path has no declared host skill root: {rel}")
+        try:
+            declared_root = (root / skills_dir).resolve(strict=False)
             resolved_parent = stale.parent.resolve(strict=False)
         except OSError as exc:
             raise RuntimeError(
                 f"stale skill path cannot be resolved safely: {rel}: {exc}"
             ) from exc
-        if stale.is_symlink() or not resolved_parent.is_relative_to(root):
+        if not declared_root.is_relative_to(root) or not resolved_parent.is_relative_to(
+            declared_root
+        ):
             raise RuntimeError(
-                f"stale skill path escapes the repository root through a symlink: {rel}"
+                "stale skill path escapes its declared host skill root through a symlink: "
+                f"{rel}"
             )
         if stale.is_file():
             stale.unlink()
@@ -714,13 +871,13 @@ def render_skills(repo_root: Path) -> list[str]:
                 except OSError:
                     pass
     for skill in SKILL_REGISTRY:
-        if skill.requires_doc and not (repo_root / skill.requires_doc).is_file():
+        if skill.requires_doc and not (root / skill.requires_doc).is_file():
             continue
         for host_root, skills_dir in SKILL_HOSTS:
-            if not (repo_root / host_root).is_dir():
+            if skills_dir not in active_skill_roots:
                 continue
             rel = f"{skills_dir}/{skill.name}/SKILL.md"
-            target = repo_root / rel
+            target = root / rel
             document = skill_document(skill)
             # A skill file can also be a review carrier (wf-guru on Codex):
             # the reconcile passes own marked regions inside it. Graft any
@@ -1533,6 +1690,125 @@ def _write_review_carrier_text(path: Path, content: str, *, exclusive: bool = Fa
         handle.write(content)
 
 
+def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
+    """Move the recognized legacy prompt without rewriting project-owned prose.
+
+    The two closed profiles above are the complete, case-sensitive legacy
+    vocabulary. Any deviation or mixed profile blocks before skills or lifecycle
+    baselines are rendered, leaving operator-authored files untouched for a
+    manual merge.
+    """
+
+    old_lexical = repo_root / REVIEW_PLAN_OLD_PROMPT
+    new_lexical = repo_root / REVIEW_PLAN_NEW_PROMPT
+    old_present = old_lexical.exists() or old_lexical.is_symlink()
+    new_present = new_lexical.exists() or new_lexical.is_symlink()
+
+    if old_present and new_present:
+        raise RuntimeError(
+            "review-plan prompt migration blocked: both "
+            f"{REVIEW_PLAN_OLD_PROMPT} and {REVIEW_PLAN_NEW_PROMPT} exist; "
+            "both were preserved. Merge any project-authored prose into the new prompt, "
+            "remove the old prompt, and rerun the upgrade."
+        )
+    if not old_present:
+        return []
+    if old_lexical.is_symlink():
+        raise RuntimeError(
+            "review-plan prompt migration blocked: the legacy prompt is a symlink; "
+            f"replace {REVIEW_PLAN_OLD_PROMPT} with a regular file before retrying."
+        )
+
+    old_path = _contained_review_carrier_path(repo_root, REVIEW_PLAN_OLD_PROMPT)
+    new_path = _contained_review_carrier_path(repo_root, REVIEW_PLAN_NEW_PROMPT)
+    if not old_path.is_file():
+        raise RuntimeError(
+            "review-plan prompt migration blocked: the legacy prompt is not a regular file; "
+            f"preserve and resolve {REVIEW_PLAN_OLD_PROMPT} before retrying."
+        )
+    try:
+        with old_path.open("r", encoding="utf-8", newline="") as handle:
+            original = handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            "review-plan prompt migration blocked: the legacy prompt could not be read as "
+            f"UTF-8: {REVIEW_PLAN_OLD_PROMPT}: {exc}"
+        ) from exc
+
+    physical_lines = original.splitlines(keepends=True)
+
+    def line_content_and_ending(physical_line: str) -> tuple[str, str]:
+        if physical_line.endswith("\r\n"):
+            return physical_line[:-2], "\r\n"
+        if physical_line.endswith(("\r", "\n")):
+            return physical_line[:-1], physical_line[-1:]
+        return physical_line, ""
+
+    logical_lines = [line_content_and_ending(line)[0] for line in physical_lines]
+    profile_checks = [
+        (
+            profile_name,
+            profile,
+            [
+                label
+                for label, old_line, _new_lines in profile
+                if logical_lines.count(old_line) != 1
+            ],
+        )
+        for profile_name, profile in REVIEW_PLAN_LEGACY_CONTRACT_PROFILES
+    ]
+    recognized = [
+        (profile_name, profile)
+        for profile_name, profile, unrecognized in profile_checks
+        if not unrecognized
+    ]
+    if len(recognized) != 1:
+        details = "; ".join(
+            f"{profile_name}: {', '.join(unrecognized) if unrecognized else 'matched'}"
+            for profile_name, _profile, unrecognized in profile_checks
+        )
+        raise RuntimeError(
+            "review-plan prompt migration blocked: the legacy prompt has customized or "
+            "unrecognized canonical contract lines, or mixes recognized profiles; the old prompt was preserved and the "
+            "new skill/baseline were not rendered. Resolve these fields manually or restore "
+            f"one exact legacy profile before retrying: {details}."
+        )
+
+    _profile_name, profile = recognized[0]
+    replacements = {
+        old_line: new_lines
+        for _label, old_line, new_lines in profile
+    }
+
+    def migrate_physical_line(content: str, ending: str) -> str:
+        new_lines = replacements.get(content)
+        if new_lines is None:
+            return content + ending
+        if len(new_lines) == 1:
+            return new_lines[0] + ending
+        if ending:
+            return "".join(new_line + ending for new_line in new_lines)
+        return "\n".join(new_lines)
+
+    migrated = "".join(
+        migrate_physical_line(content, ending)
+        for content, ending in map(line_content_and_ending, physical_lines)
+    )
+    _write_review_carrier_text(new_path, migrated, exclusive=True)
+    try:
+        old_path.unlink()
+    except OSError as exc:
+        try:
+            new_path.unlink()
+        except OSError:
+            pass
+        raise RuntimeError(
+            "review-plan prompt migration blocked while removing the legacy prompt; "
+            f"{REVIEW_PLAN_OLD_PROMPT} was preserved: {exc}"
+        ) from exc
+    return [REVIEW_PLAN_OLD_PROMPT, REVIEW_PLAN_NEW_PROMPT]
+
+
 def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
     """Return every non-registry agent destination this pass may write.
 
@@ -2149,6 +2425,10 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # return so setup/upgrade/render can repair review carriers in repositories
     # that intentionally do not expose Guru.
     preflight_agent_surface_paths(repo_root)
+    # Wave 1w047: this fresh-code migration is the first mutating step. It must
+    # resolve the project-owned old/new prompt state before a renamed skill can
+    # point at it and before missing-only baselines can materialize beside it.
+    migration_written = migrate_review_plan_prompt(repo_root)
     # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not
@@ -2172,6 +2452,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     framework_written = list(
         dict.fromkeys(
             [
+                *migration_written,
                 *skills_written,
                 *lifecycle_written,
                 *scaffold_written,

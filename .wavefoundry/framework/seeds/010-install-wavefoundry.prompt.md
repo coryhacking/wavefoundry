@@ -11,6 +11,8 @@ This seed used to carry the full install body. As of wave `1p35d` (1.5.0), insta
 | 1 — Harness | `seed-011` | NO (this phase installs MCP) | venv, deps, bin/ launchers, host configs, framework + project indexes, MCP-server-can-start check, restart-agent marker |
 | 2 — Project discovery | `seed-012` | YES (restart between phases) | architecture, agents, personas, prompt surface, docs gate, drift expectations, final completion check |
 
+Phase 2 exposes **Review plan** as the primary optional plan stress-test command, with **Interrogate this plan** and **Stress-test this plan** accepted only as natural-language aliases. Its skill is `wf-review-plan`; do not render a `wf-interrogate-plan` compatibility skill. Keep it distinct from **Review wave** / `wf-review-wave`, which runs required delivery-review lanes and records typed evidence.
+
 ## Where the state lives
 
 The install state machine is the live project file `.wavefoundry/install-log.md`, created from the shipped `.wavefoundry/framework/install/install-log.template.md`. The agent reads the first unchecked row, executes the named seed step, marks `[x]`, and advances. After the restart between phases, Phase 2 uses `wf_audit_install` for end-to-end validation.

@@ -9,7 +9,7 @@ Intent:
 
 - Run the `red-team` specialist in isolation against one artifact — a plan, code change, ADR, design, prose document, workflow, or decision narrative — producing a single sharp adversarial challenge with named failure modes and a strongest-alternative, without convening a council and without recording any review authority.
 
-This is the standalone form of the capability `docs/agents/specialists/red-team.md` already defines (seed `225-red-team.prompt.md` when the role doc is absent). Reach for **Council review** when the artifact needs multiple specialist seats, **Archetype review** when it needs multiple stance-based seats, and **Interrogate this plan** when the artifact is a change doc heading for wave admission; the chooser table in `docs/prompts/archetype-council.prompt.md` routes among them.
+This is the standalone form of the capability `docs/agents/specialists/red-team.md` already defines (seed `225-red-team.prompt.md` when the role doc is absent). Reach for **Council review** when the artifact needs multiple specialist seats, **Archetype review** when it needs multiple stance-based seats, and **Review plan** when a change doc — or the current wave record when no change is named — needs unresolved branches stress-tested before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. Review plan records no signoff and satisfies no gate; **Review wave** is the distinct required-lane delivery review. The chooser table in `docs/prompts/archetype-council.prompt.md` routes among them.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-23
 
 **Shortcut phrases:** `Archetype review` · `Archetype council`
 
@@ -91,7 +91,7 @@ The findings are preserved in `1p318`'s Decision Log under "Three-persona review
 | **Prepare wave** | Lifecycle gate — Wave Council readiness pass is embedded; records `wave-council-readiness` signoff |
 | **Review wave** | Lifecycle gate — Wave Council delivery pass is embedded; records `wave-council-delivery` signoff |
 | **Evaluate decision** | Architecture / technology decision specifically — produces an ADR |
-| **Interrogate this plan** | Stress-test a plan's unresolved decision branches before admission |
+| **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 
 ---
 

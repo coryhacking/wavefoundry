@@ -6,7 +6,26 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.19.0] - 2026-08-21
+## [1.19.0] - 2026-08-22
+
+### Changed
+
+- **Plan review uses the product's review vocabulary.** The optional plan stress test is now
+  **Review plan** / `wf-review-plan`; **Interrogate this plan** and **Stress-test this plan** remain
+  accepted natural-language aliases, but the retired `wf-interrogate-plan` skill is not rendered.
+  The workflow still reviews a named change doc (or the current wave when none is named), may run
+  before or after admission but before implementation, and records no typed signoff or lifecycle
+  approval. **Review wave** / `wf-review-wave` remains the distinct required-lane delivery review.
+  Upgrade migrates either recognized canonical old prompt profile (including the earlier Trigger
+  Phrases form), preserves project-authored prose and newline style, and fails closed on customized,
+  mixed-profile, or dual-path conflicts. Project-specific agents prompts remain manual merge/removal
+  work, while reconciliation output now prints the existing key used to disposition truthful history.
+
+- **Reconciliation dispositions are finding-specific.** New `v2:` keys bind the file, retired
+  surface, matched token, complete logical line, and nearest Markdown heading without using a line
+  number. Existing 16-hex keys remain preserved but fail open and request explicit operator
+  reclassification; duplicate v2 fingerprints also remain reported instead of suppressing by scan
+  order. The raw audit view and the three existing reconciliation channels are unchanged.
 
 ### Added
 

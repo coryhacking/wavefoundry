@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-23
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -49,7 +49,7 @@ One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every
 | `wf-implement-wave` | `docs/prompts/implement-wave.prompt.md` | none |
 | `wf-review-wave` | `docs/prompts/review-wave.prompt.md` | none |
 | `wf-close-wave` | `docs/prompts/close-wave.prompt.md` | none |
-| `wf-interrogate-plan` | `docs/prompts/interrogate-plan.prompt.md` | none |
+| `wf-review-plan` | `docs/prompts/review-plan.prompt.md` | none; phrase aliases **Interrogate this plan** and **Stress-test this plan** do not render a second skill |
 | `wf-evaluate-decision` | `docs/prompts/evaluate-decision.prompt.md` | none |
 | `wf-memory-review` | `docs/prompts/memory-review.prompt.md` | none |
 | `wf-pause-wave` | `docs/prompts/pause-wave.prompt.md` | none |
