@@ -649,7 +649,7 @@ class GraphAugmentationExplicitOptOutTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from test_server_tools import load_server
+        from server_tools_support import load_server
 
         cls.srv = load_server()
 

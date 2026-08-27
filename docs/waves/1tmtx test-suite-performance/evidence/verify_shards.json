@@ -1,0 +1,17 @@
+{
+  "identity_and_fingerprints": [],
+  "guard_exception_map": [],
+  "census": [],
+  "census_preexisting_exclusions": [
+    "test_render_agent_surfaces.py: from-imports test_upgrade_wavefoundry (pre-existing, out of 1tm6d scope)",
+    "test_techdocs_audit_lib.py: from-imports tests.test_render_agent_surfaces (pre-existing, out of 1tm6d scope)"
+  ],
+  "mutants_caught": {
+    "delete_class": true,
+    "delete_plus_padding": true,
+    "assertion_to_pass": true,
+    "duplicate_class": true,
+    "new_skip": true
+  },
+  "pass": true
+}

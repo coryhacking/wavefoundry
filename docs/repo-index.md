@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 11055 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 891 |
-| graph | `.wavefoundry/framework/scripts` | code | 355 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 215 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 11163 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 757 |
+| graph | `.wavefoundry/framework/scripts` | code | 356 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 223 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 214 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 211 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 187 |
+| 1vry5 techdocs-pattern-fidelity | `docs/waves/1vry5 techdocs-pattern-fidelity` | code | 208 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 197 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 187 |
+| subprocess_util | `.wavefoundry/framework/scripts` | code | 186 |
 | chunker | `.wavefoundry/framework/scripts` | code | 179 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 176 |
-| indexer | `.wavefoundry/framework/scripts` | code | 174 |
-| techdocs-pattern-cost-results | `.wavefoundry/framework/scripts` | code | 171 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 148 |
-| store | `.wavefoundry/framework/scripts` | code | 144 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 124 |
+| store | `.wavefoundry/framework/scripts` | code | 148 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 133 |
+| indexer | `.wavefoundry/framework/scripts` | code | 124 |
 | scripts/techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 115 |
-| framework/scripts — install | `.wavefoundry/framework/scripts` | code | 63 |
-| framework/scripts — should_exclude | `.wavefoundry/framework/scripts` | code | 63 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| upgrade_bridge_bootstrap | `.wavefoundry/framework/scripts` | code | 92 |
+| framework/scripts — validate_review_evidence_records | `.wavefoundry/framework/scripts` | code | 63 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 54 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
-| commit_provenance | `.wavefoundry/framework/scripts` | code | 18 |
-| tokens | `docs/design-system/tokens` | config | 320 |
+| graph_query | `.wavefoundry/framework/scripts` | code | 44 |
+| framework/scripts — serialization_point_paths | `.wavefoundry/framework/scripts` | code | 41 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 40 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 35 |
 | configuration | `(root)` | config | 13 |
 <!-- wave:repo-index-modules end -->
 

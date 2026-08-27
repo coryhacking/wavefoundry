@@ -1,0 +1,1573 @@
+{
+  "captured_at": "2026-08-27T19:38:37+00:00",
+  "wall_s": 62.647,
+  "class_count": 223,
+  "total_ran": 1737,
+  "red": [],
+  "startup_floor_s": 0.373,
+  "median_elapsed_s": 0.746,
+  "sum_net_s": 284.38,
+  "classes": [
+    {
+      "cls": "FrameworkWideSubprocessIsolationGuard",
+      "elapsed_s": 46.932,
+      "returncode": 0,
+      "ran": 15,
+      "ok": true
+    },
+    {
+      "cls": "WaveCouncilPolicyTests",
+      "elapsed_s": 15.155,
+      "returncode": 0,
+      "ran": 56,
+      "ok": true
+    },
+    {
+      "cls": "WavePrepareSingleActiveGuardTests",
+      "elapsed_s": 13.771,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "RerankerTests",
+      "elapsed_s": 11.728,
+      "returncode": 0,
+      "ran": 102,
+      "ok": true
+    },
+    {
+      "cls": "TypedExclusiveGateDerivationTests",
+      "elapsed_s": 10.349,
+      "returncode": 0,
+      "ran": 20,
+      "ok": true
+    },
+    {
+      "cls": "WaveLifecycleMutationTests",
+      "elapsed_s": 10.107,
+      "returncode": 0,
+      "ran": 50,
+      "ok": true
+    },
+    {
+      "cls": "ReviewEvidenceListEventTests",
+      "elapsed_s": 7.479,
+      "returncode": 0,
+      "ran": 24,
+      "ok": true
+    },
+    {
+      "cls": "WaveImplementTests",
+      "elapsed_s": 6.193,
+      "returncode": 0,
+      "ran": 15,
+      "ok": true
+    },
+    {
+      "cls": "WaveMcpReloadTests",
+      "elapsed_s": 5.867,
+      "returncode": 0,
+      "ran": 19,
+      "ok": true
+    },
+    {
+      "cls": "PreferredPythonSubprocessTests",
+      "elapsed_s": 5.638,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "WaveDashboardBrowserSuppressTests",
+      "elapsed_s": 5.584,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "WaveUpgradeMcpToolTests",
+      "elapsed_s": 4.533,
+      "returncode": 0,
+      "ran": 58,
+      "ok": true
+    },
+    {
+      "cls": "StaleGraphAutoRebuildTests",
+      "elapsed_s": 4.526,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "McpResourceReadTests",
+      "elapsed_s": 4.182,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "EpochSeqlockConcurrencyTests",
+      "elapsed_s": 4.16,
+      "returncode": 0,
+      "ran": 19,
+      "ok": true
+    },
+    {
+      "cls": "PublicTypedEventProcessRaceTests",
+      "elapsed_s": 4.008,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WavePrepareCouncilGateTests",
+      "elapsed_s": 3.388,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TestMcpWrapperParameterExposure",
+      "elapsed_s": 3.227,
+      "returncode": 0,
+      "ran": 19,
+      "ok": true
+    },
+    {
+      "cls": "WavePlaceholderRepairTests",
+      "elapsed_s": 3.178,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TechdocsAuditToolTests",
+      "elapsed_s": 3.177,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "InferTagsServerTests",
+      "elapsed_s": 3.139,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeGraphCommunity",
+      "elapsed_s": 2.953,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "SemanticEmbeddingRegressionTests",
+      "elapsed_s": 2.896,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "ReopenWavePurposeStageTests",
+      "elapsed_s": 2.85,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "WaveAddChangeSectionPlacementTests",
+      "elapsed_s": 2.553,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "PostWriteLintIncrementalGitBehaviorTests",
+      "elapsed_s": 2.413,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TrueTerminationCrashCutTests",
+      "elapsed_s": 2.335,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeDefinitionGraphNarrowed",
+      "elapsed_s": 2.332,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "HandoffToolTests",
+      "elapsed_s": 2.206,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "BulkWaveGetChangeTests",
+      "elapsed_s": 2.203,
+      "returncode": 0,
+      "ran": 30,
+      "ok": true
+    },
+    {
+      "cls": "MarkAcReceiptRefreshTests",
+      "elapsed_s": 2.153,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "GraphSignalTests",
+      "elapsed_s": 2.141,
+      "returncode": 0,
+      "ran": 17,
+      "ok": true
+    },
+    {
+      "cls": "LayeredIndexTests",
+      "elapsed_s": 2.102,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "AutoLintAtMcpGatesTests",
+      "elapsed_s": 2.093,
+      "returncode": 0,
+      "ran": 11,
+      "ok": true
+    },
+    {
+      "cls": "WaveCloseHandoffPreservationTests",
+      "elapsed_s": 2.077,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "McpResourceTemplateReadTests",
+      "elapsed_s": 2.064,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "WaveCreateScaffoldAlignmentTests",
+      "elapsed_s": 2.017,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "DegradedFtsFallbackTests",
+      "elapsed_s": 1.987,
+      "returncode": 0,
+      "ran": 42,
+      "ok": true
+    },
+    {
+      "cls": "CodeReferencesTests",
+      "elapsed_s": 1.955,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "TestGraphRefreshAndResolve",
+      "elapsed_s": 1.917,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "LifecycleIdPreservationTests",
+      "elapsed_s": 1.902,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "RunIndexRebuildTests",
+      "elapsed_s": 1.9,
+      "returncode": 0,
+      "ran": 18,
+      "ok": true
+    },
+    {
+      "cls": "RunnerIdentitySetterCompatibilityTests",
+      "elapsed_s": 1.854,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "FreshnessAnnotationAndDriftPartitionTests",
+      "elapsed_s": 1.843,
+      "returncode": 0,
+      "ran": 13,
+      "ok": true
+    },
+    {
+      "cls": "GateAutoCloseTests",
+      "elapsed_s": 1.831,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "RepairIndependenceBoundaryTests",
+      "elapsed_s": 1.779,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "CodeReferencesFallbackTests",
+      "elapsed_s": 1.775,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeCallhierarchy",
+      "elapsed_s": 1.75,
+      "returncode": 0,
+      "ran": 14,
+      "ok": true
+    },
+    {
+      "cls": "WaveIndexAutoReloadTests",
+      "elapsed_s": 1.727,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "SqlSchemaQualifiedFallbackTests",
+      "elapsed_s": 1.71,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeGraphPath",
+      "elapsed_s": 1.709,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestGraphRefreshThenRecheck",
+      "elapsed_s": 1.698,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestSuggestNearSymbolsTokenization",
+      "elapsed_s": 1.671,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "CodeLexicalToolTests",
+      "elapsed_s": 1.632,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "WaveCloseSummaryGenerationTests",
+      "elapsed_s": 1.624,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "ExternalSupertypeServerTests",
+      "elapsed_s": 1.605,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "FtsRebuildContentTests",
+      "elapsed_s": 1.554,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "BackgroundModelDownloadTests",
+      "elapsed_s": 1.543,
+      "returncode": 0,
+      "ran": 11,
+      "ok": true
+    },
+    {
+      "cls": "WaveAddChangeBrokenLinksTests",
+      "elapsed_s": 1.532,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "ServerHandlerLazyInitTests",
+      "elapsed_s": 1.526,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "WavePauseStatusTransitionTests",
+      "elapsed_s": 1.507,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "WaveRecordReadSeamCensusTests",
+      "elapsed_s": 1.499,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "JVMSourceEvidenceHelperTests",
+      "elapsed_s": 1.488,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "UnreadableWaveRecordTests",
+      "elapsed_s": 1.465,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "StateStoreOptimizeAndHealthTests",
+      "elapsed_s": 1.459,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "TestLanceDBIndex",
+      "elapsed_s": 1.393,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "ReviewPhaseAliasTests",
+      "elapsed_s": 1.391,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "ServerToolRegistrationTests",
+      "elapsed_s": 1.374,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveReopenTests",
+      "elapsed_s": 1.306,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "DeclaredWaveTreeSweepTests",
+      "elapsed_s": 1.291,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "PostWriteLintIncrementalTests",
+      "elapsed_s": 1.235,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "OperatorSignoffTests",
+      "elapsed_s": 1.214,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "TestStdlibAllowlistMultiLanguage",
+      "elapsed_s": 1.173,
+      "returncode": 0,
+      "ran": 17,
+      "ok": true
+    },
+    {
+      "cls": "WaveAuditUnaffectedByCurrentEnvelopeTests",
+      "elapsed_s": 1.166,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveInstallAuditTests",
+      "elapsed_s": 1.144,
+      "returncode": 0,
+      "ran": 19,
+      "ok": true
+    },
+    {
+      "cls": "TestExcludeExternalFilter",
+      "elapsed_s": 1.127,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "McpResourceRegistrationTests",
+      "elapsed_s": 1.094,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveLifecycleWithoutJournalTests",
+      "elapsed_s": 1.057,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestCsharpAttributeExtraction",
+      "elapsed_s": 1.044,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "ImplHandlerCloseTests",
+      "elapsed_s": 1.035,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "DriftWorklistAuditSurfaceTests",
+      "elapsed_s": 1.006,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveAuditTests",
+      "elapsed_s": 1.001,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "TestBetweennessServedFromArtifact",
+      "elapsed_s": 0.977,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "WaveCodeFootprintTests",
+      "elapsed_s": 0.97,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TestJavaAnnotationExtraction",
+      "elapsed_s": 0.968,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveDashboardPersistentStartLockTests",
+      "elapsed_s": 0.952,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "TestModuleFanOutCountSemantics",
+      "elapsed_s": 0.951,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "TestExternalNameCollisionAllowlist",
+      "elapsed_s": 0.946,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "RunGardenTests",
+      "elapsed_s": 0.911,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "TechdocsBaselineToolTests",
+      "elapsed_s": 0.911,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "WaveCreateWaveTemplateTests",
+      "elapsed_s": 0.904,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "HarnessabilityTypeCoverageJVMTests",
+      "elapsed_s": 0.901,
+      "returncode": 0,
+      "ran": 14,
+      "ok": true
+    },
+    {
+      "cls": "TypedEventNamedCrashCutTests",
+      "elapsed_s": 0.9,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "WaveCreateWaveLastVerifiedTests",
+      "elapsed_s": 0.88,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestEmptySectionDiagnosticFields",
+      "elapsed_s": 0.868,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestLargeCommunityPagination",
+      "elapsed_s": 0.859,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "TestJavaReceiverTypeResolution",
+      "elapsed_s": 0.82,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "TestJavaMethodReferenceCallSites",
+      "elapsed_s": 0.816,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestPreBumpGraphReceiverTypeDefense",
+      "elapsed_s": 0.806,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestLargeCommunityAdvisory",
+      "elapsed_s": 0.8,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "TestFileHubsSectionSplit",
+      "elapsed_s": 0.798,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "TestGeneratedCodeFilter",
+      "elapsed_s": 0.796,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "ConstantReadsBucketTests",
+      "elapsed_s": 0.796,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "LegacyProseGateParityTests",
+      "elapsed_s": 0.793,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TestModuleSimpleNameExtraction",
+      "elapsed_s": 0.786,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestExternalNameCollisionCount",
+      "elapsed_s": 0.783,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "TestNameCollisionCount",
+      "elapsed_s": 0.78,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "WfAuditBoundedIndexSnapshotTests",
+      "elapsed_s": 0.773,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "HarnessabilityMonorepoAggregationTests",
+      "elapsed_s": 0.759,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestAopAdviceEmptyIncomingDetection",
+      "elapsed_s": 0.758,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TestGraphToolShapeConsistency",
+      "elapsed_s": 0.748,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "WaveIndexHealthTests",
+      "elapsed_s": 0.746,
+      "returncode": 0,
+      "ran": 17,
+      "ok": true
+    },
+    {
+      "cls": "WavePrepareACPriorityWarningTests",
+      "elapsed_s": 0.743,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestStableCommunityIdentifier",
+      "elapsed_s": 0.735,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "CodeSearchLanguageNormalizationTests",
+      "elapsed_s": 0.724,
+      "returncode": 0,
+      "ran": 14,
+      "ok": true
+    },
+    {
+      "cls": "IndexBuildStatusTests",
+      "elapsed_s": 0.719,
+      "returncode": 0,
+      "ran": 14,
+      "ok": true
+    },
+    {
+      "cls": "WaveDashboardPidRaceTests",
+      "elapsed_s": 0.718,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "MaxPerFileFilterDirectTests",
+      "elapsed_s": 0.712,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveValidateAcceptsPausedTests",
+      "elapsed_s": 0.711,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "TestGraphRebuildDiscoverability",
+      "elapsed_s": 0.711,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "DocsSearchModeFieldTests",
+      "elapsed_s": 0.706,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "MonorepoDetectionTests",
+      "elapsed_s": 0.699,
+      "returncode": 0,
+      "ran": 15,
+      "ok": true
+    },
+    {
+      "cls": "TestApplyGraphAugmentation",
+      "elapsed_s": 0.697,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "McpSubprocessHelperTests",
+      "elapsed_s": 0.696,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "GetPromptTests",
+      "elapsed_s": 0.683,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "BackgroundIndexRefreshTests",
+      "elapsed_s": 0.683,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeImpactIncludeTests",
+      "elapsed_s": 0.683,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "RootDiscoveryTests",
+      "elapsed_s": 0.678,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "ListWavesTests",
+      "elapsed_s": 0.678,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "GetChangeTests",
+      "elapsed_s": 0.676,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "ServerStdioTransportTests",
+      "elapsed_s": 0.674,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "GuidedContractTests",
+      "elapsed_s": 0.673,
+      "returncode": 0,
+      "ran": 15,
+      "ok": true
+    },
+    {
+      "cls": "GardenDocsIndexRefreshTriggerTests",
+      "elapsed_s": 0.671,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "WaveIndexBuildResponseTests",
+      "elapsed_s": 0.669,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "ListPlansTests",
+      "elapsed_s": 0.667,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "CodeSearchLanguageCategoryTests",
+      "elapsed_s": 0.666,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "NewChangeTests",
+      "elapsed_s": 0.665,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "CurrentWaveTests",
+      "elapsed_s": 0.661,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "RunValidateTests",
+      "elapsed_s": 0.66,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "WaveMapTests",
+      "elapsed_s": 0.659,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "CodeConstantsTests",
+      "elapsed_s": 0.658,
+      "returncode": 0,
+      "ran": 29,
+      "ok": true
+    },
+    {
+      "cls": "BackgroundBuildStatusTests",
+      "elapsed_s": 0.657,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "ReadChunkerVersionTests",
+      "elapsed_s": 0.656,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "McpRepoCacheTests",
+      "elapsed_s": 0.654,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "TestWaveGraphReportCollapseIntegration",
+      "elapsed_s": 0.654,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "PromptCacheTests",
+      "elapsed_s": 0.653,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "IndexBuildStatsTests",
+      "elapsed_s": 0.65,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "LayerHealthFileMetaTests",
+      "elapsed_s": 0.632,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "DocsCodeModelSelectorTests",
+      "elapsed_s": 0.631,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "TestKotlinReferenceResolution",
+      "elapsed_s": 0.62,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "WaveRunSensorsTests",
+      "elapsed_s": 0.618,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestGraphToolRefreshOnMiss",
+      "elapsed_s": 0.615,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "CodeDefinitionMultiLanguageTests",
+      "elapsed_s": 0.609,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "TestGeneratedCodeCollapse",
+      "elapsed_s": 0.605,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "TestCsharpAdviceEmptyIncomingDetection",
+      "elapsed_s": 0.604,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "CodeDefinitionCssTests",
+      "elapsed_s": 0.598,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "CodeDefinitionTests",
+      "elapsed_s": 0.597,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "RequiredReviewLanesTests",
+      "elapsed_s": 0.59,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "TestCollapseClassModulePairs",
+      "elapsed_s": 0.588,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "CodePatternTests",
+      "elapsed_s": 0.584,
+      "returncode": 0,
+      "ran": 13,
+      "ok": true
+    },
+    {
+      "cls": "EmbedderSingletonTests",
+      "elapsed_s": 0.567,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "WaveCurrentListEnvelopeTests",
+      "elapsed_s": 0.554,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "FtsQueryShapeTests",
+      "elapsed_s": 0.552,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveCloseSecretsGateTests",
+      "elapsed_s": 0.551,
+      "returncode": 0,
+      "ran": 14,
+      "ok": true
+    },
+    {
+      "cls": "CodeKeywordMultiQueryTests",
+      "elapsed_s": 0.55,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "CodeAskTests",
+      "elapsed_s": 0.549,
+      "returncode": 0,
+      "ran": 54,
+      "ok": true
+    },
+    {
+      "cls": "BackgroundRefreshActiveTests",
+      "elapsed_s": 0.548,
+      "returncode": 0,
+      "ran": 16,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeGraphTools",
+      "elapsed_s": 0.546,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "SeedGetDiskFallbackTests",
+      "elapsed_s": 0.544,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeCallgraphIncludeTests",
+      "elapsed_s": 0.532,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "MaybeRefreshIfStaleTests",
+      "elapsed_s": 0.528,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeGraphPathDirection",
+      "elapsed_s": 0.521,
+      "returncode": 0,
+      "ran": 7,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeOutlineTypescript",
+      "elapsed_s": 0.52,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "CrossToolTreeSitterCacheTests",
+      "elapsed_s": 0.495,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "SeverityTriageTests",
+      "elapsed_s": 0.495,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "CodeOutlineTests",
+      "elapsed_s": 0.49,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "GpuDoctorToolTests",
+      "elapsed_s": 0.489,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "MarkChangeItemRecoveryTests",
+      "elapsed_s": 0.473,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "HarnessCoherencePackTextTests",
+      "elapsed_s": 0.468,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "CodeReadEnrichmentTests",
+      "elapsed_s": 0.467,
+      "returncode": 0,
+      "ran": 21,
+      "ok": true
+    },
+    {
+      "cls": "HarnessCoverageAuditTests",
+      "elapsed_s": 0.467,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "RunnerIdentityTests",
+      "elapsed_s": 0.462,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "TestExtractJavaOwnerClassFromNodeId",
+      "elapsed_s": 0.461,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeImpact",
+      "elapsed_s": 0.458,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "CodeKeywordSearchTests",
+      "elapsed_s": 0.457,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "WaveCloseModeDiscoverabilityTests",
+      "elapsed_s": 0.455,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "WaveIndexHealthRefreshTests",
+      "elapsed_s": 0.454,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "IndexSizeHealthTests",
+      "elapsed_s": 0.45,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "CodeImpactErgonomicsTests",
+      "elapsed_s": 0.449,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "MonitorConfigTests",
+      "elapsed_s": 0.448,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "IndexBuildLockStatusTests",
+      "elapsed_s": 0.445,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "CodeListFilesTests",
+      "elapsed_s": 0.443,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "StalenessMonitorLifecycleTests",
+      "elapsed_s": 0.441,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "WaveCurrentMigrationGrepTests",
+      "elapsed_s": 0.439,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "CodeSummaryChunkSearchTests",
+      "elapsed_s": 0.439,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "DocSummaryKindFilterTests",
+      "elapsed_s": 0.439,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "CodeReadTests",
+      "elapsed_s": 0.438,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "WindowsLivenessGuardTests",
+      "elapsed_s": 0.438,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "ReceiptSemanticCanonicalInputTests",
+      "elapsed_s": 0.436,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "SharedDeliveryEvaluatorContractTests",
+      "elapsed_s": 0.436,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "CodeNavigationPathSafetyTests",
+      "elapsed_s": 0.433,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "SignoffLatestStateTests",
+      "elapsed_s": 0.433,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "TestCodeHover",
+      "elapsed_s": 0.431,
+      "returncode": 0,
+      "ran": 5,
+      "ok": true
+    },
+    {
+      "cls": "FreshnessCacheAxesTests",
+      "elapsed_s": 0.43,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "EditGateToolTests",
+      "elapsed_s": 0.429,
+      "returncode": 0,
+      "ran": 9,
+      "ok": true
+    },
+    {
+      "cls": "CodeDependenciesTests",
+      "elapsed_s": 0.429,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "WaveDashboardOpenTests",
+      "elapsed_s": 0.429,
+      "returncode": 0,
+      "ran": 4,
+      "ok": true
+    },
+    {
+      "cls": "CodeRiskScoreWrapperTests",
+      "elapsed_s": 0.429,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "WaveUpgradeStatusTests",
+      "elapsed_s": 0.428,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "CloseTimeOptimizeTests",
+      "elapsed_s": 0.428,
+      "returncode": 0,
+      "ran": 12,
+      "ok": true
+    },
+    {
+      "cls": "GuruCitationContractRenderTests",
+      "elapsed_s": 0.426,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "IndexOptimizeToolTests",
+      "elapsed_s": 0.424,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "UpgradePublicationWrapperContractTests",
+      "elapsed_s": 0.424,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "WaveStatusDriftDetectionTests",
+      "elapsed_s": 0.422,
+      "returncode": 0,
+      "ran": 3,
+      "ok": true
+    },
+    {
+      "cls": "SeedGetCoverageTest",
+      "elapsed_s": 0.422,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "BackgroundBuildReapRegistryTests",
+      "elapsed_s": 0.422,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "PrepareCouncilVerdictParserTests",
+      "elapsed_s": 0.421,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    },
+    {
+      "cls": "WaveDashboardRestartUpgradeGuardTests",
+      "elapsed_s": 0.42,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "FrameworkInProcessStdoutPurityGuard",
+      "elapsed_s": 0.418,
+      "returncode": 0,
+      "ran": 2,
+      "ok": true
+    },
+    {
+      "cls": "IndexerContractTests",
+      "elapsed_s": 0.416,
+      "returncode": 0,
+      "ran": 6,
+      "ok": true
+    },
+    {
+      "cls": "StalenessMonitorQuietPeriodTests",
+      "elapsed_s": 0.416,
+      "returncode": 0,
+      "ran": 8,
+      "ok": true
+    },
+    {
+      "cls": "PrepareCouncilVerdictTemplateTests",
+      "elapsed_s": 0.414,
+      "returncode": 0,
+      "ran": 10,
+      "ok": true
+    },
+    {
+      "cls": "GraphIndexIsolationRegressionTests",
+      "elapsed_s": 0.373,
+      "returncode": 0,
+      "ran": 1,
+      "ok": true
+    }
+  ]
+}

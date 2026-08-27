@@ -472,7 +472,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         v4 to v5 (wave 1umst): legacy extension triggers are path-shaped rather
         than raw substrings, and receipt semantics exclude rotating council
         seats. The pin moves with the constant, it is never deleted, and
-        `test_server_tools.py` carries the paired public transition test.
+        `test_server_tools_lifecycle.py` carries the paired public transition test.
 
         v5 to v6 (wave 1uo1x): lane semantics and digest boundary both moved.
         Adoption of the declared-target contract is decided per DOCUMENT rather

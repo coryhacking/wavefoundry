@@ -1,0 +1,9 @@
+[2026-08-27T20:10:11+00:00] starting warmup
+[2026-08-27T20:12:11+00:00] warmup: external=120.6s rc=0 tests=7553 skipped=3
+[2026-08-27T20:12:11+00:00] starting sample1
+[2026-08-27T20:14:16+00:00] sample1: external=124.5s rc=0 tests=7553 skipped=3
+[2026-08-27T20:14:16+00:00] starting sample2
+[2026-08-27T20:16:32+00:00] sample2: external=135.9s rc=0 tests=7553 skipped=3
+[2026-08-27T20:16:32+00:00] starting sample3
+[2026-08-27T20:18:53+00:00] sample3: external=141.3s rc=0 tests=7553 skipped=3
+[2026-08-27T20:18:53+00:00] samples=[124.504, 135.946, 141.276] median=135.946s baseline=216.665s improvement=37.3% target_met=True all_green=True new_skips=False

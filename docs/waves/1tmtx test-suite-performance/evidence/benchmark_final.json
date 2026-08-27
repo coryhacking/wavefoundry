@@ -1,0 +1,63 @@
+{
+  "captured_at": "2026-08-27T20:18:53+00:00",
+  "command": "python3 .wavefoundry/framework/scripts/run_tests.py --no-cache",
+  "framework_inputs_hash": "89880f87787b01d8fffb28c05aa6ba95854f2a76e6971421bc865e3fbb4cbd28",
+  "runner_sha256": "47253f3ab4d104c587d2132a56d014dffdf5e8cc42c21ae2f556c3de0d3d0082",
+  "runs": [
+    {
+      "label": "warmup",
+      "external_s": 120.56,
+      "returncode": 0,
+      "ok": true,
+      "tests": 7553,
+      "files": 66,
+      "internal_worker_phase_s": 120.441,
+      "service_time_s": 630.245,
+      "skipped": 3
+    },
+    {
+      "label": "sample1",
+      "external_s": 124.504,
+      "returncode": 0,
+      "ok": true,
+      "tests": 7553,
+      "files": 66,
+      "internal_worker_phase_s": 124.352,
+      "service_time_s": 670.951,
+      "skipped": 3
+    },
+    {
+      "label": "sample2",
+      "external_s": 135.946,
+      "returncode": 0,
+      "ok": true,
+      "tests": 7553,
+      "files": 66,
+      "internal_worker_phase_s": 135.793,
+      "service_time_s": 737.891,
+      "skipped": 3
+    },
+    {
+      "label": "sample3",
+      "external_s": 141.276,
+      "returncode": 0,
+      "ok": true,
+      "tests": 7553,
+      "files": 66,
+      "internal_worker_phase_s": 141.121,
+      "service_time_s": 770.284,
+      "skipped": 3
+    }
+  ],
+  "sample_external_s": [
+    124.504,
+    135.946,
+    141.276
+  ],
+  "median_external_s": 135.946,
+  "baseline_median_external_s": 216.665,
+  "improvement_percent": 37.3,
+  "meets_25_percent_target": true,
+  "all_green": true,
+  "new_skips": false
+}

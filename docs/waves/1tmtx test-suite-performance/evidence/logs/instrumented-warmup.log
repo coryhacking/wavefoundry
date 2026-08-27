@@ -1,0 +1,246 @@
+Running 64 test files across 6 workers …
+  [1/64] test_check_version.py — 18 tests ok (0.1s)
+  [2/64] test_cli_stdio.py — 11 tests ok (0.1s)
+  [3/64] test_accel_embedder.py — 74 tests ok (0.7s)
+  [4/64] test_agent_surface_integrity.py — 6 tests ok (0.9s)
+  [5/64] test_context_efficiency.py — 53 tests ok (0.9s)
+  [6/64] test_design_system_backfill.py — 10 tests ok (0.1s)
+  [7/64] test_design_system_governance_validators.py — 44 tests ok (0.2s)
+  [8/64] test_design_system_surface_validators.py — 39 tests ok (0.2s)
+  [9/64] test_design_system_validators.py — 45 tests ok (0.4s)
+  [10/64] test_design_token_build.py — 12 tests ok (0.4s)
+  [11/64] test_docs_constants_lint.py — 19 tests ok (2.2s)
+  [12/64] test_commit_provenance.py — 23 tests ok (3.8s)
+  [13/64] test_docs_gardener.py — 17 tests ok (0.3s)
+  [14/64] test_events_only_residue_census.py — 24 tests ok (0.6s)
+  [15/64] test_fts_lexical_layer.py — 56 tests ok (3.4s)
+  [16/64] test_build_pack.py — 112 tests ok (8.5s)
+  [17/64] test_graph_cluster.py — 75 tests ok (0.6s)
+  [18/64] test_gen_codebase_map.py — 68 tests ok (1.3s)
+  [19/64] test_graph_incremental_merge.py — 40 tests ok (6.8s)
+  [20/64] test_chunker.py — 439 tests ok (16.9s)
+  [21/64] test_graph_query.py — 90 tests ok (3.1s)
+  [22/64] test_index_state_store.py — 40 tests ok (3.6s)
+  [23/64] test_install_log_lib.py — 53 tests ok (0.4s)
+  [24/64] test_lifecycle_id.py — 82 tests ok (0.6s)
+  [25/64] test_lifecycle_mutation_lock.py — 17 tests ok (0.9s)
+  [26/64] test_dashboard_server.py — 198 tests ok (22.7s)
+  [27/64] test_doc_drift.py — 102 tests ok (22.7s)
+  [28/64] test_memory_eval.py — 14 tests ok (1.0s)
+  [29/64] test_model_bundle.py — 25 tests ok (0.7s)
+  [30/64] test_memory_backfill.py — 46 tests ok (2.9s)
+  [31/64] test_perf_budget_policy.py — 5 tests ok (0.0s)
+  [32/64] test_prune_framework.py — 17 tests ok (0.1s)
+  [33/64] test_per_area_agents_context.py — 9 tests ok (0.7s)
+  [34/64] test_reconcile_scan.py — 61 tests ok (1.5s)
+  [35/64] test_python_parse_diagnostics.py — 8 tests ok (2.2s)
+  [36/64] test_render_agent_surfaces.py — 115 tests ok (2.4s)
+  [37/64] test_memory_records.py — 204 tests ok (5.6s)
+  [38/64] test_render_platform_surfaces.py — 94 tests ok (2.9s)
+  [39/64] test_review_evidence.py — 156 tests ok (1.2s)
+  [40/64] test_run_tests_cache.py — 42 tests ok (0.5s)
+  [41/64] test_runtime_lock.py — 10 tests ok (0.2s)
+  [42/64] test_scan_secrets.py — 22 tests ok (0.1s)
+  [43/64] test_run_tests_lock.py — 15 tests ok (0.9s)
+  [44/64] test_secret_scan_cache.py — 19 tests ok (1.6s)
+  [45/64] test_review_policy.py — 102 tests ok (3.7s)
+  [46/64] test_server_startup_guards.py — 6 tests ok (0.3s)
+  [47/64] test_server_stdout_isolation.py — 3 tests ok (0.1s)
+  [48/64] test_secrets_validators.py — 146 tests ok (4.2s)
+  [49/64] test_server_context_efficiency.py — 95 tests ok (3.3s)
+  [50/64] test_setup_wavefoundry.py — 35 tests ok (0.8s)
+  [51/64] test_shipped_reference_docs.py — 16 tests ok (0.2s)
+  [52/64] test_subprocess_util.py — 24 tests ok (0.2s)
+  [53/64] test_techdocs_audit_lib.py — 84 tests FAIL (13.8s)
+  [54/64] test_tree_sitter_cache.py — 9 tests ok (0.1s)
+  [55/64] test_upgrade_protocol.py — 29 tests ok (6.3s)
+  [56/64] test_setup_index.py — 159 tests ok (26.6s)
+  [57/64] test_venv_bootstrap.py — 33 tests ok (1.8s)
+  [58/64] test_wave_gate.py — 14 tests ok (0.1s)
+  [59/64] test_wf_cli.py — 51 tests ok (1.9s)
+  [60/64] test_graph_indexer.py — 534 tests ok (60.4s)
+  [61/64] test_upgrade_wavefoundry.py — 512 tests ok (18.3s)
+  [62/64] test_indexer.py — 297 tests ok (62.2s)
+  [63/64] test_docs_lint.py — 984 tests ok (100.0s)
+  [64/64] test_server_tools.py — 1737 tests ok (162.4s)
+
+======================================================================
+FAILED: test_techdocs_audit_lib.py
+======================================================================
+test_a_compare_to_that_looks_like_an_option_is_refused (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_a_compare_to_that_looks_like_an_option_is_refused) ... ok
+test_a_ref_carrying_a_newline_is_refused_like_a_leading_dash (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_a_ref_carrying_a_newline_is_refused_like_a_leading_dash)
+A leading dash was not the only shape that reaches git's parser. ... ok
+test_absent_from_the_working_tree_is_its_own_state (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_absent_from_the_working_tree_is_its_own_state) ... ok
+test_added_headings_pass_and_a_removed_heading_is_a_finding (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_added_headings_pass_and_a_removed_heading_is_a_finding) ... ok
+test_clean_tree_is_reported_as_not_informative_rather_than_passing (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_clean_tree_is_reported_as_not_informative_rather_than_passing) ... ok
+test_outside_a_git_work_tree_degrades (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_outside_a_git_work_tree_degrades) ... ok
+test_reordered_headings_are_a_finding (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_reordered_headings_are_a_finding) ... ok
+test_the_refused_ref_never_reaches_a_git_argv (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_the_refused_ref_never_reaches_a_git_argv)
+AC-4's real claim: refused BEFORE any argv is built. ... ok
+test_tracked_then_deleted_at_the_ref_is_baseline_missing_not_untracked (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_tracked_then_deleted_at_the_ref_is_baseline_missing_not_untracked)
+The other side of the distinction, so the two states cannot be collapsed. ... ok
+test_untracked_file_is_named_rather_than_passed_or_crashing (test_techdocs_audit_lib.TechdocsAuditAudienceTests.test_untracked_file_is_named_rather_than_passed_or_crashing)
+A page that was NEVER committed, which is the state a freshly generated docs ... ok
+test_a_bare_double_star_directory_does_not_publish_the_subtree (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_bare_double_star_directory_does_not_publish_the_subtree)
+`/**/` was the only fail-OPEN shape found in 1998 oracle-compared blocks. ... ok
+test_a_character_class_cannot_span_a_separator (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_character_class_cannot_span_a_separator)
+pathspec splits into SEGMENTS before it handles classes; `_class_end` did not. ... ok
+test_a_class_backslash_is_a_literal_member_not_an_escape (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_class_backslash_is_a_literal_member_not_an_escape)
+`inner.replace("\\", "\\\\")` shipped with nothing able to fail on it. ... ok
+test_a_directory_negation_cannot_rescue_a_directly_matched_file (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_directory_negation_cannot_rescue_a_directly_matched_file)
+The shape that made the matcher fail OPEN on its own headline codes. ... ok
+test_a_directory_pattern_never_matches_a_file_of_the_same_name (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_directory_pattern_never_matches_a_file_of_the_same_name)
+DEL-2: `dir_only` was computed and then never used. ... ok
+test_a_malformed_character_class_matches_nothing_and_never_raises (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_malformed_character_class_matches_nothing_and_never_raises)
+The class translation put raw text into re.compile. ... ok
+test_a_named_directory_double_star_keeps_its_anchor (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_named_directory_double_star_keeps_its_anchor)
+The `/**` strip removed the pattern's only slash before anchoring was decided. ... ok
+test_a_negated_directory_cancels_an_ancestor_exclusion (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_negated_directory_cancels_an_ancestor_exclusion)
+Pins the shape the shipped deny-by-default block depends on. ... ok
+test_a_segment_local_pattern_skips_the_ancestor_walk (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_segment_local_pattern_skips_the_ancestor_walk)
+The length caps alone left the walk's cost unbounded, and a count cap was wrong. ... FAIL
+test_a_subject_that_cannot_name_a_file_is_never_matched (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_subject_that_cannot_name_a_file_is_never_matched)
+The ceiling bounds the GROUP COUNT; cost is also cubic in SUBJECT length. ... ok
+test_adjacent_floating_prefixes_collapse_without_reducing_source_budget (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_adjacent_floating_prefixes_collapse_without_reducing_source_budget)
+Emission deduplication must not widen the admitted pattern boundary. ... ok
+test_agrees_with_the_recorded_golden_corpus (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_agrees_with_the_recorded_golden_corpus) ... ok
+test_backslash_escapes_match_the_escaped_character (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_backslash_escapes_match_the_escaped_character)
+Untranslated escapes silently under-excluded: the page stayed published. ... ok
+test_double_star_crosses_separators_in_every_spec_position (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_double_star_crosses_separators_in_every_spec_position)
+The corpus axis that four earlier "0 disagreements" runs never had. ... ok
+test_external_oracle_agrees_on_single_pattern_families (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_external_oracle_agrees_on_single_pattern_families)
+git check-ignore is the admissible external oracle for single-pattern semantics. ... ok
+test_mkdocs_default_prepend_is_pinned_here_because_the_oracle_omits_it (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_mkdocs_default_prepend_is_pinned_here_because_the_oracle_omits_it) ... ok
+test_separator_crossing_is_decided_by_the_compiled_class_not_by_syntax (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_separator_crossing_is_decided_by_the_compiled_class_not_by_syntax)
+The ancestor equivalence is only sound if `crosses_separator` is exact. ... ok
+test_survivor_enumeration_and_the_matcher_agree_about_dotfiles (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_survivor_enumeration_and_the_matcher_agree_about_dotfiles)
+DEL-2: two functions in one module must not disagree on one boundary. ... ok
+test_the_backtracking_ceiling_is_measured_at_its_own_boundary (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_the_backtracking_ceiling_is_measured_at_its_own_boundary)
+Sampling only far above the ceiling cannot see the worst admitted case. ... ok
+test_the_classes_no_pattern_corpus_could_reach (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_the_classes_no_pattern_corpus_could_reach)
+Four defects found only once the oracle was raised to MkDocs itself. ... ok
+test_the_oracle_does_not_import_the_shipped_library (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_the_oracle_does_not_import_the_shipped_library)
+Otherwise the agreement collapses into one implementation checked against itself. ... ok
+test_the_two_recorded_mutants_still_flip (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_the_two_recorded_mutants_still_flip) ... ok
+test_a_byte_order_mark_does_not_hide_the_first_key (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_byte_order_mark_does_not_hide_the_first_key)
+MkDocs reads its own config as utf-8-sig; plain utf-8 bound the BOM to the key. ... ok
+test_a_column_zero_comment_does_not_truncate_a_block (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_column_zero_comment_does_not_truncate_a_block)
+A comment inside a block is ordinary, and truncating on it published everything. ... ok
+test_a_draft_docs_block_degrades_the_run (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_draft_docs_block_degrades_the_run)
+The PARSE half was pinned and the EMISSION half was not. ... ok
+test_a_multiline_single_quoted_scalar_with_doubled_quote_degrades (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_multiline_single_quoted_scalar_with_doubled_quote_degrades)
+DEL-8: ``''`` is an escaped quote, not the scalar's closing quote. ... ok
+test_a_nav_entry_is_scored_the_way_mkdocs_normalizes_it (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_nav_entry_is_scored_the_way_mkdocs_normalizes_it)
+MkDocs normalizes through `get_file_from_path`; scoring the raw string did not. ... ok
+test_a_nav_section_header_is_not_a_nav_target (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_nav_section_header_is_not_a_nav_target)
+DEL-1: `- Guides:` names no file; treating it as one emits a bogus finding. ... ok
+test_a_nested_set_warning_is_refused_the_same_way_under_any_filter (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_nested_set_warning_is_refused_the_same_way_under_any_filter)
+`re` WARNS about `[[:alpha:]]` by default and RAISES it under -W error. ... ok
+test_a_non_timeout_worker_failure_remains_could_not_run (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_non_timeout_worker_failure_remains_could_not_run) ... ok
+test_a_pathological_pattern_cannot_wedge_the_matcher (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_pathological_pattern_cannot_wedge_the_matcher)
+`?*` repeated is exponential, and 52 bytes of it hung the tool indefinitely. ... ok
+test_a_pattern_carrying_significant_leading_whitespace_degrades (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_pattern_carrying_significant_leading_whitespace_degrades)
+gitignore strips TRAILING whitespace, not leading; the parser stripped both. ... ok
+test_a_quoted_scalar_spanning_lines_degrades_rather_than_truncating (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_quoted_scalar_spanning_lines_degrades_rather_than_truncating)
+DEL-1: keeping only the first line silently collapses the boundary. ... ok
+test_a_refused_pattern_is_named_not_just_counted (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_refused_pattern_is_named_not_just_counted)
+`mkdocs_shape` is shared with six conditions and names nothing. ... ok
+test_a_repeated_key_is_last_wins (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_repeated_key_is_last_wins)
+Concatenating two blocks invented findings; guarded for every key, not just nav. ... ok
+test_a_symlink_cycle_terminates_in_bounded_time (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_symlink_cycle_terminates_in_bounded_time)
+A cyclic docs tree must not hang the walk, in ANY topology. ... ok
+test_a_symlinked_file_escaping_the_root_is_refused (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_symlinked_file_escaping_the_root_is_refused)
+The case the containment guards actually decide. ... ok
+test_a_symlinked_subdirectory_leaving_the_root_is_not_followed (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_a_symlinked_subdirectory_leaving_the_root_is_not_followed)
+Containment refuses it: the walk follows in-root symlinked directories. ... ok
+test_absent_exclude_block_never_publishes_everything (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_absent_exclude_block_never_publishes_everything) ... ok
+test_absent_mkdocs_is_not_applicable_and_still_reports_the_trio (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_absent_mkdocs_is_not_applicable_and_still_reports_the_trio) ... ok
+test_an_in_root_symlink_is_published_like_mkdocs_publishes_it (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_an_in_root_symlink_is_published_like_mkdocs_publishes_it)
+MkDocs follows symlinks; refusing them under-enumerated the site. ... ok
+test_an_inline_comment_ends_a_sequence_entry_but_not_a_block_scalar_line (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_an_inline_comment_ends_a_sequence_entry_but_not_a_block_scalar_line)
+A commented deny-by-default entry silently failed open. ... ok
+test_an_unstattable_nav_entry_is_a_finding_not_an_error (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_an_unstattable_nav_entry_is_a_finding_not_an_error)
+ENAMETOOLONG is not in CPython's ignored-error set for `is_file`. ... ok
+test_an_untranslatable_pattern_matches_nothing_and_degrades (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_an_untranslatable_pattern_matches_nothing_and_degrades)
+pathspec refuses these outright, so MkDocs cannot load the config at all. ... ok
+test_canonical_yaml_serializations_parse_the_same_as_indented_ones (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_canonical_yaml_serializations_parse_the_same_as_indented_ones)
+DEL-1: a zero-indent block sequence is canonical YAML, not a shape failure. ... ok
+test_docs_dir_escaping_the_root_is_refused_before_any_read (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_docs_dir_escaping_the_root_is_refused_before_any_read) ... ok
+test_escaped_separator_refusal_matches_the_pinned_oracle_table (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_escaped_separator_refusal_matches_the_pinned_oracle_table)
+Only a backslash that reaches the escape branch may refuse `/`. ... ok
+test_flow_sequence_exclude_docs_degrades_without_crashing (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_flow_sequence_exclude_docs_degrades_without_crashing) ... ok
+test_inert_patterns_do_not_degrade_but_refused_ones_do (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_inert_patterns_do_not_degrade_but_refused_ones_do)
+Measured against pathspec, not assumed. ... ok
+test_only_the_modelled_block_scalar_headers_are_read_as_patterns (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_only_the_modelled_block_scalar_headers_are_read_as_patterns)
+The five-member allowlist was wrong at BOTH ends, and both ends failed open. ... ok
+test_quoted_top_level_keys_are_recognized (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_quoted_top_level_keys_are_recognized)
+An unrecognized key parsed to an empty nav with the shape still reported ok. ... ok
+test_serialization_variants_all_parse (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_serialization_variants_all_parse) ... ok
+test_significant_leading_whitespace_in_quoted_patterns_is_refused (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_significant_leading_whitespace_in_quoted_patterns_is_refused)
+DEL-12: inline and sequence quotes preserve their leading space. ... ok
+test_spaced_nav_scalar_and_depth_matrix_is_explicit (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_spaced_nav_scalar_and_depth_matrix_is_explicit)
+The old ``\S+`` leaf dies on spaces; every supported spelling must survive. ... ok
+test_the_bounded_runner_kills_the_recorded_crossing_pattern_reproduction (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_bounded_runner_kills_the_recorded_crossing_pattern_reproduction)
+The surviving literal-separated 2001-component shape exceeds the worker budget. ... ok
+test_the_bounded_runner_returns_a_timeout_report_and_isolates_the_worker (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_bounded_runner_returns_a_timeout_report_and_isolates_the_worker)
+AC-10: timeout is a normal degraded report, not an exception or hang. ... ok
+test_the_realpath_backstop_refuses_a_docs_root_that_escapes (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_realpath_backstop_refuses_a_docs_root_that_escapes)
+Isolates the SECOND containment guard, which nothing else reaches. ... ok
+test_the_symlink_matrix_matches_mkdocs_except_where_containment_refuses (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_symlink_matrix_matches_mkdocs_except_where_containment_refuses)
+Enumeration must walk the way MkDocs walks, and stop where we differ. ... ok
+test_the_two_boundary_details_name_which_side_the_target_is_on (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_two_boundary_details_name_which_side_the_target_is_on)
+One finding code, two causes, and only the detail tells them apart. ... ok
+test_the_walk_never_descends_outside_the_root (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_walk_never_descends_outside_the_root)
+AC-3 says the walk must REFUSE TO DESCEND, and no test could see descent. ... ok
+test_unmodelled_nav_syntax_and_second_section_depth_degrade (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_unmodelled_nav_syntax_and_second_section_depth_degrade)
+A naive ``.+`` tail/flattening repair cannot pass this negative matrix. ... ok
+test_a_malformed_verified_against_stamp_is_the_second_metadata_injection (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_malformed_verified_against_stamp_is_the_second_metadata_injection)
+AC-1's other named metadata case, distinct from a missing block. ... ok
+test_a_nav_entry_that_escapes_docs_dir_is_reported_and_never_stat_ed (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_nav_entry_that_escapes_docs_dir_is_reported_and_never_stat_ed)
+`docs_root / "/etc/passwd"` IS `/etc/passwd`. ... ok
+test_a_nav_symlink_escaping_the_root_degrades_before_is_file (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_nav_symlink_escaping_the_root_degrades_before_is_file)
+AC-9: enumeration and nav scoring must agree on an escaping symlink. ... ok
+test_canonical_order_is_the_code_sequence_not_alphabetical (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_canonical_order_is_the_code_sequence_not_alphabetical) ... ok
+test_clean_tree_produces_no_finding (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_clean_tree_produces_no_finding) ... ok
+test_link_codes_and_their_precedence (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_link_codes_and_their_precedence) ... ok
+test_links_inside_code_fences_are_not_findings (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_links_inside_code_fences_are_not_findings) ... ok
+test_metadata_incomplete_fires_on_a_survivor (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_metadata_incomplete_fires_on_a_survivor) ... ok
+test_nav_target_missing_and_excluded_are_distinct (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_nav_target_missing_and_excluded_are_distinct) ... ok
+test_percent_encoded_href_resolves (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_percent_encoded_href_resolves)
+Without the shared unquote this reads as a dangling link. ... ok
+test_spaced_nav_targets_flow_through_raw_and_worker_audits (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_spaced_nav_targets_flow_through_raw_and_worker_audits) ... ok
+test_trio_partial_is_one_record_and_index_generated_is_independent (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_trio_partial_is_one_record_and_index_generated_is_independent) ... ok
+test_unmodelled_yaml_indicator_nav_values_degrade_through_public_paths (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_unmodelled_yaml_indicator_nav_values_degrade_through_public_paths) ... ok
+
+======================================================================
+FAIL: test_a_segment_local_pattern_skips_the_ancestor_walk (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_segment_local_pattern_skips_the_ancestor_walk)
+The length caps alone left the walk's cost unbounded, and a count cap was wrong.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_techdocs_audit_lib.py", line 698, in test_a_segment_local_pattern_skips_the_ancestor_walk
+    self.assertLess(time.monotonic() - started, 0.15,
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    "a segment-local pattern must not walk 1900 ancestors")
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0.1811440000019502 not less than 0.15 : a segment-local pattern must not walk 1900 ancestors
+
+----------------------------------------------------------------------
+Ran 84 tests in 13.738s
+
+FAILED (failures=1)
+
+----------------------------------------------------------------------
+Slowest files (top 10 of 64):
+  test_server_tools.py                           162.410s  (1737 tests)
+  test_docs_lint.py                               99.961s  (984 tests)
+  test_indexer.py                                 62.183s  (297 tests)
+  test_graph_indexer.py                           60.378s  (534 tests)
+  test_setup_index.py                             26.641s  (159 tests)
+  test_dashboard_server.py                        22.701s  (198 tests)
+  test_doc_drift.py                               22.675s  (102 tests)
+  test_upgrade_wavefoundry.py                     18.309s  (512 tests)
+  test_chunker.py                                 16.920s  (439 tests)
+  test_techdocs_audit_lib.py                      13.833s  (84 tests)
+Worker service time: 593.518s across 64 files; skipped 3 tests
+FAILED (test_techdocs_audit_lib.py)
+Ran 7499 tests across 64 files in 196.329s

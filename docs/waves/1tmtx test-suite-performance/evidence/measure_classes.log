@@ -1,0 +1,19 @@
+[2026-08-27T19:37:34+00:00] measuring 223 classes, 6 workers
+[2026-08-27T19:37:44+00:00]   40/223 done
+[2026-08-27T19:37:57+00:00]   80/223 done
+[2026-08-27T19:38:07+00:00]   120/223 done
+[2026-08-27T19:38:19+00:00]   160/223 done
+[2026-08-27T19:38:30+00:00]   200/223 done
+[2026-08-27T19:38:37+00:00] done: wall=62.6s total_ran=1737 floor=0.373s sum_net=284.38s red=[]
+[2026-08-27T19:38:37+00:00]   top: FrameworkWideSubprocessIsolationGuard 46.932s (15 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveCouncilPolicyTests 15.155s (56 tests)
+[2026-08-27T19:38:37+00:00]   top: WavePrepareSingleActiveGuardTests 13.771s (12 tests)
+[2026-08-27T19:38:37+00:00]   top: RerankerTests 11.728s (102 tests)
+[2026-08-27T19:38:37+00:00]   top: TypedExclusiveGateDerivationTests 10.349s (20 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveLifecycleMutationTests 10.107s (50 tests)
+[2026-08-27T19:38:37+00:00]   top: ReviewEvidenceListEventTests 7.479s (24 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveImplementTests 6.193s (15 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveMcpReloadTests 5.867s (19 tests)
+[2026-08-27T19:38:37+00:00]   top: PreferredPythonSubprocessTests 5.638s (4 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveDashboardBrowserSuppressTests 5.584s (2 tests)
+[2026-08-27T19:38:37+00:00]   top: WaveUpgradeMcpToolTests 4.533s (58 tests)

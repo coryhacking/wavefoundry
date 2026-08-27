@@ -1258,15 +1258,12 @@ class HookReindexDetachTests(unittest.TestCase):
         # a bare spawn (the templates do not get subprocess_util on a transient/old tree, so each
         # carries a guarded inline fallback) must be caught.
         import ast as _ast
-        import importlib.util as _ilu
 
-        # Load the framework-wide guard's static scan methods to reuse the production logic.
-        spec = _ilu.spec_from_file_location(
-            "wavefoundry_test_server_tools", Path(__file__).resolve().parent / "test_server_tools.py"
-        )
-        tst = _ilu.module_from_spec(spec)
-        spec.loader.exec_module(tst)
-        Guard = tst.FrameworkWideSubprocessIsolationGuard
+        # The framework-wide scan seams are pure support callables (wave 1tmtx):
+        # import them instead of executing a discovered test module.
+        import server_tools_support
+
+        Guard = server_tools_support
 
         # Every rendered body source function that may contain a child spawn.
         body_funcs = [

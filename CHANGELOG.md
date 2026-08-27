@@ -6,6 +6,41 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The canonical framework test suite runs 37% faster with no coverage change.** A frozen
+  baseline measured the suite at a 216.7 s median; the delivered tree runs the same inventory at a
+  135.9 s median (wave `1tmtx test-suite-performance`, change `1tm6d`). The dominant
+  `test_server_tools.py` monolith is now a three-shard family (`test_server_tools.py` core/infra,
+  `test_server_tools_retrieval.py`, `test_server_tools_lifecycle.py`) with shared fixtures in a
+  non-discovered `server_tools_support.py`; the split preserved the exact frozen
+  (class, test method) identity set and per-class AST fingerprints, proven by a mutant-checked
+  verification harness archived with the wave. Scheduling stays alphabetical because a
+  counterbalanced benchmark measured it faster than timing-guided longest-first; the comparison is
+  reproducible through the new benchmark-only `--schedule-control` interface.
+
+- **The runner reports real per-file telemetry and true test counts.** Every run prints per-file
+  elapsed seconds, a bounded top-10 slowest-file summary, aggregate worker service time, and the
+  skip count; successful complete runs persist an advisory `durations_s` map beside the last-green
+  cache (never skip authority). Three long-standing runner defects are fixed with regressions:
+  per-file counts were parsed from the first "Ran N tests" match, so tests that print runner-style
+  lines inflated the suite total by five (totals are now anchored to unittest's own final summary);
+  the input digest hashed nested bytecode and the run lock's per-run pid write, destabilizing the
+  cache across runs; and the monolith's mid-file `__main__` block silently truncated direct
+  execution.
+
+### Added
+
+- **Focused diagnostic runs for repair loops.** `run_tests.py --file <basename>` (repeatable) runs
+  only the named test files through the same lock, subprocess, timeout, and stray-artifact-guard
+  path as a full run, labels its output as focused, and never touches the last-green cache or any
+  timing data. Focused runs are diagnostic only; one complete canonical run remains the delivery
+  authority. Argument parsing is now strict: unknown options, positional arguments, and invalid
+  flag combinations fail clearly with exit code 2. Note that `--no-cache` still reads the cache
+  file once for the advisory timing map; timing data never authorizes a skip or a pass.
+
 ## [1.19.0] - 2026-08-22
 
 ### Changed

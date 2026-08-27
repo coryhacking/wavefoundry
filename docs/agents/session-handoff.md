@@ -2,32 +2,35 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-23
+Last verified: 2026-08-27
 
-## Active wave: `1w047 review-plan-naming` (implementing)
+## Active wave: none (idle)
 
-Implementation, including the cycle-4 downstream field repair, is complete for `1w046-enh
-review-plan-command-rename`. The canonical workflow is **Review plan** / `wf-review-plan`; the two
-former natural-language phrases remain accepted aliases, while the retired skill, seed path, and
-prompt path are removed from living surfaces. The fresh renderer now recognizes two exact legacy
-public-prompt profiles: the Shortcut contract and the recovered `1.19.0+pko0` Trigger-Phrases form.
-It preserves CRLF/LF and unrelated bytes, adds explicit current-wave fallback to the older form,
-and still blocks customized, mixed-profile, or dual-file conflicts.
+`1w047 review-plan-naming` and `1w3br` closed and shipped in **1.19.0** (released 2026-08-24,
+commit `b8cb6836`); their detailed handoff history moved to the wave records.
 
-`FIELD-DOWNSTREAM-LEGACY-PROMPT-001` is in repair cycle 4. The implementation also reports the
-project-specific agents-layer prompt for manual merge/removal, prints existing disposition keys,
-and explains truthful `historical-record` handling without repeating the retired path in the living
-self-hosted guidance. The field repair invalidated code, QA, docs-contract, and release delivery
-approvals. Architecture remains current. The amended change requires replacement receipt
-`review-policy-cc5e978d5afe52a2f21d`, a fresh readiness-council signoff, four independent finding
-reverifications, and refreshed specialist delivery approvals before operator signoff/closure.
+### Last closed: `1tmtx test-suite-performance` (CLOSED 2026-08-27 on explicit operator instruction; tree committed this session)
 
-Current computational evidence: focused repair 84/84; affected matrix 805/805; final framework
-suite 7,488 tests across 64 files OK; `wf_validate_docs` and `git diff --check` clean; frozen
-model-swap hashes unchanged. Follow-up wave `1w3br reconciliation-disposition-key-precision` is
-planned with `1w3bq-bug`; it will replace the broad file+token disposition identity with a versioned,
-context-specific and compatibility-aware design. Do not implement that follow-up inside `1w047`.
-Close `1w047` only on explicit operator instruction after fresh review authority is restored.
+One change, `1tm6d-enh test-suite-critical-path-acceleration`: the canonical suite median dropped
+from 216.665 s to 135.946 s (37.3% against the 25% target) with the exact frozen test inventory
+preserved. Delivered: runner telemetry (per-file elapsed, top-10, service time, skip aggregation),
+advisory `durations_s` beside the last-green cache, strict argv with a repeatable `--file` focused
+diagnostic mode, the benchmark-only `--schedule-control` interface, and the three-shard split of
+`test_server_tools.py` (core/infra 46 classes retained basename, retrieval 111, lifecycle 66) with
+shared fixtures in non-discovered `server_tools_support.py`. Scheduling stays ALPHABETICAL: the
+counterbalanced A-T-T-A comparison measured it faster than timing-guided longest-first (130.5 s vs
+136.8 s means); do not re-propose longest-first without new measurement. Three pre-existing runner
+defects were found and fixed with regressions: first-match count parsing (suite totals carried +5
+mock contamination; true counts are 7,494 pre-wave, 7,554 delivered), digest instability from
+nested bytecode and the run lock's pid writes, and the monolith's mid-file `__main__` block.
+
+Evidence chain: `docs/waves/1tmtx test-suite-performance/evidence/` (see its `README.md` artifact
+map; the split is regenerable from the pre-split git HEAD by `shard_split.py`, preservation proven
+by `verify_shards.py` with five mutants caught). Review: readiness re-prepared 2026-08-27 under
+receipt evaluator v7 (red-team + docs-contract council, eight prose repairs), delivery review by
+three independent lanes with executed probes, nine findings (six repaired in-cycle and re-verified
+by their originating lanes, two `dont_do_later`, one `not_issue`), all typed approvals plus
+operator signoff in `events.jsonl`.
 
 ### Last closed: `1vwyc prompt-surface-correctness` (CLOSED 2026-08-21 on explicit operator instruction; tree uncommitted)
 
@@ -147,7 +150,16 @@ delivery-council, and operator approvals were recorded on its final receipt.
 
 ## Open questions / Deferred decisions
 
-- **Release:** publish the accumulated closed-wave changes as **1.19.0**; update the dated heading if the actual release date differs before packaging.
+- **From 1tmtx (follow-up candidates, not admitted):** two PRE-EXISTING cross-test imports
+  disclosed out of scope by the delivery census (`test_render_agent_surfaces.py` imports
+  `test_upgrade_wavefoundry`; `test_techdocs_audit_lib.py` imports
+  `tests.test_render_agent_surfaces`); the load-sensitive 0.15 s wall-clock assertion in
+  `test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests` flaked once under full 6-worker
+  load (benchmark-series rerun risk); two recorded `dont_do_later` residuals live in the 1tmtx
+  delivery checkpoint (post-summary stderr could corrupt advisory telemetry; an in-tree timings
+  manifest fails closed with a misleading digest message).
+- **Next release:** the `## [Unreleased]` CHANGELOG section carries the 1tmtx suite-performance
+  entries; rename it to the chosen version heading at packaging time.
 - **Framework follow-ups found during 1vj4e memory curation (not admitted, plan fresh):** `memory_validate`'s missing-target guard checks the CANDIDATE's `target_refs` rather than `rewrite_targets`, so a draft with dangling auto-derived targets cannot be corrected in place and `rewrite` collapses to `reject` (hit live on `1voan-mem`, whose targets were a reviewer's scratch scripts). And `memory_supply`'s repeated-repairs deriver extracts targets from literal `<name>.py` tokens, so it is blind to symbol-form citations: it attributed this wave's `render_agent_surfaces.py` repairs to DEL-1 and DEL-3 while the real ones were DEL-2, DEL-3 and DEL-5. That matters because DEL-4 of this same wave made the symbol form the PREFERRED citation style, so the deriver will under-attribute more as targets adopt it.
 - **Editorial residuals accepted in 1vj4e (not defects):** `upgrade_wavefoundry.py`'s module docstring documents exit codes 0-3 while code 4 is live (the published page's claim is carried by its `wf_upgrade` anchor); `docs/architecture/cross-cutting-concerns.md` still documents the removed `dashboard.auto_index` setting, as do `dashboard-install-upgrade.md` and `dashboard-adapter-model.md`; a mid-write I/O failure can leave a truncated member that the marker rule classifies as project-owned, which the missing-only rerun will not repair (inherited from the non-atomic write helper, and the operator does get the partial advisory naming the file).
 - **Admitted (wave `1vqqi`, 2026-08-18):** the read-tier `wf_techdocs_audit` MCP tool + `wf techdocs-audit` CLI over `techdocs_audit_lib.py`, and the review-only branch of **Refresh TechDocs**. The change doc now lives at `docs/waves/1vqqi techdocs-audit-and-review-branch/1vmt2-enh techdocs-audit-tool-and-review-only-branch.md`. The exact-symbol-span citation requirement that this note previously carried was **deferred out of scope** by that wave's readiness council (a containment test is indistinguishable from overlap on the real defect corpus, and there are six locator forms rather than three); an enforced `wave_lint_lib` citation validator is the follow-up that would replace it.

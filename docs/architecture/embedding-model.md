@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-27
 
 ## What This Document Covers
 
@@ -213,7 +213,7 @@ When semantic search is unavailable (model not cached, fastembed not installed, 
 
 ## Regression Tests
 
-`SemanticEmbeddingRegressionTests` in `test_server_tools.py` exercises the real fastembed path — no mocks. The tests skip automatically when fastembed is not installed or the model is not locally cached, so they don't block CI environments that haven't run `setup_index.py`.
+`SemanticEmbeddingRegressionTests` in `test_server_tools_retrieval.py` exercises the real fastembed path — no mocks. The tests skip automatically when fastembed is not installed or the model is not locally cached, so they don't block CI environments that haven't run `setup_index.py`.
 
 The purpose of these tests is to make model changes fail loudly rather than silently. Without them, you could change `DOCS_MODEL` and the system would appear to work — `docs_search` would return results — but those results would be garbage because the stored vectors and the query vectors were produced by different models (the layer compatibility check would catch _that_ specific case, but a dimension-compatible new model with a different embedding space would not be caught).
 
@@ -255,7 +255,7 @@ When switching to a new model, follow this checklist in order. Partial upgrades 
 ### 2. Update code
 
 - [ ] Change `DOCS_MODEL` in `indexer.py` (and `CODE_MODEL` if upgrading code search)
-- [ ] Update `_EXPECTED_DOCS_MODEL` in `test_server_tools.py` (`SemanticEmbeddingRegressionTests`)
+- [ ] Update `_EXPECTED_DOCS_MODEL` in `test_server_tools_retrieval.py` (beside `SemanticEmbeddingRegressionTests`)
 - [ ] Update `_EXPECTED_EMBEDDING_DIM` if the dimension changed
 - [ ] Update the "Current Model" table in this file
 

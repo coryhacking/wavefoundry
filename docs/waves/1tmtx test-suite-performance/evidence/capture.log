@@ -1,0 +1,77 @@
+[2026-08-27T18:29:32+00:00] preflight ok: HEAD=29da370ebf3d, framework tree clean
+[2026-08-27T18:29:34+00:00] phase A: froze 64 files, 963 class fingerprints, 6750 static identities, inputs_hash=2afaa2e97cb291e1...
+[2026-08-27T18:29:34+00:00] phase B: test_check_version.py ran=18 skipped=0 rc=0 elapsed=0.067s
+[2026-08-27T18:29:34+00:00] phase B: test_cli_stdio.py ran=11 skipped=0 rc=0 elapsed=0.097s
+[2026-08-27T18:29:34+00:00] phase B: test_accel_embedder.py ran=74 skipped=1 rc=0 elapsed=0.472s
+[2026-08-27T18:29:35+00:00] phase B: test_agent_surface_integrity.py ran=6 skipped=0 rc=0 elapsed=0.989s
+[2026-08-27T18:29:35+00:00] phase B: test_context_efficiency.py ran=53 skipped=0 rc=0 elapsed=0.958s
+[2026-08-27T18:29:35+00:00] phase B: test_design_system_backfill.py ran=10 skipped=0 rc=0 elapsed=0.189s
+[2026-08-27T18:29:35+00:00] phase B: test_design_system_governance_validators.py ran=44 skipped=0 rc=0 elapsed=0.27s
+[2026-08-27T18:29:35+00:00] phase B: test_design_system_surface_validators.py ran=39 skipped=0 rc=0 elapsed=0.249s
+[2026-08-27T18:29:36+00:00] phase B: test_design_system_validators.py ran=45 skipped=0 rc=0 elapsed=0.469s
+[2026-08-27T18:29:36+00:00] phase B: test_design_token_build.py ran=12 skipped=1 rc=0 elapsed=0.421s
+[2026-08-27T18:29:38+00:00] phase B: test_commit_provenance.py ran=23 skipped=0 rc=0 elapsed=3.818s
+[2026-08-27T18:29:38+00:00] phase B: test_docs_constants_lint.py ran=19 skipped=0 rc=0 elapsed=2.267s
+[2026-08-27T18:29:38+00:00] phase B: test_docs_gardener.py ran=17 skipped=0 rc=0 elapsed=0.286s
+[2026-08-27T18:29:39+00:00] phase B: test_events_only_residue_census.py ran=24 skipped=0 rc=0 elapsed=0.696s
+[2026-08-27T18:29:42+00:00] phase B: test_fts_lexical_layer.py ran=56 skipped=0 rc=0 elapsed=3.626s
+[2026-08-27T18:29:43+00:00] phase B: test_build_pack.py ran=112 skipped=0 rc=0 elapsed=9.065s
+[2026-08-27T18:29:44+00:00] phase B: test_graph_cluster.py ran=75 skipped=0 rc=0 elapsed=0.731s
+[2026-08-27T18:29:44+00:00] phase B: test_gen_codebase_map.py ran=68 skipped=0 rc=0 elapsed=1.356s
+[2026-08-27T18:29:51+00:00] phase B: test_graph_incremental_merge.py ran=40 skipped=0 rc=0 elapsed=7.369s
+[2026-08-27T18:29:52+00:00] phase B: test_chunker.py ran=439 skipped=0 rc=0 elapsed=17.843s
+[2026-08-27T18:29:54+00:00] phase B: test_graph_query.py ran=90 skipped=0 rc=0 elapsed=2.847s
+[2026-08-27T18:29:56+00:00] phase B: test_index_state_store.py ran=40 skipped=0 rc=0 elapsed=4.044s
+[2026-08-27T18:29:56+00:00] phase B: test_install_log_lib.py ran=53 skipped=0 rc=0 elapsed=0.199s
+[2026-08-27T18:29:57+00:00] phase B: test_lifecycle_id.py ran=82 skipped=0 rc=0 elapsed=0.52s
+[2026-08-27T18:29:57+00:00] phase B: test_dashboard_server.py ran=198 skipped=1 rc=0 elapsed=22.512s
+[2026-08-27T18:29:57+00:00] phase B: test_lifecycle_mutation_lock.py ran=17 skipped=0 rc=0 elapsed=0.438s
+[2026-08-27T18:29:58+00:00] phase B: test_memory_eval.py ran=14 skipped=0 rc=0 elapsed=1.312s
+[2026-08-27T18:30:01+00:00] phase B: test_memory_backfill.py ran=46 skipped=0 rc=0 elapsed=3.577s
+[2026-08-27T18:30:02+00:00] phase B: test_model_bundle.py ran=25 skipped=0 rc=0 elapsed=0.959s
+[2026-08-27T18:30:03+00:00] phase B: test_per_area_agents_context.py ran=9 skipped=0 rc=0 elapsed=1.04s
+[2026-08-27T18:30:03+00:00] phase B: test_perf_budget_policy.py ran=5 skipped=0 rc=0 elapsed=0.055s
+[2026-08-27T18:30:03+00:00] phase B: test_prune_framework.py ran=17 skipped=0 rc=0 elapsed=0.098s
+[2026-08-27T18:30:03+00:00] phase B: test_doc_drift.py ran=102 skipped=0 rc=0 elapsed=26.971s
+[2026-08-27T18:30:04+00:00] phase B: test_reconcile_scan.py ran=61 skipped=0 rc=0 elapsed=1.625s
+[2026-08-27T18:30:05+00:00] phase B: test_python_parse_diagnostics.py ran=8 skipped=0 rc=0 elapsed=2.264s
+[2026-08-27T18:30:06+00:00] phase B: test_memory_records.py ran=204 skipped=0 rc=0 elapsed=7.287s
+[2026-08-27T18:30:07+00:00] phase B: test_render_agent_surfaces.py ran=115 skipped=0 rc=0 elapsed=2.348s
+[2026-08-27T18:30:07+00:00] phase B: test_review_evidence.py ran=156 skipped=0 rc=0 elapsed=1.235s
+[2026-08-27T18:30:08+00:00] phase B: test_render_platform_surfaces.py ran=94 skipped=0 rc=0 elapsed=2.846s
+[2026-08-27T18:30:09+00:00] phase B: test_run_tests_lock.py ran=15 skipped=0 rc=0 elapsed=0.877s
+[2026-08-27T18:30:09+00:00] phase B: test_runtime_lock.py ran=10 skipped=0 rc=0 elapsed=0.197s
+[2026-08-27T18:30:09+00:00] phase B: test_scan_secrets.py ran=22 skipped=0 rc=0 elapsed=0.126s
+[2026-08-27T18:30:10+00:00] phase B: test_review_policy.py ran=102 skipped=0 rc=0 elapsed=3.693s
+[2026-08-27T18:30:11+00:00] phase B: test_secret_scan_cache.py ran=19 skipped=0 rc=0 elapsed=1.583s
+[2026-08-27T18:30:14+00:00] phase B: test_server_context_efficiency.py ran=95 skipped=0 rc=0 elapsed=3.284s
+[2026-08-27T18:30:14+00:00] phase B: test_server_startup_guards.py ran=6 skipped=0 rc=0 elapsed=0.301s
+[2026-08-27T18:30:14+00:00] phase B: test_server_stdout_isolation.py ran=3 skipped=0 rc=0 elapsed=0.089s
+[2026-08-27T18:30:15+00:00] phase B: test_secrets_validators.py ran=146 skipped=0 rc=0 elapsed=4.16s
+[2026-08-27T18:30:25+00:00] phase B: test_run_tests_cache.py ran=37 skipped=0 rc=0 elapsed=18.502s
+[2026-08-27T18:30:27+00:00] phase B: test_setup_wavefoundry.py ran=35 skipped=0 rc=0 elapsed=1.179s
+[2026-08-27T18:30:27+00:00] phase B: test_shipped_reference_docs.py ran=16 skipped=0 rc=0 elapsed=0.254s
+[2026-08-27T18:30:27+00:00] phase B: test_subprocess_util.py ran=24 skipped=0 rc=0 elapsed=0.26s
+[2026-08-27T18:30:35+00:00] phase B: test_techdocs_audit_lib.py ran=84 skipped=0 rc=0 elapsed=8.399s
+[2026-08-27T18:30:36+00:00] phase B: test_tree_sitter_cache.py ran=9 skipped=0 rc=0 elapsed=0.068s
+[2026-08-27T18:30:41+00:00] phase B: test_setup_index.py ran=159 skipped=0 rc=0 elapsed=26.393s
+[2026-08-27T18:30:42+00:00] phase B: test_upgrade_protocol.py ran=29 skipped=0 rc=0 elapsed=6.306s
+[2026-08-27T18:30:44+00:00] phase B: test_venv_bootstrap.py ran=33 skipped=0 rc=0 elapsed=1.874s
+[2026-08-27T18:30:44+00:00] phase B: test_wave_gate.py ran=14 skipped=0 rc=0 elapsed=0.067s
+[2026-08-27T18:30:46+00:00] phase B: test_wf_cli.py ran=51 skipped=0 rc=0 elapsed=1.839s
+[2026-08-27T18:30:47+00:00] phase B: test_graph_indexer.py ran=534 skipped=0 rc=0 elapsed=63.008s
+[2026-08-27T18:30:59+00:00] phase B: test_upgrade_wavefoundry.py ran=512 skipped=0 rc=0 elapsed=18.108s
+[2026-08-27T18:30:59+00:00] phase B: test_indexer.py ran=297 skipped=0 rc=0 elapsed=65.301s
+[2026-08-27T18:31:21+00:00] phase B: test_docs_lint.py ran=984 skipped=0 rc=0 elapsed=102.406s
+[2026-08-27T18:32:56+00:00] phase B: test_server_tools.py ran=1737 skipped=0 rc=0 elapsed=162.04s
+[2026-08-27T18:32:56+00:00] phase B: total ran=7494 skipped=3 failed_files=[] wall=202.333s new_strays=[]
+[2026-08-27T18:32:56+00:00] phase C: starting warmup
+[2026-08-27T18:36:33+00:00] phase C: warmup external=216.4s rc=0 internal=216.272
+[2026-08-27T18:36:33+00:00] phase C: starting sample1
+[2026-08-27T18:40:11+00:00] phase C: sample1 external=217.9s rc=0 internal=217.786
+[2026-08-27T18:40:11+00:00] phase C: starting sample2
+[2026-08-27T18:43:47+00:00] phase C: sample2 external=216.0s rc=0 internal=215.784
+[2026-08-27T18:43:47+00:00] phase C: starting sample3
+[2026-08-27T18:47:23+00:00] phase C: sample3 external=216.7s rc=0 internal=216.494
+[2026-08-27T18:47:23+00:00] phase C: samples=[217.948, 215.952, 216.665] median=216.665s
+[2026-08-27T18:47:23+00:00] checkpoint capture complete

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: software-engineer
 Category: build
-Last verified: 2026-07-20
+Last verified: 2026-08-27
 
 ## Operating Identity
 
@@ -103,7 +103,7 @@ Stop and record a note or journal entry when:
 - Framework: `unittest` under `.wavefoundry/framework/scripts/tests/`
 - Runner: `python3 .wavefoundry/framework/scripts/run_tests.py`
 - Fixtures: `tests/fixtures/` — add fixture variants rather than mutating shared fixtures
-- Every new MCP tool needs a test in `test_server_tools.py`; every new lint rule needs a test in `test_docs_lint.py`
+- Every new MCP tool needs a test in the `test_server_tools*` shard family — `test_server_tools.py` (server core/infra), `test_server_tools_retrieval.py` (retrieval/graph/index tools), `test_server_tools_lifecycle.py` (wave lifecycle/review tools), with shared fixtures in `server_tools_support.py`; every new lint rule needs a test in `test_docs_lint.py`
 
 **Gate protocol:**
 - Seed edits: open `seed_edit_allowed` gate before, close immediately after

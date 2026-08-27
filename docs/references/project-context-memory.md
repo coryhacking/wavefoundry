@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-08-27
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -50,3 +50,7 @@ Stage accounting writes exactly three values: `plan` (create/prepare and adopted
 
 Three rules that came out of the 2026-08-17 fresh-install field report and its delivery review. (1) Anything the docs gate requires on a fresh install ships as data under `.wavefoundry/framework/install/` and is applied by code at setup Step 0 (absent-only), never as a seed prose step; the seven `workflow-config.json` sections were lost exactly that way in the 1p35d install split. (2) Every `docs/**` file the renderer materializes (lifecycle prompt baselines, scaffolds, pointer-form carriers) must satisfy `check_metadata` on first lint, so it carries `Owner` / `Status` / `Last verified: {{generated_at}}` and every baseline family stamps the date on write; a fixture that claims a "Phase-1-complete" tree must be built by the real producers (Step 0 provisioners plus `render_agent_surfaces`) and judged by the real validator, or it cannot see this class. (3) Install-log rows are never renumbered (retire by removal, insert by decimal extension); seed-012 mirrors the template's numbered rows and `test_install_log_lib.FreshInstallContractParityTests` holds the parity. Typed memory records `1vnka`, `1vn0v`, `1vn8p`, `1vlnj`, `1vkk1` carry the detail.
 
+
+## Canonical Suite Scheduling and True Counts (wave 1tmtx)
+
+Three durable facts from the 2026-08-27 test-suite-performance wave. (1) The canonical runner's alphabetical file order is the MEASURED schedule winner: a counterbalanced A-T-T-A comparison against timing-guided longest-first, on a byte-identical digest-bound manifest and unchanged source, measured alphabetical faster (means 130.5 s vs 136.8 s) because starting all heavy files together saturates the host; do not re-propose longest-first without a new measurement through `run_tests.py --schedule-control`. (2) Suite totals printed before this wave carried +5 contamination (the per-file count parse took the FIRST "Ran N tests" match, which a mock main() print satisfied); post-wave totals anchor to unittest's own final summary, so historical counts do not line up with current ones (true pre-wave base 7,494). (3) The `test_server_tools*` shard family (core/infra retains the original basename; retrieval; lifecycle) shares fixtures through non-discovered `server_tools_support.py`; new MCP tool tests go in the shard matching their domain, and the split is regenerable from the pre-split source by the wave's archived `shard_split.py` with preservation proven by `verify_shards.py`.

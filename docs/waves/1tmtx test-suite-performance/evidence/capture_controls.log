@@ -1,0 +1,6 @@
+[2026-08-27T20:00:27+00:00] bootstrap (bootstrap): external=117.7s rc=0 internal=117.616
+[2026-08-27T20:02:26+00:00] A1 (alphabetical): external=119.0s rc=0 internal=118.893
+[2026-08-27T20:04:30+00:00] T1 (timing): external=124.5s rc=0 internal=124.368
+[2026-08-27T20:06:59+00:00] T2 (timing): external=149.0s rc=0 internal=148.844
+[2026-08-27T20:09:21+00:00] A2 (alphabetical): external=142.0s rc=0 internal=141.808
+[2026-08-27T20:09:21+00:00] alphabetical=[119.047, 141.951] mean=130.499s | timing=[124.523, 148.986] mean=136.755s | WINNER=alphabetical all_green=True

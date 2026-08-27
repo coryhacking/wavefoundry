@@ -138,9 +138,9 @@ class RunFileEncodingTests(unittest.TestCase):
                     if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
         with patch.dict(os.environ, scrubbed, clear=True), \
                 patch.object(run_tests.subprocess, "run", side_effect=fake_run):
-            name, rc, output, count = run_tests._run_file(Path("test_example.py"))
-        self.assertEqual(rc, 0)
-        self.assertEqual(count, 3)
+            result = run_tests._run_file(Path("test_example.py"))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.test_count, 3)
         self.assertEqual(recorded.get("encoding"), "utf-8")
         self.assertEqual(recorded.get("errors"), "replace")
         env = recorded.get("env") or {}

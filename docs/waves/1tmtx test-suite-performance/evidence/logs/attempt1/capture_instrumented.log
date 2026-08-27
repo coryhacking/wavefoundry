@@ -1,0 +1,11 @@
+[2026-08-27T18:52:01+00:00] instrumented source frozen: inputs_hash=4d2c7ff90dd314ba...
+[2026-08-27T18:52:01+00:00] starting warmup
+[2026-08-27T18:55:16+00:00] warmup: external=195.6s rc=1 service=586.615 files_parsed=64
+[2026-08-27T18:55:16+00:00] starting sample1
+[2026-08-27T18:58:55+00:00] sample1: external=218.9s rc=1 service=620.578 files_parsed=64
+[2026-08-27T18:58:55+00:00] starting sample2
+[2026-08-27T19:02:32+00:00] sample2: external=216.7s rc=1 service=620.074 files_parsed=64
+[2026-08-27T19:02:32+00:00] starting sample3
+[2026-08-27T19:06:08+00:00] sample3: external=215.6s rc=1 service=613.441 files_parsed=64
+[2026-08-27T19:06:08+00:00] samples=[218.947, 216.704, 215.604] median=216.704s service_median=620.074s bad=['warmup', 'sample1', 'sample2', 'sample3']
+[2026-08-27T19:06:08+00:00] slowest10=[["test_server_tools.py", 182.0], ["test_docs_lint.py", 99.8], ["test_indexer.py", 67.9], ["test_graph_indexer.py", 59.4], ["test_setup_index.py", 25.7], ["test_doc_drift.py", 22.8], ["test_dashboard_server.py", 22.7], ["test_upgrade_wavefoundry.py", 18.2], ["test_chunker.py", 16.8], ["test_techdocs_audit_lib.py", 13.1]]

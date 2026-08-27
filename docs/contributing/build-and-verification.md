@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-16
+Last verified: 2026-08-27
 
 ## Verification Commands
 
@@ -21,6 +21,29 @@ wf docs-gardener && wf docs-lint
 # Framework script tests (no bytecode)
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
+
+### Focused Diagnostic Runs (repair loops)
+
+```bash
+python3 .wavefoundry/framework/scripts/run_tests.py --file test_docs_lint.py --file test_wf_cli.py
+```
+
+`--file <basename>` (repeatable, wave 1tmtx) runs only the named discovered
+test files through the same lock, subprocess, environment, timeout, and
+stray-artifact-guard path as a full run. Focused runs label their output as
+focused, never read or write the last-green cache or any timing data, and are
+diagnostic only: they are never delivery, release, or close-gate evidence. One
+complete canonical run (`python3 .wavefoundry/framework/scripts/run_tests.py`)
+remains the delivery authority.
+
+Timing telemetry (wave 1tmtx): every run prints per-file elapsed seconds, a
+bounded top-10 slowest-file summary, and aggregate worker service time; a
+successful complete run persists an advisory `durations_s` map beside the
+last-green cache entry. `--no-cache` still forces a complete run and is never
+forwarded to unittest; note that it still reads the cache file once for the
+advisory timing map. Timing data is advisory only — it never authorizes a test
+skip or a pass, and neither the cache file nor the timing manifest is a public
+compatibility API.
 
 ## Semantic Index And Offline Search
 

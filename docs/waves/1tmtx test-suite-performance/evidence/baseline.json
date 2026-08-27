@@ -1,0 +1,49 @@
+{
+  "captured_at": "2026-08-27T18:47:23+00:00",
+  "command": "python3 .wavefoundry/framework/scripts/run_tests.py --no-cache",
+  "median_external_s": 216.665,
+  "metric": "external invocation-to-exit monotonic seconds",
+  "runs": [
+    {
+      "external_s": 216.443,
+      "files": 64,
+      "internal_worker_phase_s": 216.272,
+      "label": "warmup",
+      "ok": true,
+      "returncode": 0,
+      "tests": 7499
+    },
+    {
+      "external_s": 217.948,
+      "files": 64,
+      "internal_worker_phase_s": 217.786,
+      "label": "sample1",
+      "ok": true,
+      "returncode": 0,
+      "tests": 7499
+    },
+    {
+      "external_s": 215.952,
+      "files": 64,
+      "internal_worker_phase_s": 215.784,
+      "label": "sample2",
+      "ok": true,
+      "returncode": 0,
+      "tests": 7499
+    },
+    {
+      "external_s": 216.665,
+      "files": 64,
+      "internal_worker_phase_s": 216.494,
+      "label": "sample3",
+      "ok": true,
+      "returncode": 0,
+      "tests": 7499
+    }
+  ],
+  "sample_external_s": [
+    217.948,
+    215.952,
+    216.665
+  ]
+}

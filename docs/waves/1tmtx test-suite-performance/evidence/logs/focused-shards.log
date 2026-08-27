@@ -1,0 +1,20 @@
+FOCUSED diagnostic run (6 of 66 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 6 test files across 6 workers …
+  [1/6] test_events_only_residue_census.py — 24 tests ok (0.6s)
+  [2/6] test_graph_query.py — 90 tests ok (2.7s)
+  [3/6] test_render_platform_surfaces.py — 94 tests ok (2.8s)
+  [4/6] test_server_tools_retrieval.py — 891 tests ok (37.4s)
+  [5/6] test_server_tools_lifecycle.py — 510 tests ok (79.6s)
+  [6/6] test_server_tools.py — 336 tests ok (90.3s)
+
+----------------------------------------------------------------------
+Slowest files (top 6 of 6):
+  test_server_tools.py                            90.264s  (336 tests)
+  test_server_tools_lifecycle.py                  79.623s  (510 tests)
+  test_server_tools_retrieval.py                  37.421s  (891 tests)
+  test_render_platform_surfaces.py                 2.831s  (94 tests)
+  test_graph_query.py                              2.672s  (90 tests)
+  test_events_only_residue_census.py               0.613s  (24 tests)
+Worker service time: 213.425s across 6 files; skipped 0 tests
+Ran 1945 tests across 6 files in 90.264s
+OK

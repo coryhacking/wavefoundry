@@ -165,11 +165,11 @@ TEST_ALLOWANCES: dict[str, frozenset[str]] = {
     "review-evidence-adoptions.json": frozenset({
         f"{_TESTS_PREFIX}/test_docs_lint.py",
         f"{_TESTS_PREFIX}/test_render_agent_surfaces.py",
-        f"{_TESTS_PREFIX}/test_server_tools.py",
+        f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py",
         f"{_TESTS_PREFIX}/test_upgrade_wavefoundry.py",
     }),
     "review-evidence-migration.json": frozenset({
-        f"{_TESTS_PREFIX}/test_server_tools.py",
+        f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py",
         f"{_TESTS_PREFIX}/test_upgrade_wavefoundry.py",
     }),
     # The lock literal is the live physical carrier of
@@ -182,9 +182,9 @@ TEST_ALLOWANCES: dict[str, frozenset[str]] = {
     }),
     # Prose-evidence helpers: legacy-branch probes exercised through the
     # review_evidence facade module object, never through server_impl.
-    "lane_has_signoff_in_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools.py"}),
-    "combined_review_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools.py"}),
-    "prose_max_severity": frozenset({f"{_TESTS_PREFIX}/test_server_tools.py"}),
+    "lane_has_signoff_in_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
+    "combined_review_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
+    "prose_max_severity": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
 }
 
 TEXT_SUFFIXES = {".py", ".md", ".mdc", ".json", ".toml", ".txt", ".yml", ".yaml", ".js", ".css", ".html", ".cmd", ".sh", ""}

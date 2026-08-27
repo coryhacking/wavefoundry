@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-27
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -427,7 +427,7 @@ The pattern established by `1301h` for `code_definition` is now applied uniforml
 
 **Latency budget** — incremental graph refresh is ~4ms when nothing has changed (measured during wave `12xr3` close-review). The fast path (symbol-in-graph on first query) pays zero overhead because the refresh branch is gated behind the miss. The miss-plus-refresh path stays well under 1s on this repo (live smoke at wave close: 304ms for `code_callhierarchy` triggering a real refresh; 753ms for a never-resolves bogus symbol including the suggestions scan).
 
-Test coverage: `TestGraphRefreshThenRecheck`, `TestGraphRefreshAndResolve`, and `TestGraphToolRefreshOnMiss` in `tests/test_server_tools.py` cover the helpers' unit behavior and verify each of the seven tools triggers exactly one refresh call on its miss path. The 1301h regression suite continues to pass, confirming `code_definition` was not affected by the helper extraction.
+Test coverage: `TestGraphRefreshThenRecheck`, `TestGraphRefreshAndResolve`, and `TestGraphToolRefreshOnMiss` in `tests/test_server_tools_retrieval.py` cover the helpers' unit behavior and verify each of the seven tools triggers exactly one refresh call on its miss path. The 1301h regression suite continues to pass, confirming `code_definition` was not affected by the helper extraction.
 
 ### `code_impact_response()` (`server_impl.py:9579-9604`)
 
