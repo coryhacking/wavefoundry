@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.20.0] - 2026-08-27
 
 
 ### Added
@@ -81,8 +81,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `npm-shrinkwrap.json`, `packages.lock.json`, `*.min.js`, and `*.min.css` no longer index, and the
   committed secret-scan findings ledger (`docs/scan-findings.json`) joined the machine-authority
   path exclusions that no configuration can re-include (change `1wfsn`). Secret scanning itself is
-  unchanged, regression-pinned against narrowing. `WALKER_VERSION` moved to 13 and
-  `CHUNKER_VERSION` to 34, so existing indexes converge with a one-time full re-walk on the next
+  unchanged, regression-pinned against narrowing. `WALKER_VERSION` moved to 13
+  (change `1wfsn`), and with the fenced-content, diagram, and spec-family work above,
+  `CHUNKER_VERSION` finishes this release at 37 (34 was an intermediate step within the same
+  release), so existing indexes converge with a one-time full re-walk and re-chunk on the next
   index build after upgrade.
 
 - **Operator guidance now states the accurate retrieval contract.** Seed 211 (mirrored in
