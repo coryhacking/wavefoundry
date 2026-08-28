@@ -1,0 +1,56 @@
+[
+  {
+    "id": "d01",
+    "query": "which service validates the bearer token signature during login",
+    "expected_file": "mermaid/auth-flow.mmd",
+    "expected_anchor": "Auth->>Tokens: validate bearer token signature"
+  },
+  {
+    "id": "d02",
+    "query": "what happens on a session cache miss during login",
+    "expected_file": "mermaid/auth-flow.mmd",
+    "expected_anchor": "Auth->>Sessions: create session from token scopes"
+  },
+  {
+    "id": "d03",
+    "query": "where do rejected rows go in the data pipeline",
+    "expected_file": "mermaid/data-pipeline.mermaid",
+    "expected_anchor": "DeadLetter[Dead Letter Queue]"
+  },
+  {
+    "id": "d04",
+    "query": "which component forwards jobs from the isolated network segment",
+    "expected_file": "plantuml/deployment.puml",
+    "expected_anchor": "relay --> scheduler : forwards isolated-segment jobs"
+  },
+  {
+    "id": "d05",
+    "query": "what does the production deployment topology look like",
+    "expected_file": "plantuml/deployment.puml",
+    "expected_anchor": "title Production Deployment Topology"
+  },
+  {
+    "id": "d06",
+    "query": "what state does an order enter when payment is declined",
+    "expected_file": "plantuml/order-lifecycle.plantuml",
+    "expected_anchor": "Submitted --> PaymentRetry : payment declined"
+  },
+  {
+    "id": "d07",
+    "query": "which services read from the config service",
+    "expected_file": "dot/service-deps.dot",
+    "expected_anchor": "reads feature flags"
+  },
+  {
+    "id": "d08",
+    "query": "who renders and emails invoices for billing",
+    "expected_file": "dot/service-deps.dot",
+    "expected_anchor": "emails rendered invoice"
+  },
+  {
+    "id": "d09",
+    "query": "which build target links against the parser library",
+    "expected_file": "dot/build-graph.gv",
+    "expected_anchor": "query_engine -> parser_lib [label=\"links against\"]"
+  }
+]

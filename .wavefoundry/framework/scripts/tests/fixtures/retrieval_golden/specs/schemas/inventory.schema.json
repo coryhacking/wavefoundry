@@ -1,0 +1,49 @@
+{
+  "title": "InventoryItem",
+  "description": "Warehouse inventory record synchronized nightly between the ERP and the storefront. No dialect declaration on purpose: consumers validate with their bundled default draft.",
+  "type": "object",
+  "required": ["sku", "warehouseId", "availableQuantity"],
+  "properties": {
+    "sku": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]{4,32}$",
+      "description": "Unique stock keeping unit; uppercase letters, digits, and hyphens only, between 4 and 32 characters. SKUs are never reused, even after an item is discontinued."
+    },
+    "warehouseId": {
+      "type": "string",
+      "description": "Identifier of the warehouse holding this stock line. One SKU may appear once per warehouse."
+    },
+    "availableQuantity": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Units currently sellable from this warehouse; reserved units are excluded from availableQuantity until the reservation is released or fulfilled, so the storefront can promise only what is genuinely free."
+    },
+    "reservedQuantity": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Units held against open orders. Reservations expire with their order and flow back into availableQuantity automatically."
+    },
+    "reorderPoint": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Replenishment trigger. When availableQuantity falls at or below reorderPoint, the item is flagged for replenishment in the nightly procurement job and a purchase suggestion is created."
+    },
+    "reorderQuantity": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Suggested order size used when the replenishment flag is raised; buyers may override it per purchase order."
+    },
+    "unitCostCents": {
+      "type": "integer",
+      "description": "Latest landed cost per unit in minor currency units, used for margin reporting only, never shown to shoppers."
+    },
+    "lotTracked": {
+      "type": "boolean",
+      "description": "True when this SKU requires lot numbers on receipt and shipment, which is mandatory for perishable goods."
+    },
+    "updatedAt": {
+      "type": "string",
+      "description": "Timestamp of the last synchronization from the ERP, RFC 3339 formatted."
+    }
+  }
+}

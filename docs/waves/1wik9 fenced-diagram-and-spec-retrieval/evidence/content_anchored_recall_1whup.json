@@ -1,0 +1,76 @@
+{
+  "supplement": "1whup content-anchored recall@5 (anchor in any top-5 chunk)",
+  "chunker_version": "35",
+  "runs": {
+    "eval_prose_before_1whup.json": {
+      "label": "1whup before (baseline v2: unique-anchor fence set + extended corpus; pre-change surface via docs-mirror kind restriction, chunker 35 prose rows byte-identical to 34)",
+      "formats": {
+        "adoc": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.8125,
+          "query_count": 16
+        },
+        "fence-adoc": {
+          "content_anchored_recall_at_5": 0.0,
+          "file_attributed_recall_at_5": 0.0,
+          "query_count": 3
+        },
+        "fence-md": {
+          "content_anchored_recall_at_5": 0.0,
+          "file_attributed_recall_at_5": 0.0,
+          "query_count": 3
+        },
+        "fence-rst": {
+          "content_anchored_recall_at_5": 0.0,
+          "file_attributed_recall_at_5": 0.0,
+          "query_count": 3
+        },
+        "md": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.875,
+          "query_count": 16
+        },
+        "rst": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.8125,
+          "query_count": 16
+        }
+      }
+    },
+    "eval_prose_after_1whup.json": {
+      "label": "1whup after (doc-code routed, chunker 35, unique-anchor fence set)",
+      "formats": {
+        "adoc": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.75,
+          "query_count": 16
+        },
+        "fence-adoc": {
+          "content_anchored_recall_at_5": 1.0,
+          "file_attributed_recall_at_5": 1.0,
+          "query_count": 3
+        },
+        "fence-md": {
+          "content_anchored_recall_at_5": 1.0,
+          "file_attributed_recall_at_5": 1.0,
+          "query_count": 3
+        },
+        "fence-rst": {
+          "content_anchored_recall_at_5": 1.0,
+          "file_attributed_recall_at_5": 1.0,
+          "query_count": 3
+        },
+        "md": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.8125,
+          "query_count": 16
+        },
+        "rst": {
+          "content_anchored_recall_at_5": 0.875,
+          "file_attributed_recall_at_5": 0.6875,
+          "query_count": 16
+        }
+      }
+    }
+  }
+}

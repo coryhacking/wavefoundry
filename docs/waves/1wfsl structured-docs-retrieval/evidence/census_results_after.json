@@ -1,0 +1,132 @@
+{
+  "census": "1wfsn-enh fixture census AFTER the 1wfsn landing (walker 12)",
+  "method": "indexer.walk_repo + indexer._filter_code_files on the same constructed fixture tree; no grep",
+  "walker_version": "12",
+  "fixture_census_after_1wfsn_landing": [
+    {
+      "path": "package-lock.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "yarn.lock",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "prompt-surface-manifest.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "Cargo.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "poetry.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "uv.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "Pipfile.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "composer.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "Gemfile.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "flake.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "bun.lockb",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (content sniff)"
+    },
+    {
+      "path": "ui-state.snap",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (generated extension)"
+    },
+    {
+      "path": "diagram.excalidraw",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (generated extension)"
+    },
+    {
+      "path": "go.sum",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "gradle.lockfile",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "app.js.map",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "npm-shrinkwrap.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "packages.lock.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "app.min.js",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name (suffix pattern)"
+    },
+    {
+      "path": "styles.min.css",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name (suffix pattern)"
+    },
+    {
+      "path": "docs/scan-findings.json",
+      "classification": "walk_excluded_machine_authority",
+      "mechanism_class": "machine-authority path"
+    },
+    {
+      "path": "package.json",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "app.js",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "styles.css",
+      "classification": "indexed",
+      "mechanism_class": null
+    }
+  ]
+}

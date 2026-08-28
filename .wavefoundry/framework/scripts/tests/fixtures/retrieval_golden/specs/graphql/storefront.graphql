@@ -1,0 +1,93 @@
+"""
+Storefront API schema: catalog browsing and cart operations for the web shop.
+"""
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+"""
+Read operations for catalog browsing and cart inspection.
+"""
+type Query {
+  """
+  Look up a single product by its URL-safe slug; returns null for retired products.
+  """
+  productBySlug(slug: String!): Product
+
+  """
+  Full-text search over product titles and descriptions with category filters.
+  """
+  searchProducts(term: String!, category: String): [Product!]!
+
+  """
+  The current visitor's cart, created lazily on first mutation.
+  """
+  cart: Cart
+}
+
+"""
+Write operations for cart management during a shopping session.
+"""
+type Mutation {
+  """
+  Add a quantity of one product variant to the visitor's cart.
+  """
+  addToCart(variantId: ID!, quantity: Int! = 1): Cart!
+
+  """
+  Remove one line entirely from the cart regardless of quantity.
+  """
+  removeCartLine(lineId: ID!): Cart!
+}
+
+"""
+A sellable catalog item with its variants and pricing.
+"""
+type Product {
+  id: ID!
+  slug: String!
+  title: String!
+
+  """
+  Marketing description rendered on the product detail page.
+  """
+  description: String
+
+  """
+  Purchasable variants; every product has at least one.
+  """
+  variants: [Variant!]!
+}
+
+"""
+A concrete purchasable configuration of a product, such as a size or color.
+"""
+type Variant {
+  id: ID!
+  sku: String!
+
+  """
+  Unit price in minor currency units at the current price list.
+  """
+  priceCents: Int!
+}
+
+"""
+The visitor's shopping cart with derived totals.
+"""
+type Cart {
+  id: ID!
+  lines: [CartLine!]!
+
+  """
+  Sum of line subtotals before shipping and tax, in minor currency units.
+  """
+  subtotalCents: Int!
+}
+
+type CartLine {
+  id: ID!
+  variant: Variant!
+  quantity: Int!
+}

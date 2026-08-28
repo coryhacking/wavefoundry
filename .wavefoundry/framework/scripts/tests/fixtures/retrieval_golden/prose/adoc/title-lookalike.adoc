@@ -1,0 +1,35 @@
+= Title Lookalikes
+:product-name: Driftbeam
+
+This file pins negative parsing cases: AsciiDoc lines that resemble document structure but are not.
+A structure-aware chunker must not treat any of the lines below as titles or list items.
+
+The listing block that follows contains lines that start with an equals sign; they are program output, not document or section titles.
+
+[source,text]
+----
+= run summary =
+== phase one complete ==
+=== nested marker in a banner ===
+elapsed: 4.2s
+records: 18422
+----
+
+Every equals-prefixed line above sits inside a delimited listing block, so none of them opens a new section.
+A parser that promotes them to headings has ignored the listing delimiters.
+
+*Important:* the line above starts with an asterisk, but it is a bold phrase, not an unordered list item, because the asterisk closes on the same word.
+Bold-leading lines are common in migration notes and warning paragraphs.
+
+* this line, by contrast, is a real list item
+* and so is this one
+
+The two starred lines directly above are a genuine unordered list, which makes the distinction observable: bold-lead paragraph before, real list after.
+
+[listing]
+----
+= another banner that begins with equals
+still inside a listing block
+----
+
+The final listing repeats the equals-prefixed case using the listing style attribute rather than a source block.

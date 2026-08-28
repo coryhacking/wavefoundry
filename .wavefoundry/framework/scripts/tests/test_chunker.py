@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import textwrap
 import tracemalloc
@@ -217,7 +218,8 @@ class MarkdownChunkerTests(unittest.TestCase):
         """)
         chunks = self._chunks(source)
         kinds = {c.kind for c in chunks}
-        self.assertIn("code", kinds)
+        # 1whup: doc-family fences emit the docs-table-routed doc-code kind.
+        self.assertIn("doc-code", kinds)
         self.assertIn("doc", kinds)
 
     def test_empty_file_returns_no_chunks(self):
@@ -244,7 +246,7 @@ class MarkdownChunkerTests(unittest.TestCase):
         # AC-2: fenced code chunk also carries breadcrumb
         source = "# My Doc\n\n## Usage\n\n```python\nfoo()\n```\n"
         chunks = self._chunks(source)
-        code = [c for c in chunks if c.kind == "code"]
+        code = [c for c in chunks if c.kind == "doc-code"]
         self.assertEqual(len(code), 1)
         self.assertEqual(code[0].section, "My Doc > Usage")
         self.assertTrue(code[0].text.startswith("My Doc > Usage\n\n"))
@@ -320,7 +322,7 @@ class MarkdownChunkerTests(unittest.TestCase):
             "```python\nfoo()\n```\n"
         )
         chunks = self._chunks(source)
-        code = [c for c in chunks if c.kind == "code"]
+        code = [c for c in chunks if c.kind == "doc-code"]
         self.assertTrue(len(code) >= 1)
         self.assertIn("Doc > Chapter > Sub", code[0].section)
 
@@ -3238,7 +3240,7 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_32(self):
+    def test_chunker_version_bumped_to_37(self):
         """Wave 1sbfl: CHUNKER_VERSION bumped 31 → 32 — Java static/instance initializer
         blocks are now emitted as their own kind="code" chunks across class/enum/record
         containers (records static-only). Chunk-set shape change → bump so any 31-index
@@ -3269,8 +3271,13 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         28 → 29 (wave 1p4q4 review): module-keyword / non-export-namespace / export-&-declare-namespace / declare-enum chunking completed.
         29 → 30 (wave 1p4u5, 1p4w9): docs chunks prepend their section breadcrumb to embedded text (docs-only; code text unchanged).
         30 → 31 (wave 1p5k0): nested-type members attribute to the qualified owner (Outer.Inner.x) in the chunk lane + nested-type __decl__ chunk (code shape change → re-chunk).
-        31 → 32 (wave 1sbfl): Java static/instance initializer blocks emitted as own chunks (class/enum/record; records static-only)."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "32")
+        31 → 32 (wave 1sbfl): Java static/instance initializer blocks emitted as own chunks (class/enum/record; records static-only).
+        32 → 33 (wave 1wfsl, 1wfsm): rst/adoc doc-kind section chunkers with breadcrumbs; code directives/listings extract as code-kind (markdown byte-identical, differential-pinned).
+        33 → 34 (wave 1wfsl, 1wfr8): content-detected OpenAPI/JSON-Schema operation/definition chunking with baked breadcrumbs (undetected YAML/JSON byte-identical, differential-pinned).
+        34 → 35 (wave 1wik9, 1whup): doc-family extracted code blocks emit kind="doc-code" routed to the DOCS table, with file-pass-scoped fence ordinals (markdown gains the ordinal; rst/adoc ordinals stop resetting per section).
+        35 → 36 (wave 1wik9, 1whuq): standalone Mermaid/PlantUML/DOT diagram files chunk as one docs-routed doc-code unit each (title-or-stem breadcrumb + raw source; chunker-only registration, no walker bump).
+        36 → 37 (wave 1wik9, 1wfso): spec-format family — AsyncAPI (content-detected, channel/operation/message units), GraphQL SDL and Protobuf (extension-gated internal parsers, description/comment units with symbol-path breadcrumbs); undetected files byte-identical."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "37")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -5701,6 +5708,1080 @@ class OversizedTreeSitterGuardTests(unittest.TestCase):
         with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "100"}):
             chunks = self.chunker.chunk_file(src, "big.py")
         self.assertTrue(chunks, "oversized code must still chunk via the regex/line fallback")
+
+
+class RstChunkerTests(unittest.TestCase):
+    """Wave 1wfsl (1wfsm): reStructuredText doc-kind section chunking."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    RST = (
+        "Widget Library\n"
+        "==============\n"
+        "\n"
+        "Intro paragraph about the widget library.\n"
+        "\n"
+        "Installation\n"
+        "------------\n"
+        "\n"
+        "Install with pip. The minimum supported Python is 3.11.\n"
+        "\n"
+        ".. code-block:: bash\n"
+        "\n"
+        "   pip install widgetlib\n"
+        "\n"
+        ".. note::\n"
+        "\n"
+        "   Wheels are prebuilt for macOS and Linux.\n"
+        "\n"
+        "Configuration\n"
+        "-------------\n"
+        "\n"
+        "Set the WIDGET_HOME variable first.\n"
+        "\n"
+        ".. image:: diagram.png\n"
+        "   :alt: architecture\n"
+        "\n"
+        "Values resolve in order of precedence.\n"
+    )
+
+    def test_sections_with_breadcrumbs_and_doc_kind(self):
+        chunks = self.chunker.chunk_file(self.RST, "docs/guide.rst")
+        docs = [c for c in chunks if c.kind == "doc"]
+        by_id = {c.id: c for c in chunks}
+        self.assertIn("docs/guide.rst#installation", by_id)
+        install = by_id["docs/guide.rst#installation"]
+        self.assertEqual(install.kind, "doc")
+        self.assertEqual(install.section, "Widget Library > Installation")
+        self.assertTrue(install.text.startswith("Widget Library > Installation"))
+        self.assertIn("minimum supported Python", install.text)
+        # Admonition body stays prose; marker removed.
+        self.assertIn("Wheels are prebuilt", install.text)
+        self.assertNotIn(".. note::", install.text)
+        config = by_id["docs/guide.rst#configuration"]
+        self.assertEqual(config.section, "Widget Library > Configuration")
+        # Image directive dropped from prose entirely.
+        self.assertNotIn("diagram.png", config.text)
+        self.assertIn("order of precedence", config.text)
+        self.assertTrue(all(c.path == "docs/guide.rst" for c in docs))
+
+    def test_code_block_extracted_as_code_kind(self):
+        # 1whup: extracted directive bodies carry the docs-table doc-code kind.
+        chunks = self.chunker.chunk_file(self.RST, "docs/guide.rst")
+        code = [c for c in chunks if c.kind == "doc-code"]
+        self.assertEqual(len(code), 1)
+        self.assertEqual(code[0].language, "bash")
+        self.assertEqual(code[0].id, "docs/guide.rst#installation:code-1")
+        self.assertIn("pip install widgetlib", code[0].text)
+        install = next(c for c in chunks if c.id == "docs/guide.rst#installation")
+        self.assertNotIn("pip install widgetlib", install.text)
+
+    def test_overline_titles_recognized(self):
+        src = (
+            "##############\n"
+            "Overlined Doc\n"
+            "##############\n"
+            "\n"
+            "Body under the overlined document title.\n"
+            "\n"
+            "Section A\n"
+            "=========\n"
+            "\n"
+            "Prose in section A.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/o.rst")
+        ids = {c.id for c in chunks}
+        self.assertIn("docs/o.rst#section-a", ids)
+        section = next(c for c in chunks if c.id == "docs/o.rst#section-a")
+        self.assertEqual(section.section, "Overlined Doc > Section A")
+
+    def test_adornment_lookalikes_do_not_split(self):
+        src = (
+            "Doc Title\n"
+            "=========\n"
+            "\n"
+            "Real Section\n"
+            "------------\n"
+            "\n"
+            "This paragraph continues across lines, and the following\n"
+            "dashes are a visual separator\n"
+            "----------------------------------------------------------\n"
+            "so it must stay inside the same section because the candidate\n"
+            "title line above the dashes is mid-paragraph (no blank line\n"
+            "precedes it), which docutils rejects as a section title.\n"
+            "\n"
+            "A literal block follows::\n"
+            "\n"
+            "    ==================\n"
+            "    indented equals row inside a literal block\n"
+            "\n"
+            "Closing prose.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/adv.rst")
+        doc_ids = [c.id for c in chunks if c.kind == "doc"]
+        self.assertEqual(doc_ids, ["docs/adv.rst#real-section"])
+        body = chunks[0].text
+        self.assertIn("stay inside the same section", body)
+        self.assertIn("Closing prose.", body)
+
+    def test_unknown_directive_degrades_to_prose_not_exclusion(self):
+        src = (
+            "Title\n"
+            "=====\n"
+            "\n"
+            "Sec\n"
+            "---\n"
+            "\n"
+            ".. customthing:: arg\n"
+            "\n"
+            "   custom body text preserved\n"
+            "\n"
+            "Tail prose.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/u.rst")
+        merged = "\n".join(c.text for c in chunks)
+        self.assertIn("custom body text preserved", merged)
+        self.assertIn("Tail prose.", merged)
+
+
+class AdocChunkerTests(unittest.TestCase):
+    """Wave 1wfsl (1wfsm): AsciiDoc doc-kind section chunking."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    ADOC = (
+        "= Service Guide\n"
+        ":product-name: Widget\n"
+        "\n"
+        "Preamble about {product-name}.\n"
+        "\n"
+        "== Getting Started\n"
+        "\n"
+        "Run the bootstrap script before anything else.\n"
+        "\n"
+        "[source,python]\n"
+        "----\n"
+        "import widget\n"
+        "= this equals line is inside a listing\n"
+        "widget.run()\n"
+        "----\n"
+        "\n"
+        "NOTE: The bootstrap is idempotent.\n"
+        "\n"
+        "== Troubleshooting\n"
+        "\n"
+        "|===\n"
+        "|Code |Meaning\n"
+        "|E100 |Bad config\n"
+        "|===\n"
+        "\n"
+        "Check the log directory first.\n"
+    )
+
+    def test_sections_with_breadcrumbs_and_doc_kind(self):
+        chunks = self.chunker.chunk_file(self.ADOC, "docs/service.adoc")
+        by_id = {c.id: c for c in chunks}
+        start = by_id["docs/service.adoc#getting-started"]
+        self.assertEqual(start.kind, "doc")
+        self.assertEqual(start.section, "Service Guide > Getting Started")
+        self.assertIn("bootstrap script", start.text)
+        # Admonition line and attribute reference pass through as prose.
+        self.assertIn("NOTE: The bootstrap is idempotent.", start.text)
+        pre = by_id["docs/service.adoc#preamble"]
+        self.assertIn("{product-name}", pre.text)
+
+    def test_source_block_extracted_and_listing_heading_not_split(self):
+        chunks = self.chunker.chunk_file(self.ADOC, "docs/service.adoc")
+        code = [c for c in chunks if c.kind == "doc-code"]
+        self.assertEqual(len(code), 1)
+        self.assertEqual(code[0].language, "python")
+        self.assertIn("= this equals line is inside a listing", code[0].text)
+        # The equals-prefixed line inside the listing must NOT create a section.
+        ids = {c.id for c in chunks}
+        self.assertNotIn(
+            "docs/service.adoc#this-equals-line-is-inside-a-listing", ids
+        )
+
+    def test_table_block_dropped_from_prose(self):
+        chunks = self.chunker.chunk_file(self.ADOC, "docs/service.adoc")
+        trouble = next(
+            c for c in chunks if c.id == "docs/service.adoc#troubleshooting"
+        )
+        self.assertNotIn("E100", trouble.text)
+        self.assertIn("log directory", trouble.text)
+
+    def test_asciidoc_extension_variant(self):
+        chunks = self.chunker.chunk_file(self.ADOC, "docs/service.asciidoc")
+        self.assertTrue(any(c.kind == "doc" for c in chunks))
+
+    def test_literal_block_extracted_without_source_attr(self):
+        src = (
+            "= T\n"
+            "\n"
+            "== S\n"
+            "\n"
+            "Prose ahead.\n"
+            "\n"
+            "....\n"
+            "raw literal output\n"
+            "....\n"
+            "\n"
+            "Prose after.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/l.adoc")
+        code = [c for c in chunks if c.kind == "doc-code"]
+        self.assertEqual(len(code), 1)
+        self.assertIsNone(code[0].language)
+        self.assertIn("raw literal output", code[0].text)
+        doc = next(c for c in chunks if c.id == "docs/l.adoc#s")
+        self.assertNotIn("raw literal output", doc.text)
+
+
+class ProseFormatNoiseBoundingTests(unittest.TestCase):
+    """1wfsm AC-2: directive/listing noise must not dominate prose chunks."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_code_block_heavy_rst_prose_not_dominated(self):
+        blocks = "\n".join(
+            f".. code-block:: python\n\n   value_{i} = compute({i})\n"
+            f"   result_{i} = transform(value_{i})\n"
+            for i in range(8)
+        )
+        src = (
+            "API Guide\n=========\n\nUsage\n-----\n\n"
+            "Short prose sentence one.\n\n" + blocks + "\nShort prose closing.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/api.rst")
+        prose = [c for c in chunks if c.kind == "doc"]
+        code = [c for c in chunks if c.kind == "doc-code"]
+        self.assertEqual(len(code), 8)
+        for c in prose:
+            self.assertNotIn("compute(", c.text)
+            self.assertNotIn("transform(", c.text)
+
+    def test_listing_heavy_adoc_prose_not_dominated(self):
+        listings = "\n".join(
+            f"[source,python]\n----\nvalue_{i} = compute({i})\n----\n"
+            for i in range(8)
+        )
+        src = (
+            "= API Guide\n\n== Usage\n\nShort prose sentence one.\n\n"
+            + listings + "\nShort prose closing.\n"
+        )
+        chunks = self.chunker.chunk_file(src, "docs/api.adoc")
+        prose = [c for c in chunks if c.kind == "doc"]
+        code = [c for c in chunks if c.kind == "doc-code"]
+        self.assertEqual(len(code), 8)
+        for c in prose:
+            self.assertNotIn("compute(", c.text)
+
+
+class MarkdownDifferentialTests(unittest.TestCase):
+    """1wfsm AC-5 / 1whup AC-2: markdown chunking is byte-identical to the
+    pinned snapshot. Originally generated from the pre-1wfsm chunker (v32);
+    regenerated as a deliberate versioned step for 1whup (v35, doc-code kind +
+    file-pass fence ordinals) with every changed row classified and the
+    specs-negatives differential asserted zero-delta
+    (docs/waves/1wik9 .../evidence/regen_differentials_1whup.py)."""
+
+    FIXTURES = (
+        Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+    )
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def test_markdown_chunks_byte_identical_to_prechange_snapshot(self):
+        import json as _json
+        sources = _json.loads(
+            (self.FIXTURES / "markdown_differential_sources.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected = _json.loads(
+            (self.FIXTURES / "markdown_differential_expected.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        actual = []
+        for entry in sources:
+            for c in self.chunker.chunk_file(entry["source"], entry["path"]):
+                actual.append(c.to_dict())
+        self.assertEqual(actual, expected)
+
+
+class SpecChunkingTests(unittest.TestCase):
+    """Wave 1wfsl (1wfr8): content-detected OpenAPI / JSON Schema chunking.
+
+    Detection and shape tests run over the COMMITTED spec fixture corpus
+    (fixtures/retrieval_golden/specs), so the named negatives in the plan —
+    the schemastore config class and the schema-shaped data file — are the
+    actual tested artifacts. The non-spec differential compares against a
+    snapshot generated from the pre-change (git HEAD, v32) chunker."""
+
+    FIXTURES = (
+        Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+    )
+
+    POSITIVES = [
+        "openapi/petstore.yaml",
+        "openapi/payments-api.json",
+        "openapi/legacy-swagger.yaml",
+        "schemas/customer.schema.json",
+        "schemas/config-format.schema.json",
+        "schemas/inventory.schema.json",
+    ]
+    NEGATIVES = [
+        "negatives/k8s-deployment.yaml",
+        "negatives/ci-workflow.yaml",
+        "negatives/docker-compose.yaml",
+        "negatives/renovate.json",
+        "negatives/.eslintrc.json",
+        "negatives/tsconfig.json",
+        "negatives/feature-flags.json",
+        "negatives/telemetry-event.json",  # adversarial: root type+properties, non-schema values
+        "negatives/sdl-lookalike.txt",     # 1wfso: SDL-shaped content, other extension
+        "negatives/proto-lookalike.txt",   # 1wfso: proto-shaped content, other extension
+    ]
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _chunk_fixture(self, rel: str):
+        src = (self.FIXTURES / "specs" / rel).read_text(encoding="utf-8")
+        return self.chunker.chunk_file(src, rel)
+
+    def _is_spec_chunked(self, chunks) -> bool:
+        return any(
+            c.section and c.section.split(".", 1)[0] in
+            ("paths", "components", "definitions", "$defs", "properties",
+             "info", "schema", "spec")
+            for c in chunks
+        )
+
+    def test_detection_positives_spec_chunk(self):
+        for rel in self.POSITIVES:
+            chunks = self._chunk_fixture(rel)
+            self.assertTrue(self._is_spec_chunked(chunks), f"{rel} must spec-chunk")
+
+    def test_detection_negatives_stay_flat(self):
+        for rel in self.NEGATIVES:
+            chunks = self._chunk_fixture(rel)
+            self.assertFalse(
+                self._is_spec_chunked(chunks),
+                f"{rel} must stay on the flat-emission path",
+            )
+
+    def test_operation_units_carry_breadcrumb_and_prose(self):
+        chunks = self._chunk_fixture("openapi/petstore.yaml")
+        ops = [c for c in chunks if c.section and c.section.startswith("paths.")]
+        self.assertGreaterEqual(len(ops), 6)
+        get_pets = next(c for c in ops if c.section == "paths./pets.get")
+        self.assertEqual(get_pets.kind, "code")
+        self.assertTrue(get_pets.text.startswith("paths./pets.get:"))
+        self.assertIn("summary", get_pets.text)
+        self.assertEqual(get_pets.id, "openapi/petstore.yaml#paths./pets.get")
+        # Deterministic identity: re-chunking yields the same ids in the same order.
+        again = [c.id for c in self._chunk_fixture("openapi/petstore.yaml")]
+        self.assertEqual([c.id for c in chunks], again)
+
+    def test_definition_units_carry_property_path_breadcrumb(self):
+        chunks = self._chunk_fixture("schemas/customer.schema.json")
+        sections = {c.section for c in chunks}
+        self.assertIn("$defs.Address", sections)
+        addr = next(c for c in chunks if c.section == "$defs.Address")
+        self.assertTrue(addr.text.startswith("$defs.Address:"))
+        self.assertEqual(addr.kind, "code")
+        props = [s for s in sections if s and s.startswith("properties.")]
+        self.assertTrue(props)
+
+    def test_spec_chunks_remain_code_kind(self):
+        # A doc-kind leak would cross the docs/code layer boundary via the
+        # indexer's kind routing (_is_docs_kind).
+        for rel in self.POSITIVES:
+            for c in self._chunk_fixture(rel):
+                self.assertIn(c.kind, ("code", "code-summary"), f"{rel}: {c.id}")
+
+    def test_parse_cap_applies_to_spec_path(self):
+        src = (self.FIXTURES / "specs" / "openapi/petstore.yaml").read_text(
+            encoding="utf-8"
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "100"}
+        ):
+            chunks = self.chunker.chunk_file(src, "openapi/petstore.yaml")
+        self.assertTrue(chunks, "over-cap spec must still chunk via fallback")
+        self.assertFalse(
+            self._is_spec_chunked(chunks),
+            "over-cap file must skip the spec path (same cap contract as _ts_parse)",
+        )
+
+    def test_config_gate_disables_spec_chunking(self):
+        src = (self.FIXTURES / "specs" / "openapi/petstore.yaml").read_text(
+            encoding="utf-8"
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"WAVEFOUNDRY_SPEC_CHUNKING": "0"}
+        ):
+            off = self.chunker.chunk_file(src, "openapi/petstore.yaml")
+        self.assertFalse(self._is_spec_chunked(off))
+        with unittest.mock.patch.dict(
+            os.environ, {"WAVEFOUNDRY_SPEC_CHUNKING": "1"}
+        ):
+            on = self.chunker.chunk_file(src, "openapi/petstore.yaml")
+        self.assertTrue(self._is_spec_chunked(on))
+
+    def test_non_spec_corpus_byte_identical_to_prechange_snapshot(self):
+        import json as _json
+        expected = _json.loads(
+            (self.FIXTURES / "specs_negatives_differential_expected.json")
+            .read_text(encoding="utf-8")
+        )
+        for rel, exp_chunks in expected.items():
+            actual = [c.to_dict() for c in self._chunk_fixture(rel)]
+            self.assertEqual(actual, exp_chunks, f"{rel} must chunk byte-identically")
+
+    def test_chunker_version_bumped_for_spec_shape_change(self):
+        self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 34)
+
+    def test_non_curated_sections_keep_coverage(self):
+        # ARCH-DEL-1 (delivery review): a detected spec must never LOSE
+        # coverage relative to flat emission — non-curated root sections and
+        # components subsections land in residue / per-subsection chunks.
+        for rel, needles in (
+            ("openapi/petstore.yaml", ["securitySchemes", "servers"]),
+            ("openapi/payments-api.json", ["servers"]),
+            ("openapi/legacy-swagger.yaml", ["securityDefinitions"]),
+        ):
+            src = (self.FIXTURES / "specs" / rel).read_text(encoding="utf-8")
+            for needle in needles:
+                if needle not in src:
+                    continue  # fixture variant without the section
+                chunks = self.chunker.chunk_file(src, rel)
+                self.assertTrue(
+                    any(needle in c.text for c in chunks),
+                    f"{rel}: {needle} content must appear in some chunk",
+                )
+
+    def test_path_item_level_content_keeps_coverage(self):
+        # ARCH-DEL-1 reverification residual: path-ITEM-level keys (siblings
+        # of the HTTP methods) must not vanish inside the curated paths root.
+        src = (self.FIXTURES / "specs" / "openapi/petstore.yaml").read_text(
+            encoding="utf-8"
+        )
+        if "Identifier assigned when the pet was created" in src:
+            chunks = self.chunker.chunk_file(src, "openapi/petstore.yaml")
+            self.assertTrue(any(
+                "Identifier assigned when the pet was created" in c.text
+                for c in chunks
+            ), "path-level parameters content must appear in some chunk")
+        json_spec = (
+            '{"openapi": "3.1.0", "info": {"title": "T"}, "paths": {"/a": {'
+            '"summary": "path item summary text", '
+            '"parameters": [{"name": "id", "description": "path level param"}], '
+            '"get": {"summary": "op"}}}}'
+        )
+        chunks = self.chunker.chunk_file(json_spec, "spec.json")
+        merged = "\n".join(c.text for c in chunks)
+        self.assertIn("path item summary text", merged)
+        self.assertIn("path level param", merged)
+        # Cycle-2 reverifier follow-up: a path-item block ending the file must
+        # not report an end line past the source.
+        yaml_eof = (
+            "openapi: 3.0.3\n"
+            "paths:\n"
+            "  /eof:\n"
+            "    get:\n"
+            "      summary: op\n"
+            "    parameters:\n"
+            "      - name: last\n"
+            "        description: trailing path-level parameter\n"
+        )
+        source_lines = yaml_eof.count("\n")
+        for c in self.chunker.chunk_file(yaml_eof, "eof.yaml"):
+            self.assertLessEqual(
+                c.lines[1], source_lines,
+                f"{c.id}: end line must not exceed the source",
+            )
+
+    def test_minified_schema_lines_capped_at_source_length(self):
+        # ARCH-DEL-2 reverification residual: the line cap must reach the
+        # JSON Schema branch too.
+        minified = (
+            '{"$schema": "https://json-schema.org/draft/2020-12/schema", '
+            '"type": "object", "properties": {"a": {"type": "string", '
+            '"description": "field a"}}, "$defs": {"B": {"type": "integer"}}}'
+        )
+        chunks = self.chunker.chunk_file(minified, "one-line.schema.json")
+        self.assertTrue(chunks)
+        for c in chunks:
+            self.assertLessEqual(
+                c.lines[1], 1, f"{c.id}: end line must not exceed the source"
+            )
+
+
+class DocCodeRoutingTests(unittest.TestCase):
+    """Wave 1wik9 (1whup): doc-family extracted code blocks emit kind
+    ``doc-code`` with FILE-PASS-scoped ordinals so they can route into the
+    docs table (previously the per-table eligibility gate dropped them from
+    both tables). Regressions here pin the emission kind, the ordinal
+    identity shape, the per-emitter breadcrumb truth, the cap selection, the
+    prompt byte-path exemption, the preserved notebook state, and the
+    per-emission-site content-coverage invariant (the 1wfsl ARCH-DEL-1
+    lesson: golden sets alone cannot see coverage loss)."""
+
+    # Mirrors indexer._is_docs_kind — the docs-table-eligible kind set.
+    DOCS_TABLE_KINDS = ("doc", "seed", "prompt", "doc-summary", "doc-code")
+
+    MD_DUPLICATE_SECTIONS = (
+        "Preamble prose.\n\n"
+        "```ini\npreamble_setting = true\n```\n\n"
+        "# Widget Guide\n\n"
+        "## Install\n\nFirst body.\n\n"
+        "```bash\nwidgetctl install --profile default\n```\n\n"
+        "```toml\nsecond_fence_same_section = 1\n```\n\n"
+        "## Install\n\nDuplicate-titled section.\n\n"
+        "```python\nimport widget\n```\n"
+    )
+
+    RST_DUPLICATE_SECTIONS = (
+        "Guide\n=====\n\n"
+        "Usage\n-----\n\nProse here.\n\n"
+        ".. code-block:: python\n\n   configure(retries=3)\n\n"
+        "Usage\n-----\n\n"
+        ".. code-block:: bash\n\n   run --again\n"
+    )
+
+    ADOC_DOC = (
+        "= Guide\n\n"
+        "== Usage\n\nProse here.\n\n"
+        "[source,python]\n----\nconfigure(retries=3)\n----\n"
+    )
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _doc_code(self, chunks):
+        return [c for c in chunks if c.kind == "doc-code"]
+
+    def test_markdown_fences_emit_doc_code_with_file_pass_ordinals(self):
+        chunks = self.chunker.chunk_file(self.MD_DUPLICATE_SECTIONS, "docs/guide.md")
+        dc = self._doc_code(chunks)
+        ids = [c.id for c in dc]
+        # Four fences: preamble, two in the first Install, one in the duplicate.
+        self.assertEqual(len(dc), 4)
+        self.assertEqual(len(set(ids)), 4, f"fence ids must be unique: {ids}")
+        # File-pass scope: ordinals continue across sections, never reset —
+        # the duplicate-titled section cannot collide (census-proven defect).
+        self.assertEqual(ids, [
+            "docs/guide.md#preamble:code-1",
+            "docs/guide.md#install:code-2",
+            "docs/guide.md#install:code-3",
+            "docs/guide.md#install:code-4",
+        ])
+        # No plain code-kind chunks remain from the doc path.
+        self.assertEqual([c for c in chunks if c.kind == "code"], [])
+
+    def test_h3_split_path_continues_the_file_pass_counter(self):
+        filler = "Filler prose line for threshold. " * 70
+        src = (
+            "# Doc\n\n"
+            "## Alpha\n\n```bash\nfirst fence\n```\n\n"
+            f"## Big\n\n{filler}\n\n"
+            "### Sub One\n\n```python\nsecond_fence = 1\n```\n\n"
+            f"### Sub Two\n\n{filler}\n\n```toml\nthird_fence = 2\n```\n"
+        )
+        dc = self._doc_code(self.chunker.chunk_file(src, "docs/big.md"))
+        ordinals = sorted(int(c.id.rsplit("-", 1)[-1]) for c in dc)
+        self.assertEqual(len(dc), 3)
+        self.assertEqual(ordinals, [1, 2, 3],
+                         "H3-split fences must continue the file-pass counter")
+        self.assertEqual(len({c.id for c in dc}), 3)
+
+    def test_preamble_fence_has_no_section_and_bare_text(self):
+        chunks = self.chunker.chunk_file(self.MD_DUPLICATE_SECTIONS, "docs/guide.md")
+        preamble = next(c for c in self._doc_code(chunks) if "preamble" in c.id)
+        self.assertIsNone(preamble.section)
+        self.assertEqual(preamble.text, "preamble_setting = true")
+        self.assertEqual(preamble.language, "ini")
+
+    def test_markdown_section_fence_breadcrumb_is_baked_once(self):
+        chunks = self.chunker.chunk_file(self.MD_DUPLICATE_SECTIONS, "docs/guide.md")
+        fence = next(c for c in self._doc_code(chunks) if c.language == "bash")
+        label = "Widget Guide > Install"
+        self.assertEqual(fence.section, label)
+        self.assertTrue(fence.text.startswith(label))
+        # Idempotence: joining _DOCS_BREADCRUMB_KINDS must not double-inject.
+        self.assertEqual(fence.text.count(label), 1)
+
+    def test_rst_code_directives_emit_doc_code_with_injected_breadcrumb(self):
+        chunks = self.chunker.chunk_file(self.RST_DUPLICATE_SECTIONS, "docs/guide.rst")
+        dc = self._doc_code(chunks)
+        self.assertEqual([c.id for c in dc], [
+            "docs/guide.rst#usage:code-1",
+            "docs/guide.rst#usage:code-2",
+        ], "rst ordinals must be file-pass scoped across duplicate titles")
+        # rst emitters produce bare code text; the breadcrumb injection pass
+        # (doc-code in _DOCS_BREADCRUMB_KINDS) supplies the section context.
+        self.assertTrue(dc[0].text.startswith("Guide > Usage"))
+        self.assertIn("configure(retries=3)", dc[0].text)
+        self.assertEqual([c for c in chunks if c.kind == "code"], [])
+
+    def test_adoc_listing_blocks_emit_doc_code_with_injected_breadcrumb(self):
+        chunks = self.chunker.chunk_file(self.ADOC_DOC, "docs/guide.adoc")
+        dc = self._doc_code(chunks)
+        self.assertEqual(len(dc), 1)
+        self.assertEqual(dc[0].id, "docs/guide.adoc#usage:code-1")
+        self.assertEqual(dc[0].language, "python")
+        self.assertTrue(dc[0].text.startswith("Guide > Usage"))
+        self.assertEqual([c for c in chunks if c.kind == "code"], [])
+
+    def test_doc_code_takes_the_code_size_cap(self):
+        probe = self.chunker.Chunk(
+            id="x", path="p", kind="doc-code", language=None,
+            lines=(1, 1), section=None, text="t",
+        )
+        self.assertEqual(
+            self.chunker._max_chars_for_chunk(probe),
+            self.chunker.MAX_CODE_CHUNK_CHARS,
+        )
+
+    def test_prompt_kind_markdown_emits_no_doc_code(self):
+        src = "# Prompt\n\n## Step\n\nRun this:\n\n```bash\nrun --step one\n```\n"
+        chunks = self.chunker.chunk_file(src, "docs/prompts/step.prompt.md")
+        self.assertEqual(self._doc_code(chunks), [])
+        # Fences stay inline in the prose chunk (suppress_code_extraction).
+        merged = "\n".join(c.text for c in chunks if c.kind == "prompt")
+        self.assertIn("run --step one", merged)
+
+    def test_notebook_code_cells_keep_their_current_kind(self):
+        # Dispositioned follow-up (1whup Requirement 1): .ipynb code cells
+        # keep kind="code" — still dropped from both tables because notebooks
+        # are not code-eligible. This pin makes the preserved state explicit;
+        # changing notebook routing is a separate decision.
+        import json as _json
+        nb = _json.dumps({
+            "cells": [
+                {"cell_type": "markdown", "source": ["# Notebook\n"]},
+                {"cell_type": "code", "source": ["compute_answer(42)\n"],
+                 "outputs": []},
+            ],
+            "metadata": {}, "nbformat": 4, "nbformat_minor": 5,
+        })
+        chunks = self.chunker.chunk_file(nb, "docs/analysis.ipynb")
+        cell_kinds = {c.kind for c in chunks if "compute_answer" in c.text}
+        self.assertEqual(cell_kinds, {"code"})
+
+    def test_every_emission_site_keeps_full_content_coverage(self):
+        # Coverage invariant (Requirement 6 / AC-4): every nonblank extracted
+        # code line lands in at least one docs-table-eligible chunk, one
+        # fixture per census-enumerated emission site (md fence incl.
+        # preamble and duplicate sections, rst directive, adoc listing).
+        cases = [
+            ("docs/guide.md", self.MD_DUPLICATE_SECTIONS,
+             ["preamble_setting = true", "widgetctl install --profile default",
+              "second_fence_same_section = 1", "import widget"]),
+            ("docs/guide.rst", self.RST_DUPLICATE_SECTIONS,
+             ["configure(retries=3)", "run --again"]),
+            ("docs/guide.adoc", self.ADOC_DOC, ["configure(retries=3)"]),
+        ]
+        for path, src, needles in cases:
+            chunks = self.chunker.chunk_file(src, path)
+            eligible_text = "\n".join(
+                c.text for c in chunks if c.kind in self.DOCS_TABLE_KINDS
+            )
+            for needle in needles:
+                self.assertIn(
+                    needle, eligible_text,
+                    f"{path}: previously-dropped content {needle!r} must be "
+                    f"docs-table-eligible",
+                )
+
+    def test_chunker_version_bumped_for_doc_code_shape_change(self):
+        self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 35)
+
+
+class DiagramChunkerTests(unittest.TestCase):
+    """Wave 1wik9 (1whuq): standalone hand-authored diagram files (Mermaid /
+    PlantUML / Graphviz DOT) chunk as one docs-routed doc-code unit each with
+    a breadcrumb (declared title, else file stem) plus the raw source.
+    Registration is chunker-only: the extensions must never join
+    _KNOWN_TEXT_EXTENSIONS (content-sniff bypass; binary .dot Word-template
+    namesake), and degenerate inputs degrade, never exclude."""
+
+    FIXTURES = (
+        Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+        / "diagrams"
+    )
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _one(self, source, path):
+        chunks = self.chunker.chunk_file(source, path)
+        self.assertEqual(len(chunks), 1, [c.id for c in chunks])
+        return chunks[0]
+
+    def test_mermaid_frontmatter_title_becomes_breadcrumb(self):
+        src = (self.FIXTURES / "mermaid" / "auth-flow.mmd").read_text(
+            encoding="utf-8")
+        c = self._one(src, "mermaid/auth-flow.mmd")
+        self.assertEqual(c.kind, "doc-code")
+        self.assertEqual(c.language, "mermaid")
+        self.assertEqual(c.section, "Login and Session Flow")
+        self.assertEqual(c.id, "mermaid/auth-flow.mmd#diagram")
+        self.assertTrue(c.text.startswith("Login and Session Flow\n\n"))
+        self.assertIn("validate bearer token signature", c.text)
+
+    def test_mermaid_without_title_uses_file_stem(self):
+        c = self._one("flowchart LR\n  A[Auth] --> B[Tokens]\n",
+                      "docs/untitled.mmd")
+        self.assertEqual(c.section, "untitled")
+        self.assertTrue(c.text.startswith("untitled\n\n"))
+
+    def test_plantuml_title_directive_becomes_breadcrumb(self):
+        src = (self.FIXTURES / "plantuml" / "deployment.puml").read_text(
+            encoding="utf-8")
+        c = self._one(src, "plantuml/deployment.puml")
+        self.assertEqual(c.kind, "doc-code")
+        self.assertEqual(c.language, "plantuml")
+        self.assertEqual(c.section, "Production Deployment Topology")
+        self.assertIn("forwards isolated-segment jobs", c.text)
+
+    def test_dot_graph_name_becomes_breadcrumb(self):
+        src = (self.FIXTURES / "dot" / "service-deps.dot").read_text(
+            encoding="utf-8")
+        c = self._one(src, "dot/service-deps.dot")
+        self.assertEqual(c.kind, "doc-code")
+        self.assertEqual(c.language, "dot")
+        self.assertEqual(c.section, "ServiceDependencies")
+        self.assertIn("reads feature flags", c.text)
+
+    def test_gv_extension_variant_and_quoted_graph_name(self):
+        c = self._one('digraph "Build Graph" {\n  a -> b;\n}\n', "x/build.gv")
+        self.assertEqual(c.language, "dot")
+        self.assertEqual(c.section, "Build Graph")
+
+    def test_empty_diagram_file_produces_no_chunks(self):
+        self.assertEqual(self.chunker.chunk_file("", "x.mmd"), [])
+        self.assertEqual(self.chunker.chunk_file("   \n", "x.puml"), [])
+
+    def test_oversized_diagram_splits_through_universal_guard(self):
+        big = "digraph G {\n" + "\n".join(
+            f'  n{i} -> n{i + 1} [label="step {i} moves data"];'
+            for i in range(200)) + "\n}\n"
+        chunks = self.chunker.chunk_file(big, "big.dot")
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertEqual(c.kind, "doc-code")
+            self.assertLessEqual(
+                len(c.text), self.chunker.MAX_CODE_CHUNK_CHARS)
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+
+    def test_extensions_registered_chunker_only(self):
+        # Requirement 2 (chunker side): the diagram set is exactly the six
+        # curated extensions and collides with no other chunker dispatch set.
+        # The indexer-side half (never in _KNOWN_TEXT_EXTENSIONS — sniff
+        # bypass; binary .dot namesake) is pinned in test_indexer's
+        # DiagramCorpusMembershipTests.
+        for ext in sorted(self.chunker.DIAGRAM_EXTENSIONS):
+            self.assertNotIn(ext, self.chunker.MARKDOWN_EXTENSIONS)
+            self.assertNotIn(ext, self.chunker.TEXT_EXTENSIONS)
+            self.assertNotIn(ext, self.chunker.RST_EXTENSIONS)
+            self.assertNotIn(ext, self.chunker.ADOC_EXTENSIONS)
+        self.assertEqual(
+            self.chunker.DIAGRAM_EXTENSIONS,
+            {".mmd", ".mermaid", ".puml", ".plantuml", ".dot", ".gv"})
+
+    def test_excluded_formats_do_not_dispatch_to_diagram_chunker(self):
+        # .drawio / .excalidraw / .d2 / .dsl are explicitly out (tool-generated
+        # XML, already generated-excluded, share, extension ambiguity).
+        for path in ("a.drawio", "b.excalidraw", "c.d2", "d.dsl"):
+            chunks = self.chunker.chunk_file("graph LR\n  A --> B\n", path)
+            self.assertFalse(
+                any(c.kind == "doc-code" and c.id.endswith("#diagram")
+                    for c in chunks),
+                f"{path} must not take the diagram path")
+
+    def test_chunker_version_bumped_for_diagram_shape_change(self):
+        self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 36)
+
+
+class SpecFamilyTests(unittest.TestCase):
+    """Wave 1wik9 (1wfso): the curated spec pattern extends to AsyncAPI,
+    GraphQL SDL, and Protobuf, each with breadcrumbed prose-bearing
+    kind="code" units, residue coverage, deterministic identities, and a
+    byte-identical fallback for undetected/degenerate/gated-off input.
+    Both new parsers are internal (no grammar dependency), so behavior is
+    identical whether or not any tree-sitter grammar is installed."""
+
+    FIXTURES = (
+        Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+        / "specs"
+    )
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _fixture(self, rel):
+        return (self.FIXTURES / rel).read_text(encoding="utf-8")
+
+    # --- AsyncAPI ---
+
+    def test_asyncapi_yaml_channel_plus_operation_units(self):
+        chunks = self.chunker.chunk_file(
+            self._fixture("asyncapi/order-events.yaml"),
+            "asyncapi/order-events.yaml")
+        by_id = {c.id: c for c in chunks}
+        ch = by_id["asyncapi/order-events.yaml#channels.order/placed"]
+        self.assertEqual(ch.kind, "code")
+        self.assertTrue(ch.text.startswith("channels.order/placed:"))
+        # channel-plus-operation: the subscribe operation rides the channel unit
+        self.assertIn("Consume newly placed orders for fulfilment planning.", ch.text)
+        msg = by_id["asyncapi/order-events.yaml#components.messages.OrderPlaced"]
+        self.assertIn("A customer completed checkout and payment was authorized.", msg.text)
+        # ARCH-DEL-1 residue: the version line and defaultContentType keep coverage
+        residue = by_id["asyncapi/order-events.yaml#spec"]
+        self.assertIn("defaultContentType", residue.text)
+
+    def test_asyncapi_v3_json_operation_units(self):
+        chunks = self.chunker.chunk_file(
+            self._fixture("asyncapi/telemetry-stream.json"),
+            "asyncapi/telemetry-stream.json")
+        sections = {c.section for c in chunks}
+        self.assertIn("operations.publishReadings", sections)
+        op = next(c for c in chunks if c.section == "operations.publishReadings")
+        self.assertIn("Devices publish batched sensor readings", op.text)
+
+    def test_asyncapi_json_detection_precedes_json_schema_shape(self):
+        # Council note: a document with BOTH an asyncapi root key and a
+        # schema-shaped root must deterministically take the AsyncAPI path.
+        src = (
+            '{"asyncapi": "2.6.0",'
+            ' "type": "object",'
+            ' "properties": {"x": {"type": "string"}},'
+            ' "channels": {"a/b": {"description": "chan prose"}}}'
+        )
+        chunks = self.chunker.chunk_file(src, "both.json")
+        sections = {c.section for c in chunks}
+        self.assertIn("channels.a/b", sections)
+        self.assertNotIn("properties.x", sections,
+                         "JSON-Schema chunking must not fire on an AsyncAPI root")
+
+    def test_yaml_without_asyncapi_root_stays_flat(self):
+        src = "services:\n  web:\n    image: nginx\n"
+        chunks = self.chunker.chunk_file(src, "compose2.yaml")
+        self.assertFalse(any(
+            (c.section or "").startswith(("channels.", "operations."))
+            for c in chunks))
+
+    # --- GraphQL SDL ---
+
+    def test_graphql_type_and_described_member_units(self):
+        chunks = self.chunker.chunk_file(
+            self._fixture("graphql/storefront.graphql"),
+            "graphql/storefront.graphql")
+        by_id = {c.id: c for c in chunks}
+        q = by_id["graphql/storefront.graphql#Query"]
+        self.assertEqual(q.language, "graphql")
+        self.assertIn("Read operations for catalog browsing", q.text)
+        self.assertIn("productBySlug", q.text)  # full body = coverage
+        member = by_id["graphql/storefront.graphql#Query.productBySlug"]
+        self.assertTrue(member.text.startswith("Query.productBySlug:"))
+        self.assertIn("URL-safe slug", member.text)
+
+    def test_graphql_enum_value_descriptions_get_units(self):
+        chunks = self.chunker.chunk_file(
+            self._fixture("graphql/admin.gql"), "graphql/admin.gql")
+        by_id = {c.id: c for c in chunks}
+        val = by_id["graphql/admin.gql#LockReason.FRAUD_SUSPECTED"]
+        self.assertIn("fraud scoring pipeline", val.text)
+
+    def test_graphql_descriptionless_sdl_still_chunks_and_empty_is_empty(self):
+        chunks = self.chunker.chunk_file("type X { a: Int }\n", "d.graphql")
+        self.assertEqual([c.id for c in chunks], ["d.graphql#X"])
+        self.assertEqual(self.chunker.chunk_file("", "e.graphql"), [])
+
+    def test_graphql_gate_off_is_byte_identical_line_window(self):
+        import unittest.mock as _mock
+        src = "type Query {\n  a: String\n}\n"
+        with _mock.patch.dict("os.environ", {"WAVEFOUNDRY_SPEC_CHUNKING": "0"}):
+            off = self.chunker.chunk_file(src, "s.graphql")
+        self.assertEqual([c.id for c in off], ["s.graphql:L1-L3"])
+        self.assertIsNone(off[0].language)
+
+    # --- Protobuf ---
+
+    def test_proto_service_rpc_and_field_units_with_package_breadcrumbs(self):
+        chunks = self.chunker.chunk_file(
+            self._fixture("proto/user_service.proto"),
+            "proto/user_service.proto")
+        by_id = {c.id: c for c in chunks}
+        svc = by_id["proto/user_service.proto#accounts.v1.UserService"]
+        self.assertEqual(svc.language, "proto")
+        self.assertIn("Account directory service", svc.text)
+        rpc = by_id["proto/user_service.proto#accounts.v1.UserService.GetUser"]
+        self.assertIn("returns NOT_FOUND for purged accounts", rpc.text)
+        field = by_id["proto/user_service.proto#accounts.v1.User.account_id"]
+        self.assertIn("never reused after purge", field.text)
+
+    def test_proto_detached_comments_and_options_create_no_units(self):
+        src = (
+            'syntax = "proto3";\n\n'
+            "package p;\n\n"
+            "// Detached comment: blank line below detaches it.\n\n"
+            "option java_package = \"com.example\";\n\n"
+            "// Attached to the message.\n"
+            "message M {\n"
+            "  string a = 1;\n"
+            "}\n"
+        )
+        chunks = self.chunker.chunk_file(src, "d.proto")
+        ids = {c.id for c in chunks}
+        self.assertIn("d.proto#p.M", ids)
+        # no unit for the option or the detached comment; both keep coverage
+        # through the residue chunk (options) / nothing (comments carry no
+        # standalone unit by requirement).
+        self.assertFalse(any("option" in (c.section or "") for c in chunks))
+        residue = next(c for c in chunks if c.section == "proto")
+        self.assertIn("option java_package", residue.text)
+
+    def test_proto_comment_only_file_keeps_line_window_fallback(self):
+        chunks = self.chunker.chunk_file(
+            "// just a note\n// no declarations\n", "c.proto")
+        self.assertEqual([c.id for c in chunks], ["c.proto:L1-L2"])
+        self.assertIsNone(chunks[0].language)
+
+    # --- family-wide contracts ---
+
+    def test_other_extension_lookalikes_never_take_the_new_paths(self):
+        for rel in ("negatives/sdl-lookalike.txt", "negatives/proto-lookalike.txt"):
+            chunks = self.chunker.chunk_file(self._fixture(rel), rel)
+            self.assertEqual({c.kind for c in chunks} - {"doc-summary"}, {"doc"},
+                             f"{rel} must stay on the plain-text path")
+
+    def test_family_parsers_consult_no_tree_sitter_grammar(self):
+        # AC-4: identical behavior with or without optional grammars — the
+        # internal parsers never touch the grammar loader.
+        import unittest.mock as _mock
+        srcs = [
+            (self._fixture("graphql/storefront.graphql"), "g.graphql"),
+            (self._fixture("proto/user_service.proto"), "p.proto"),
+            (self._fixture("asyncapi/order-events.yaml"), "a.yaml"),
+        ]
+        expected = [self.chunker.chunk_file(s, p) for s, p in srcs]
+        with _mock.patch.object(
+                self.chunker, "_ts_language",
+                side_effect=AssertionError("grammar loader consulted")):
+            for (s, p), exp in zip(srcs, expected):
+                got = self.chunker.chunk_file(s, p)
+                self.assertEqual([c.to_dict() for c in got],
+                                 [c.to_dict() for c in exp])
+
+    def test_chunker_version_bumped_for_spec_family_change(self):
+        self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 37)
+
+    # --- delivery-review repairs (wave 1wik9 findings) ---
+
+    def test_graphql_extend_declarations_get_unique_ordinal_ids(self):
+        # CODE-DEL-1: extend is the one legal duplicate-name construct in
+        # SDL; repeat crumbs must not collapse in the id-keyed delta planner.
+        src = (
+            "type User {\n  id: ID!\n}\n\n"
+            "extend type User {\n  email: String\n}\n\n"
+            "extend type User {\n  phone: String\n}\n\n"
+            "schema {\n  query: Query\n}\n\n"
+            "extend schema {\n  mutation: Mutation\n}\n"
+        )
+        chunks = self.chunker.chunk_file(src, "s.graphql")
+        ids = [c.id for c in chunks]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        self.assertIn("s.graphql#User", ids)
+        self.assertIn("s.graphql#User-2", ids)
+        self.assertIn("s.graphql#User-3", ids)
+        self.assertIn("s.graphql#schema-2", ids)
+
+    def test_graphql_brace_inside_description_does_not_swallow_declarations(self):
+        # CODE-DEL-1: block-extent brace counting must skip block-string lines.
+        src = (
+            'type User {\n  """\n  Curly example: {\n  """\n  name: String\n}\n\n'
+            "type Post {\n  title: String\n}\n"
+        )
+        chunks = self.chunker.chunk_file(src, "d.graphql")
+        by_id = {c.id: c for c in chunks}
+        self.assertIn("d.graphql#Post", by_id)
+        user = by_id["d.graphql#User"]
+        self.assertEqual(user.lines[1], 6)
+        self.assertNotIn("title: String", user.text)
+
+    def test_proto_braces_in_strings_and_comments_do_not_shift_extents(self):
+        # CODE-DEL-1: a brace inside a string default or a trailing comment
+        # must not falsely nest the following top-level containers.
+        src1 = (
+            'syntax = "proto2";\npackage cfg;\n\n'
+            'message Config {\n  optional string tpl = 1 [default = "prefix { suffix"];\n}\n\n'
+            "message Second {\n  optional int32 x = 1;\n}\n"
+        )
+        ids1 = [c.id for c in self.chunker.chunk_file(src1, "c.proto")]
+        self.assertIn("c.proto#cfg.Second", ids1)
+        self.assertNotIn("c.proto#cfg.Config.Second", ids1)
+        src2 = (
+            'syntax = "proto3";\npackage p;\n\n'
+            "message Foo { // note: uses { style\n  string a = 1;\n}\n\n"
+            "message Bar {\n  string b = 1;\n}\n"
+        )
+        ids2 = [c.id for c in self.chunker.chunk_file(src2, "f.proto")]
+        self.assertIn("f.proto#p.Bar", ids2)
+
+    def test_proto_same_line_block_comment_is_not_a_leading_comment(self):
+        # CODE-DEL-1: code followed by /* ... */ on one line must not become
+        # the next member's documentation (nor grant it a unit).
+        src = (
+            'syntax = "proto3";\npackage m;\n\n'
+            "message M {\n  int32 id = 1; /* the id */\n  string name = 2;\n}\n"
+        )
+        chunks = self.chunker.chunk_file(src, "m.proto")
+        self.assertFalse(any(c.id.endswith(".name") for c in chunks))
+
+    def test_family_residue_ids_use_reserved_namespace(self):
+        # CODE-DEL-1: a bare symbol named like the residue label must not
+        # collide — identifiers are \w+ and can never contain ":".
+        p = 'syntax = "proto3";\n\n// doc\nmessage proto {\n  string x = 1;\n}\n\noption java_package = "x";\n'
+        ids_p = [c.id for c in self.chunker.chunk_file(p, "t.proto")]
+        self.assertEqual(len(ids_p), len(set(ids_p)), ids_p)
+        self.assertIn("t.proto#proto:residue", ids_p)
+        g = '"""\nd\n"""\ntype sdl {\n  x: Int\n}\n\ndirective @foo on FIELD\n'
+        ids_g = [c.id for c in self.chunker.chunk_file(g, "t.graphql")]
+        self.assertEqual(len(ids_g), len(set(ids_g)), ids_g)
+        self.assertIn("t.graphql#sdl:residue", ids_g)
+
+    def test_dual_root_key_yaml_keeps_openapi_units(self):
+        # CODE-DEL-2: detection order is load-bearing — an AsyncAPI miss must
+        # fall through to the OpenAPI detection.
+        src = (
+            "openapi: 3.0.0\nasyncapi: not-really\ninfo:\n  title: T\n"
+            "paths:\n  /a:\n    get:\n      summary: op\n"
+        )
+        chunks = self.chunker.chunk_file(src, "dual.yaml")
+        self.assertTrue(any((c.section or "").startswith("paths.") for c in chunks))
+
+    def test_proto_detached_comments_keep_residue_coverage(self):
+        # RT-DEL-1: detached comments (license headers) create no units but
+        # their text must keep coverage through the proto: residue chunk.
+        src = (
+            "// Copyright 2026 Example Corp.\n// Licensed under Apache 2.0.\n\n"
+            'syntax = "proto3";\npackage a.b;\n\n'
+            "// Attached doc.\nmessage Thing {\n  string x = 1;\n}\n"
+        )
+        chunks = self.chunker.chunk_file(src, "lic.proto")
+        merged = "\n".join(c.text for c in chunks)
+        self.assertIn("Copyright 2026 Example Corp.", merged)
+        self.assertIn("Licensed under Apache 2.0.", merged)
+        self.assertFalse(any("Copyright" in (c.section or "") for c in chunks))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package accounts.v1;
+
+option java_multiple_files = true;
+
+// Account directory service consumed by the gateway and internal tools.
+// Lookup calls are safe to retry; mutation calls require an idempotency key.
+service UserService {
+  // Fetch one user by stable account id; returns NOT_FOUND for purged accounts.
+  rpc GetUser(GetUserRequest) returns (User);
+
+  // Create an account after signup validation has passed upstream.
+  rpc CreateUser(CreateUserRequest) returns (User);
+
+  // Soft-delete an account and schedule purge after the retention window.
+  rpc DeactivateUser(DeactivateUserRequest) returns (DeactivateUserResponse);
+}
+
+// A user account as stored in the directory.
+message User {
+  // Stable account identifier, never reused after purge.
+  string account_id = 1;
+
+  // Primary email, unique across active accounts.
+  string email = 2;
+
+  // Display name shown in collaboration surfaces.
+  string display_name = 3;
+
+  AccountState state = 4;
+}
+
+// Lifecycle state of an account in the directory.
+enum AccountState {
+  ACCOUNT_STATE_UNSPECIFIED = 0;
+
+  // Active and allowed to authenticate.
+  ACTIVE = 1;
+
+  // Soft-deleted; hidden from lookups but retained until purge.
+  DEACTIVATED = 2;
+}
+
+message GetUserRequest {
+  string account_id = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string display_name = 2;
+}
+
+message DeactivateUserRequest {
+  string account_id = 1;
+
+  // Free-text operator note recorded in the audit trail.
+  string reason = 2;
+}
+
+message DeactivateUserResponse {
+  // When the retention window ends and the purge job may run.
+  string purge_after = 1;
+}

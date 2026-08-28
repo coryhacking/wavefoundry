@@ -242,7 +242,7 @@ MCP_TOOL_PREFIXES = ("wf_", "memory_", "index_", "docs_", "code_", "seed_")
 # value, and a silent default would reinstate the very misattribution the
 # parameter exists to remove.
 REOPEN_PURPOSE_STAGES = {"review": "review", "implement": "implement"}
-DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary"})
+DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-summary", "doc-code"})
 VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
 VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
 
@@ -974,6 +974,12 @@ class WaveIndex:
             return chunk_kind == "prompt"
         if kind == "doc-summary":
             return chunk_kind == "doc-summary"
+        if kind == "doc-code":
+            return chunk_kind == "doc-code"
+        # Fall-through short-circuit: any chunk kind without its own branch
+        # above can never match the remaining filters. doc-code deliberately
+        # stays behind it so the `architecture` virtual kind matches prose
+        # `doc` rows only (mirrors the doc-summary exclusion; 1whup).
         if chunk_kind != "doc":
             return False
         if kind == "doc":
@@ -2253,8 +2259,10 @@ class WaveIndex:
             _b = _definition_match_boost(_q_terms, _c)
             if _b != 1.0:
                 _c["_boost"] = _b
-        _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed")]
-        _code_src = [c for c in all_candidates if str(c.get("kind", "")) not in ("doc", "doc-summary", "seed")]
+        # doc-code partitions as DOCS (1whup): both literals must carry the same
+        # tuple — editing one side alone puts the kind in both partitions.
+        _docs_src = [c for c in all_candidates if str(c.get("kind", "")) in ("doc", "doc-summary", "seed", "doc-code")]
+        _code_src = [c for c in all_candidates if str(c.get("kind", "")) not in ("doc", "doc-summary", "seed", "doc-code")]
         # Wave 1p4wz: rerank-FIRST means the per-index floor must pick each source's top-K on the
         # UNIFIED post-rerank scale — but these lists still carry the pre-rerank cosine order from the
         # vector fetch (1527/1531). Explanatory already re-sorted via _demote_doc_results; navigational/
@@ -25804,7 +25812,10 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     if graph_related and any(graph_related.get(k) for k in _GRAPH_RELATED_SIGNAL_KEYS):
         data["graph_related"] = graph_related
 
-    if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary"):
+    # doc-code joins the prose-docs kinds here (1whup): a fenced example in a
+    # guide goes stale exactly like the prose around it, so an explanatory
+    # answer led by one carries the same code-validation duty.
+    if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary", "doc-code"):
         data["validation_required"] = True
 
     next_tools = ["code_read", "docs_search"]
@@ -28438,7 +28449,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def docs_search(
         query: str,
-        kind: Literal["", "doc", "seed", "architecture", "prompt", "doc-summary"] = "",
+        kind: Literal["", "doc", "seed", "architecture", "prompt", "doc-summary", "doc-code"] = "",
         tags: list = [],
         limit: int = 7,
         **kwargs: Any,
@@ -28465,7 +28476,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             query: Natural language search query.
-            kind: Optional filter — one of: doc, seed, architecture, prompt, doc-summary.
+            kind: Optional filter — one of: doc, seed, architecture, prompt, doc-summary,
+                doc-code (fenced code / directive bodies extracted from documentation files;
+                not matched by the architecture virtual kind).
             tags: Optional list of classification tags to pre-filter results. See tag vocabulary above.
             limit: Maximum results to return (1–20, default 7).
         """

@@ -1,0 +1,351 @@
+{
+  "set": "specs",
+  "label": "before-1wfr8-flat-emission-chunker-v33",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "33",
+  "rank_depth": 20,
+  "metrics": {
+    "recall_at_5": 0.8333333333333334,
+    "mrr": 0.8194444444444445,
+    "query_count": 24,
+    "chunk_count": 100,
+    "per_query": [
+      {
+        "id": "q01",
+        "query": "How do I fetch the next page of results when browsing the pet catalog?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L22-L61",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-1"
+        ]
+      },
+      {
+        "id": "q02",
+        "query": "What happens if I wait too long between page requests while listing pets?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L22-L61",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L58-L95"
+        ]
+      },
+      {
+        "id": "q03",
+        "query": "How are calls to the pet store service authenticated?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-1",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-6",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-2"
+        ]
+      },
+      {
+        "id": "q04",
+        "query": "Why can't I remove a pet that someone has an outstanding purchase for?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L22-L61",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37"
+        ]
+      },
+      {
+        "id": "q05",
+        "query": "How can a client tell a pet id that never existed apart from one that was taken off the catalog?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L40-L52",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L22-L61",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5"
+        ]
+      },
+      {
+        "id": "q06",
+        "query": "How long does a buyer have to pay before their pet order is voided?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L22-L61",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-1",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-5",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-4:L62-L89"
+        ]
+      },
+      {
+        "id": "q07",
+        "query": "If my capture request times out and I resend it with the same key, will the customer be charged twice?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L46-L79",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L80-L112",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L16-L45",
+          "openapi/payments-api.json#openapi/payments-api.json#node-1"
+        ]
+      },
+      {
+        "id": "q08",
+        "query": "Why would creating a charge come back with a payment-required failure?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L16-L45",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L113-L133",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L80-L112",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L46-L79",
+          "openapi/payments-api.json#openapi/payments-api.json#node-1"
+        ]
+      },
+      {
+        "id": "q09",
+        "query": "How does my server find out that a cardholder has started a chargeback?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L113-L133",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L16-L45",
+          "openapi/payments-api.json#openapi/payments-api.json#node-1",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L80-L112",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-0"
+        ]
+      },
+      {
+        "id": "q10",
+        "query": "Can I give back only part of what the customer originally paid?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L80-L112",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L40-L52",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L16-L45"
+        ]
+      },
+      {
+        "id": "q11",
+        "query": "What is the safe way to retry creating a charge after a network failure?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L16-L45",
+          "openapi/payments-api.json#openapi/payments-api.json#node-3:L80-L112",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-7",
+          "openapi/payments-api.json#openapi/payments-api.json#node-1",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-1"
+        ]
+      },
+      {
+        "id": "q12",
+        "query": "How many calls per minute can I make to the legacy reporting service before it throttles me?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-1",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L96-L108",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L20-L57",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L58-L95",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-2"
+        ]
+      },
+      {
+        "id": "q13",
+        "query": "Which row-count field in report responses should new integrations stop using?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L20-L57",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-8",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-1",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L58-L95",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-2"
+        ]
+      },
+      {
+        "id": "q14",
+        "query": "How do I know when my CSV export has finished and where to get the file?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L58-L95",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#node-7:L96-L108",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-2",
+          "negatives/renovate.json#negatives/renovate.json#node-8",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-0"
+        ]
+      },
+      {
+        "id": "q15",
+        "query": "Is it possible for two accounts to sign up with the same email address?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-1",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-2",
+          "negatives/renovate.json#negatives/renovate.json#node-2",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-4"
+        ]
+      },
+      {
+        "id": "q16",
+        "query": "When a customer account is deleted, is the record actually erased from storage?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 2,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-3",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L40-L52",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37",
+          "negatives/renovate.json#negatives/renovate.json#node-8"
+        ]
+      },
+      {
+        "id": "q17",
+        "query": "How are postal codes checked when a customer saves an address?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-7",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "negatives/renovate.json#negatives/renovate.json#node-8",
+          "openapi/payments-api.json#openapi/payments-api.json#node-1",
+          "negatives/renovate.json#negatives/renovate.json#node-9"
+        ]
+      },
+      {
+        "id": "q18",
+        "query": "Which address fields do I have to provide no matter which country the customer lives in?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-7",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-5",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-1",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-0"
+        ]
+      },
+      {
+        "id": "q19",
+        "query": "What retry behavior do failed pipeline jobs get if the config file doesn't set one?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-7:L25-L58",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-2",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-3",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-5",
+          "negatives/ci-workflow.yaml#negatives/ci-workflow.yaml#node-0"
+        ]
+      },
+      {
+        "id": "q20",
+        "query": "Can my settings file pull secrets from the process environment instead of hardcoding them?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 6,
+        "hit_at_5": false,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-7:L59-L95",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-2",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-6",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-0",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-7:L25-L58"
+        ]
+      },
+      {
+        "id": "q21",
+        "query": "Which verbosity settings does the logging section of the config accept?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-7:L59-L95",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#node-7:L25-L58",
+          "negatives/renovate.json#negatives/renovate.json#node-9",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-2",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-4"
+        ]
+      },
+      {
+        "id": "q22",
+        "query": "Do units being held for open orders count toward what the storefront can sell?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-1",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-3",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L38-L50",
+          "schemas/customer.schema.json#schemas/customer.schema.json#node-6:L10-L39"
+        ]
+      },
+      {
+        "id": "q23",
+        "query": "What characters and length are allowed in a product's stock identifier?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-3",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L38-L50",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-0",
+          "negatives/renovate.json#negatives/renovate.json#node-8"
+        ]
+      },
+      {
+        "id": "q24",
+        "query": "When does the system decide an item needs restocking?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L8-L37",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-4:L38-L50",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-0",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#node-3",
+          "openapi/petstore.yaml#openapi/petstore.yaml#node-1"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+digraph ServiceDependencies {
+    rankdir=LR;
+
+    config   [label="Config Service"];
+    auth     [label="Auth Service"];
+    billing  [label="Billing Service"];
+    invoices [label="Invoice Renderer"];
+    ledger   [label="Ledger Store"];
+    notify   [label="Notification Hub"];
+
+    auth    -> config  [label="reads feature flags"];
+    billing -> config  [label="reads rate tables"];
+    billing -> ledger  [label="writes charge entries"];
+    billing -> invoices [label="requests PDF rendering"];
+    invoices -> notify [label="emails rendered invoice"];
+}

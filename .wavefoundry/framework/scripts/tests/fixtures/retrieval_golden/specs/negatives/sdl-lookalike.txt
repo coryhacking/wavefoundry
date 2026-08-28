@@ -1,0 +1,14 @@
+Design note pasted from a schema review, kept as plain text on purpose.
+
+type Query {
+  """
+  This SDL-shaped content lives in a .txt file and must never take the
+  GraphQL chunking path: detection is extension-gated, not content-sniffed.
+  """
+  pastedExample(id: ID!): String
+}
+
+enum PastedEnum {
+  ONE
+  TWO
+}

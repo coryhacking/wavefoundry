@@ -1,0 +1,159 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ledgerline Payments API",
+    "version": "2.9.0",
+    "description": "Card payments, captures, refunds, and dispute handling for Ledgerline merchants. All mutating endpoints accept an Idempotency-Key header; keys are remembered for 24 hours and scoped to the calling account."
+  },
+  "servers": [
+    {
+      "url": "https://api.ledgerline.example.com/v2",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/payment_intents": {
+      "post": {
+        "operationId": "createPaymentIntent",
+        "summary": "Create a payment intent",
+        "description": "Creates a payment intent that authorizes the card for the given amount. Supply an Idempotency-Key header so retried creates are deduplicated: a network timeout followed by a retry with the same key returns the intent created by the first attempt instead of authorizing the card twice. Amounts are integer minor units and must be at least 50.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentIntent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The authorized payment intent."
+          },
+          "402": {
+            "description": "Authorization failed. A 402 response means the card issuer declined the charge; the decline_code field carries the issuer reason and the intent is left in requires_payment_method state so a different card can be attached."
+          }
+        }
+      }
+    },
+    "/payment_intents/{intentId}": {
+      "get": {
+        "operationId": "getPaymentIntent",
+        "summary": "Retrieve a payment intent",
+        "description": "Fetches the current state of a payment intent, including the amount still capturable and the timeline of authorization, capture, and refund events.",
+        "parameters": [
+          {
+            "name": "intentId",
+            "in": "path",
+            "required": true,
+            "description": "Identifier returned when the intent was created.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The payment intent."
+          },
+          "404": {
+            "description": "No intent with this identifier exists for the calling account."
+          }
+        }
+      }
+    },
+    "/payment_intents/{intentId}/capture": {
+      "post": {
+        "operationId": "capturePaymentIntent",
+        "summary": "Capture an authorized payment",
+        "description": "Captures the funds held by an authorization. Capture is idempotent per key: replaying a capture with an Idempotency-Key already seen in the last 24 hours returns the original result without charging the card again, so client timeouts are safe to retry. Authorizations not captured within 7 days expire and release the hold automatically.",
+        "parameters": [
+          {
+            "name": "intentId",
+            "in": "path",
+            "required": true,
+            "description": "The intent whose authorization should be captured.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The captured payment intent."
+          },
+          "409": {
+            "description": "The authorization has expired or was already fully captured with a different idempotency key."
+          }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "summary": "Refund a captured payment",
+        "description": "Returns captured funds to the cardholder. Partial refunds are allowed up to the remaining un-refunded amount of the capture; passing no amount refunds everything that is left. Refunds settle to the original payment method in 5 to 10 business days.",
+        "responses": {
+          "201": {
+            "description": "The refund, in pending or succeeded state."
+          },
+          "422": {
+            "description": "The requested amount exceeds what remains refundable."
+          }
+        }
+      }
+    },
+    "/disputes": {
+      "get": {
+        "operationId": "listDisputes",
+        "summary": "List disputes",
+        "description": "Lists chargebacks and inquiries opened against the account, newest first. When a cardholder opens a dispute, a dispute.created event is delivered to every registered webhook endpoint within one minute, and the disputed amount plus the dispute fee is debited from the merchant balance immediately. Evidence must be submitted before the respond_by deadline shown on each dispute.",
+        "responses": {
+          "200": {
+            "description": "One page of disputes."
+          }
+        }
+      }
+    },
+    "/webhook_endpoints": {
+      "post": {
+        "operationId": "createWebhookEndpoint",
+        "summary": "Register a webhook endpoint",
+        "description": "Registers an HTTPS URL to receive event notifications. Deliveries are signed with the endpoint secret in the Ledgerline-Signature header; verify the signature before trusting the payload. Failed deliveries are retried with exponential backoff for up to 3 days.",
+        "responses": {
+          "201": {
+            "description": "The registered endpoint together with its signing secret, which is shown only once."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreatePaymentIntent": {
+        "type": "object",
+        "required": ["amount", "currency", "payment_method"],
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "Amount to authorize, in the smallest currency unit."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Three-letter ISO 4217 currency code, lowercase."
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Identifier of a previously tokenized card."
+          },
+          "capture_method": {
+            "type": "string",
+            "description": "Use manual to hold funds for a later capture call; automatic captures immediately after authorization.",
+            "enum": ["automatic", "manual"]
+          }
+        }
+      }
+    }
+  }
+}

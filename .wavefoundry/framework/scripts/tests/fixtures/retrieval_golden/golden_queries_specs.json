@@ -1,0 +1,290 @@
+[
+  {
+    "id": "q01",
+    "query": "How do I fetch the next page of results when browsing the pet catalog?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "pass the nextCursor value from the previous"
+  },
+  {
+    "id": "q02",
+    "query": "What happens if I wait too long between page requests while listing pets?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "Cursors expire after fifteen minutes"
+  },
+  {
+    "id": "q03",
+    "query": "How are calls to the pet store service authenticated?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "Authentication uses the X-Api-Key header"
+  },
+  {
+    "id": "q04",
+    "query": "Why can't I remove a pet that someone has an outstanding purchase for?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "the server responds with 409 Conflict"
+  },
+  {
+    "id": "q05",
+    "query": "How can a client tell a pet id that never existed apart from one that was taken off the catalog?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "return 410 Gone rather than 404"
+  },
+  {
+    "id": "q06",
+    "query": "How long does a buyer have to pay before their pet order is voided?",
+    "expected_file": "openapi/petstore.yaml",
+    "expected_anchor": "automatically cancelled after 48 hours"
+  },
+  {
+    "id": "q07",
+    "query": "If my capture request times out and I resend it with the same key, will the customer be charged twice?",
+    "expected_file": "openapi/payments-api.json",
+    "expected_anchor": "returns the original result without charging"
+  },
+  {
+    "id": "q08",
+    "query": "Why would creating a charge come back with a payment-required failure?",
+    "expected_file": "openapi/payments-api.json",
+    "expected_anchor": "the card issuer declined the charge"
+  },
+  {
+    "id": "q09",
+    "query": "How does my server find out that a cardholder has started a chargeback?",
+    "expected_file": "openapi/payments-api.json",
+    "expected_anchor": "delivered to every registered webhook endpoint"
+  },
+  {
+    "id": "q10",
+    "query": "Can I give back only part of what the customer originally paid?",
+    "expected_file": "openapi/payments-api.json",
+    "expected_anchor": "up to the remaining un-refunded amount"
+  },
+  {
+    "id": "q11",
+    "query": "What is the safe way to retry creating a charge after a network failure?",
+    "expected_file": "openapi/payments-api.json",
+    "expected_anchor": "retried creates are deduplicated"
+  },
+  {
+    "id": "q12",
+    "query": "How many calls per minute can I make to the legacy reporting service before it throttles me?",
+    "expected_file": "openapi/legacy-swagger.yaml",
+    "expected_anchor": "limited to 120 requests per minute per token"
+  },
+  {
+    "id": "q13",
+    "query": "Which row-count field in report responses should new integrations stop using?",
+    "expected_file": "openapi/legacy-swagger.yaml",
+    "expected_anchor": "the legacy totalRows field is deprecated"
+  },
+  {
+    "id": "q14",
+    "query": "How do I know when my CSV export has finished and where to get the file?",
+    "expected_file": "openapi/legacy-swagger.yaml",
+    "expected_anchor": "becomes complete, then follow the downloadUrl"
+  },
+  {
+    "id": "q15",
+    "query": "Is it possible for two accounts to sign up with the same email address?",
+    "expected_file": "schemas/customer.schema.json",
+    "expected_anchor": "must be unique across all active customers"
+  },
+  {
+    "id": "q16",
+    "query": "When a customer account is deleted, is the record actually erased from storage?",
+    "expected_file": "schemas/customer.schema.json",
+    "expected_anchor": "deletedAt is set instead of removing the row"
+  },
+  {
+    "id": "q17",
+    "query": "How are postal codes checked when a customer saves an address?",
+    "expected_file": "schemas/customer.schema.json",
+    "expected_anchor": "must match the national format of the country"
+  },
+  {
+    "id": "q18",
+    "query": "Which address fields do I have to provide no matter which country the customer lives in?",
+    "expected_file": "schemas/customer.schema.json",
+    "expected_anchor": "line1 and countryCode are always required"
+  },
+  {
+    "id": "q19",
+    "query": "What retry behavior do failed pipeline jobs get if the config file doesn't set one?",
+    "expected_file": "schemas/config-format.schema.json",
+    "expected_anchor": "defaults to 3 attempts when omitted"
+  },
+  {
+    "id": "q20",
+    "query": "Can my settings file pull secrets from the process environment instead of hardcoding them?",
+    "expected_file": "schemas/config-format.schema.json",
+    "expected_anchor": "reference environment variables with the ${VAR_NAME} syntax"
+  },
+  {
+    "id": "q21",
+    "query": "Which verbosity settings does the logging section of the config accept?",
+    "expected_file": "schemas/config-format.schema.json",
+    "expected_anchor": "one of debug, info, warn, or error"
+  },
+  {
+    "id": "q22",
+    "query": "Do units being held for open orders count toward what the storefront can sell?",
+    "expected_file": "schemas/inventory.schema.json",
+    "expected_anchor": "reserved units are excluded from availableQuantity"
+  },
+  {
+    "id": "q23",
+    "query": "What characters and length are allowed in a product's stock identifier?",
+    "expected_file": "schemas/inventory.schema.json",
+    "expected_anchor": "uppercase letters, digits, and hyphens only"
+  },
+  {
+    "id": "q24",
+    "query": "When does the system decide an item needs restocking?",
+    "expected_file": "schemas/inventory.schema.json",
+    "expected_anchor": "falls at or below reorderPoint"
+  },
+  {
+    "id": "asyncapi-q01",
+    "query": "which event fires after checkout payment is authorized",
+    "expected_file": "asyncapi/order-events.yaml",
+    "expected_anchor": "Emitted once per checkout after payment authorization succeeds."
+  },
+  {
+    "id": "asyncapi-q02",
+    "query": "how do consumers release reserved warehouse stock when an order is cancelled",
+    "expected_file": "asyncapi/order-events.yaml",
+    "expected_anchor": "Consume cancellations to release reserved warehouse stock."
+  },
+  {
+    "id": "asyncapi-q03",
+    "query": "how do I request a stock reservation for the lines of an order",
+    "expected_file": "asyncapi/order-events.yaml",
+    "expected_anchor": "Request a warehouse stock reservation for the order lines."
+  },
+  {
+    "id": "asyncapi-q04",
+    "query": "what does the order placed message represent",
+    "expected_file": "asyncapi/order-events.yaml",
+    "expected_anchor": "A customer completed checkout and payment was authorized."
+  },
+  {
+    "id": "asyncapi-q05",
+    "query": "which channel carries periodic sensor readings from field devices",
+    "expected_file": "asyncapi/telemetry-stream.json",
+    "expected_anchor": "High-volume channel carrying periodic sensor readings from field devices."
+  },
+  {
+    "id": "asyncapi-q06",
+    "query": "when do devices publish their telemetry reading batches",
+    "expected_file": "asyncapi/telemetry-stream.json",
+    "expected_anchor": "Devices publish batched sensor readings every reporting interval."
+  },
+  {
+    "id": "asyncapi-q07",
+    "query": "what causes a threshold alert to be raised",
+    "expected_file": "asyncapi/telemetry-stream.json",
+    "expected_anchor": "Raised on-device when a measurement crosses its configured threshold."
+  },
+  {
+    "id": "asyncapi-q08",
+    "query": "what is the warehouse hint on a reservation used for",
+    "expected_file": "asyncapi/order-events.yaml",
+    "expected_anchor": "Preferred fulfilment warehouse for split-shipment decisions."
+  },
+  {
+    "id": "graphql-q01",
+    "query": "how do I look up a single product by its slug",
+    "expected_file": "graphql/storefront.graphql",
+    "expected_anchor": "Look up a single product by its URL-safe slug"
+  },
+  {
+    "id": "graphql-q02",
+    "query": "does product search support category filtering",
+    "expected_file": "graphql/storefront.graphql",
+    "expected_anchor": "Full-text search over product titles and descriptions with category filters."
+  },
+  {
+    "id": "graphql-q03",
+    "query": "how do I add a product variant to the shopping cart",
+    "expected_file": "graphql/storefront.graphql",
+    "expected_anchor": "Add a quantity of one product variant to the visitor's cart."
+  },
+  {
+    "id": "graphql-q04",
+    "query": "what does the cart subtotal include",
+    "expected_file": "graphql/storefront.graphql",
+    "expected_anchor": "Sum of line subtotals before shipping and tax"
+  },
+  {
+    "id": "graphql-q05",
+    "query": "how do I page through the staff audit trail",
+    "expected_file": "graphql/admin.gql",
+    "expected_anchor": "Paginated audit trail of staff actions, newest first."
+  },
+  {
+    "id": "graphql-q06",
+    "query": "how can support staff find a customer account by email",
+    "expected_file": "graphql/admin.gql",
+    "expected_anchor": "Look up a customer account by email for support investigations."
+  },
+  {
+    "id": "graphql-q07",
+    "query": "what does the locked flag on a customer account mean",
+    "expected_file": "graphql/admin.gql",
+    "expected_anchor": "Whether the account is currently locked by fraud review."
+  },
+  {
+    "id": "graphql-q08",
+    "query": "when does the fraud pipeline lock an account automatically",
+    "expected_file": "graphql/admin.gql",
+    "expected_anchor": "Locked automatically by the fraud scoring pipeline."
+  },
+  {
+    "id": "proto-q01",
+    "query": "how do I fetch one user by account id",
+    "expected_file": "proto/user_service.proto",
+    "expected_anchor": "Fetch one user by stable account id; returns NOT_FOUND for purged accounts."
+  },
+  {
+    "id": "proto-q02",
+    "query": "what happens when a user account is deactivated",
+    "expected_file": "proto/user_service.proto",
+    "expected_anchor": "Soft-delete an account and schedule purge after the retention window."
+  },
+  {
+    "id": "proto-q03",
+    "query": "are account identifiers ever reused after purge",
+    "expected_file": "proto/user_service.proto",
+    "expected_anchor": "Stable account identifier, never reused after purge."
+  },
+  {
+    "id": "proto-q04",
+    "query": "which account state is allowed to authenticate",
+    "expected_file": "proto/user_service.proto",
+    "expected_anchor": "Active and allowed to authenticate."
+  },
+  {
+    "id": "proto-q05",
+    "query": "when is the purge job allowed to run after deactivation",
+    "expected_file": "proto/user_service.proto",
+    "expected_anchor": "When the retention window ends and the purge job may run."
+  },
+  {
+    "id": "proto-q06",
+    "query": "what does the on hand quantity in the stock ledger mean",
+    "expected_file": "proto/inventory.proto",
+    "expected_anchor": "Units physically on the shelf at the last count."
+  },
+  {
+    "id": "proto-q07",
+    "query": "what does reserved stock mean in the warehouse ledger",
+    "expected_file": "proto/inventory.proto",
+    "expected_anchor": "Units promised to open orders but not yet picked."
+  },
+  {
+    "id": "proto-q08",
+    "query": "how are picks and receipts signed in a stock adjustment",
+    "expected_file": "proto/inventory.proto",
+    "expected_anchor": "Signed quantity: negative for picks, positive for receipts."
+  }
+]

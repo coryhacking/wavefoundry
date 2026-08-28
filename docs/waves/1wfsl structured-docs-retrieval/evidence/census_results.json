@@ -1,0 +1,139 @@
+{
+  "census": "1wfsn-enh Requirement 1 executed per-name census (BEFORE, walker 11)",
+  "method": "indexer.walk_repo + indexer._filter_code_files on a constructed fixture tree; no grep",
+  "provenance": "REGENERATED 2026-08-27 under delivery-review finding QA-DEL-1: the original artifact was clobbered by a script re-run (the script then wrote a fixed sibling filename; it now defaults to a non-committed name). The fixture table below was RE-EXECUTED against the pre-change git-HEAD indexer module (WALKER_VERSION 11) extracted to a scratch tree, matching the qa lane's independent reproduction row for row. The repository_before_stats are CARRIED from the surviving record in corpus_stats_1wfsn.json (captured before the change landed); they cannot be re-executed because the pre-fixture tree no longer exists.",
+  "walker_version": "11",
+  "fixture_census": [
+    {
+      "path": "package-lock.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "yarn.lock",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "prompt-surface-manifest.json",
+      "classification": "walk_excluded_name",
+      "mechanism_class": "name"
+    },
+    {
+      "path": "Cargo.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "poetry.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "uv.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "Pipfile.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "composer.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "Gemfile.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "flake.lock",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (binary extension)"
+    },
+    {
+      "path": "bun.lockb",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (content sniff)"
+    },
+    {
+      "path": "ui-state.snap",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (generated extension)"
+    },
+    {
+      "path": "diagram.excalidraw",
+      "classification": "walk_excluded_ext_or_sniff",
+      "mechanism_class": "extension-or-sniff (generated extension)"
+    },
+    {
+      "path": "go.sum",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "gradle.lockfile",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "app.js.map",
+      "classification": "corpus_filtered",
+      "mechanism_class": "corpus-filter"
+    },
+    {
+      "path": "npm-shrinkwrap.json",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "packages.lock.json",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "app.min.js",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "styles.min.css",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "docs/scan-findings.json",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "package.json",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "app.js",
+      "classification": "indexed",
+      "mechanism_class": null
+    },
+    {
+      "path": "styles.css",
+      "classification": "indexed",
+      "mechanism_class": null
+    }
+  ],
+  "repository_before_stats": {
+    "walked_file_count": 1904,
+    "code_corpus_file_count": 180,
+    "index_dir_size_bytes": 212314625,
+    "carried_from": "corpus_stats_1wfsn.json (surviving before-record)"
+  }
+}

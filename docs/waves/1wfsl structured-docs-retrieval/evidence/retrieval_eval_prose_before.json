@@ -1,0 +1,705 @@
+{
+  "set": "prose",
+  "label": "before-1wfsm-head-chunker-v32",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "32",
+  "rank_depth": 20,
+  "metrics_by_format": {
+    "adoc": {
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "query_count": 16,
+      "chunk_count": 32,
+      "per_query": [
+        {
+          "id": "p01:adoc",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#prerequisites",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#error-taxonomy",
+            "md/errors.md#md/errors.md#inspecting-error-payloads"
+          ]
+        },
+        {
+          "id": "p02:adoc",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#platform-notes",
+            "md/installation.md#md/installation.md#installing-from-source",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/installation.md#md/installation.md#preamble",
+            "md/installation.md#md/installation.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p03:adoc",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "md/installation.md#md/installation.md#preamble",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p04:adoc",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#platform-notes"
+          ]
+        },
+        {
+          "id": "p05:adoc",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/configuration.md#md/configuration.md#the-configuration-file"
+          ]
+        },
+        {
+          "id": "p06:adoc",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/api-guide.md#md/api-guide.md#authentication"
+          ]
+        },
+        {
+          "id": "p07:adoc",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#preamble"
+          ]
+        },
+        {
+          "id": "p08:adoc",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p09:adoc",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p10:adoc",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p11:adoc",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p12:adoc",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#doc-summary",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#error-taxonomy"
+          ]
+        },
+        {
+          "id": "p13:adoc",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#preamble",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        },
+        {
+          "id": "p14:adoc",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/api-guide.md#md/api-guide.md#getting-started"
+          ]
+        },
+        {
+          "id": "p15:adoc",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p16:adoc",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#streaming-results",
+            "md/api-guide.md#md/api-guide.md#pagination",
+            "md/api-guide.md#md/api-guide.md#getting-started",
+            "md/api-guide.md#md/api-guide.md#doc-summary",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        }
+      ]
+    },
+    "md": {
+      "recall_at_5": 0.875,
+      "mrr": 0.7938762626262627,
+      "query_count": 16,
+      "chunk_count": 32,
+      "per_query": [
+        {
+          "id": "p01:md",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "md/installation.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#prerequisites",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#error-taxonomy",
+            "md/errors.md#md/errors.md#inspecting-error-payloads"
+          ]
+        },
+        {
+          "id": "p02:md",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "md/installation.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/installation.md#md/installation.md#platform-notes",
+            "md/installation.md#md/installation.md#installing-from-source",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/installation.md#md/installation.md#preamble",
+            "md/installation.md#md/installation.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p03:md",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "md/installation.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "md/installation.md#md/installation.md#preamble",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p04:md",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "md/installation.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#platform-notes"
+          ]
+        },
+        {
+          "id": "p05:md",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "md/configuration.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/configuration.md#md/configuration.md#the-configuration-file"
+          ]
+        },
+        {
+          "id": "p06:md",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "md/configuration.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/api-guide.md#md/api-guide.md#authentication"
+          ]
+        },
+        {
+          "id": "p07:md",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "md/configuration.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#preamble"
+          ]
+        },
+        {
+          "id": "p08:md",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "md/configuration.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p09:md",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "md/errors.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p10:md",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "md/errors.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p11:md",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "md/errors.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p12:md",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "md/errors.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#doc-summary",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#error-taxonomy"
+          ]
+        },
+        {
+          "id": "p13:md",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "md/api-guide.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#preamble",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        },
+        {
+          "id": "p14:md",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "md/api-guide.md",
+          "rank": 11,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/api-guide.md#md/api-guide.md#getting-started"
+          ]
+        },
+        {
+          "id": "p15:md",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "md/api-guide.md",
+          "rank": 9,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p16:md",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "md/api-guide.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#streaming-results",
+            "md/api-guide.md#md/api-guide.md#pagination",
+            "md/api-guide.md#md/api-guide.md#getting-started",
+            "md/api-guide.md#md/api-guide.md#doc-summary",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        }
+      ]
+    },
+    "rst": {
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "query_count": 16,
+      "chunk_count": 32,
+      "per_query": [
+        {
+          "id": "p01:rst",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "rst/installation.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#prerequisites",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#error-taxonomy",
+            "md/errors.md#md/errors.md#inspecting-error-payloads"
+          ]
+        },
+        {
+          "id": "p02:rst",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "rst/installation.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#platform-notes",
+            "md/installation.md#md/installation.md#installing-from-source",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/installation.md#md/installation.md#preamble",
+            "md/installation.md#md/installation.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p03:rst",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "rst/installation.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "md/installation.md#md/installation.md#preamble",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/installation.md#md/installation.md#doc-summary",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p04:rst",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "rst/installation.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#platform-notes"
+          ]
+        },
+        {
+          "id": "p05:rst",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/configuration.md#md/configuration.md#the-configuration-file"
+          ]
+        },
+        {
+          "id": "p06:rst",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/api-guide.md#md/api-guide.md#authentication"
+          ]
+        },
+        {
+          "id": "p07:rst",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "md/configuration.md#md/configuration.md#doc-summary",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#preamble"
+          ]
+        },
+        {
+          "id": "p08:rst",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#validating-configuration",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p09:rst",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "rst/errors.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p10:rst",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "rst/errors.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#client-side-errors",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#doc-summary"
+          ]
+        },
+        {
+          "id": "p11:rst",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "rst/errors.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p12:rst",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "rst/errors.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#preamble",
+            "md/errors.md#md/errors.md#doc-summary",
+            "md/errors.md#md/errors.md#server-side-errors",
+            "md/errors.md#md/errors.md#error-taxonomy"
+          ]
+        },
+        {
+          "id": "p13:rst",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#preamble",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        },
+        {
+          "id": "p14:rst",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/errors.md#md/errors.md#preamble",
+            "md/installation.md#md/installation.md#upgrading",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/api-guide.md#md/api-guide.md#getting-started"
+          ]
+        },
+        {
+          "id": "p15:rst",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p16:rst",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "md/api-guide.md#md/api-guide.md#streaming-results",
+            "md/api-guide.md#md/api-guide.md#pagination",
+            "md/api-guide.md#md/api-guide.md#getting-started",
+            "md/api-guide.md#md/api-guide.md#doc-summary",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        }
+      ]
+    }
+  }
+}

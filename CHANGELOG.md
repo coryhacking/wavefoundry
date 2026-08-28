@@ -8,7 +8,90 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+
+### Added
+
+- **Fenced code blocks and diagrams inside documentation are now searchable.** Code examples,
+  config snippets, and mermaid diagrams embedded in markdown, reStructuredText, and AsciiDoc
+  files previously reached neither retrieval table; they now route into the docs index as a new
+  `doc-code` chunk kind with section breadcrumbs and are filterable via
+  `docs_search(kind='doc-code')` (wave `1wik9 fenced-diagram-and-spec-retrieval`, change
+  `1whup`). On the extended prose golden set, fence-targeted queries went from structurally zero
+  to 1.0 recall at 5 across all three formats while content-anchored prose retrieval was
+  unchanged, and a per-line coverage differential proves no documentation content lost coverage.
+  Reconnect MCP hosts after upgrading: the `docs_search` kind filter is a tool-schema change.
+
+- **Standalone diagram files are now docs-search citizens.** Hand-authored Mermaid
+  (`.mmd`/`.mermaid`), PlantUML (`.puml`/`.plantuml`), and Graphviz DOT (`.dot`/`.gv`) files
+  previously produced zero retrieval rows; each now chunks as one breadcrumbed unit (declared
+  diagram title or file stem, plus the raw source whose node and edge labels carry the
+  architecture prose) routed to the docs index (change `1whuq`). On the frozen 9-query diagram
+  golden set, retrieval went from zero to 1.0 recall at 5 with every query ranking its diagram
+  first. Tool-generated formats such as `.drawio` and `.excalidraw` stay out of retrieval.
+
+- **AsyncAPI, GraphQL SDL, and Protobuf join the structure-aware spec family, default-on.**
+  AsyncAPI documents (2.x and 3.x, YAML or JSON) chunk at channel, operation, and message level
+  with their summary and description prose; GraphQL SDL files chunk per type and per described
+  field (`Query.user:`); Protobuf files pair leading comments with their message, field, enum,
+  and RPC symbols (`accounts.v1.UserService.GetUser:`) — all behind the same
+  `indexing.spec_aware_chunking` gate as OpenAPI (change `1wfso`). Each format shipped on its
+  own recorded measurement (AsyncAPI recall at 5 0.875 to 1.0; GraphQL and Protobuf held their
+  baseline ceilings with MRR improving or holding), the existing 24-query OpenAPI/JSON-Schema
+  set held its 1.0 recall floor, and per-format coverage differentials prove detected files
+  lose no content.
+
+- **reStructuredText and AsciiDoc documentation is now searchable.** `.rst`, `.adoc`, and
+  `.asciidoc` files chunk into doc-kind sections with breadcrumb labels, exactly like markdown, so
+  Sphinx- and AsciiDoc-documented repositories get `docs_search` and `code_ask` coverage over their
+  actual documentation for the first time (wave `1wfsl structured-docs-retrieval`, change `1wfsm`).
+  Section titles are recognized by underline/overline adornment (rst) and `=`-run prefixes (adoc);
+  code blocks and listings extract as separate chunks (shipped as `doc-code` docs-table rows — see the fenced-content bullet); media and table directives are bounded so they
+  never dominate prose ranking. Measured on matched golden query sets, rst retrieval quality equals
+  markdown (0.875 recall at 5) and markdown chunking itself is byte-identical, pinned by a
+  differential test against the pre-change chunker.
+
+- **OpenAPI specs and JSON Schemas chunk structure-aware, shipped default-on.** Content-detected
+  OpenAPI documents (3.x YAML/JSON and Swagger 2.x) chunk at operation level and JSON Schemas at
+  definition/property level, each unit carrying its breadcrumb (`paths./users/{id}.get:`,
+  `$defs.Address:`) baked into the embedded text (change `1wfr8`). On the committed 24-query golden
+  set, recall at 5 rose from 0.833 to 1.000 and mean reciprocal rank from 0.819 to 0.948 with zero
+  per-query regressions, meeting the pre-declared numeric bar for default-on; disable per project
+  with `indexing.spec_aware_chunking: false`. Detection is guarded: schemastore config files
+  (`renovate.json`, tsconfig-style), data files with coincidental `type`/`properties` keys, and all
+  other YAML/JSON chunk byte-identically to before, and every section of a detected spec keeps
+  coverage through per-subsection and residue chunks.
+
+- **A per-project re-include hatch for name-excluded files.** `indexing.walk_reinclude_filenames`
+  in `docs/workflow-config.json` (default empty) restores exact filenames excluded by the
+  name/pattern layer; it can never override the binary-extension, content-sniff, or
+  machine-authority exclusions (change `1wfsn`).
+
+- **Focused diagnostic runs for repair loops.** `run_tests.py --file <basename>` (repeatable) runs
+  only the named test files through the same lock, subprocess, timeout, and stray-artifact-guard
+  path as a full run, labels its output as focused, and never touches the last-green cache or any
+  timing data. Focused runs are diagnostic only; one complete canonical run remains the delivery
+  authority. Argument parsing is now strict: unknown options, positional arguments, and invalid
+  flag combinations fail clearly with exit code 2. Note that `--no-cache` still reads the cache
+  file once for the advisory timing map; timing data never authorizes a skip or a pass.
+
 ### Changed
+
+- **The corpus exclusion story is consolidated and the last machine-generated stragglers are
+  closed.** All walk exclusion mechanisms are now documented in one banner in `indexer.py`;
+  `npm-shrinkwrap.json`, `packages.lock.json`, `*.min.js`, and `*.min.css` no longer index, and the
+  committed secret-scan findings ledger (`docs/scan-findings.json`) joined the machine-authority
+  path exclusions that no configuration can re-include (change `1wfsn`). Secret scanning itself is
+  unchanged, regression-pinned against narrowing. `WALKER_VERSION` moved to 13 and
+  `CHUNKER_VERSION` to 34, so existing indexes converge with a one-time full re-walk on the next
+  index build after upgrade.
+
+- **Operator guidance now states the accurate retrieval contract.** Seed 211 (mirrored in
+  `docs/agents/guru.md` and the self-hosted twins) teaches that the code index covers the whole
+  repository by default, including YAML/JSON/TOML spec files, with a missing-spec checklist (check
+  ignore files first) and the `indexing.project_include_prefixes.code` opt-in scoped to its real
+  role: re-admitting `.wavefoundry/`-nested subpaths for self-hosting (change `1wdvr`). The
+  docs-layer contract is stated non-exhaustively (markdown, rst/adoc, plain text, docstrings,
+  HTML/XML text, notebook cells) with machine-authority files always excluded from search.
 
 - **The canonical framework test suite runs 37% faster with no coverage change.** A frozen
   baseline measured the suite at a 216.7 s median; the delivered tree runs the same inventory at a
@@ -30,16 +113,6 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the input digest hashed nested bytecode and the run lock's per-run pid write, destabilizing the
   cache across runs; and the monolith's mid-file `__main__` block silently truncated direct
   execution.
-
-### Added
-
-- **Focused diagnostic runs for repair loops.** `run_tests.py --file <basename>` (repeatable) runs
-  only the named test files through the same lock, subprocess, timeout, and stray-artifact-guard
-  path as a full run, labels its output as focused, and never touches the last-green cache or any
-  timing data. Focused runs are diagnostic only; one complete canonical run remains the delivery
-  authority. Argument parsing is now strict: unknown options, positional arguments, and invalid
-  flag combinations fail clearly with exit code 2. Note that `--no-cache` still reads the cache
-  file once for the advisory timing map; timing data never authorizes a skip or a pass.
 
 ## [1.19.0] - 2026-08-22
 

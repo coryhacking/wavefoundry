@@ -1,0 +1,23 @@
+---
+title: Login and Session Flow
+---
+sequenceDiagram
+    participant Browser
+    participant Gateway as API Gateway
+    participant Auth as Auth Service
+    participant Tokens as Token Store
+    participant Sessions as Session Cache
+
+    Browser->>Gateway: POST /login with credentials
+    Gateway->>Auth: forward login request
+    Auth->>Tokens: validate bearer token signature
+    Tokens-->>Auth: token record with scopes
+    Auth->>Sessions: look up existing session
+    alt session cache miss
+        Sessions-->>Auth: miss
+        Auth->>Sessions: create session from token scopes
+    else session cache hit
+        Sessions-->>Auth: cached session
+    end
+    Auth-->>Gateway: session cookie and expiry
+    Gateway-->>Browser: 200 with Set-Cookie

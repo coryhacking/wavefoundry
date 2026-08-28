@@ -1,0 +1,122 @@
+swagger: "2.0"
+info:
+  title: Reporting Service (legacy)
+  version: 0.9.7
+  description: >-
+    Legacy reporting and export endpoints kept for v0 integrations. Clients
+    are limited to 120 requests per minute per token; exceeding the budget
+    yields 429 with a Retry-After header stating how many seconds to wait.
+    New integrations should target the v2 analytics API instead.
+host: reports.legacy.example.com
+basePath: /v0
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /reports:
+    get:
+      operationId: listReports
+      summary: List generated reports
+      description: >-
+        Lists reports generated for the authenticated workspace, newest
+        first. Responses include a deprecation notice header on every call:
+        the legacy totalRows field is deprecated and scheduled for removal
+        in v1; use rowCount instead, which counts identically but is not
+        capped at 32-bit range.
+      parameters:
+        - name: page
+          in: query
+          type: integer
+          description: >-
+            One-based page number. Legacy offset paging is retained here;
+            pages beyond 500 return an empty list rather than an error.
+        - name: per_page
+          in: query
+          type: integer
+          description: Page size between 1 and 200, defaulting to 50.
+      responses:
+        "200":
+          description: A page of report descriptors.
+        "429":
+          description: The per-token request budget was exhausted.
+    post:
+      operationId: scheduleReport
+      summary: Schedule a report build
+      description: >-
+        Queues a report build. Builds run on a shared worker pool and a
+        workspace may hold at most 5 queued builds; a sixth request returns
+        409 until one of the queued builds starts running.
+      responses:
+        "202":
+          description: The build was queued.
+        "409":
+          description: The queued-build limit for the workspace was reached.
+  /reports/{reportId}:
+    get:
+      operationId: getReport
+      summary: Fetch one report descriptor
+      description: >-
+        Returns a single report descriptor. Descriptors for reports older
+        than 18 months are pruned by the retention job, after which this
+        endpoint returns 404 permanently.
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          type: string
+          description: Identifier from the listing endpoint.
+      responses:
+        "200":
+          description: The report descriptor.
+        "404":
+          description: Unknown or pruned report identifier.
+  /exports:
+    post:
+      operationId: createExport
+      summary: Start a data export
+      description: >-
+        Starts an asynchronous export of a report to CSV. The response body
+        contains only the export identifier; the file itself is never
+        returned inline because exports routinely exceed request timeouts.
+      responses:
+        "202":
+          description: Export accepted and queued.
+  /exports/{exportId}:
+    get:
+      operationId: getExport
+      summary: Check export progress
+      description: >-
+        Reports the state of an export job. Clients should poll until status
+        becomes complete, then follow the downloadUrl, which stays valid for
+        24 hours. Polling more often than once every 5 seconds counts double
+        against the rate-limit budget.
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          type: string
+          description: Identifier returned when the export was started.
+      responses:
+        "200":
+          description: Export status, including downloadUrl once complete.
+        "404":
+          description: Unknown export identifier.
+definitions:
+  ReportDescriptor:
+    type: object
+    properties:
+      id:
+        type: string
+        description: Stable report identifier.
+      title:
+        type: string
+        description: Human-readable report title.
+      rowCount:
+        type: integer
+        description: Number of rows in the built report; replaces totalRows.
+      totalRows:
+        type: integer
+        description: Deprecated 32-bit row count kept for v0 clients only.

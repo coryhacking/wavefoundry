@@ -1,0 +1,1057 @@
+{
+  "set": "specs",
+  "label": "1wfso after (asyncapi+graphql+proto units, chunker 37)",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "37",
+  "rank_depth": 20,
+  "metrics": {
+    "recall_at_5": 1.0,
+    "mrr": 0.9180555555555556,
+    "query_count": 24,
+    "chunk_count": 186,
+    "per_query": [
+      {
+        "id": "q01",
+        "query": "How do I fetch the next page of results when browsing the pet catalog?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.get",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+          "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.PetPage",
+          "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+          "graphql/storefront.graphql#graphql/storefront.graphql#Query"
+        ]
+      },
+      {
+        "id": "q02",
+        "query": "What happens if I wait too long between page requests while listing pets?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.get",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+          "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get"
+        ]
+      },
+      {
+        "id": "q03",
+        "query": "How are calls to the pet store service authenticated?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#info",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+          "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+          "openapi/petstore.yaml#openapi/petstore.yaml#spec",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku"
+        ]
+      },
+      {
+        "id": "q04",
+        "query": "Why can't I remove a pet that someone has an outstanding purchase for?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.lotTracked",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.post"
+        ]
+      },
+      {
+        "id": "q05",
+        "query": "How can a client tell a pet id that never existed apart from one that was taken off the catalog?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 2,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.post",
+          "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post"
+        ]
+      },
+      {
+        "id": "q06",
+        "query": "How long does a buyer have to pay before their pet order is voided?",
+        "expected_file": "openapi/petstore.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.get",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reservedQuantity",
+          "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderCancelled"
+        ]
+      },
+      {
+        "id": "q07",
+        "query": "If my capture request times out and I resend it with the same key, will the customer be charged twice?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+          "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/placed"
+        ]
+      },
+      {
+        "id": "q08",
+        "query": "Why would creating a charge come back with a payment-required failure?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./disputes.get",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+          "openapi/payments-api.json#openapi/payments-api.json#info"
+        ]
+      },
+      {
+        "id": "q09",
+        "query": "How does my server find out that a cardholder has started a chargeback?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#paths./disputes.get",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+          "openapi/payments-api.json#openapi/payments-api.json#info",
+          "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderPlaced",
+          "graphql/admin.gql#graphql/admin.gql#Customer"
+        ]
+      },
+      {
+        "id": "q10",
+        "query": "Can I give back only part of what the customer originally paid?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.marketingOptIn",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.availableQuantity",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku"
+        ]
+      },
+      {
+        "id": "q11",
+        "query": "What is the safe way to retry creating a charge after a network failure?",
+        "expected_file": "openapi/payments-api.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.PipelineSettings",
+          "negatives/telemetry-event.json#negatives/telemetry-event.json#node-7"
+        ]
+      },
+      {
+        "id": "q12",
+        "query": "How many calls per minute can I make to the legacy reporting service before it throttles me?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#info",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.post",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.get",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#spec",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports/{reportId}.get"
+        ]
+      },
+      {
+        "id": "q13",
+        "query": "Which row-count field in report responses should new integrations stop using?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.get",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#definitions.ReportDescriptor",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#info",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports/{reportId}.get",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports.post"
+        ]
+      },
+      {
+        "id": "q14",
+        "query": "How do I know when my CSV export has finished and where to get the file?",
+        "expected_file": "openapi/legacy-swagger.yaml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports/{exportId}.get",
+          "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports.post",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.sku",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.updatedAt",
+          "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/cancelled"
+        ]
+      },
+      {
+        "id": "q15",
+        "query": "Is it possible for two accounts to sign up with the same email address?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 3,
+        "hit_at_5": true,
+        "top5": [
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.email",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.CreateUserRequest",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.User",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.ACTIVE"
+        ]
+      },
+      {
+        "id": "q16",
+        "query": "When a customer account is deleted, is the record actually erased from storage?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.deletedAt",
+          "schemas/customer.schema.json#schemas/customer.schema.json#schema",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+          "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.account_id",
+          "graphql/admin.gql#graphql/admin.gql#Customer.locked"
+        ]
+      },
+      {
+        "id": "q17",
+        "query": "How are postal codes checked when a customer saves an address?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#$defs.Address",
+          "graphql/storefront.graphql#graphql/storefront.graphql#Cart.subtotalCents",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.billingAddress",
+          "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.shippingAddresses"
+        ]
+      },
+      {
+        "id": "q18",
+        "query": "Which address fields do I have to provide no matter which country the customer lives in?",
+        "expected_file": "schemas/customer.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/customer.schema.json#schemas/customer.schema.json#$defs.Address",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.billingAddress",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+          "schemas/customer.schema.json#schemas/customer.schema.json#properties.shippingAddresses",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.unitCostCents"
+        ]
+      },
+      {
+        "id": "q19",
+        "query": "What retry behavior do failed pipeline jobs get if the config file doesn't set one?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.PipelineSettings",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#schema",
+          "graphql/admin.gql#graphql/admin.gql#LockReason.FRAUD_SUSPECTED",
+          "negatives/ci-workflow.yaml#negatives/ci-workflow.yaml#node-0"
+        ]
+      },
+      {
+        "id": "q20",
+        "query": "Can my settings file pull secrets from the process environment instead of hardcoding them?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 5,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.ConnectionSettings",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+          "graphql/admin.gql#graphql/admin.gql#LockReason",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#properties.connections",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#schema"
+        ]
+      },
+      {
+        "id": "q21",
+        "query": "Which verbosity settings does the logging section of the config accept?",
+        "expected_file": "schemas/config-format.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+          "schemas/config-format.schema.json#schemas/config-format.schema.json#properties.logging",
+          "negatives/renovate.json#negatives/renovate.json#node-9",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-2",
+          "negatives/feature-flags.json#negatives/feature-flags.json#node-4"
+        ]
+      },
+      {
+        "id": "q22",
+        "query": "Do units being held for open orders count toward what the storefront can sell?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.availableQuantity",
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reservedQuantity",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.on_hand",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved",
+          "openapi/petstore.yaml#openapi/petstore.yaml#info"
+        ]
+      },
+      {
+        "id": "q23",
+        "query": "What characters and length are allowed in a product's stock identifier?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.site",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.on_hand",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.sku"
+        ]
+      },
+      {
+        "id": "q24",
+        "query": "When does the system decide an item needs restocking?",
+        "expected_file": "schemas/inventory.schema.json",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reorderPoint",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.PICK",
+          "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+          "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.RECEIPT"
+        ]
+      }
+    ]
+  },
+  "metrics_by_format": {
+    "asyncapi": {
+      "recall_at_5": 1.0,
+      "mrr": 0.6916666666666667,
+      "query_count": 8,
+      "chunk_count": 186,
+      "per_query": [
+        {
+          "id": "asyncapi-q01",
+          "query": "which event fires after checkout payment is authorized",
+          "expected_file": "asyncapi/order-events.yaml",
+          "rank": 5,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderPlaced",
+            "negatives/telemetry-event.json#negatives/telemetry-event.json#node-0",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/placed"
+          ]
+        },
+        {
+          "id": "asyncapi-q02",
+          "query": "how do consumers release reserved warehouse stock when an order is cancelled",
+          "expected_file": "asyncapi/order-events.yaml",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/cancelled",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.availableQuantity",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post"
+          ]
+        },
+        {
+          "id": "asyncapi-q03",
+          "query": "how do I request a stock reservation for the lines of an order",
+          "expected_file": "asyncapi/order-events.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.inventory/reservation",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.ReserveInventory",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord"
+          ]
+        },
+        {
+          "id": "asyncapi-q04",
+          "query": "what does the order placed message represent",
+          "expected_file": "asyncapi/order-events.yaml",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/placed",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderPlaced",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.inventory/reservation",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/cancelled"
+          ]
+        },
+        {
+          "id": "asyncapi-q05",
+          "query": "which channel carries periodic sensor readings from field devices",
+          "expected_file": "asyncapi/telemetry-stream.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#channels.telemetryReadings",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#info",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#operations.publishReadings",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#components.messages.SensorReading",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#channels.deviceAlerts"
+          ]
+        },
+        {
+          "id": "asyncapi-q06",
+          "query": "when do devices publish their telemetry reading batches",
+          "expected_file": "asyncapi/telemetry-stream.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#operations.publishReadings",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#info",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#channels.telemetryReadings",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#components.messages.SensorReading",
+            "negatives/telemetry-event.json#negatives/telemetry-event.json#node-0"
+          ]
+        },
+        {
+          "id": "asyncapi-q07",
+          "query": "what causes a threshold alert to be raised",
+          "expected_file": "asyncapi/telemetry-stream.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#components.messages.ThresholdAlert",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#channels.deviceAlerts",
+            "asyncapi/telemetry-stream.json#asyncapi/telemetry-stream.json#operations.consumeAlerts",
+            "graphql/admin.gql#graphql/admin.gql#LockReason.FRAUD_SUSPECTED",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment"
+          ]
+        },
+        {
+          "id": "asyncapi-q08",
+          "query": "what is the warehouse hint on a reservation used for",
+          "expected_file": "asyncapi/order-events.yaml",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.schemas.ReservationPayload",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.inventory/reservation",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved"
+          ]
+        }
+      ]
+    },
+    "core": {
+      "recall_at_5": 1.0,
+      "mrr": 0.9180555555555556,
+      "query_count": 24,
+      "chunk_count": 186,
+      "per_query": [
+        {
+          "id": "q01",
+          "query": "How do I fetch the next page of results when browsing the pet catalog?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.get",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+            "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.PetPage",
+            "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query"
+          ]
+        },
+        {
+          "id": "q02",
+          "query": "What happens if I wait too long between page requests while listing pets?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.get",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+            "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get"
+          ]
+        },
+        {
+          "id": "q03",
+          "query": "How are calls to the pet store service authenticated?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#info",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+            "openapi/petstore.yaml#openapi/petstore.yaml#spec",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku"
+          ]
+        },
+        {
+          "id": "q04",
+          "query": "Why can't I remove a pet that someone has an outstanding purchase for?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.lotTracked",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.post"
+          ]
+        },
+        {
+          "id": "q05",
+          "query": "How can a client tell a pet id that never existed apart from one that was taken off the catalog?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.get",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets.post",
+            "openapi/petstore.yaml#openapi/petstore.yaml#components.schemas.Pet",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post"
+          ]
+        },
+        {
+          "id": "q06",
+          "query": "How long does a buyer have to pay before their pet order is voided?",
+          "expected_file": "openapi/petstore.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.get",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./pets/{petId}.delete",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reservedQuantity",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderCancelled"
+          ]
+        },
+        {
+          "id": "q07",
+          "query": "If my capture request times out and I resend it with the same key, will the customer be charged twice?",
+          "expected_file": "openapi/payments-api.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/placed"
+          ]
+        },
+        {
+          "id": "q08",
+          "query": "Why would creating a charge come back with a payment-required failure?",
+          "expected_file": "openapi/payments-api.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./disputes.get",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+            "openapi/payments-api.json#openapi/payments-api.json#info"
+          ]
+        },
+        {
+          "id": "q09",
+          "query": "How does my server find out that a cardholder has started a chargeback?",
+          "expected_file": "openapi/payments-api.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/payments-api.json#openapi/payments-api.json#paths./disputes.get",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+            "openapi/payments-api.json#openapi/payments-api.json#info",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.OrderPlaced",
+            "graphql/admin.gql#graphql/admin.gql#Customer"
+          ]
+        },
+        {
+          "id": "q10",
+          "query": "Can I give back only part of what the customer originally paid?",
+          "expected_file": "openapi/payments-api.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.marketingOptIn",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.availableQuantity",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku"
+          ]
+        },
+        {
+          "id": "q11",
+          "query": "What is the safe way to retry creating a charge after a network failure?",
+          "expected_file": "openapi/payments-api.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents.post",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./payment_intents/{intentId}/capture.post",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.PipelineSettings",
+            "negatives/telemetry-event.json#negatives/telemetry-event.json#node-7"
+          ]
+        },
+        {
+          "id": "q12",
+          "query": "How many calls per minute can I make to the legacy reporting service before it throttles me?",
+          "expected_file": "openapi/legacy-swagger.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#info",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.post",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.get",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#spec",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports/{reportId}.get"
+          ]
+        },
+        {
+          "id": "q13",
+          "query": "Which row-count field in report responses should new integrations stop using?",
+          "expected_file": "openapi/legacy-swagger.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports.get",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#definitions.ReportDescriptor",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#info",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./reports/{reportId}.get",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports.post"
+          ]
+        },
+        {
+          "id": "q14",
+          "query": "How do I know when my CSV export has finished and where to get the file?",
+          "expected_file": "openapi/legacy-swagger.yaml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports/{exportId}.get",
+            "openapi/legacy-swagger.yaml#openapi/legacy-swagger.yaml#paths./exports.post",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.sku",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.updatedAt",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.order/cancelled"
+          ]
+        },
+        {
+          "id": "q15",
+          "query": "Is it possible for two accounts to sign up with the same email address?",
+          "expected_file": "schemas/customer.schema.json",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.email",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.CreateUserRequest",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.ACTIVE"
+          ]
+        },
+        {
+          "id": "q16",
+          "query": "When a customer account is deleted, is the record actually erased from storage?",
+          "expected_file": "schemas/customer.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.deletedAt",
+            "schemas/customer.schema.json#schemas/customer.schema.json#schema",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.account_id",
+            "graphql/admin.gql#graphql/admin.gql#Customer.locked"
+          ]
+        },
+        {
+          "id": "q17",
+          "query": "How are postal codes checked when a customer saves an address?",
+          "expected_file": "schemas/customer.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/customer.schema.json#schemas/customer.schema.json#$defs.Address",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Cart.subtotalCents",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.billingAddress",
+            "openapi/payments-api.json#openapi/payments-api.json#paths./refunds.post",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.shippingAddresses"
+          ]
+        },
+        {
+          "id": "q18",
+          "query": "Which address fields do I have to provide no matter which country the customer lives in?",
+          "expected_file": "schemas/customer.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/customer.schema.json#schemas/customer.schema.json#$defs.Address",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.billingAddress",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.email",
+            "schemas/customer.schema.json#schemas/customer.schema.json#properties.shippingAddresses",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.unitCostCents"
+          ]
+        },
+        {
+          "id": "q19",
+          "query": "What retry behavior do failed pipeline jobs get if the config file doesn't set one?",
+          "expected_file": "schemas/config-format.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.PipelineSettings",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#schema",
+            "graphql/admin.gql#graphql/admin.gql#LockReason.FRAUD_SUSPECTED",
+            "negatives/ci-workflow.yaml#negatives/ci-workflow.yaml#node-0"
+          ]
+        },
+        {
+          "id": "q20",
+          "query": "Can my settings file pull secrets from the process environment instead of hardcoding them?",
+          "expected_file": "schemas/config-format.schema.json",
+          "rank": 5,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.ConnectionSettings",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+            "graphql/admin.gql#graphql/admin.gql#LockReason",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#properties.connections",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#schema"
+          ]
+        },
+        {
+          "id": "q21",
+          "query": "Which verbosity settings does the logging section of the config accept?",
+          "expected_file": "schemas/config-format.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#definitions.LoggingSettings",
+            "schemas/config-format.schema.json#schemas/config-format.schema.json#properties.logging",
+            "negatives/renovate.json#negatives/renovate.json#node-9",
+            "negatives/feature-flags.json#negatives/feature-flags.json#node-2",
+            "negatives/feature-flags.json#negatives/feature-flags.json#node-4"
+          ]
+        },
+        {
+          "id": "q22",
+          "query": "Do units being held for open orders count toward what the storefront can sell?",
+          "expected_file": "schemas/inventory.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.availableQuantity",
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reservedQuantity",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.on_hand",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved",
+            "openapi/petstore.yaml#openapi/petstore.yaml#info"
+          ]
+        },
+        {
+          "id": "q23",
+          "query": "What characters and length are allowed in a product's stock identifier?",
+          "expected_file": "schemas/inventory.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.sku",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.site",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.on_hand",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.sku"
+          ]
+        },
+        {
+          "id": "q24",
+          "query": "When does the system decide an item needs restocking?",
+          "expected_file": "schemas/inventory.schema.json",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "schemas/inventory.schema.json#schemas/inventory.schema.json#properties.reorderPoint",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.PICK",
+            "openapi/petstore.yaml#openapi/petstore.yaml#paths./orders.post",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.RECEIPT"
+          ]
+        }
+      ]
+    },
+    "graphql": {
+      "recall_at_5": 1.0,
+      "mrr": 1.0,
+      "query_count": 8,
+      "chunk_count": 186,
+      "per_query": [
+        {
+          "id": "graphql-q01",
+          "query": "how do I look up a single product by its slug",
+          "expected_file": "graphql/storefront.graphql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query.productBySlug",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Product",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query.searchProducts",
+            "graphql/admin.gql#graphql/admin.gql#Query.customerByEmail"
+          ]
+        },
+        {
+          "id": "graphql-q02",
+          "query": "does product search support category filtering",
+          "expected_file": "graphql/storefront.graphql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query.searchProducts",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query.productBySlug",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Product",
+            "negatives/feature-flags.json#negatives/feature-flags.json#node-3"
+          ]
+        },
+        {
+          "id": "graphql-q03",
+          "query": "how do I add a product variant to the shopping cart",
+          "expected_file": "graphql/storefront.graphql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/storefront.graphql#graphql/storefront.graphql#Mutation.addToCart",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Mutation",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Product.variants",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Product",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Variant"
+          ]
+        },
+        {
+          "id": "graphql-q04",
+          "query": "what does the cart subtotal include",
+          "expected_file": "graphql/storefront.graphql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/storefront.graphql#graphql/storefront.graphql#Cart.subtotalCents",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Cart",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query.cart",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Mutation.addToCart",
+            "graphql/storefront.graphql#graphql/storefront.graphql#Query"
+          ]
+        },
+        {
+          "id": "graphql-q05",
+          "query": "how do I page through the staff audit trail",
+          "expected_file": "graphql/admin.gql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/admin.gql#graphql/admin.gql#Query.auditLog",
+            "graphql/admin.gql#graphql/admin.gql#Query",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserRequest",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserRequest.reason",
+            "graphql/admin.gql#graphql/admin.gql#AuditPage"
+          ]
+        },
+        {
+          "id": "graphql-q06",
+          "query": "how can support staff find a customer account by email",
+          "expected_file": "graphql/admin.gql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/admin.gql#graphql/admin.gql#Query.customerByEmail",
+            "graphql/admin.gql#graphql/admin.gql#Customer",
+            "graphql/admin.gql#graphql/admin.gql#Query",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.email",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User"
+          ]
+        },
+        {
+          "id": "graphql-q07",
+          "query": "what does the locked flag on a customer account mean",
+          "expected_file": "graphql/admin.gql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/admin.gql#graphql/admin.gql#Customer.locked",
+            "graphql/admin.gql#graphql/admin.gql#Customer",
+            "graphql/admin.gql#graphql/admin.gql#LockReason",
+            "graphql/admin.gql#graphql/admin.gql#LockReason.MANUAL_REVIEW",
+            "graphql/admin.gql#graphql/admin.gql#LockReason.FRAUD_SUSPECTED"
+          ]
+        },
+        {
+          "id": "graphql-q08",
+          "query": "when does the fraud pipeline lock an account automatically",
+          "expected_file": "graphql/admin.gql",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "graphql/admin.gql#graphql/admin.gql#LockReason.FRAUD_SUSPECTED",
+            "graphql/admin.gql#graphql/admin.gql#LockReason",
+            "graphql/admin.gql#graphql/admin.gql#Customer.locked",
+            "graphql/admin.gql#graphql/admin.gql#LockReason.MANUAL_REVIEW",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService"
+          ]
+        }
+      ]
+    },
+    "proto": {
+      "recall_at_5": 1.0,
+      "mrr": 1.0,
+      "query_count": 8,
+      "chunk_count": 186,
+      "per_query": [
+        {
+          "id": "proto-q01",
+          "query": "how do I fetch one user by account id",
+          "expected_file": "proto/user_service.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService.GetUser",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.GetUserRequest",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.account_id",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.CreateUserRequest"
+          ]
+        },
+        {
+          "id": "proto-q02",
+          "query": "what happens when a user account is deactivated",
+          "expected_file": "proto/user_service.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService.DeactivateUser",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserResponse.purge_after",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserResponse"
+          ]
+        },
+        {
+          "id": "proto-q03",
+          "query": "are account identifiers ever reused after purge",
+          "expected_file": "proto/user_service.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.account_id",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService.GetUser",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserResponse.purge_after"
+          ]
+        },
+        {
+          "id": "proto-q04",
+          "query": "which account state is allowed to authenticate",
+          "expected_file": "proto/user_service.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.ACTIVE",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.User.account_id",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService"
+          ]
+        },
+        {
+          "id": "proto-q05",
+          "query": "when is the purge job allowed to run after deactivation",
+          "expected_file": "proto/user_service.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserResponse.purge_after",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.DeactivateUserResponse",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService.DeactivateUser",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.AccountState.DEACTIVATED",
+            "proto/user_service.proto#proto/user_service.proto#accounts.v1.UserService"
+          ]
+        },
+        {
+          "id": "proto-q06",
+          "query": "what does the on hand quantity in the stock ledger mean",
+          "expected_file": "proto/inventory.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.on_hand",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.RECEIPT"
+          ]
+        },
+        {
+          "id": "proto-q07",
+          "query": "what does reserved stock mean in the warehouse ledger",
+          "expected_file": "proto/inventory.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockRecord.reserved",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#components.messages.ReserveInventory",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "asyncapi/order-events.yaml#asyncapi/order-events.yaml#channels.inventory/reservation"
+          ]
+        },
+        {
+          "id": "proto-q08",
+          "query": "how are picks and receipts signed in a stock adjustment",
+          "expected_file": "proto/inventory.proto",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.delta",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.CORRECTION",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause",
+            "proto/inventory.proto#proto/inventory.proto#warehouse.StockAdjustment.Cause.RECEIPT"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+flowchart LR
+    Collectors[Edge Collectors] -->|raw click events| Ingest[Ingest Buffer]
+    Ingest -->|micro batches| Transform[Transform Workers]
+    Transform -->|cleaned records| Warehouse[(Analytics Warehouse)]
+    Transform -->|rejected rows| DeadLetter[Dead Letter Queue]
+    Warehouse --> Dashboards[Reporting Dashboards]
+    DeadLetter -->|manual replay| Ingest

@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.example.com/config-format.schema.json",
+  "title": "Pipeline Configuration File",
+  "description": "Schema for the pipeline.config.json file read at service startup. Values may reference environment variables with the ${VAR_NAME} syntax; unresolved references cause config loading to fail at startup rather than defaulting silently.",
+  "type": "object",
+  "required": ["pipeline"],
+  "properties": {
+    "pipeline": {
+      "$ref": "#/definitions/PipelineSettings"
+    },
+    "logging": {
+      "$ref": "#/definitions/LoggingSettings"
+    },
+    "connections": {
+      "type": "object",
+      "description": "Named upstream connections keyed by connection name. Each key becomes addressable from job definitions.",
+      "additionalProperties": {
+        "$ref": "#/definitions/ConnectionSettings"
+      }
+    }
+  },
+  "definitions": {
+    "PipelineSettings": {
+      "type": "object",
+      "description": "Top-level execution settings for the job pipeline.",
+      "required": ["concurrency"],
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Number of jobs allowed to run simultaneously. Values above the worker count waste memory without adding throughput."
+        },
+        "retryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of retry attempts for failed jobs; defaults to 3 attempts when omitted. Set to 0 to fail fast with no retries, which is recommended for jobs with side effects that are not idempotent."
+        },
+        "retryBackoffSeconds": {
+          "type": "number",
+          "description": "Base delay between retries; each successive retry doubles the delay up to a five minute ceiling."
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "description": "Hard wall-clock limit per job. Jobs exceeding the limit are killed and counted as failures for retry purposes."
+        }
+      }
+    },
+    "LoggingSettings": {
+      "type": "object",
+      "description": "Controls the structured log output of the pipeline runner.",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "description": "Logging verbosity; one of debug, info, warn, or error. The fatal level from v1 config files is no longer accepted and should be rewritten to error during migration."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "text"],
+          "description": "Output encoding. Use json in production so the collector can parse fields; text is meant for local development terminals."
+        },
+        "redactKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Field names whose values are replaced with a redaction marker before a log line is written. Matching is exact and case-sensitive."
+        }
+      }
+    },
+    "ConnectionSettings": {
+      "type": "object",
+      "description": "One upstream connection definition.",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Connection URL. Credentials belong in environment references, never inline in the file."
+        },
+        "poolSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum open connections kept in the pool for this upstream."
+        },
+        "healthcheckPath": {
+          "type": "string",
+          "description": "Optional HTTP path probed before the connection is marked ready at startup."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "differential": "1whup AC-4 per-line docs-table content-coverage",
+  "chunker_version": "35",
+  "docs_kinds_post": [
+    "doc",
+    "seed",
+    "prompt",
+    "doc-summary",
+    "doc-code"
+  ],
+  "docs_kinds_pre": [
+    "doc",
+    "seed",
+    "prompt",
+    "doc-summary"
+  ],
+  "fixtures": [
+    {
+      "path": "docs/guide.md",
+      "content_lines": 9,
+      "covered_pre": 6,
+      "covered_post": 7,
+      "lost_lines": [],
+      "gained_lines": [
+        "pip install widgetlib"
+      ]
+    },
+    {
+      "path": "docs/prompts/example.prompt.md",
+      "content_lines": 6,
+      "covered_pre": 4,
+      "covered_post": 4,
+      "lost_lines": [],
+      "gained_lines": []
+    },
+    {
+      "path": "docs/oversized.md",
+      "content_lines": 34,
+      "covered_pre": 31,
+      "covered_post": 31,
+      "lost_lines": [],
+      "gained_lines": []
+    },
+    {
+      "path": "docs/guide.md",
+      "content_lines": 9,
+      "covered_pre": 4,
+      "covered_post": 7,
+      "lost_lines": [],
+      "gained_lines": [
+        "import widget",
+        "preamble_setting = true",
+        "widgetctl install --profile default"
+      ]
+    },
+    {
+      "path": "docs/prompts/step.prompt.md",
+      "content_lines": 4,
+      "covered_pre": 3,
+      "covered_post": 3,
+      "lost_lines": [],
+      "gained_lines": []
+    },
+    {
+      "path": "docs/guide.rst",
+      "content_lines": 6,
+      "covered_pre": 3,
+      "covered_post": 4,
+      "lost_lines": [],
+      "gained_lines": [
+        "configure(retries=3)"
+      ]
+    },
+    {
+      "path": "docs/guide.adoc",
+      "content_lines": 5,
+      "covered_pre": 1,
+      "covered_post": 2,
+      "lost_lines": [],
+      "gained_lines": [
+        "configure(retries=3)"
+      ]
+    },
+    {
+      "path": "docs/analysis.ipynb",
+      "content_lines": 3,
+      "covered_pre": 2,
+      "covered_post": 2,
+      "lost_lines": [],
+      "gained_lines": []
+    }
+  ],
+  "failures": [],
+  "revert_simulation": {
+    "detected_loss_on": 3,
+    "expected": 3,
+    "non_vacuous": true
+  }
+}

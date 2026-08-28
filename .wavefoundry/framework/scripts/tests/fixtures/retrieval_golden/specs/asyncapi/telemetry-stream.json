@@ -1,0 +1,84 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Device Telemetry Stream",
+    "version": "2.0.0",
+    "description": "Ingestion contract for field device telemetry over the metrics broker."
+  },
+  "channels": {
+    "telemetryReadings": {
+      "address": "telemetry/readings",
+      "description": "High-volume channel carrying periodic sensor readings from field devices.",
+      "messages": {
+        "SensorReading": {
+          "$ref": "#/components/messages/SensorReading"
+        }
+      }
+    },
+    "deviceAlerts": {
+      "address": "telemetry/alerts",
+      "description": "Low-volume channel for threshold breach alerts raised on-device.",
+      "messages": {
+        "ThresholdAlert": {
+          "$ref": "#/components/messages/ThresholdAlert"
+        }
+      }
+    }
+  },
+  "operations": {
+    "publishReadings": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/telemetryReadings"
+      },
+      "summary": "Devices publish batched sensor readings every reporting interval."
+    },
+    "consumeAlerts": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/deviceAlerts"
+      },
+      "summary": "The monitoring plane consumes threshold alerts for paging decisions."
+    }
+  },
+  "components": {
+    "messages": {
+      "SensorReading": {
+        "name": "SensorReading",
+        "title": "Sensor reading batch",
+        "summary": "A batch of timestamped measurements from one device reporting interval.",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "deviceId": {
+              "type": "string",
+              "description": "Factory-assigned device identifier."
+            },
+            "readings": {
+              "type": "array",
+              "description": "Measurements ordered by capture timestamp."
+            }
+          }
+        }
+      },
+      "ThresholdAlert": {
+        "name": "ThresholdAlert",
+        "title": "Threshold breach alert",
+        "summary": "Raised on-device when a measurement crosses its configured threshold.",
+        "payload": {
+          "type": "object",
+          "properties": {
+            "metric": {
+              "type": "string",
+              "description": "Name of the metric that breached its threshold."
+            },
+            "severity": {
+              "type": "string",
+              "description": "Alert severity level derived from breach magnitude."
+            }
+          }
+        }
+      }
+    }
+  }
+}

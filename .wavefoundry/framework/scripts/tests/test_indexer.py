@@ -3594,6 +3594,191 @@ class OversizedFileGuardTests(unittest.TestCase):
                          f"gitignored dir should not be walked; got {rels}")
 
 
+class CorpusExclusionCensusTests(unittest.TestCase):
+    """Wave 1wfsl (1wfsn): executed-census pins for the consolidated exclusion story.
+
+    Every candidate name's classification is pinned at MECHANISM-CLASS granularity
+    (name / extension-or-sniff / corpus-filter / machine-authority path) by running
+    the REAL walk and corpus filter over a constructed fixture tree — the census
+    that planned this change ran the same way (never grep; two grep censuses in
+    wave 1wfsl were falsified against the tree). All three retrieval corpora
+    (semantic docs, semantic code + lexical, graph) derive from this one walk."""
+
+    # (relative path, is_binary) — mirrors the committed census fixture
+    # (docs/waves/ evidence census_exclusions.py).
+    NAME_LAYER = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+                  "prompt-surface-manifest.json", "npm-shrinkwrap.json",
+                  "packages.lock.json"]
+    SUFFIX_LAYER = ["app.min.js", "styles.min.css"]
+    EXTENSION_LAYER = ["Cargo.lock", "poetry.lock", "uv.lock", "Pipfile.lock",
+                       "composer.lock", "Gemfile.lock", "flake.lock"]
+    SNIFF_LAYER = ["bun.lockb"]
+    GENERATED_EXT_LAYER = ["ui-state.snap", "diagram.excalidraw"]
+    CORPUS_FILTERED = ["go.sum", "gradle.lockfile", "app.js.map"]
+    MACHINE_AUTHORITY = ["docs/scan-findings.json"]
+    LEGITIMATE_SIBLINGS = ["package.json", "app.js", "styles.css"]
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_fixture(self):
+        text_files = {}
+        for rel in (self.NAME_LAYER + self.SUFFIX_LAYER + self.EXTENSION_LAYER
+                    + self.GENERATED_EXT_LAYER + self.CORPUS_FILTERED
+                    + self.MACHINE_AUTHORITY + self.LEGITIMATE_SIBLINGS):
+            text_files[rel] = "generated: true\ncontent: sample\n"
+        text_files["app.js"] = "var a = 1;\n"
+        text_files["styles.css"] = ".a { color: #fff; }\n"
+        _make_repo(self.root, text_files)
+        for rel in self.SNIFF_LAYER:
+            (self.root / rel).write_bytes(b"\x00\x01binary-lockb\x00")
+
+    def _reinclude_config(self, names: list[str]) -> None:
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"indexing": {"walk_reinclude_filenames": names}}),
+            encoding="utf-8",
+        )
+
+    def _walk_rels(self) -> set[str]:
+        return {str(f.relative_to(self.root)).replace("\\", "/")
+                for f in self.bi.walk_repo(self.root)}
+
+    def test_census_classifications_pinned_per_mechanism_class(self):
+        self._write_fixture()
+        rels = self._walk_rels()
+        for rel in (self.NAME_LAYER + self.SUFFIX_LAYER + self.EXTENSION_LAYER
+                    + self.SNIFF_LAYER + self.GENERATED_EXT_LAYER
+                    + self.MACHINE_AUTHORITY):
+            self.assertNotIn(rel, rels, f"{rel} must be walk-excluded")
+        for rel in self.CORPUS_FILTERED + self.LEGITIMATE_SIBLINGS:
+            self.assertIn(rel, rels, f"{rel} must walk")
+        # Mechanism-class pins: name layer entries are in the name constants,
+        # extension layer in BINARY_EXTENSIONS, generated in the generated set.
+        for rel in self.NAME_LAYER:
+            self.assertIn(rel, self.bi.HARDCODED_EXCLUDE_FILENAMES)
+        for rel in self.SUFFIX_LAYER:
+            self.assertTrue(rel.endswith(tuple(self.bi.HARDCODED_EXCLUDE_FILENAME_SUFFIXES)))
+        for rel in self.EXTENSION_LAYER:
+            self.assertIn("." + rel.rsplit(".", 1)[-1].lower(), self.bi.BINARY_EXTENSIONS)
+        for rel in self.GENERATED_EXT_LAYER:
+            self.assertIn("." + rel.rsplit(".", 1)[-1].lower(), self.bi._GENERATED_EXCLUDE_EXTENSIONS)
+        # Corpus-filter class: walks, but the code corpus drops it.
+        corpus = {str(f.relative_to(self.root)).replace("\\", "/")
+                  for f in self.bi._filter_code_files(
+                      self.bi.walk_repo(self.root), self.root,
+                      include_tests=False, include_generated=False)}
+        for rel in self.CORPUS_FILTERED:
+            self.assertNotIn(rel, corpus, f"{rel} must be corpus-filtered")
+        for rel in ["package.json", "app.js", "styles.css"]:
+            self.assertIn(rel, corpus, f"{rel} must stay in the code corpus")
+
+    def test_reinclude_hatch_restores_name_layer_only(self):
+        self._write_fixture()
+        self._reinclude_config(["package-lock.json", "app.min.js"])
+        rels = self._walk_rels()
+        self.assertIn("package-lock.json", rels)   # exact-name subtraction
+        self.assertIn("app.min.js", rels)          # suffix-pattern subtraction
+        self.assertNotIn("styles.min.css", rels)   # un-listed suffix stays excluded
+        self.assertNotIn("npm-shrinkwrap.json", rels)
+
+    def test_reinclude_hatch_cannot_override_extension_or_sniff(self):
+        self._write_fixture()
+        self._reinclude_config(["Cargo.lock", "bun.lockb", "yarn.lock",
+                                "ui-state.snap"])
+        rels = self._walk_rels()
+        self.assertNotIn("Cargo.lock", rels)   # .lock binary extension holds
+        self.assertNotIn("bun.lockb", rels)    # content sniff holds
+        # yarn.lock is the documented double-coverage case: the name subtraction
+        # applies, but the .lock binary extension still excludes it.
+        self.assertNotIn("yarn.lock", rels)
+        self.assertNotIn("ui-state.snap", rels)  # generated extension holds
+
+    def test_reinclude_hatch_cannot_resurrect_machine_authority_paths(self):
+        self._write_fixture()
+        (self.root / "docs" / "waves" / "1abcd test-wave").mkdir(parents=True)
+        (self.root / "docs" / "waves" / "1abcd test-wave" / "events.jsonl").write_text(
+            '{"record_type":"executable_evidence"}\n', encoding="utf-8")
+        self._reinclude_config(["events.jsonl", "scan-findings.json",
+                                "docs/scan-findings.json"])
+        rels = self._walk_rels()
+        self.assertNotIn("docs/waves/1abcd test-wave/events.jsonl", rels,
+                         "canonical wave ledger must never be re-includable")
+        self.assertNotIn("docs/scan-findings.json", rels,
+                         "secret-scan findings ledger must never be re-includable")
+        # Path-shaped entries are rejected by the resolver outright.
+        self.assertNotIn(
+            "docs/scan-findings.json",
+            self.bi._resolve_walk_reinclude_filenames(self.root),
+        )
+
+    def test_files_seam_enforces_scan_findings_boundary(self):
+        # The ``files=`` incremental seam bypasses walk_repo; the machine-authority
+        # family (including the scan-findings ledger) is re-enforced there.
+        self._write_fixture()
+        filtered = self.bi._filter_secret_scan_findings(
+            [self.root / "docs" / "scan-findings.json", self.root / "package.json"],
+            self.root,
+        )
+        rels = {str(p.relative_to(self.root)).replace("\\", "/") for p in filtered}
+        self.assertEqual(rels, {"package.json"})
+
+    def test_walker_version_bumped_for_filter_logic_change(self):
+        self.assertGreaterEqual(int(self.bi.WALKER_VERSION), 12)
+
+    def test_rst_adoc_walk_and_docs_layer_membership(self):
+        # Wave 1wfsl (1wfsm): rst/adoc/asciidoc walk as known text and their
+        # section chunks are doc-kind, which the kind-based layer routing
+        # (_is_docs_kind) carries into the docs layer. WALKER_VERSION 13 rides
+        # the filter-logic clause for the known-text registration.
+        for ext in (".rst", ".adoc", ".asciidoc"):
+            self.assertIn(ext, self.bi._KNOWN_TEXT_EXTENSIONS)
+        self.assertGreaterEqual(int(self.bi.WALKER_VERSION), 13)
+        _make_repo(self.root, {
+            "docs/guide.rst": "Guide\n=====\n\nSec\n---\n\nSection prose.\n",
+            "docs/guide.adoc": "= Guide\n\n== Sec\n\nSection prose.\n",
+            "docs/guide.asciidoc": "= Guide\n\n== Sec\n\nSection prose.\n",
+        })
+        rels = {str(f.relative_to(self.root)).replace("\\", "/")
+                for f in self.bi.walk_repo(self.root)}
+        for rel in ("docs/guide.rst", "docs/guide.adoc", "docs/guide.asciidoc"):
+            self.assertIn(rel, rels, f"{rel} must walk")
+        import chunker as chunker_mod
+        for rel in ("docs/guide.rst", "docs/guide.adoc"):
+            chunks = chunker_mod.chunk_file(
+                (self.root / rel).read_text(encoding="utf-8"), rel)
+            doc_kinds = [c for c in chunks if self.bi._is_docs_kind(c.kind)]
+            self.assertTrue(doc_kinds, f"{rel} must emit doc-kind chunks")
+
+    def test_secret_scanner_candidates_not_narrowed(self):
+        # AC-3: the standalone scanner's candidate set (all tracked files) is
+        # independent of the walk exclusions — a walk-excluded straggler MUST
+        # still be a scan candidate.
+        self._write_fixture()
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                    ["git", "commit", "-qm", "fixture"]):
+            subprocess.run(cmd, cwd=self.root, env=env, check=True,
+                           capture_output=True)
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        try:
+            from wave_lint_lib.secrets_validators import get_scan_files
+        finally:
+            sys.path.pop(0)
+        candidates = {str(p.relative_to(self.root)).replace("\\", "/")
+                      for p in get_scan_files(self.root, True)}
+        for rel in ["npm-shrinkwrap.json", "app.min.js", "package-lock.json",
+                    "docs/scan-findings.json"]:
+            self.assertIn(rel, candidates,
+                          f"{rel} must remain a secret-scan candidate")
+        _rmtree_git(self.root / ".git")  # Windows-safe tempdir cleanup
+
+
 class StreamingRebuildParityTests(unittest.TestCase):
     """Wave 1p5ch: the streamed full-rebuild table must be row-identical regardless of buffer size.
     Feeding every chunk in one `add()` IS the batch write (a single create_table with all rows), so
@@ -6215,6 +6400,90 @@ class OrphanRetirementCallerCensusTests(unittest.TestCase):
             referencing, {"index_state_store.py", "indexer.py"},
             "the sidecar deletion API must have no callers beyond the reap seam",
         )
+
+
+class DocCodeTableRoutingTests(unittest.TestCase):
+    """Wave 1wik9 (1whup): doc-code chunks from documentation files route to
+    the DOCS table via _is_docs_kind. Before this change every extracted
+    fence/directive chunk was kind="code" and the per-table eligibility gate
+    (1sek8) dropped it from BOTH tables because docs files are never
+    code-eligible."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_is_docs_kind_carries_doc_code(self):
+        self.assertTrue(self.bi._is_docs_kind("doc-code"))
+        self.assertFalse(self.bi._is_docs_kind("code"))
+
+    def test_docs_file_fence_chunks_land_in_the_docs_split(self):
+        src = (
+            "# Guide\n\n## Install\n\nRun this.\n\n"
+            "```bash\nwidgetctl install --profile default\n```\n"
+        )
+        dc, cc = self.bi._chunks_for_file("docs/guide.md", src)
+        fence_rows = [c for c in dc if c["kind"] == "doc-code"]
+        self.assertEqual(len(fence_rows), 1)
+        self.assertIn("widgetctl install", fence_rows[0]["text"])
+        # The code split stays empty: no docs file becomes code-eligible.
+        self.assertEqual(cc, [])
+
+    def test_rst_directive_chunks_land_in_the_docs_split(self):
+        src = (
+            "Guide\n=====\n\nUsage\n-----\n\nProse.\n\n"
+            ".. code-block:: python\n\n   configure(retries=3)\n"
+        )
+        dc, cc = self.bi._chunks_for_file("docs/guide.rst", src)
+        self.assertTrue(
+            any(c["kind"] == "doc-code" and "configure(retries=3)" in c["text"]
+                for c in dc))
+        self.assertEqual(cc, [])
+
+
+class DiagramCorpusMembershipTests(unittest.TestCase):
+    """Wave 1wik9 (1whuq): diagram-file corpus membership. Registration is
+    CHUNKER-ONLY — the six extensions never join _KNOWN_TEXT_EXTENSIONS
+    (that registration bypasses the content sniff, and .dot has a binary
+    Word-template namesake the sniff excludes today) — and walk behavior is
+    unchanged (no WALKER_VERSION bump for this change)."""
+
+    DIAGRAM_EXTS = (".mmd", ".mermaid", ".puml", ".plantuml", ".dot", ".gv")
+
+    def setUp(self):
+        self.bi = load_build_index()
+
+    def test_diagram_extensions_stay_out_of_every_walk_extension_set(self):
+        for ext in self.DIAGRAM_EXTS:
+            self.assertNotIn(ext, self.bi._KNOWN_TEXT_EXTENSIONS,
+                             f"{ext} must not bypass the content sniff")
+            self.assertNotIn(ext, self.bi.SOURCE_CODE_EXTENSIONS)
+            self.assertNotIn(ext, self.bi.BINARY_EXTENSIONS)
+            self.assertNotIn(ext, self.bi._GENERATED_EXCLUDE_EXTENSIONS)
+
+    def test_diagram_chunks_land_in_the_docs_split_in_and_out_of_docs_root(self):
+        src = "---\ntitle: Flow\n---\nflowchart LR\n    A[Auth] --> B[Tokens]\n"
+        for rel in ("docs/diagrams/flow.mmd", "src/architecture/flow.mmd"):
+            dc, cc = self.bi._chunks_for_file(rel, src)
+            self.assertTrue(
+                any(c["kind"] == "doc-code" and "A[Auth] --> B[Tokens]" in c["text"]
+                    for c in dc), rel)
+            self.assertEqual(cc, [], rel)
+
+    def test_binary_impostor_dot_stays_walk_excluded(self):
+        import tempfile
+        ole = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64
+        with tempfile.TemporaryDirectory(prefix="wf-dot-impostor-") as tmp:
+            root = Path(tmp)
+            (root / "legacy-template.dot").write_bytes(ole)
+            (root / "real-graph.dot").write_text(
+                "digraph G { a -> b; }\n", encoding="utf-8")
+            walked = {
+                str(p.relative_to(root)).replace("\\", "/")
+                for p in self.bi.walk_repo(root, respect_ignore=True)
+            }
+        self.assertNotIn("legacy-template.dot", walked,
+                         "OLE-header .dot must stay sniff-excluded")
+        self.assertIn("real-graph.dot", walked)
 
 
 if __name__ == "__main__":

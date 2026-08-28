@@ -1,0 +1,64 @@
+{
+  "walkthrough": "1wdvr-doc AC-1 corrected-guidance walkthrough",
+  "part_a_default_coverage": {
+    "corpus_membership_no_config": true,
+    "query": "how do I refund a fulfilled order",
+    "spec_hit_rank": 1,
+    "top_hits": [
+      {
+        "path": "api-contracts/orders-api.yaml",
+        "chunk_id": "api-contracts/orders-api.yaml#paths./orders/{orderId}/refund.post",
+        "section": "paths./orders/{orderId}/refund.post"
+      },
+      {
+        "path": "src/app.py",
+        "chunk_id": "src/app.py#summary",
+        "section": "summary"
+      },
+      {
+        "path": "api-contracts/orders-api.yaml",
+        "chunk_id": "api-contracts/orders-api.yaml#info",
+        "section": "info"
+      },
+      {
+        "path": "src/app.py",
+        "chunk_id": "src/app.py::fulfill",
+        "section": "app > fulfill"
+      }
+    ]
+  },
+  "part_b_prefix_opt_in": {
+    "excluded_before_prefix": true,
+    "included_after_prefix": true,
+    "query": "how do I refund a fulfilled order",
+    "spec_hit_rank": 1,
+    "top_hits": [
+      {
+        "path": ".wavefoundry/contracts/orders-api.yaml",
+        "chunk_id": ".wavefoundry/contracts/orders-api.yaml#paths./orders/{orderId}/refund.post",
+        "section": "paths./orders/{orderId}/refund.post"
+      },
+      {
+        "path": "src/app.py",
+        "chunk_id": "src/app.py#summary",
+        "section": "summary"
+      },
+      {
+        "path": ".wavefoundry/contracts/orders-api.yaml",
+        "chunk_id": ".wavefoundry/contracts/orders-api.yaml#info",
+        "section": "info"
+      },
+      {
+        "path": "src/app.py",
+        "chunk_id": "src/app.py::fulfill",
+        "section": "app > fulfill"
+      },
+      {
+        "path": "docs/workflow-config.json",
+        "chunk_id": "docs/workflow-config.json#node-0",
+        "section": "workflow-config > node-0"
+      }
+    ]
+  },
+  "verdict": "GUIDANCE VERIFIED: default coverage hits the ordinary-directory spec; the prefix opt-in makes the blanket-excluded spec searchable"
+}

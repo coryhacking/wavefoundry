@@ -1,0 +1,194 @@
+[
+  {
+    "id": "docs/guide.md#doc-summary",
+    "path": "docs/guide.md",
+    "kind": "doc-summary",
+    "language": null,
+    "lines": [
+      1,
+      19
+    ],
+    "section": "doc-summary",
+    "text": "Widget Guide\nIntro under the H1.\nInstall with pip.\nSections: Widget Guide \u00b7 Installation \u00b7 Configuration"
+  },
+  {
+    "id": "docs/guide.md#preamble",
+    "path": "docs/guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      1,
+      7
+    ],
+    "section": null,
+    "text": "Preamble prose before any heading, kept as its own chunk.\n\n# Widget Guide\n\nIntro under the H1."
+  },
+  {
+    "id": "docs/guide.md#installation:code-1",
+    "path": "docs/guide.md",
+    "kind": "doc-code",
+    "language": "bash",
+    "lines": [
+      11,
+      12
+    ],
+    "section": "Widget Guide > Installation",
+    "text": "Widget Guide > Installation\n\npip install widgetlib"
+  },
+  {
+    "id": "docs/guide.md#installation",
+    "path": "docs/guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      7,
+      16
+    ],
+    "section": "Widget Guide > Installation",
+    "text": "Widget Guide > Installation\n\nInstall with pip. The minimum supported Python is 3.11.\n\n\n\nPost-code prose in the installation section."
+  },
+  {
+    "id": "docs/guide.md#configuration",
+    "path": "docs/guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      17,
+      19
+    ],
+    "section": "Widget Guide > Configuration",
+    "text": "Widget Guide > Configuration\n\nSet the WIDGET_HOME variable first. Values resolve in order of precedence."
+  },
+  {
+    "id": "docs/prompts/example.prompt.md#doc-summary",
+    "path": "docs/prompts/example.prompt.md",
+    "kind": "doc-summary",
+    "language": null,
+    "lines": [
+      1,
+      13
+    ],
+    "section": "doc-summary",
+    "text": "Example Prompt\nDo the first thing carefully.\nSections: Example Prompt \u00b7 Step One \u00b7 Step Two"
+  },
+  {
+    "id": "docs/prompts/example.prompt.md#preamble",
+    "path": "docs/prompts/example.prompt.md",
+    "kind": "prompt",
+    "language": null,
+    "lines": [
+      1,
+      3
+    ],
+    "section": null,
+    "text": "# Example Prompt"
+  },
+  {
+    "id": "docs/prompts/example.prompt.md#step-one",
+    "path": "docs/prompts/example.prompt.md",
+    "kind": "prompt",
+    "language": null,
+    "lines": [
+      3,
+      10
+    ],
+    "section": "Example Prompt > Step One",
+    "text": "Example Prompt > Step One\n\nDo the first thing carefully.\n\n```bash\nrun --first\n```"
+  },
+  {
+    "id": "docs/prompts/example.prompt.md#step-two",
+    "path": "docs/prompts/example.prompt.md",
+    "kind": "prompt",
+    "language": null,
+    "lines": [
+      11,
+      13
+    ],
+    "section": "Example Prompt > Step Two",
+    "text": "Example Prompt > Step Two\n\nDo the second thing."
+  },
+  {
+    "id": "docs/oversized.md#doc-summary",
+    "path": "docs/oversized.md",
+    "kind": "doc-summary",
+    "language": null,
+    "lines": [
+      1,
+      40
+    ],
+    "section": "doc-summary",
+    "text": "Big Doc\nParagraph 0 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nSections: Big Doc \u00b7 Deployment \u00b7 Rollback \u00b7 Verification"
+  },
+  {
+    "id": "docs/oversized.md#preamble",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      1,
+      3
+    ],
+    "section": null,
+    "text": "# Big Doc"
+  },
+  {
+    "id": "docs/oversized.md#deployment:L5-L17",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      5,
+      17
+    ],
+    "section": "Big Doc > Deployment (part 1/3)",
+    "text": "Big Doc > Deployment\n\nParagraph 0 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 1 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 2 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 3 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 4 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 5 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 6 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 7 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 8 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 9 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 10 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 11 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 12 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior."
+  },
+  {
+    "id": "docs/oversized.md#deployment:L18-L30",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      18,
+      30
+    ],
+    "section": "Big Doc > Deployment (part 2/3)",
+    "text": "Big Doc > Deployment\n\nParagraph 13 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 14 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 15 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 16 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 17 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 18 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 19 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 20 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 21 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 22 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 23 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 24 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 25 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior."
+  },
+  {
+    "id": "docs/oversized.md#deployment:L31-L32",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      31,
+      32
+    ],
+    "section": "Big Doc > Deployment (part 3/3)",
+    "text": "Big Doc > Deployment\n\nParagraph 26 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nParagraph 27 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior."
+  },
+  {
+    "id": "docs/oversized.md#deployment/rollback",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      33,
+      36
+    ],
+    "section": "Big Doc > Deployment > Rollback",
+    "text": "Big Doc > Deployment > Rollback\n\nRollback prose paragraph."
+  },
+  {
+    "id": "docs/oversized.md#deployment/verification",
+    "path": "docs/oversized.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      37,
+      39
+    ],
+    "section": "Big Doc > Deployment > Verification",
+    "text": "Big Doc > Deployment > Verification\n\nVerification prose paragraph."
+  }
+]

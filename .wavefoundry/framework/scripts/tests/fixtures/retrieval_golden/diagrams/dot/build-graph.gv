@@ -1,0 +1,11 @@
+digraph BuildTargets {
+    parser_lib   [label="parser library"];
+    query_engine [label="query engine"];
+    cli_tool     [label="command line tool"];
+    test_suite   [label="integration test suite"];
+
+    query_engine -> parser_lib [label="links against"];
+    cli_tool     -> query_engine;
+    test_suite   -> cli_tool;
+    test_suite   -> parser_lib [label="fuzzes grammar fixtures"];
+}

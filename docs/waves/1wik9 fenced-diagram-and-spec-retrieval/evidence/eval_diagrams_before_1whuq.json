@@ -1,0 +1,87 @@
+{
+  "set": "diagrams",
+  "label": "1whuq before (baseline, chunker 35: diagram files emit no docs-kind chunks)",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "35",
+  "rank_depth": 20,
+  "metrics": {
+    "recall_at_5": 0.0,
+    "mrr": 0.0,
+    "query_count": 9,
+    "chunk_count": 0,
+    "per_query": [
+      {
+        "id": "d01",
+        "query": "which service validates the bearer token signature during login",
+        "expected_file": "mermaid/auth-flow.mmd",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d02",
+        "query": "what happens on a session cache miss during login",
+        "expected_file": "mermaid/auth-flow.mmd",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d03",
+        "query": "where do rejected rows go in the data pipeline",
+        "expected_file": "mermaid/data-pipeline.mermaid",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d04",
+        "query": "which component forwards jobs from the isolated network segment",
+        "expected_file": "plantuml/deployment.puml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d05",
+        "query": "what does the production deployment topology look like",
+        "expected_file": "plantuml/deployment.puml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d06",
+        "query": "what state does an order enter when payment is declined",
+        "expected_file": "plantuml/order-lifecycle.plantuml",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d07",
+        "query": "which services read from the config service",
+        "expected_file": "dot/service-deps.dot",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d08",
+        "query": "who renders and emails invoices for billing",
+        "expected_file": "dot/service-deps.dot",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      },
+      {
+        "id": "d09",
+        "query": "which build target links against the parser library",
+        "expected_file": "dot/build-graph.gv",
+        "rank": 0,
+        "hit_at_5": false,
+        "top5": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,74 @@
+asyncapi: '2.6.0'
+info:
+  title: Order Events
+  version: 1.4.0
+  description: Event stream contract for the order lifecycle on the commerce bus.
+defaultContentType: application/json
+channels:
+  order/placed:
+    description: Emitted once per checkout after payment authorization succeeds.
+    subscribe:
+      operationId: onOrderPlaced
+      summary: Consume newly placed orders for fulfilment planning.
+      message:
+        $ref: '#/components/messages/OrderPlaced'
+  order/cancelled:
+    description: Emitted when a customer or an operator cancels an order before shipment.
+    subscribe:
+      operationId: onOrderCancelled
+      summary: Consume cancellations to release reserved warehouse stock.
+      message:
+        $ref: '#/components/messages/OrderCancelled'
+  inventory/reservation:
+    description: Command channel for reserving stock against a placed order.
+    publish:
+      operationId: reserveInventory
+      summary: Request a warehouse stock reservation for the order lines.
+      message:
+        $ref: '#/components/messages/ReserveInventory'
+components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      title: Order placed event
+      summary: A customer completed checkout and payment was authorized.
+      payload:
+        $ref: '#/components/schemas/OrderPayload'
+    OrderCancelled:
+      name: OrderCancelled
+      title: Order cancelled event
+      summary: An order was cancelled before shipment and its stock must be released.
+      payload:
+        $ref: '#/components/schemas/CancellationPayload'
+    ReserveInventory:
+      name: ReserveInventory
+      title: Reserve inventory command
+      summary: Reserve warehouse stock for every line of a placed order.
+      payload:
+        $ref: '#/components/schemas/ReservationPayload'
+  schemas:
+    OrderPayload:
+      type: object
+      properties:
+        orderId:
+          type: string
+          description: Stable order identifier assigned at checkout.
+        lines:
+          type: array
+          description: Ordered items with quantity and unit price at purchase time.
+    CancellationPayload:
+      type: object
+      properties:
+        orderId:
+          type: string
+        reason:
+          type: string
+          description: Machine-readable cancellation reason code.
+    ReservationPayload:
+      type: object
+      properties:
+        orderId:
+          type: string
+        warehouseHint:
+          type: string
+          description: Preferred fulfilment warehouse for split-shipment decisions.

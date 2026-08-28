@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/customer.schema.json",
+  "title": "Customer",
+  "description": "A customer account record as stored by the accounts service and exchanged over the sync API. Records are soft-deleted, never physically removed by API calls.",
+  "type": "object",
+  "required": ["id", "email", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Immutable account identifier assigned at signup; ULID-formatted and safe to use as a foreign key."
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Primary contact address; must be unique across all active customers. Uniqueness is enforced case-insensitively at write time, and a conflicting write is rejected with a uniqueness violation rather than silently merging accounts. Soft-deleted customers release their address for reuse."
+    },
+    "displayName": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Name shown in dashboards and receipts. Free text; trailing whitespace is trimmed on write."
+    },
+    "billingAddress": {
+      "$ref": "#/$defs/Address",
+      "description": "Address used on invoices. Validated more strictly than the shipping address: it must geocode to a deliverable location before invoicing is enabled."
+    },
+    "shippingAddresses": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/Address"
+      },
+      "description": "Saved shipping destinations, at most 10 per customer. The first entry is treated as the default at checkout."
+    },
+    "marketingOptIn": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the customer agreed to marketing email. Defaults to false and may only be set true by an explicit consent event; imports cannot flip it."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of account creation in UTC."
+    },
+    "deletedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Soft-delete marker: when a customer is deleted, deletedAt is set instead of removing the row, and the record stops appearing in list responses while remaining readable by direct id lookup for audit purposes. A null value means the account is active."
+    }
+  },
+  "$defs": {
+    "Address": {
+      "type": "object",
+      "description": "A postal address. line1 and countryCode are always required; region is required only for countries that use subdivisions, such as US states or Canadian provinces.",
+      "required": ["line1", "city", "countryCode", "postalCode"],
+      "properties": {
+        "line1": {
+          "type": "string",
+          "description": "Street address including house number. Post office boxes are rejected for shipping addresses but allowed for billing."
+        },
+        "line2": {
+          "type": "string",
+          "description": "Apartment, suite, or unit; optional."
+        },
+        "city": {
+          "type": "string",
+          "description": "City or locality name."
+        },
+        "region": {
+          "type": "string",
+          "description": "State, province, or subdivision code where the country requires one."
+        },
+        "postalCode": {
+          "type": "string",
+          "description": "Postal code; must match the national format of the country given in countryCode, for example five digits or ZIP+4 for US addresses. Validation happens on write and invalid codes reject the whole address."
+        },
+        "countryCode": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "Two-letter uppercase ISO 3166-1 country code."
+        }
+      }
+    }
+  }
+}

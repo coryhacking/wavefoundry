@@ -509,8 +509,49 @@ FRAMEWORK_DEV_ONLY_EXACT_PATHS = frozenset({
 })
 TEST_DIR_NAMES = {"test", "tests", "__tests__"}
 
+# ---------------------------------------------------------------------------
+# CORPUS EXCLUSION STORY (wave 1wfsl / 1wfsn) — the ONE place that documents
+# every mechanism that keeps a file out of the retrieval corpora. All three
+# retrieval corpora (semantic docs, semantic code + lexical, graph) derive from
+# the single `walk_repo()` pass plus `_filter_code_files()`, so these layers
+# apply uniformly. In application order inside `walk_repo()`:
+#
+#   1. Directory pruning       — `HARDCODED_EXCLUDE_DIRS` (any component),
+#                                the blanket dot-directory rule (allowlist:
+#                                `_DOT_DIR_ALLOWLIST`), gitignore dir pruning.
+#   2. Exact-path exclusions   — `HARDCODED_EXCLUDE_PATHS`.
+#   3. Machine-authority paths — predicate family, NEVER re-includable:
+#                                `_is_canonical_wave_events_path` (per-wave
+#                                events.jsonl ledgers), `_is_memory_archive_body_path`,
+#                                `_is_legacy_memory_pointer_path`,
+#                                `_is_secret_scan_findings_path` (the committed
+#                                secret-scan findings ledger). Also re-enforced
+#                                on the `files=` build seam that bypasses the walk.
+#   4. Prefix exclusions       — `HARDCODED_EXCLUDE_PREFIXES` (index/logs/locks).
+#   5. Name layer              — `HARDCODED_EXCLUDE_FILENAMES` (exact names) and
+#                                `HARDCODED_EXCLUDE_FILENAME_SUFFIXES` (bounded
+#                                generated patterns, e.g. minified assets). This
+#                                is the ONLY layer the per-project re-include
+#                                hatch (`indexing.walk_reinclude_filenames` in
+#                                docs/workflow-config.json) can subtract from.
+#   6. Extension layers        — `BINARY_EXTENSIONS` (includes `.lock`, so every
+#                                *.lock lockfile is excluded here even if a name
+#                                entry is re-included) and
+#                                `_GENERATED_EXCLUDE_EXTENSIONS`.
+#   7. Content sniff           — magic-byte/null-byte scan for unknown
+#                                extensions (catches e.g. `bun.lockb`).
+#   8. Ignore files + size cap — .gitignore/.aiignore patterns, `indexing.max_file_bytes`.
+#
+# After the walk, `_filter_code_files()` gates the CODE corpus on
+# `SOURCE_CODE_EXTENSIONS` (drops walked-but-not-code files such as `go.sum`,
+# `gradle.lockfile`, `*.map`), and per-layer include-prefixes scope membership.
+# Executed per-name census evidence: wave 1wfsl, 1wfsn-enh
+# (docs/waves/ evidence census_results.json).
+# ---------------------------------------------------------------------------
+
 # Directories and patterns always excluded regardless of .gitignore/.aiignore
 # Single directory names excluded wherever they appear in the path tree.
+# (Exclusion story layer 1 — see the banner above.)
 HARDCODED_EXCLUDE_DIRS = {
     ".git", ".hg", ".svn",
     "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache",
@@ -597,12 +638,24 @@ BINARY_EXTENSIONS = frozenset({
 })
 
 # Exact filenames excluded regardless of extension (generated/machine-written files).
+# Exclusion story layer 5 (name layer) — the re-include hatch
+# (`indexing.walk_reinclude_filenames`) subtracts from this layer ONLY; note
+# `yarn.lock` is double-covered by the `.lock` binary extension, so re-including
+# it by name has no effect (the extension layer is not overridable).
 HARDCODED_EXCLUDE_FILENAMES = frozenset({
     "package-lock.json",
     "yarn.lock",
     "pnpm-lock.yaml",
+    "npm-shrinkwrap.json",   # 1wfsn: npm publish-shape lockfile, machine-written
+    "packages.lock.json",    # 1wfsn: NuGet lockfile, machine-written
     "prompt-surface-manifest.json",  # machine-generated metadata artifact, not useful for search
 })
+
+# Bounded generated-name patterns excluded at the same name layer (1wfsn):
+# minified assets are machine-generated single-line blobs whose chunks embed as
+# noise. Matched by filename suffix; the re-include hatch can subtract an exact
+# filename from this layer too.
+HARDCODED_EXCLUDE_FILENAME_SUFFIXES = (".min.js", ".min.css")
 
 # Extensions for machine-generated files that are valid text but have no code semantics.
 _GENERATED_EXCLUDE_EXTENSIONS = frozenset({
@@ -614,6 +667,7 @@ _GENERATED_EXCLUDE_EXTENSIONS = frozenset({
 _KNOWN_TEXT_EXTENSIONS = frozenset(SOURCE_CODE_EXTENSIONS) | {
     ".md", ".markdown",
     ".txt",
+    ".rst", ".adoc", ".asciidoc",  # 1wfsm: prose docs formats, section-chunked doc-kind
     ".graphql", ".gql", ".proto",
     ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql",
     ".tf", ".tfvars", ".hcl", ".tpl",
@@ -645,7 +699,18 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # 9 -> 10 (1u8r2): exclude the repo-visible hash-only purge disposition authority.
 # 10 -> 11 (1u8r2): exclude retired per-record memory pointers during upgrade
 # transition, even before the lifecycle migration removes their directory.
-WALKER_VERSION = "11"
+# 11 -> 12 (1wfsl / 1wfsn): filter-logic change — straggler generated files are
+# excluded at the name layer (`npm-shrinkwrap.json`, `packages.lock.json` exact;
+# `*.min.js`/`*.min.css` by suffix), the committed secret-scan findings ledger
+# joins the machine-authority path exclusions, and the per-project
+# `indexing.walk_reinclude_filenames` hatch can subtract exact names from the
+# name layer only. Existing indexes must re-walk to drop the newly-excluded files.
+# 12 -> 13 (1wfsl / 1wfsm): filter-logic-change clause — `.rst`/`.adoc`/`.asciidoc`
+# join `_KNOWN_TEXT_EXTENSIONS` (sniff skipped; walk membership itself is
+# unchanged since these text files already passed the sniff). The bump rides the
+# same clause so consumer indexes re-walk and re-chunk them through the new
+# doc-kind section chunkers (paired with the CHUNKER_VERSION 33 bump).
+WALKER_VERSION = "13"
 _MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
 _MEMORY_LEGACY_POINTER_PREFIX = "docs/agents/memory/pointers/"
 
@@ -725,6 +790,48 @@ def _resolve_max_file_bytes(root: Path) -> int:
     return _resolve_index_size_limits(root)[0]
 
 
+def _resolve_spec_chunking_override(root: Path) -> Optional[bool]:
+    """Read `indexing.spec_aware_chunking` (1wfr8) from docs/workflow-config.json.
+    Returns the boolean when present, None when absent/invalid (chunker default)."""
+    cfg = root / "docs" / "workflow-config.json"
+    if not cfg.exists():
+        return None
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
+    value = indexing.get("spec_aware_chunking") if isinstance(indexing, dict) else None
+    return value if isinstance(value, bool) else None
+
+
+def _resolve_walk_reinclude_filenames(root: Path) -> frozenset[str]:
+    """Per-project re-include hatch (1wfsn): exact filenames subtracted from the
+    NAME layer of the walk exclusions (`HARDCODED_EXCLUDE_FILENAMES` +
+    `HARDCODED_EXCLUDE_FILENAME_SUFFIXES`) via `indexing.walk_reinclude_filenames`
+    in docs/workflow-config.json. Default empty. It cannot override the
+    binary-extension, generated-extension, or content-sniff layers, and never
+    reaches the machine-authority path exclusions, which the walk applies
+    before the name layer. Non-list / non-string entries are ignored."""
+    cfg = root / "docs" / "workflow-config.json"
+    if not cfg.exists():
+        return frozenset()
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return frozenset()
+    indexing = data.get("indexing", {}) if isinstance(data, dict) else {}
+    if not isinstance(indexing, dict):
+        return frozenset()
+    raw = indexing.get("walk_reinclude_filenames")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(
+        entry for entry in raw
+        if isinstance(entry, str) and entry and "/" not in entry and "\\" not in entry
+    )
+
+
 # Wave 1to78: the structural wave-ledger predicate relocated to
 # review_evidence.py so the docs-lint orphan-ledger guard and this retrieval
 # exclusion share one definition of the fixed wave-folder role. The
@@ -770,6 +877,26 @@ def _filter_legacy_memory_pointers(files: list[Path], root: Path) -> list[Path]:
     ]
 
 
+# 1wfsn: the committed secret-scan FINDINGS ledger is machine authority (finding
+# records with status/disposition), never retrieval content — the same class as
+# the wave event ledgers above. The path is imported from wave_lint_lib so the
+# scanner and this exclusion share one definition.
+from wave_lint_lib.constants import SCAN_FINDINGS_PATH as _SCAN_FINDINGS_REL_PATH
+
+
+def _is_secret_scan_findings_path(rel_path: str) -> bool:
+    return rel_path.replace("\\", "/") == _SCAN_FINDINGS_REL_PATH
+
+
+def _filter_secret_scan_findings(files: list[Path], root: Path) -> list[Path]:
+    return [
+        path for path in files
+        if not _is_secret_scan_findings_path(
+            str(path.relative_to(root)).replace("\\", "/")
+        )
+    ]
+
+
 def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
@@ -778,6 +905,7 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
     tree-sitter-parsed, spinning the indexer."""
     ignore_patterns = _load_ignore_patterns(root) if respect_ignore else []
     max_file_bytes = _resolve_max_file_bytes(root)
+    reinclude_names = _resolve_walk_reinclude_filenames(root)
     result: list[Path] = []
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -835,6 +963,10 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
                 continue
             if _is_legacy_memory_pointer_path(rel_str):
                 continue
+            # 1wfsn: committed secret-scan findings ledger — machine authority,
+            # applied BEFORE the name layer so the re-include hatch can't reach it.
+            if _is_secret_scan_findings_path(rel_str):
+                continue
 
             # Check hardcoded prefix excludes
             if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
@@ -864,9 +996,15 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
                 result.append(path)
                 continue
 
-            # Exact-filename exclusions (generated lock files)
-            if filename in HARDCODED_EXCLUDE_FILENAMES:
-                continue
+            # Name layer (exclusion story layer 5): exact generated filenames plus
+            # bounded generated-name suffix patterns. The ONLY layer the
+            # per-project re-include hatch subtracts from; the extension and
+            # sniff layers below still apply to anything re-included here.
+            if filename not in reinclude_names:
+                if filename in HARDCODED_EXCLUDE_FILENAMES:
+                    continue
+                if filename.endswith(HARDCODED_EXCLUDE_FILENAME_SUFFIXES):
+                    continue
 
             # Binary extensions
             if suffix in BINARY_EXTENSIONS:
@@ -3671,7 +3809,10 @@ def _progress(verbose: bool, message: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _is_docs_kind(kind: str) -> bool:
-    return kind in ("doc", "seed", "prompt", "doc-summary")
+    # doc-code (1whup): extracted fences/directive bodies from doc-family files
+    # route to the DOCS table — docs files are never code-eligible, so without
+    # this membership the per-table eligibility gate drops them from BOTH tables.
+    return kind in ("doc", "seed", "prompt", "doc-summary", "doc-code")
 
 
 _MEMORY_RECORD_PREFIX = "docs/agents/memory/"
@@ -3933,6 +4074,13 @@ def build_index(
     # Wave 1p5c4: publish the tree-sitter parse cap so the chunker and graph extractor (in-process
     # or subprocess) skip the AST on oversized files. Resolved from indexing.max_treesitter_parse_bytes.
     os.environ["WAVEFOUNDRY_MAX_TS_PARSE_BYTES"] = str(_resolve_index_size_limits(root)[1])
+    # 1wfr8: publish the per-project spec-chunking override (indexing.spec_aware_chunking,
+    # a boolean) when the key is present; absent = the chunker's shipped default.
+    spec_override = _resolve_spec_chunking_override(root)
+    if spec_override is not None:
+        os.environ["WAVEFOUNDRY_SPEC_CHUNKING"] = "1" if spec_override else "0"
+    else:
+        os.environ.pop("WAVEFOUNDRY_SPEC_CHUNKING", None)
     if dry_run:
         return _build_index_locked(
             root,
@@ -4276,6 +4424,7 @@ def _build_index_locked(
         files = _filter_canonical_wave_event_ledgers(files, root)
         files = _filter_memory_archive_bodies(files, root)
         files = _filter_legacy_memory_pointers(files, root)
+        files = _filter_secret_scan_findings(files, root)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)

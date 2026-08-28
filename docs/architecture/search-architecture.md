@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-27
 
 ## The Problem
 
@@ -114,6 +114,27 @@ or model name mismatches" safety net is no longer needed for the docs/code index
 **It keeps the two concerns separate.** The semantic index is for concepts; the filesystem is for facts. Blurring this boundary would require the index to be rebuilt on every code edit and kept perfectly in sync — a reliability problem that adds complexity without benefit.
 
 All file walks reuse the same ignore/exclusion rules as the indexer (`walk_repo()`, `.gitignore`, `.aiignore`, hardcoded excludes) to keep results consistent.
+
+**The walk-exclusion contract (wave `1wfsl`, `1wfsn`).** The exclusion surface is consolidated
+behind one documented story — the "CORPUS EXCLUSION STORY" banner above the constants in
+`indexer.py` — because its fragmentation across unrelated constants caused a false planning
+census. The layers, in application order: directory pruning (hardcoded dirs, the dot-directory
+rule, gitignored dirs), exact-path exclusions, the machine-authority path predicates (per-wave
+`events.jsonl` ledgers, memory-archive bodies, and the committed secret-scan findings ledger
+`docs/scan-findings.json` — never re-includable, also enforced on the `files=` incremental build
+seam), prefix exclusions, the NAME layer (`HARDCODED_EXCLUDE_FILENAMES` exact names such as
+`package-lock.json` and `npm-shrinkwrap.json`, plus `HARDCODED_EXCLUDE_FILENAME_SUFFIXES`
+patterns `*.min.js`/`*.min.css`), the extension layers (`BINARY_EXTENSIONS` including `.lock`;
+generated extensions), the content sniff, and finally ignore files plus the size cap. After the
+walk, `_filter_code_files` gates the code corpus on `SOURCE_CODE_EXTENSIONS` (dropping e.g.
+`go.sum`, `gradle.lockfile`, `*.map`). A per-project re-include hatch —
+`indexing.walk_reinclude_filenames` in `docs/workflow-config.json`, default empty, exact
+filenames only — subtracts from the NAME layer alone: it cannot override the extension, sniff,
+or machine-authority layers (re-including `yarn.lock` by name is therefore a no-op, because the
+`.lock` binary extension still excludes it). All three retrieval corpora (semantic docs,
+semantic code plus lexical, graph) derive from this one walk, so the layers apply uniformly.
+The standalone secret scanner's candidate set (all tracked files) is independent of these walk
+exclusions by design and is regression-pinned against narrowing.
 
 ### Decision 6: Symbol navigation uses Python AST plus targeted tree-sitter-backed languages
 
@@ -345,7 +366,7 @@ infrastructure failure (`query_failed`) is never presented as an empty corpus.
 {
  "id": "unique string",
  "path": "repo-relative/path/to/file.md",
- "kind": "doc | doc-summary | seed | prompt | code | code-summary | python | ...",
+ "kind": "doc | doc-summary | doc-code | seed | prompt | code | code-summary | python | ...",
  "language": "python | null",
  "lines": [start_line, end_line],
  "section": "Header text or null",
@@ -356,6 +377,10 @@ infrastructure failure (`query_failed`) is never presented as an empty corpus.
 The `kind` field now includes two orientation kinds:
 - `code-summary` — file-level symbol index for source files; routes to code index
 - `doc-summary` — heading index for markdown files; routes to docs index
+- `code` chunks for YAML/JSON gain a curated spec-aware path since wave `1wfsl` (`1wfr8`): content-detected OpenAPI (3.x YAML/JSON, Swagger 2.x — root `openapi:`/`swagger:` key) and JSON Schema files (json-schema.org `$schema` dialect URI, or a schema-shaped root passing value-shape guards; schemastore config references and data files with coincidental `type`/`properties` keys stay flat) chunk at operation / definition / property level with the breadcrumb baked into kind="code" text (`paths./users/{id}.get:`); undetected files chunk byte-identically (differential-pinned), and non-curated sections of DETECTED specs (servers, security schemes, webhooks, other components subsections) keep full coverage through per-subsection and residue chunks (delivery finding ARCH-DEL-1), so detection never loses content flat emission served. Measured on the committed golden set (re-run after the residue repair): recall at 5 0.833 to 1.000, MRR 0.819 to 0.948 — shipped DEFAULT-ON per the numeric bar, per-project override `indexing.spec_aware_chunking`
+- `code` spec-family units (wave `1wik9`, `1wfso`) extend the curated pattern to three more formats behind the same `indexing.spec_aware_chunking` gate, each shipped DEFAULT-ON on its own recorded measurement: **AsyncAPI** is content-detected by the root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes the JSON-Schema shape detection so order is deterministic) and chunks channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose plus the residue chunk (measured: recall at 5 0.875 to 1.0, MRR 0.573 to 0.692 on the frozen 8-query subset); **GraphQL SDL** (`.graphql`/`.gql`, extension-gated, bounded internal parser, no grammar dependency) chunks per-type-declaration units carrying block-string descriptions plus per-described-member units with type-path breadcrumbs like `Query.user:` (measured at the recall ceiling: 1.0 held, MRR 0.9375 to 1.0); **Protobuf** (`.proto`, extension-gated internal parser) chunks message/enum/service units pairing attached leading comments with bodies plus rpc/field units for commented members under package-qualified breadcrumbs like `accounts.v1.UserService.GetUser:` — detached comments and options create no units (measured at ceiling: 1.0/1.0 held). Undetected and gate-off files chunk byte-identically; per-format content-coverage differentials (ARCH-DEL-1 pattern) prove zero coverage loss with revert-simulation.
+- `doc` section chunks come from markdown AND, since wave `1wfsl` (`1wfsm`), reStructuredText (`.rst`) and AsciiDoc (`.adoc`/`.asciidoc`) — section-chunked with the same breadcrumb lever, code/listing bodies extracted per the next bullet, matched-pair golden-set measurement recorded as wave evidence (rst recall at 5 matches markdown; adoc within two twin-competition ranks)
+- `doc-code` (wave `1wik9`, `1whup`) — fenced code blocks, rst code-directive bodies, and adoc listing blocks extracted from documentation files route to the DOCS index via `_is_docs_kind` (previously they were emitted as `kind="code"` and the per-table eligibility gate dropped them from BOTH tables, because docs files are never code-eligible). Identities carry a FILE-PASS-scoped ordinal (`{prefix}:code-N`, one counter per chunk_file invocation — per-section resets collide on duplicate-titled sections and the delta planner keys by chunk id); text keeps the section breadcrumb (baked for markdown fences, injected for rst/adoc via `_DOCS_BREADCRUMB_KINDS`); the code size cap applies; prompt-kind files keep fences inline by design; notebook code cells retain their preserved pre-existing state (kind="code", reaching neither table — a recorded dispositioned follow-up). Since `1whuq` (same wave) the kind also carries standalone hand-authored diagram files — Mermaid (`.mmd`/`.mermaid`), PlantUML (`.puml`/`.plantuml`), Graphviz DOT (`.dot`/`.gv`) — as ONE unit per file: a breadcrumb line from the declared title (mermaid frontmatter/`title` line, plantuml `title`, the DOT graph identifier) or the file stem, then the raw source (labels are the retrieval value; no diagram parsing). Registration is chunker-only (never `_KNOWN_TEXT_EXTENSIONS` — sniff bypass, binary `.dot` Word-template namesake; no walker bump), eligibility is whole-repo outside `.wavefoundry/`, and tool-generated formats (`.drawio`/`.excalidraw`) plus ambiguous extensions (`.d2`, Structurizr `.dsl`) stay out by decision. Measured on the frozen 9-query `diagrams` golden set: 0.0 to 1.0 recall at 5 and MRR 1.0 (every query ranks its diagram first); post-landing prose aggregates byte-identical (per-set-disjoint corpora). Filterable via `docs_search(kind='doc-code')`; excluded from the `architecture` virtual kind (doc-summary precedent). Measured on the extended prose golden set: fence-targeted queries 0.0 to 1.0 recall at 5 on all three formats; content-anchored per-format prose aggregates unchanged at 0.875 (zero content losses; file-attributed movements are matched-trio tie-shuffle, dispositioned in the wave evidence)
 
 The `text` field is what was embedded. The `path` and `lines` fields are what the agent sees in results. Keeping the two separate means the embedded text can be a normalized or chunked version of the file without changing what's reported back.
 

@@ -139,7 +139,7 @@ Reading code is not executing it: these rules locate and explain code, but a loa
 
 `docs_search` and other chunked-doc retrieval surfaces return chunks with a `section` field. Standard labels look like `Doc Title > Section Heading`. Three suffixed conventions signal automatic decomposition by the chunker — they are NOT operator authoring conventions:
 
-- **`Doc Title > Section (part N/M)`** — universal-guard line-wrap. The section exceeded the per-kind cap (1500 chars for code, 2000 for everything else, both calibrated to the BGE-small embedder's 512-token input budget) and was split into M parts. The section breadcrumb is preserved on every part's text body so retrieval context survives. Bullet lists and numbered ACs land cleanly at line boundaries; prose sections cut at line boundaries.
+- **`Doc Title > Section (part N/M)`** — universal-guard line-wrap. The section exceeded the per-kind cap (1500 chars for code and doc-code, 2000 for everything else, both calibrated to the BGE-small embedder's 512-token input budget) and was split into M parts. The section breadcrumb is preserved on every part's text body so retrieval context survives. Bullet lists and numbered ACs land cleanly at line boundaries; prose sections cut at line boundaries.
 - **`Doc Title > Section (rows N–M of T)`** — markdown pipe-table per-row decomposition. The section contained a pipe table (header row + separator row + T data rows) that exceeded the cap. Each emitted chunk preserves the table's header + separator rows so column context (e.g., `| Date | Decision | Reason | Alternatives |` from a Decision Log) survives. Operators reading retrieval results don't need to chase the parent chunk to know what columns mean.
 - **`Doc Title > Section (part N/M)` inside a `(rows N–M of T)` chunk** — when a single oversized data row still exceeds the cap after table decomposition, the universal guard line-wraps that single chunk. The lead part carries the table header; continuations carry the row tail.
 
@@ -375,7 +375,7 @@ When the operator asks how a **framework mechanism** works (chunking, indexing, 
 | Orientation chunks | `doc-summary` / `code-summary` — what each contains and when emitted |
 | Primary boundary | Heading detection, section split, breadcrumb format |
 | Size fallback | Threshold constants, H3 re-split, line-window fallback |
-| Extracted sub-chunks | Fenced code pulled to separate `kind="code"` chunks vs left inline |
+| Extracted sub-chunks | Fenced code pulled to separate `kind="doc-code"` chunks vs left inline |
 | Kind overrides | `doc` vs `seed` vs `prompt`; prompt-specific suppress flags |
 | Preamble / frontmatter | How metadata before first section is handled |
 | Non-markdown paths | Notebooks, plain text, design JSON, code languages — if in scope |
@@ -635,6 +635,51 @@ Citation fields in `code_ask` response:
 - Lock files, build outputs, compiled binaries
 - Files matching `.gitignore` / `.aiignore` patterns
 - The entire `.wavefoundry/` directory (wave 1p2q3 1p2qd) — framework infrastructure (`.wavefoundry/framework/`, `.wavefoundry/bin/`, `.wavefoundry/CHANGELOG.md`, `.wavefoundry/dist/`, etc.) does not appear in the consumer project's graph or semantic index by default. The one exception: the framework's **seeds and top-level README fold into the project docs index** at setup/upgrade, so the framework methodology is searchable via the normal `docs_search` / `seed_get` (there is a single project index — no separate framework index and no `layer="framework"`). The rest of `.wavefoundry/framework/` (scripts, operational docs) stays framework-internal. Self-hosting projects (e.g. the wavefoundry repository itself) opt specific framework subpaths back into the project index via `indexing.project_include_prefixes.code` in `docs/workflow-config.json` (listing the subpaths they actually want, e.g. `.wavefoundry/framework/scripts`)
+
+**Structured-format directories and the code index:** the CODE index covers every
+`SOURCE_CODE_EXTENSIONS` format — including YAML, JSON, and TOML, so OpenAPI specs, JSON
+Schemas, and infrastructure manifests are code-index citizens — and it covers the WHOLE
+repository by default: everything outside `.wavefoundry/`, the corpus exclusions, and your
+`.gitignore`/`.aiignore` patterns. An ordinary spec directory is therefore searchable with NO
+configuration. When spec content is missing from `code_search`, work the checklist in order:
+
+1. Check the files are not matched by `.gitignore`/`.aiignore` — the walk respects both, and
+   an ignored generated-spec directory is the common silent gap (un-ignore or relocate the
+   curated contracts you want searchable).
+2. For content nested under `.wavefoundry/` (the self-hosting case), opt the specific subpath
+   back in past the blanket exclusion via `indexing.project_include_prefixes.code` in
+   `docs/workflow-config.json` (list curated subpaths; never widen to broad roots).
+3. Rebuild with `wf update-indexes` (or the MCP `index_build(content='code', mode='update')`)
+   and verify with a `code_search` query for content you know lives there.
+
+Detected OpenAPI, JSON Schema, and AsyncAPI files chunk structure-aware — operation-,
+definition-, property-, channel-, and message-level units with breadcrumbed text — and
+GraphQL SDL (`.graphql`/`.gql`) and Protobuf (`.proto`) files chunk their block-string
+descriptions and leading comments into symbol-path-breadcrumbed units (`Query.user:`,
+`accounts.v1.UserService.GetUser:`). All ride the same measured default-on gate
+(per-project override `indexing.spec_aware_chunking` in `docs/workflow-config.json`);
+other structured files chunk syntax-aware.
+
+**The docs-layer contract:** the docs layer serves DOCUMENTATION CONTENT — doc-kind chunks
+including markdown sections, reStructuredText and AsciiDoc sections, plain-text and
+extensionless documentation files, docstring/comment doc chunks extracted from code, HTML/XML
+element text, and notebook markdown cells, plus `doc-code` chunks: fenced code blocks,
+code-directive bodies, and listing blocks extracted from those documentation formats
+(commands, config snippets, mermaid diagrams), and standalone hand-authored diagram files —
+Mermaid (`.mmd`/`.mermaid`), PlantUML (`.puml`/`.plantuml`), Graphviz DOT (`.dot`/`.gv`) —
+as one title-or-stem-breadcrumbed unit per file (whole-repo eligible outside `.wavefoundry/`;
+nested framework diagram files need the include-prefix opt-in), breadcrumbed and filterable
+via `docs_search(kind='doc-code')` (a non-exhaustive list; chunk-kind routing is the
+authority; prompt-kind files keep fences inline by design; tool-generated diagram formats
+such as `.drawio`/`.excalidraw` stay out). Machine-authority
+data files — per-wave `events.jsonl` ledgers, memory-archive bodies, the committed secret-scan
+findings ledger — are excluded by path predicates and served through typed tools, never
+search. CSV is not indexed under any configuration; a markdown carrier page describing the
+dataset is the supported alternative for content that does not embed usefully. Generated names
+(lockfiles, minified assets) are excluded by the consolidated name layer; a project can
+restore a specific filename with `indexing.walk_reinclude_filenames` (name layer ONLY — it
+never overrides the binary-extension, content-sniff, or machine-authority exclusions). Never
+widen prefixes to pull in secret-bearing or machine-authority artifacts.
 
 **Staleness:** The index is rebuilt on `wf setup`, `wf update-indexes`, and MCP index-build flows. Check `index_freshness` in the `code_ask` response. When `"stale"`, the index may lag behind recent commits. To check whether a build is **currently running**, read the `lock` object on `index_build_status` (the `held` boolean) — do **not** read `.wavefoundry/index/index-build.lock` directly: that lock file persists by design as a crash-safe last-owner record and is reclaimed on the next build, so its presence does not mean a build is running.
 

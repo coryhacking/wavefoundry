@@ -1,0 +1,13 @@
+@startuml
+title Order Lifecycle States
+
+[*] --> Draft
+Draft --> Submitted : customer checks out
+Submitted --> Paid : payment captured
+Submitted --> PaymentRetry : payment declined
+PaymentRetry --> Paid : retry succeeds
+PaymentRetry --> Abandoned : three failures
+Paid --> Fulfilled : warehouse ships order
+Fulfilled --> [*]
+Abandoned --> [*]
+@enduml

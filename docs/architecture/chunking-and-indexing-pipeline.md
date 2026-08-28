@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-27
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -28,7 +28,7 @@ Repository files
         _detect_changes()     -- stat cache, then SHA-256 on cache miss
                 |
                 v
-          Chunking             -- markdown, code, plain-text, notebooks
+          Chunking             -- markdown, rst/adoc, code, plain-text, notebooks
                 |
                 v
           Embedding            -- docs model / code model (768-dim each)
@@ -175,7 +175,16 @@ PowerShell — and reaping is POSIX-only (Windows detached processes do not crea
 ## Stage 1: File Discovery
 
 `walk_repo(root)` walks the repository tree and collects every file that is not excluded by
-`.gitignore` or `.wavefoundryignore`. After the walk, two filters narrow the list:
+`.gitignore` or `.wavefoundryignore`. Inside the walk, the consolidated exclusion layers apply in
+order (the authoritative story is the "CORPUS EXCLUSION STORY" banner in `indexer.py`, wave
+`1wfsl`/`1wfsn`): hardcoded and dot-directory pruning, exact-path exclusions, the
+machine-authority path predicates (per-wave `events.jsonl` ledgers, memory-archive bodies, the
+committed secret-scan findings ledger), prefix exclusions, the name layer (exact generated
+filenames plus the `*.min.js`/`*.min.css` suffix patterns), the binary and generated extension
+sets, the content sniff, and the ignore/size-cap checks. The per-project
+`indexing.walk_reinclude_filenames` key in `docs/workflow-config.json` (default empty; exact
+filenames, no paths) restores names from the NAME layer only — it never overrides the extension,
+sniff, or machine-authority layers. After the walk, two filters narrow the list:
 
 1. **`_filter_by_prefixes`** — keeps only paths that start with a configured
    `include_prefixes` list. This is the primary mechanism for telling Wavefoundry which
@@ -290,9 +299,10 @@ recorded in the persisted store log.
 Version differences trigger convergence, but they do not all require new embeddings:
 
 - An embedding-model name/version mismatch forces a full rebuild and re-embed.
-- A `WALKER_VERSION` mismatch (currently `"6"`) forces a full rebuild because the eligible file
-  set may have changed (version 6 folded the framework seeds + `README` into the docs table).
-- A `CHUNKER_VERSION` mismatch (currently `"32"`) selects `rechunk_all`: every eligible file is
+- A `WALKER_VERSION` mismatch (currently `"13"`) forces a full rebuild because the eligible file
+  set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
+  12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
+- A `CHUNKER_VERSION` mismatch (currently `"34"`) selects `rechunk_all`: every eligible file is
   reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
 
 Both full rebuild and `rechunk_all` bypass ordinary per-file change detection; only the former
@@ -328,8 +338,9 @@ Every chunk includes:
 
 | `kind` | Lance table | Typical source |
 |--------|-------------|----------------|
-| `doc` | `docs` | Markdown prose, docstrings, HTML/XML element text |
+| `doc` | `docs` | Markdown, reStructuredText, and AsciiDoc prose sections (rst/adoc since wave `1wfsl`, `1wfsm`), docstrings, HTML/XML element text |
 | `doc-summary` | `docs` | One file-level summary per markdown doc |
+| `doc-code` | `docs` | Fenced code blocks, rst code-directive bodies, and adoc listing blocks extracted from documentation files (wave `1wik9`, `1whup`; file-pass-scoped ordinal ids), plus standalone Mermaid/PlantUML/Graphviz-DOT diagram files as one title-or-stem-breadcrumbed unit each (`1whuq`); breadcrumbed text, code size cap |
 | `seed` / `prompt` | `docs` | Framework seeds and `docs/prompts/` (special markdown rules) |
 | `code` | `code` | Source declarations, config blocks, Makefile rules |
 | `code-summary` | `code` | File-level symbol list + module comment (many languages) |
@@ -347,6 +358,35 @@ Tree-sitter grammars are **optional at runtime**: missing wheels log a one-time 
 language and step down to regex or line-window chunking. `setup_index.py` lists all grammar
 packages in `REQUIRED_IMPORTS` so a normal install pulls them into the tool venv.
 
+### reStructuredText / AsciiDoc chunking (`chunk_rst` / `chunk_adoc`, wave `1wfsl`, `1wfsm`)
+
+Pure-prose documentation formats section-chunked like markdown, emitting doc-kind chunks with
+breadcrumb section labels (the measured `1p4w9` lever). rst titles are recognized by
+underline/overline adornment under docutils' load-bearing rules (column-0, blank-line-preceded,
+underline at least title-length — so mid-paragraph separator rows and indented literal-block
+adornment never split); adoc titles by `=`-run prefixes outside delimited blocks. Code
+directives (`.. code-block::` etc.) and `[source]`/listing/literal blocks extract as
+`doc-code` chunks routed to the docs table (wave `1wik9`, `1whup` — previously code-kind,
+which the per-table eligibility gate dropped from both tables); media/table directives drop; admonition bodies stay prose; unrecognized structure
+degrades to larger plain-prose chunks — never to file exclusion. Bounded framework-internal
+parsing, no docutils/asciidoctor dependency. Markdown output is byte-identical
+(differential-pinned against the pre-change chunker in `MarkdownDifferentialTests`).
+
+### Diagram-file chunking (`chunk_diagram`, wave `1wik9`, `1whuq`)
+
+Standalone hand-authored diagram files — Mermaid (`.mmd`/`.mermaid`), PlantUML
+(`.puml`/`.plantuml`), Graphviz DOT (`.dot`/`.gv`) — chunk as ONE docs-routed `doc-code`
+unit each: a breadcrumb line from the declared title (mermaid frontmatter or `title` line,
+plantuml `title` directive, the DOT graph identifier) or the file stem, followed by the raw
+diagram source. Node/edge labels are the retrieval value and the raw source already contains
+every label, so there is no diagram parsing. Registration is chunker-only: the extensions
+never join `_KNOWN_TEXT_EXTENSIONS` (that registration bypasses the content sniff, and
+`.dot` has a binary Word-template namesake the sniff excludes), so walk behavior is
+unchanged. Oversized sources split through the universal guard; empty files emit nothing;
+unrecognized structure degrades to stem-breadcrumbed text. Tool-generated formats
+(`.drawio`, `.excalidraw`) and ambiguous extensions (`.d2`, Structurizr `.dsl`) are out by
+decision.
+
 ### Markdown chunking (`chunk_markdown`)
 
 Markdown files are split at heading boundaries, not at a fixed character count.
@@ -363,7 +403,12 @@ Markdown files are split at heading boundaries, not at a fixed character count.
    oversized chunks.
 
 4. **Code block extraction** — fenced code blocks inside sections are pulled out as
-   separate `kind="code"` chunks. The surrounding prose remains as a `kind="doc"` chunk.
+   separate `kind="doc-code"` chunks that route to the DOCS table (wave `1wik9`, `1whup`;
+   previously `kind="code"`, dropped from both tables by the per-table eligibility gate).
+   Identities carry a file-pass-scoped ordinal (`{prefix}:code-N` — one counter per
+   `chunk_file` invocation, so duplicate-titled sections and multi-fence sections never
+   collide). The surrounding prose remains as a `kind="doc"` chunk. Prompt-kind files keep
+   fences inline instead (`suppress_code_extraction`).
 
 5. **Breadcrumbs** — the `section` field is set to `"Document Title > Section Name"`.
 
@@ -732,8 +777,8 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"32"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
-| `WALKER_VERSION`          | `"6"`  | Forces a full rebuild (re-walk the include set)  |
+| `CHUNKER_VERSION`         | `"34"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
+| `WALKER_VERSION`          | `"13"` | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
 | `MAX_CODE_CHUNK_CHARS`    | 1500   | Triggers sub-split of oversized `kind="code"` chunks (matches the BGE code token budget) |
@@ -759,20 +804,29 @@ with full mode).
 
 ## Configuration Reference
 
-`docs/workflow-config.json` controls which paths are included in each index table.
+`docs/workflow-config.json` carries the per-project indexing knobs. The corpus covers the
+WHOLE repository by default — everything outside `.wavefoundry/`, the walk exclusions, and
+`.gitignore`/`.aiignore` — so ordinary directories need no configuration at all
+(delivery-review correction, wave `1wfsl`: `project_include_prefixes` is NOT a root
+selector; listing an ordinary directory like `src/` is a no-op).
 
 ```json
 {
   "indexing": {
     "project_include_prefixes": {
-      "docs": ["docs/", "README.md"],
-      "code": ["src/", "lib/"]
+      "docs": [],
+      "code": [".wavefoundry/framework/scripts"]
     }
   }
 }
 ```
 
-Setting `project_include_prefixes.docs` and `project_include_prefixes.code` tells
-`_filter_project_index_excludes` which paths to treat as project content. Without these
-keys, the defaults apply: `.wavefoundry/framework/` is excluded from the project layer, and
-all other paths passing `.gitignore` rules are eligible.
+`project_include_prefixes.docs` / `.code` are the OPT-BACK-IN past the `.wavefoundry/`
+blanket exclusion (`_filter_project_index_excludes`): list the curated
+`.wavefoundry/`-nested subpaths a self-hosting project wants in its own index, and never
+widen to broad roots. Without the keys, the defaults apply: `.wavefoundry/` is excluded
+from the project layer (the framework seeds + top-level `README` still fold into the docs
+table), and every other path passing the walk and ignore rules is eligible. Two further
+keys shipped in wave `1wfsl`: `indexing.walk_reinclude_filenames` (exact filenames
+subtracted from the walk's NAME exclusion layer only) and `indexing.spec_aware_chunking`
+(boolean override of the measured spec-chunking default).

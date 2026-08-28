@@ -1,0 +1,162 @@
+{
+  "census": "1whup-enh Requirement 1 executed emission-site and kind-mirror census",
+  "chunker_version": "34",
+  "walker_version": "13",
+  "emission_sites": [
+    {
+      "file": "docs/guide.md",
+      "doc_kind_chunks": [
+        {
+          "id": "docs/guide.md#doc-summary",
+          "kind": "doc-summary"
+        },
+        {
+          "id": "docs/guide.md#preamble",
+          "kind": "doc"
+        },
+        {
+          "id": "docs/guide.md#install",
+          "kind": "doc"
+        },
+        {
+          "id": "docs/guide.md#install",
+          "kind": "doc"
+        }
+      ],
+      "code_kind_chunks": [
+        {
+          "id": "docs/guide.md#preamble:code",
+          "kind": "code",
+          "language": "ini"
+        },
+        {
+          "id": "docs/guide.md#install:code",
+          "kind": "code",
+          "language": "bash"
+        },
+        {
+          "id": "docs/guide.md#install:code",
+          "kind": "code",
+          "language": "python"
+        }
+      ],
+      "code_chunk_id_collisions": [
+        "docs/guide.md#install:code"
+      ]
+    },
+    {
+      "file": "docs/prompts/step.prompt.md",
+      "doc_kind_chunks": [
+        {
+          "id": "docs/prompts/step.prompt.md#doc-summary",
+          "kind": "doc-summary"
+        },
+        {
+          "id": "docs/prompts/step.prompt.md#preamble",
+          "kind": "prompt"
+        },
+        {
+          "id": "docs/prompts/step.prompt.md#step",
+          "kind": "prompt"
+        }
+      ],
+      "code_kind_chunks": [],
+      "code_chunk_id_collisions": []
+    },
+    {
+      "file": "docs/guide.rst",
+      "doc_kind_chunks": [
+        {
+          "id": "docs/guide.rst#usage",
+          "kind": "doc"
+        }
+      ],
+      "code_kind_chunks": [
+        {
+          "id": "docs/guide.rst#usage:code-1",
+          "kind": "code",
+          "language": "python"
+        }
+      ],
+      "code_chunk_id_collisions": []
+    },
+    {
+      "file": "docs/guide.adoc",
+      "doc_kind_chunks": [
+        {
+          "id": "docs/guide.adoc#usage",
+          "kind": "doc"
+        }
+      ],
+      "code_kind_chunks": [
+        {
+          "id": "docs/guide.adoc#usage:code-1",
+          "kind": "code",
+          "language": "python"
+        }
+      ],
+      "code_chunk_id_collisions": []
+    },
+    {
+      "file": "docs/analysis.ipynb",
+      "doc_kind_chunks": [
+        {
+          "id": "docs/analysis.ipynb#cell-0",
+          "kind": "doc"
+        }
+      ],
+      "code_kind_chunks": [
+        {
+          "id": "docs/analysis.ipynb#cell-1",
+          "kind": "code",
+          "language": "python"
+        }
+      ],
+      "code_chunk_id_collisions": []
+    }
+  ],
+  "eligibility": {
+    "walked": [
+      "docs/analysis.ipynb",
+      "docs/guide.adoc",
+      "docs/guide.md",
+      "docs/guide.rst",
+      "docs/prompts/step.prompt.md",
+      "docs/workflow-config.json"
+    ],
+    "code_eligible": [
+      "docs/workflow-config.json"
+    ],
+    "doc_family_files_code_eligible": []
+  },
+  "kind_mirrors": {
+    "indexer._is_docs_kind_members": [
+      "doc",
+      "seed",
+      "prompt",
+      "doc-summary"
+    ],
+    "harness._DOCS_KINDS": [
+      "doc",
+      "doc-summary",
+      "prompt",
+      "seed"
+    ],
+    "server_impl.DOCS_SEARCH_KINDS": [
+      "architecture",
+      "doc",
+      "doc-summary",
+      "prompt",
+      "seed"
+    ],
+    "server_impl._doc_matches_kind_doc_code_matches_any_filter": false,
+    "server_impl_code_ask_partition_tuples_count": 2,
+    "server_impl_validation_required_tuple_present": true,
+    "chunker._DOCS_BREADCRUMB_KINDS": [
+      "doc",
+      "seed",
+      "prompt"
+    ],
+    "chunker._max_chars_for_doc_code_chunk": 2000
+  }
+}

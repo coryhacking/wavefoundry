@@ -1,0 +1,634 @@
+{
+  "negatives/.eslintrc.json": [
+    {
+      "id": "negatives/.eslintrc.json#node-0",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        2,
+        2
+      ],
+      "section": ".eslintrc > node-0",
+      "text": ".eslintrc > node-0\n\n  \"$schema\": \"https://json.schemastore.org/eslintrc.json\","
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-1",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        3,
+        3
+      ],
+      "section": ".eslintrc > node-1",
+      "text": ".eslintrc > node-1\n\n  \"root\": true,"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-2",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        4,
+        8
+      ],
+      "section": ".eslintrc > node-2",
+      "text": ".eslintrc > node-2\n\n  \"env\": {\n    \"browser\": true,\n    \"es2022\": true,\n    \"node\": true\n  },"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-3",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        9,
+        9
+      ],
+      "section": ".eslintrc > node-3",
+      "text": ".eslintrc > node-3\n\n  \"parser\": \"@typescript-eslint/parser\","
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-4",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        10,
+        14
+      ],
+      "section": ".eslintrc > node-4",
+      "text": ".eslintrc > node-4\n\n  \"parserOptions\": {\n    \"ecmaVersion\": 2022,\n    \"sourceType\": \"module\",\n    \"project\": \"./tsconfig.json\"\n  },"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-5",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        15,
+        15
+      ],
+      "section": ".eslintrc > node-5",
+      "text": ".eslintrc > node-5\n\n  \"plugins\": [\"@typescript-eslint\", \"import\"],"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-6",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        16,
+        20
+      ],
+      "section": ".eslintrc > node-6",
+      "text": ".eslintrc > node-6\n\n  \"extends\": [\n    \"eslint:recommended\",\n    \"plugin:@typescript-eslint/recommended\",\n    \"plugin:import/typescript\"\n  ],"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-7",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        21,
+        35
+      ],
+      "section": ".eslintrc > node-7",
+      "text": ".eslintrc > node-7\n\n  \"rules\": {\n    \"no-console\": [\"warn\", { \"allow\": [\"warn\", \"error\"] }],\n    \"eqeqeq\": [\"error\", \"smart\"],\n    \"import/order\": [\n      \"error\",\n      {\n        \"groups\": [\"builtin\", \"external\", \"internal\", \"parent\", \"sibling\"],\n        \"newlines-between\": \"always\"\n      }\n    ],\n    \"@typescript-eslint/no-unused-vars\": [\n      \"error\",\n      { \"argsIgnorePattern\": \"^_\" }\n    ]\n  },"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-8",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        36,
+        42
+      ],
+      "section": ".eslintrc > node-8",
+      "text": ".eslintrc > node-8\n\n  \"overrides\": [\n    {\n      \"files\": [\"*.test.ts\"],\n      \"env\": { \"jest\": true },\n      \"rules\": { \"no-console\": \"off\" }\n    }\n  ],"
+    },
+    {
+      "id": "negatives/.eslintrc.json#node-9",
+      "path": "negatives/.eslintrc.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        43,
+        43
+      ],
+      "section": ".eslintrc > node-9",
+      "text": ".eslintrc > node-9\n\n  \"ignorePatterns\": [\"dist/\", \"coverage/\", \"*.generated.ts\"]"
+    }
+  ],
+  "negatives/ci-workflow.yaml": [
+    {
+      "id": "negatives/ci-workflow.yaml#node-0",
+      "path": "negatives/ci-workflow.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        1,
+        1
+      ],
+      "section": "ci-workflow > node-0",
+      "text": "ci-workflow > node-0\n\nname: build-and-test"
+    },
+    {
+      "id": "negatives/ci-workflow.yaml#node-1",
+      "path": "negatives/ci-workflow.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        2,
+        7
+      ],
+      "section": "ci-workflow > node-1",
+      "text": "ci-workflow > node-1\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n  workflow_dispatch: {}"
+    },
+    {
+      "id": "negatives/ci-workflow.yaml#node-2",
+      "path": "negatives/ci-workflow.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        8,
+        10
+      ],
+      "section": "ci-workflow > node-2",
+      "text": "ci-workflow > node-2\n\nconcurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true"
+    },
+    {
+      "id": "negatives/ci-workflow.yaml#node-3",
+      "path": "negatives/ci-workflow.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        11,
+        12
+      ],
+      "section": "ci-workflow > node-3",
+      "text": "ci-workflow > node-3\n\npermissions:\n  contents: read"
+    },
+    {
+      "id": "negatives/ci-workflow.yaml#node-4",
+      "path": "negatives/ci-workflow.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        13,
+        56
+      ],
+      "section": "ci-workflow > node-4",
+      "text": "ci-workflow > node-4\n\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n          cache: npm\n      - run: npm ci\n      - run: npm run lint\n  test:\n    runs-on: ubuntu-latest\n    needs: lint\n    strategy:\n      fail-fast: false\n      matrix:\n        node: [18, 20, 22]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test -- --reporter junit --outputFile reports/junit-${{ matrix.node }}.xml\n      - uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: junit-${{ matrix.node }}\n          path: reports/\n  package:\n    runs-on: ubuntu-latest\n    needs: test\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run build\n      - uses: actions/upload-artifact@v4\n        with:\n          name: dist\n          path: dist/"
+    }
+  ],
+  "negatives/docker-compose.yaml": [
+    {
+      "id": "negatives/docker-compose.yaml#node-0",
+      "path": "negatives/docker-compose.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        1,
+        42
+      ],
+      "section": "docker-compose > node-0",
+      "text": "docker-compose > node-0\n\nservices:\n  web:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"8080:8080\"\n    environment:\n      DATABASE_URL: postgres://app:app@db:5432/storefront\n      REDIS_URL: redis://cache:6379/0\n      NODE_ENV: development\n    depends_on:\n      db:\n        condition: service_healthy\n      cache:\n        condition: service_started\n    volumes:\n      - ./src:/app/src:cached\n  db:\n    image: postgres:16-alpine\n    environment:\n      POSTGRES_USER: app\n      POSTGRES_PASSWORD: app\n      POSTGRES_DB: storefront\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U app -d storefront\"]\n      interval: 5s\n      timeout: 3s\n      retries: 10\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n    ports:\n      - \"5432:5432\"\n  cache:\n    image: redis:7-alpine\n    command: [\"redis-server\", \"--maxmemory\", \"128mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n    ports:\n      - \"6379:6379\"\n  mailhog:\n    image: mailhog/mailhog:v1.0.1\n    ports:\n      - \"8025:8025\""
+    },
+    {
+      "id": "negatives/docker-compose.yaml#node-1",
+      "path": "negatives/docker-compose.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        43,
+        45
+      ],
+      "section": "docker-compose > node-1",
+      "text": "docker-compose > node-1\n\nvolumes:\n  pgdata: {}"
+    }
+  ],
+  "negatives/feature-flags.json": [
+    {
+      "id": "negatives/feature-flags.json#node-0",
+      "path": "negatives/feature-flags.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        2,
+        2
+      ],
+      "section": "feature-flags > node-0",
+      "text": "feature-flags > node-0\n\n  \"version\": 12,"
+    },
+    {
+      "id": "negatives/feature-flags.json#node-1",
+      "path": "negatives/feature-flags.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        3,
+        3
+      ],
+      "section": "feature-flags > node-1",
+      "text": "feature-flags > node-1\n\n  \"updatedBy\": \"flag-sync-job\","
+    },
+    {
+      "id": "negatives/feature-flags.json#node-2",
+      "path": "negatives/feature-flags.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        4,
+        4
+      ],
+      "section": "feature-flags > node-2",
+      "text": "feature-flags > node-2\n\n  \"updatedAt\": \"2026-08-19T04:12:33Z\","
+    },
+    {
+      "id": "negatives/feature-flags.json#node-3",
+      "path": "negatives/feature-flags.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        5,
+        29
+      ],
+      "section": "feature-flags > node-3",
+      "text": "feature-flags > node-3\n\n  \"flags\": {\n    \"checkout.one-click\": {\n      \"enabled\": true,\n      \"rollout\": 100,\n      \"owner\": \"payments-squad\"\n    },\n    \"search.vector-rerank\": {\n      \"enabled\": true,\n      \"rollout\": 25,\n      \"owner\": \"discovery-squad\",\n      \"segments\": [\"beta-testers\", \"employees\"]\n    },\n    \"pdp.ar-preview\": {\n      \"enabled\": false,\n      \"rollout\": 0,\n      \"owner\": \"storefront-squad\",\n      \"note\": \"blocked on device benchmark results\"\n    },\n    \"email.digest-v2\": {\n      \"enabled\": true,\n      \"rollout\": 50,\n      \"owner\": \"lifecycle-squad\",\n      \"segments\": [\"opted-in\"]\n    }\n  },"
+    },
+    {
+      "id": "negatives/feature-flags.json#node-4",
+      "path": "negatives/feature-flags.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        30,
+        33
+      ],
+      "section": "feature-flags > node-4",
+      "text": "feature-flags > node-4\n\n  \"killSwitches\": {\n    \"recommendations\": false,\n    \"reviews-ingest\": false\n  }"
+    }
+  ],
+  "negatives/k8s-deployment.yaml": [
+    {
+      "id": "negatives/k8s-deployment.yaml#node-0",
+      "path": "negatives/k8s-deployment.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        1,
+        1
+      ],
+      "section": "k8s-deployment > node-0",
+      "text": "k8s-deployment > node-0\n\napiVersion: v1"
+    },
+    {
+      "id": "negatives/k8s-deployment.yaml#node-1",
+      "path": "negatives/k8s-deployment.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        2,
+        2
+      ],
+      "section": "k8s-deployment > node-1",
+      "text": "k8s-deployment > node-1\n\nkind: List"
+    },
+    {
+      "id": "negatives/k8s-deployment.yaml#node-2:L5-L58",
+      "path": "negatives/k8s-deployment.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        5,
+        58
+      ],
+      "section": "k8s-deployment > node-2 (part 1/2)",
+      "text": "k8s-deployment > node-2\n\nitems:\n  - apiVersion: apps/v1\n    kind: Deployment\n    metadata:\n      name: storefront-web\n      namespace: retail\n      labels:\n        app: storefront-web\n        tier: frontend\n    spec:\n      replicas: 3\n      revisionHistoryLimit: 5\n      selector:\n        matchLabels:\n          app: storefront-web\n      strategy:\n        type: RollingUpdate\n        rollingUpdate:\n          maxSurge: 1\n          maxUnavailable: 0\n      template:\n        metadata:\n          labels:\n            app: storefront-web\n            tier: frontend\n          annotations:\n            prometheus.io/scrape: \"true\"\n            prometheus.io/port: \"9102\"\n        spec:\n          serviceAccountName: storefront-web\n          containers:\n            - name: web\n              image: registry.example.com/retail/storefront-web:1.42.7\n              ports:\n                - name: http\n                  containerPort: 8080\n              env:\n                - name: NODE_ENV\n                  value: production\n                - name: SESSION_REDIS_HOST\n                  valueFrom:\n                    configMapKeyRef:\n                      name: storefront-config\n                      key: redisHost\n              resources:\n                requests:\n                  cpu: 250m\n                  memory: 256Mi\n                limits:\n                  cpu: \"1\"\n                  memory: 512Mi\n              readinessProbe:\n                httpGet:\n                  path: /healthz/ready"
+    },
+    {
+      "id": "negatives/k8s-deployment.yaml#node-2:L59-L80",
+      "path": "negatives/k8s-deployment.yaml",
+      "kind": "code",
+      "language": "yaml",
+      "lines": [
+        59,
+        80
+      ],
+      "section": "k8s-deployment > node-2 (part 2/2)",
+      "text": "k8s-deployment > node-2\n\n                  port: http\n                initialDelaySeconds: 5\n                periodSeconds: 10\n              livenessProbe:\n                httpGet:\n                  path: /healthz/live\n                  port: http\n                initialDelaySeconds: 15\n                periodSeconds: 20\n  - apiVersion: v1\n    kind: Service\n    metadata:\n      name: storefront-web\n      namespace: retail\n    spec:\n      type: ClusterIP\n      selector:\n        app: storefront-web\n      ports:\n        - name: http\n          port: 80\n          targetPort: http"
+    }
+  ],
+  "negatives/renovate.json": [
+    {
+      "id": "negatives/renovate.json#node-0",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        2,
+        2
+      ],
+      "section": "renovate > node-0",
+      "text": "renovate > node-0\n\n  \"$schema\": \"https://docs.renovatebot.com/renovate-schema.json\","
+    },
+    {
+      "id": "negatives/renovate.json#node-1",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        3,
+        7
+      ],
+      "section": "renovate > node-1",
+      "text": "renovate > node-1\n\n  \"extends\": [\n    \"config:recommended\",\n    \":semanticCommits\",\n    \":dependencyDashboard\"\n  ],"
+    },
+    {
+      "id": "negatives/renovate.json#node-2",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        8,
+        8
+      ],
+      "section": "renovate > node-2",
+      "text": "renovate > node-2\n\n  \"timezone\": \"America/Denver\","
+    },
+    {
+      "id": "negatives/renovate.json#node-3",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        9,
+        9
+      ],
+      "section": "renovate > node-3",
+      "text": "renovate > node-3\n\n  \"schedule\": [\"after 10pm every weekday\", \"every weekend\"],"
+    },
+    {
+      "id": "negatives/renovate.json#node-4",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        10,
+        10
+      ],
+      "section": "renovate > node-4",
+      "text": "renovate > node-4\n\n  \"labels\": [\"dependencies\"],"
+    },
+    {
+      "id": "negatives/renovate.json#node-5",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        11,
+        11
+      ],
+      "section": "renovate > node-5",
+      "text": "renovate > node-5\n\n  \"rangeStrategy\": \"bump\","
+    },
+    {
+      "id": "negatives/renovate.json#node-6",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        12,
+        28
+      ],
+      "section": "renovate > node-6",
+      "text": "renovate > node-6\n\n  \"packageRules\": [\n    {\n      \"matchDepTypes\": [\"devDependencies\"],\n      \"matchUpdateTypes\": [\"minor\", \"patch\"],\n      \"groupName\": \"dev tooling\",\n      \"automerge\": true\n    },\n    {\n      \"matchPackageNames\": [\"postgres\", \"redis\"],\n      \"matchManagers\": [\"docker-compose\", \"dockerfile\"],\n      \"enabled\": false\n    },\n    {\n      \"matchUpdateTypes\": [\"major\"],\n      \"dependencyDashboardApproval\": true\n    }\n  ],"
+    },
+    {
+      "id": "negatives/renovate.json#node-7",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        29,
+        32
+      ],
+      "section": "renovate > node-7",
+      "text": "renovate > node-7\n\n  \"vulnerabilityAlerts\": {\n    \"labels\": [\"security\"],\n    \"automerge\": false\n  },"
+    },
+    {
+      "id": "negatives/renovate.json#node-8",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        33,
+        33
+      ],
+      "section": "renovate > node-8",
+      "text": "renovate > node-8\n\n  \"prConcurrentLimit\": 5,"
+    },
+    {
+      "id": "negatives/renovate.json#node-9",
+      "path": "negatives/renovate.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        34,
+        34
+      ],
+      "section": "renovate > node-9",
+      "text": "renovate > node-9\n\n  \"prHourlyLimit\": 2"
+    }
+  ],
+  "negatives/telemetry-event.json": [
+    {
+      "id": "negatives/telemetry-event.json#node-0",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        2,
+        2
+      ],
+      "section": "telemetry-event > node-0",
+      "text": "telemetry-event > node-0\n\n  \"type\": \"checkout.completed\","
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-1",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        3,
+        3
+      ],
+      "section": "telemetry-event > node-1",
+      "text": "telemetry-event > node-1\n\n  \"eventId\": \"evt_01J5W2M9QK7ZT4\","
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-2",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        4,
+        4
+      ],
+      "section": "telemetry-event > node-2",
+      "text": "telemetry-event > node-2\n\n  \"occurredAt\": \"2026-08-19T17:42:08.221Z\","
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-3",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        5,
+        5
+      ],
+      "section": "telemetry-event > node-3",
+      "text": "telemetry-event > node-3\n\n  \"source\": \"storefront-web\","
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-4",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        6,
+        6
+      ],
+      "section": "telemetry-event > node-4",
+      "text": "telemetry-event > node-4\n\n  \"sessionId\": \"sess_9f21cc04\","
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-5",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        7,
+        16
+      ],
+      "section": "telemetry-event > node-5",
+      "text": "telemetry-event > node-5\n\n  \"properties\": {\n    \"orderId\": \"ord_58213\",\n    \"cartValueCents\": 12750,\n    \"currency\": \"usd\",\n    \"itemCount\": 3,\n    \"paymentMethod\": \"card\",\n    \"couponApplied\": false,\n    \"checkoutDurationMs\": 48211,\n    \"abVariant\": \"one-page-checkout\"\n  },"
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-6",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        17,
+        22
+      ],
+      "section": "telemetry-event > node-6",
+      "text": "telemetry-event > node-6\n\n  \"context\": {\n    \"userAgent\": \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36\",\n    \"locale\": \"en-US\",\n    \"pageUrl\": \"https://shop.example.com/checkout/confirmation\",\n    \"referrer\": \"https://shop.example.com/checkout/payment\"\n  },"
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-7",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        23,
+        23
+      ],
+      "section": "telemetry-event > node-7",
+      "text": "telemetry-event > node-7\n\n  \"required\": [\"consent.analytics\"],"
+    },
+    {
+      "id": "negatives/telemetry-event.json#node-8",
+      "path": "negatives/telemetry-event.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        24,
+        27
+      ],
+      "section": "telemetry-event > node-8",
+      "text": "telemetry-event > node-8\n\n  \"sampling\": {\n    \"rate\": 1.0,\n    \"reason\": \"conversion events are never sampled\"\n  }"
+    }
+  ],
+  "negatives/tsconfig.json": [
+    {
+      "id": "negatives/tsconfig.json#node-0",
+      "path": "negatives/tsconfig.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        2,
+        2
+      ],
+      "section": "tsconfig > node-0",
+      "text": "tsconfig > node-0\n\n  \"$schema\": \"https://json.schemastore.org/tsconfig.json\","
+    },
+    {
+      "id": "negatives/tsconfig.json#node-1",
+      "path": "negatives/tsconfig.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        3,
+        25
+      ],
+      "section": "tsconfig > node-1",
+      "text": "tsconfig > node-1\n\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"lib\": [\"ES2022\", \"DOM\"],\n    \"outDir\": \"./dist\",\n    \"rootDir\": \"./src\",\n    \"strict\": true,\n    \"noUncheckedIndexedAccess\": true,\n    \"exactOptionalPropertyTypes\": true,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true,\n    \"declaration\": true,\n    \"declarationMap\": true,\n    \"sourceMap\": true,\n    \"incremental\": true,\n    \"tsBuildInfoFile\": \"./dist/.tsbuildinfo\",\n    \"paths\": {\n      \"@app/*\": [\"./src/*\"],\n      \"@test/*\": [\"./test/*\"]\n    }\n  },"
+    },
+    {
+      "id": "negatives/tsconfig.json#node-2",
+      "path": "negatives/tsconfig.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        26,
+        26
+      ],
+      "section": "tsconfig > node-2",
+      "text": "tsconfig > node-2\n\n  \"include\": [\"src/**/*.ts\"],"
+    },
+    {
+      "id": "negatives/tsconfig.json#node-3",
+      "path": "negatives/tsconfig.json",
+      "kind": "code",
+      "language": "json",
+      "lines": [
+        27,
+        27
+      ],
+      "section": "tsconfig > node-3",
+      "text": "tsconfig > node-3\n\n  \"exclude\": [\"node_modules\", \"dist\", \"coverage\"]"
+    }
+  ],
+  "negatives/sdl-lookalike.txt": [
+    {
+      "id": "negatives/sdl-lookalike.txt:L1-L14",
+      "path": "negatives/sdl-lookalike.txt",
+      "kind": "doc",
+      "language": null,
+      "lines": [
+        1,
+        14
+      ],
+      "section": "sdl-lookalike",
+      "text": "sdl-lookalike\n\nDesign note pasted from a schema review, kept as plain text on purpose.\n\ntype Query {\n  \"\"\"\n  This SDL-shaped content lives in a .txt file and must never take the\n  GraphQL chunking path: detection is extension-gated, not content-sniffed.\n  \"\"\"\n  pastedExample(id: ID!): String\n}\n\nenum PastedEnum {\n  ONE\n  TWO\n}"
+    }
+  ],
+  "negatives/proto-lookalike.txt": [
+    {
+      "id": "negatives/proto-lookalike.txt:L1-L11",
+      "path": "negatives/proto-lookalike.txt",
+      "kind": "doc",
+      "language": null,
+      "lines": [
+        1,
+        11
+      ],
+      "section": "proto-lookalike",
+      "text": "proto-lookalike\n\nInterface sketch from a design doc, saved as plain text.\n\nsyntax = \"proto3\";\n\npackage sketch.v1;\n\n// Proto-shaped content in a .txt file: must never take the Protobuf\n// chunking path, because detection is extension-gated.\nmessage SketchOnly {\n  string field_one = 1;\n}"
+    }
+  ]
+}

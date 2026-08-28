@@ -128,6 +128,32 @@ wf setup --full --include-code
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
 
+Structured-format directories (wave `1wfsl`, `1wdvr`): the code index covers every
+`SOURCE_CODE_EXTENSIONS` format including YAML/JSON/TOML across the WHOLE repository by
+default (everything outside `.wavefoundry/`, the corpus exclusions, and ignore files), so
+OpenAPI specs, JSON Schemas, and infrastructure manifests in ordinary directories are
+searchable with no configuration. When spec content is missing from `code_search`, check
+`.gitignore`/`.aiignore` first (the walk respects both); for `.wavefoundry/`-nested content
+(self-hosting), opt the curated subpath in via `indexing.project_include_prefixes.code`; then
+rebuild (`wf update-indexes` or MCP `index_build(content='code', mode='update')`) and verify
+with a `code_search` query. Detected OpenAPI / JSON Schema / AsyncAPI files and
+GraphQL SDL / Protobuf files chunk structure-aware with breadcrumbed prose units
+(measured default-on per format; override `indexing.spec_aware_chunking`). The DOCS layer
+serves documentation content — doc-kind prose chunks (markdown, reStructuredText, and
+AsciiDoc sections, plain-text/extensionless docs, docstring doc chunks, HTML/XML element text,
+notebook markdown cells) plus `doc-code` chunks for the fenced code blocks, code-directive
+bodies, and listing blocks extracted from those formats AND standalone hand-authored diagram
+files (Mermaid `.mmd`/`.mermaid`, PlantUML `.puml`/`.plantuml`, Graphviz DOT `.dot`/`.gv` —
+one title-or-stem-breadcrumbed unit per file), filterable via
+`docs_search(kind='doc-code')` (non-exhaustive; chunk-kind routing is the authority;
+prompt-kind files keep fences inline; tool-generated diagram formats stay out) — while
+machine-authority files (per-wave `events.jsonl`, memory-archive bodies, the secret-scan
+findings ledger) stay excluded by path predicates and route through typed tools. CSV is never
+indexed (use a markdown carrier page); `indexing.walk_reinclude_filenames` can restore a
+name-layer-excluded filename but never overrides the binary/sniff/machine-authority layers.
+Never widen prefixes into secret-bearing or machine-authority artifacts. The canonical
+carrier of this guidance is seed 211's Index Scope section (mirrored in `docs/agents/guru.md`).
+
 ### Dependency version sync on upgrade
 
 The tool-venv dependency check is **version-aware**: when a pack pins a new version of a dependency (e.g. `lancedb==0.33.0`), `wf setup` — and `wf_upgrade`, whose phase-4 index step already runs the same `ensure_deps` check — move an **existing** install to the pinned version, not just fresh installs. An exact (`==`) pin installs exactly that version (including downgrading a newer build to the framework's validated one); a range pin (`>=`, `<`) leaves any satisfying installed version untouched. Unpinned dependencies keep presence-only behavior (installed → not touched). Model weights are refreshed the same way — `prewarm_models` runs on each phase-4 setup invocation, so new/changed embedding and reranker models download during the upgrade. No separate command is needed for either.

@@ -1,0 +1,43 @@
+syntax = "proto2";
+
+package warehouse;
+
+// Stock ledger records exchanged between warehouse sites and the planner.
+message StockRecord {
+  // Warehouse site code in the internal three-letter scheme.
+  required string site = 1;
+
+  // Stock-keeping unit this record counts.
+  required string sku = 2;
+
+  // Units physically on the shelf at the last count.
+  optional int64 on_hand = 3;
+
+  // Units promised to open orders but not yet picked.
+  optional int64 reserved = 4;
+}
+
+// Delta applied to a stock record by a picking or receiving event.
+message StockAdjustment {
+  required string site = 1;
+  required string sku = 2;
+
+  // Signed quantity: negative for picks, positive for receipts.
+  required int64 delta = 3;
+
+  Cause cause = 4;
+
+  // Source event classes that may adjust stock.
+  enum Cause {
+    UNKNOWN = 0;
+
+    // Outbound pick against a customer order.
+    PICK = 1;
+
+    // Inbound goods receipt from a supplier delivery.
+    RECEIPT = 2;
+
+    // Manual correction after a cycle count.
+    CORRECTION = 3;
+  }
+}

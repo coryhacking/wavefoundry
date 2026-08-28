@@ -207,7 +207,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in the index-state store's build snapshot after rebuild.
-CHUNKER_VERSION = "32"  # 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "37"  # 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -232,9 +232,11 @@ MAX_CHUNK_CHARS = MAX_DOC_CHUNK_CHARS
 
 
 def _max_chars_for_chunk(chunk: "Chunk") -> int:
-    """Per-kind cap selector. Code chunks get the tighter limit; everything
-    else (doc, seed, prompt, doc-summary, plain text, etc.) gets the larger."""
-    return MAX_CODE_CHUNK_CHARS if chunk.kind == "code" else MAX_DOC_CHUNK_CHARS
+    """Per-kind cap selector. Code chunks get the tighter limit — including
+    doc-code (extracted fences/directive bodies are code-dense per token; the
+    doc cap would overrun the embedder budget) — everything else (doc, seed,
+    prompt, doc-summary, plain text, etc.) gets the larger."""
+    return MAX_CODE_CHUNK_CHARS if chunk.kind in ("code", "doc-code") else MAX_DOC_CHUNK_CHARS
 
 # Minimum chunk size for structured chunkers.  Sub-minimum chunks are merged
 # into their predecessor.  Imports chunks are exempt.  Reused by tree-sitter
@@ -355,6 +357,29 @@ DOCS_EXTENSIONLESS_NAMES = {"README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "N
 
 # Plain-text extensions routed to plain-text doc chunker.
 TEXT_EXTENSIONS = {".txt"}
+
+# Prose documentation formats with heading structure (wave 1wfsl, 1wfsm):
+# section-chunked as doc-kind with breadcrumbs, mirroring the markdown path.
+RST_EXTENSIONS = {".rst"}
+ADOC_EXTENSIONS = {".adoc", ".asciidoc"}
+
+# Hand-authored diagram formats (wave 1wik9, 1whuq): docs-routed doc-code
+# chunks (breadcrumb + raw source; node/edge labels are the retrieval value).
+# CHUNKER-ONLY registration — these extensions deliberately do NOT join
+# _KNOWN_TEXT_EXTENSIONS (that registration bypasses the content sniff, and
+# .dot has a binary Word-template namesake the sniff excludes today). Walk
+# membership is unchanged. Tool-generated formats (.drawio, .excalidraw) and
+# ambiguous extensions (.d2, Structurizr .dsl) are excluded by decision.
+MERMAID_EXTENSIONS = {".mmd", ".mermaid"}
+PLANTUML_EXTENSIONS = {".puml", ".plantuml"}
+DOT_EXTENSIONS = {".dot", ".gv"}
+DIAGRAM_EXTENSIONS = MERMAID_EXTENSIONS | PLANTUML_EXTENSIONS | DOT_EXTENSIONS
+
+# Spec-format family (wave 1wik9, 1wfso): extension-gated dispatch for the
+# GraphQL SDL and Protobuf structure-aware chunkers (AsyncAPI is
+# content-detected inside the YAML/JSON spec hooks instead).
+GRAPHQL_SDL_EXTENSIONS = {".graphql", ".gql"}
+PROTO_EXTENSIONS = {".proto"}
 
 # Pre-compiled import/namespace scan patterns (used in chunker pre-passes)
 _RE_JAVA_PKG = re.compile(r"^\s*package\s+")
@@ -1016,10 +1041,18 @@ def _extract_fenced_code(
     path: str,
     default_kind: str,
     h3_slug: Optional[str] = None,
+    fence_counter: Optional[list[int]] = None,
 ) -> tuple[list[Chunk], list[tuple[int, int]]]:
-    """Extract fenced code blocks from body, return (chunks, spans_to_remove)."""
+    """Extract fenced code blocks from body, return (chunks, spans_to_remove).
+
+    fence_counter is a one-element mutable list shared across every call within
+    a single chunk_markdown pass: the ordinal in the chunk id is FILE-PASS
+    scoped, not per-section, because duplicate-titled sections collide on a
+    per-section reset and the delta planner / chunk registry key by id (1whup).
+    """
     chunks: list[Chunk] = []
     spans: list[tuple[int, int]] = []
+    counter = fence_counter if fence_counter is not None else [0]
     id_prefix = f"{path}#{h2_slug}/{h3_slug}" if h3_slug else f"{path}#{h2_slug}"
     for m in _FENCED_CODE_PATTERN.finditer(body):
         lang = m.group(1) or None
@@ -1029,10 +1062,11 @@ def _extract_fenced_code(
         abs_end = abs_start + code_text.count("\n")
         spans.append((m.start(), m.end()))
         if code_text.strip():
+            counter[0] += 1
             chunks.append(Chunk(
-                id=f"{id_prefix}:code",
+                id=f"{id_prefix}:code-{counter[0]}",
                 path=path,
-                kind="code",
+                kind="doc-code",
                 language=lang,
                 lines=(abs_start, abs_end),
                 section=section_label,
@@ -1049,6 +1083,7 @@ def _split_h3_sections(
     doc_title: Optional[str],
     path: str,
     default_kind: str,
+    fence_counter: Optional[list[int]] = None,
 ) -> list[Chunk]:
     """Split an oversized ## section body at ### boundaries."""
     chunks: list[Chunk] = []
@@ -1091,7 +1126,8 @@ def _split_h3_sections(
             h3_slug = None
 
         code_chunks, code_spans = _extract_fenced_code(
-            sub_body, abs_start, section_label, h2_slug, path, default_kind, h3_slug=h3_slug
+            sub_body, abs_start, section_label, h2_slug, path, default_kind,
+            h3_slug=h3_slug, fence_counter=fence_counter,
         )
         chunks.extend(code_chunks)
 
@@ -1285,6 +1321,10 @@ def chunk_markdown(
     doc_title: Optional[str] = h1_match.group(1).strip() if h1_match else None
 
     chunks: list[Chunk] = []
+    # File-pass-scoped fence ordinal (1whup): one counter for the whole
+    # chunk_markdown invocation so fence chunk ids stay unique across
+    # duplicate-titled sections and multi-fence sections alike.
+    fence_counter: list[int] = [0]
 
     # Split on primary heading level
     sections: list[tuple[Optional[str], int, str]] = []  # (title, start_line, text)
@@ -1342,7 +1382,8 @@ def chunk_markdown(
                         ))
             else:
                 code_chunks, code_spans = _extract_fenced_code(
-                    body, start_line, None, slug, path, default_kind
+                    body, start_line, None, slug, path, default_kind,
+                    fence_counter=fence_counter,
                 )
                 for c in code_chunks:
                     c.section = None
@@ -1379,7 +1420,8 @@ def chunk_markdown(
         # Threshold-gate H3 splitting for oversized sections (skipped for prompts)
         if not suppress_h3_split and len(body.strip()) > H3_SPLIT_THRESHOLD_CHARS and _H3_PATTERN.search(body):
             chunks.extend(_split_h3_sections(
-                body, start_line, title, slug, doc_title, path, default_kind
+                body, start_line, title, slug, doc_title, path, default_kind,
+                fence_counter=fence_counter,
             ))
             continue
 
@@ -1407,7 +1449,8 @@ def chunk_markdown(
         else:
             # Standard section: extract fenced code then emit prose
             code_chunks, code_spans = _extract_fenced_code(
-                body, start_line, section_label, slug, path, default_kind
+                body, start_line, section_label, slug, path, default_kind,
+                fence_counter=fence_counter,
             )
             chunks.extend(code_chunks)
 
@@ -1620,6 +1663,503 @@ def chunk_plain_text(source: str, path: str) -> list[Chunk]:
         i += step
 
     return chunks
+
+
+# ---------------------------------------------------------------------------
+# reStructuredText / AsciiDoc section chunkers (wave 1wfsl, 1wfsm)
+#
+# Pure-prose formats section-chunked like markdown: doc-kind chunks with
+# breadcrumb section labels (the measured 1p4w9 lever), code/non-prose bodies
+# extracted as code-kind or dropped, imperfect recognition degrading to larger
+# plain-prose chunks — never to file exclusion. Bounded framework-internal
+# parsing; no docutils/asciidoctor dependency.
+# ---------------------------------------------------------------------------
+
+# docutils section-adornment punctuation (any of these may underline a title).
+_RST_ADORNMENT_CHARS = set("=-`:'\"~^_*+#<>.")
+# Directives whose bodies are code: extracted as code-kind chunks.
+_RST_CODE_DIRECTIVES = {"code-block", "code", "sourcecode", "literalinclude"}
+# Non-prose directives removed from prose entirely (media, tables, toctrees).
+_RST_DROP_DIRECTIVES = {"image", "figure", "csv-table", "list-table", "table", "toctree"}
+# Admonition directives whose bodies are prose: marker removed, body kept.
+_RST_ADMONITION_DIRECTIVES = {
+    "note", "warning", "tip", "important", "caution", "hint", "attention",
+    "danger", "error", "admonition", "versionadded", "versionchanged", "deprecated",
+}
+
+_RST_DIRECTIVE_RE = re.compile(r"^(\s*)\.\.\s+([\w-]+)::\s*(.*)$")
+
+
+def _rst_is_adornment_line(line: str) -> bool:
+    """A column-0 run (>=3) of one docutils adornment character."""
+    if not line or line[:1].isspace():
+        return False
+    stripped = line.rstrip()
+    return (
+        len(stripped) >= 3
+        and len(set(stripped)) == 1
+        and stripped[0] in _RST_ADORNMENT_CHARS
+    )
+
+
+def _rst_find_titles(lines: list[str]) -> list[tuple[int, int, str, tuple[str, bool]]]:
+    """Return (title_line_index, consumed_line_count_incl_adornment_start_index_offset)
+    entries as (start_index, span, title, style_key).
+
+    ``start_index`` is the first consumed line (overline or title), ``span`` the
+    number of consumed lines (2 for underline form, 3 for overline form).
+    Faithful to docutils' load-bearing rules: the title is a column-0,
+    non-adornment line preceded by a blank line (or document start, or its own
+    overline), and the underline is at least as long as the title. A mid-
+    paragraph adornment-lookalike line (non-blank line above) is NOT a title,
+    and indented adornment rows (literal-block content) never match.
+    """
+    titles: list[tuple[int, int, str, tuple[str, bool]]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i].rstrip("\n")
+        # Overline form: adornment / title / matching adornment.
+        if (
+            _rst_is_adornment_line(line)
+            and i + 2 < n
+            and (i == 0 or not lines[i - 1].strip())
+        ):
+            title = lines[i + 1].rstrip("\n")
+            under = lines[i + 2].rstrip("\n")
+            if (
+                title.strip()
+                and not title[:1].isspace()
+                and not _rst_is_adornment_line(title)
+                and _rst_is_adornment_line(under)
+                and under.rstrip()[0] == line.rstrip()[0]
+                and len(under.rstrip()) >= len(title.rstrip())
+                and len(line.rstrip()) >= len(title.rstrip())
+            ):
+                titles.append((i, 3, title.strip(), (under.rstrip()[0], True)))
+                i += 3
+                continue
+        # Underline form: title / adornment, blank (or start) above.
+        if (
+            line.strip()
+            and not line[:1].isspace()
+            and not _rst_is_adornment_line(line)
+            and i + 1 < n
+            and (i == 0 or not lines[i - 1].strip())
+        ):
+            under = lines[i + 1].rstrip("\n")
+            if (
+                _rst_is_adornment_line(under)
+                and len(under.rstrip()) >= len(line.rstrip())
+            ):
+                titles.append((i, 2, line.strip(), (under.rstrip()[0], False)))
+                i += 2
+                continue
+        i += 1
+    return titles
+
+
+def _rst_process_body(
+    body_lines: list[str],
+    base_line: int,
+    section_label: Optional[str],
+    slug: str,
+    path: str,
+    fence_counter: Optional[list[int]] = None,
+) -> tuple[list[str], list[Chunk]]:
+    """Process directives in a section body: extract code-directive bodies as
+    doc-code chunks, drop non-prose directives, unwrap admonition bodies.
+    Returns (prose_lines, code_chunks). The code ordinal is file-pass scoped
+    via fence_counter (per-section resets collide on duplicate titles, 1whup)."""
+    prose: list[str] = []
+    code_chunks: list[Chunk] = []
+    counter = fence_counter if fence_counter is not None else [0]
+    i = 0
+    n = len(body_lines)
+    while i < n:
+        raw = body_lines[i]
+        m = _RST_DIRECTIVE_RE.match(raw.rstrip("\n"))
+        if m is None:
+            prose.append(raw)
+            i += 1
+            continue
+        indent, name, arg = len(m.group(1)), m.group(2).lower(), m.group(3).strip()
+        # Collect the directive region: following lines blank or indented
+        # deeper than the directive marker.
+        j = i + 1
+        while j < n:
+            nxt = body_lines[j]
+            if not nxt.strip():
+                j += 1
+                continue
+            if len(nxt) - len(nxt.lstrip()) > indent:
+                j += 1
+                continue
+            break
+        region = body_lines[i + 1:j]
+        # Strip leading option lines (":linenos:", ":alt: text", ...).
+        content = list(region)
+        while content and (not content[0].strip() or re.match(r"^\s*:[\w-]+:", content[0])):
+            content.pop(0)
+        dedented = _dedent_lines(content)
+        if name in _RST_CODE_DIRECTIVES:
+            code_text = "\n".join(dedented).strip("\n")
+            if code_text.strip():
+                counter[0] += 1
+                start = base_line + i
+                code_chunks.append(Chunk(
+                    id=f"{path}#{slug}:code-{counter[0]}",
+                    path=path,
+                    kind="doc-code",
+                    language=arg or None,
+                    lines=(start, start + len(region)),
+                    section=section_label,
+                    text=code_text,
+                ))
+        elif name in _RST_DROP_DIRECTIVES:
+            pass  # non-prose: removed from the prose entirely
+        elif name in _RST_ADMONITION_DIRECTIVES:
+            if arg:
+                prose.append(arg)
+            prose.extend(dedented)
+        else:
+            # Unknown directive: keep the whole region as prose (degrade, never drop).
+            prose.append(raw.rstrip("\n"))
+            prose.extend(region_line.rstrip("\n") for region_line in region)
+        i = j
+    return prose, code_chunks
+
+
+def _dedent_lines(lines: list[str]) -> list[str]:
+    indents = [
+        len(line) - len(line.lstrip())
+        for line in lines if line.strip()
+    ]
+    cut = min(indents) if indents else 0
+    return [line[cut:].rstrip("\n") if line.strip() else "" for line in lines]
+
+
+def _emit_prose_sections(
+    sections: list[tuple[Optional[str], int, int, list[str]]],
+    doc_title: Optional[str],
+    path: str,
+    process_body,
+) -> list[Chunk]:
+    """Shared rst/adoc emission mirroring chunk_markdown's section shape:
+    preamble without breadcrumb, sections as ``{label}\\n\\n{prose}`` with
+    ``section`` set, oversized sections degrading to line windows. Each
+    section carries (title, header_line, body_start, body_lines) so extracted
+    code chunks anchor at the body's real first line, not the title line
+    (delivery-review line-offset advisory, 1wfsl)."""
+    chunks: list[Chunk] = []
+    # File-pass-scoped code ordinal shared across every section (1whup).
+    fence_counter: list[int] = [0]
+    for title, start_line, body_start, body_lines in sections:
+        slug = _slugify(title) if title else "preamble"
+        section_label = None
+        if title:
+            section_label = f"{doc_title} > {title}" if doc_title else title
+        prose_lines, code_chunks = process_body(
+            body_lines, body_start, section_label, slug, path,
+            fence_counter=fence_counter,
+        )
+        chunks.extend(code_chunks)
+        prose = "\n".join(prose_lines).strip()
+        if not prose:
+            continue
+        section_end = body_start + max(len(body_lines) - 1, 0)
+        if title is None:
+            chunks.append(Chunk(
+                id=f"{path}#{slug}",
+                path=path,
+                kind="doc",
+                language=None,
+                lines=(start_line, section_end),
+                section=None,
+                text=prose,
+            ))
+        elif len(prose) > H3_SPLIT_THRESHOLD_CHARS:
+            for fw_chunk in chunk_line_window(prose, path):
+                fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                fw_chunk.kind = "doc"
+                fw_chunk.section = section_label
+                fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
+                chunks.append(fw_chunk)
+        else:
+            chunks.append(Chunk(
+                id=f"{path}#{slug}",
+                path=path,
+                kind="doc",
+                language=None,
+                lines=(start_line, section_end),
+                section=section_label,
+                text=f"{section_label}\n\n{prose}",
+            ))
+    return chunks
+
+
+def chunk_rst(source: str, path: str) -> list[Chunk]:
+    """Chunk a reStructuredText file into doc-kind section chunks.
+
+    Section titles are recognized by underline adornment (and overline where
+    present); the adornment-style order of first appearance defines the level
+    hierarchy. The document title (a unique first level-1 title) prefixes each
+    section breadcrumb; sections split at the next level. Code-directive bodies
+    become code-kind chunks; media/table directives are dropped; admonition
+    bodies stay prose; unrecognized structure degrades to plain prose.
+    """
+    path = _normalize_path(path)
+    if not source.strip():
+        return []
+    lines = source.splitlines()
+    titles = _rst_find_titles(lines)
+
+    style_levels: dict[tuple[str, bool], int] = {}
+    for _, _, _, style in titles:
+        if style not in style_levels:
+            style_levels[style] = len(style_levels) + 1
+    leveled = [
+        (start, span, text, style_levels[style])
+        for start, span, text, style in titles
+    ]
+
+    doc_title: Optional[str] = None
+    level1 = [t for t in leveled if t[3] == 1]
+    if leveled and len(level1) == 1 and leveled[0][3] == 1:
+        doc_title = leveled[0][2]
+        split_level = 2
+    else:
+        split_level = 1
+    boundaries = [t for t in leveled if t[3] == split_level]
+
+    consumed_doc_title: set[int] = set()
+    if doc_title is not None:
+        consumed_doc_title = set(range(leveled[0][0], leveled[0][0] + leveled[0][1]))
+
+    sections: list[tuple[Optional[str], int, int, list[str]]] = []
+    if not boundaries:
+        body = [
+            line for idx, line in enumerate(lines)
+            if idx not in consumed_doc_title
+        ]
+        title = doc_title
+        # A document with only its title: single chunk labeled by the title.
+        sections.append((title, 1, 1, body))
+        return _emit_prose_sections(sections, None, path, _rst_process_body)
+
+    first_boundary = boundaries[0][0]
+    preamble = [
+        line for idx, line in enumerate(lines[:first_boundary])
+        if idx not in consumed_doc_title
+    ]
+    if any(line.strip() for line in preamble):
+        sections.append((None, 1, 1, preamble))
+    for b_idx, (start, span, title, _) in enumerate(boundaries):
+        end = boundaries[b_idx + 1][0] if b_idx + 1 < len(boundaries) else len(lines)
+        sections.append((title, start + 1, start + span + 1, lines[start + span:end]))
+    return _emit_prose_sections(sections, doc_title, path, _rst_process_body)
+
+
+# AsciiDoc block delimiters that carry non-prose content (extracted or dropped).
+_ADOC_TITLE_RE = re.compile(r"^(=+)\s+(\S.*)$")
+_ADOC_ATTR_LINE_RE = re.compile(r"^\[([^\]]*)\]\s*$")
+
+
+def _adoc_process_body(
+    body_lines: list[str],
+    base_line: int,
+    section_label: Optional[str],
+    slug: str,
+    path: str,
+    fence_counter: Optional[list[int]] = None,
+) -> tuple[list[str], list[Chunk]]:
+    """AsciiDoc body pass: extract [source] / ---- / .... listing blocks as
+    doc-code chunks, drop |=== tables, keep admonitions and attribute
+    references as prose, strip other block delimiter lines. The code ordinal
+    is file-pass scoped via fence_counter (1whup)."""
+    prose: list[str] = []
+    code_chunks: list[Chunk] = []
+    counter = fence_counter if fence_counter is not None else [0]
+    pending_attr: Optional[str] = None
+    i = 0
+    n = len(body_lines)
+    while i < n:
+        line = body_lines[i].rstrip("\n")
+        attr_m = _ADOC_ATTR_LINE_RE.match(line)
+        if attr_m:
+            pending_attr = attr_m.group(1)
+            i += 1
+            continue
+        if line.rstrip() in ("----", "....") :
+            delim = line.rstrip()
+            j = i + 1
+            while j < n and body_lines[j].rstrip("\n").rstrip() != delim:
+                j += 1
+            block = [body_lines[k].rstrip("\n") for k in range(i + 1, min(j, n))]
+            language = None
+            if pending_attr and pending_attr.lower().startswith("source"):
+                parts = [p.strip() for p in pending_attr.split(",")]
+                language = parts[1] if len(parts) > 1 and parts[1] else None
+            code_text = "\n".join(block).strip("\n")
+            if code_text.strip():
+                counter[0] += 1
+                start = base_line + i
+                code_chunks.append(Chunk(
+                    id=f"{path}#{slug}:code-{counter[0]}",
+                    path=path,
+                    kind="doc-code",
+                    language=language,
+                    lines=(start, start + len(block) + 1),
+                    section=section_label,
+                    text=code_text,
+                ))
+            pending_attr = None
+            i = j + 1
+            continue
+        if line.rstrip() == "|===":
+            j = i + 1
+            while j < n and body_lines[j].rstrip("\n").rstrip() != "|===":
+                j += 1
+            pending_attr = None
+            i = j + 1
+            continue
+        if line.rstrip() in ("====", "****", "--"):
+            # example/sidebar/open block delimiters: content stays prose.
+            pending_attr = None
+            i += 1
+            continue
+        if pending_attr is not None:
+            # Attribute line not followed by a recognized block: keep neither.
+            pending_attr = None
+        prose.append(line)
+        i += 1
+    return prose, code_chunks
+
+
+def chunk_adoc(source: str, path: str) -> list[Chunk]:
+    """Chunk an AsciiDoc file into doc-kind section chunks.
+
+    ``= Title`` is the document title, ``== Section`` runs split sections
+    (deeper levels stay inline as prose). ``[source,...]`` + ``----`` listing
+    and ``....`` literal blocks become code-kind chunks; ``|===`` tables are
+    dropped; admonition lines and attribute references pass through as prose.
+    A ``=``-prefixed line inside a delimited block is never a heading.
+    """
+    path = _normalize_path(path)
+    if not source.strip():
+        return []
+    lines = source.splitlines()
+
+    # Locate headings OUTSIDE delimited blocks.
+    headings: list[tuple[int, int, str]] = []  # (line_index, level, title)
+    block_delim: Optional[str] = None
+    for idx, raw in enumerate(lines):
+        stripped = raw.rstrip()
+        if block_delim is not None:
+            if stripped == block_delim:
+                block_delim = None
+            continue
+        if stripped in ("----", "....", "|==="):
+            block_delim = stripped
+            continue
+        m = _ADOC_TITLE_RE.match(stripped)
+        if m:
+            headings.append((idx, len(m.group(1)), m.group(2).strip()))
+
+    doc_title: Optional[str] = None
+    consumed: set[int] = set()
+    level1 = [h for h in headings if h[1] == 1]
+    if headings and len(level1) == 1 and headings[0][1] == 1:
+        doc_title = headings[0][2]
+        consumed.add(headings[0][0])
+        split_level = 2
+    else:
+        split_level = 1 if level1 else 2
+    boundaries = [h for h in headings if h[1] == split_level]
+
+    sections: list[tuple[Optional[str], int, int, list[str]]] = []
+    if not boundaries:
+        body = [line for idx, line in enumerate(lines) if idx not in consumed]
+        sections.append((doc_title, 1, 1, body))
+        return _emit_prose_sections(sections, None, path, _adoc_process_body)
+
+    first_boundary = boundaries[0][0]
+    preamble = [
+        line for idx, line in enumerate(lines[:first_boundary])
+        if idx not in consumed
+    ]
+    if any(line.strip() for line in preamble):
+        sections.append((None, 1, 1, preamble))
+    for b_idx, (start, _, title) in enumerate(boundaries):
+        end = boundaries[b_idx + 1][0] if b_idx + 1 < len(boundaries) else len(lines)
+        sections.append((title, start + 1, start + 2, lines[start + 1:end]))
+    return _emit_prose_sections(sections, doc_title, path, _adoc_process_body)
+
+
+# Diagram title declarations (wave 1wik9, 1whuq). Mermaid: YAML frontmatter
+# `title:` or a bare `title <text>` line; PlantUML: `title <text>`; DOT: the
+# (di)graph identifier. Anything unparsed degrades to the file stem — never
+# to exclusion.
+_MERMAID_FRONTMATTER_RE = re.compile(
+    r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_DIAGRAM_TITLE_LINE_RE = re.compile(r"^\s*title\s*:?\s+(.+?)\s*$", re.MULTILINE)
+_DOT_GRAPH_NAME_RE = re.compile(
+    r"^\s*(?:strict\s+)?(?:di)?graph\s+(\"[^\"]+\"|\w+)\s*\{", re.MULTILINE)
+
+
+def _diagram_language(suffix: str) -> str:
+    if suffix in MERMAID_EXTENSIONS:
+        return "mermaid"
+    if suffix in PLANTUML_EXTENSIONS:
+        return "plantuml"
+    return "dot"
+
+
+def _diagram_title(source: str, language: str, path: str) -> str:
+    if language == "mermaid":
+        fm = _MERMAID_FRONTMATTER_RE.match(source)
+        if fm:
+            m = _DIAGRAM_TITLE_LINE_RE.search(fm.group(1))
+            if m:
+                return m.group(1)
+        m = _DIAGRAM_TITLE_LINE_RE.search(source)
+        if m:
+            return m.group(1)
+    elif language == "plantuml":
+        m = _DIAGRAM_TITLE_LINE_RE.search(source)
+        if m:
+            return m.group(1)
+    else:  # dot
+        m = _DOT_GRAPH_NAME_RE.search(source)
+        if m:
+            return m.group(1).strip('"')
+    return PurePosixPath(path).stem
+
+
+def chunk_diagram(source: str, path: str) -> list[Chunk]:
+    """Chunk a standalone hand-authored diagram file (Mermaid / PlantUML /
+    Graphviz DOT) into one docs-routed doc-code chunk: a breadcrumb line
+    (declared title where the format has one, else the file stem) followed by
+    the raw diagram source — node/edge labels are natural-language
+    architecture statements and the raw source already contains every label
+    (wave 1wik9, 1whuq). Oversized sources split through the universal guard;
+    unparseable content degrades to stem-breadcrumbed source text."""
+    path = _normalize_path(path)
+    if not source.strip():
+        return []
+    suffix = PurePosixPath(path).suffix.lower()
+    language = _diagram_language(suffix)
+    title = _diagram_title(source, language, path)
+    body = source.strip()
+    return [Chunk(
+        id=f"{path}#diagram",
+        path=path,
+        kind="doc-code",
+        language=language,
+        lines=(1, source.count("\n") + 1),
+        section=title,
+        text=f"{title}\n\n{body}",
+    )]
 
 
 # ---------------------------------------------------------------------------
@@ -5628,6 +6168,862 @@ def chunk_css_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return _ts_flat_emit_chunker("css", source, path, "css", frozenset({"rule_set", "declaration"}))
 
 
+# ---------------------------------------------------------------------------
+# Spec-aware structured chunking: OpenAPI + JSON Schema (wave 1wfsl, 1wfr8)
+#
+# Curated, content-detected domain chunkers for exactly two spec formats.
+# Detected files chunk at operation / definition level with a breadcrumb
+# BAKED into the chunk text (spec chunks stay kind="code" — doc-kind would
+# cross the layer boundary via the indexer's kind routing — so the docs
+# breadcrumb injection pass never touches them and the prefix is baked here,
+# mirroring, not reusing, that pass). Undetected files chunk byte-identically
+# via the flat tree-sitter emission (differential-pinned). Adoption is
+# measurement-gated per the 1wfr8 numeric bar; the shipped default lives in
+# SPEC_CHUNKING_DEFAULT_ON and is overridable per project via
+# `indexing.spec_aware_chunking` in docs/workflow-config.json (published to
+# this module through WAVEFOUNDRY_SPEC_CHUNKING by the indexer).
+# ---------------------------------------------------------------------------
+
+# Measured default decision (1wfr8 AC-4): recorded in the change doc.
+SPEC_CHUNKING_DEFAULT_ON = True
+
+_SPEC_HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+_JSON_SCHEMA_DIALECT_RE = re.compile(r"^https?://json-schema\.org/")
+_JSON_SCHEMA_TYPE_VALUES = {"object", "array", "string", "number", "integer", "boolean", "null"}
+# Column-0 root key — YAML nesting is indented, so this is root-only.
+_OPENAPI_YAML_ROOT_RE = re.compile(r"^(openapi|swagger)\s*:", re.MULTILINE)
+_YAML_ROOT_KEY_RE = re.compile(r"^([A-Za-z_][\w-]*)\s*:")
+
+
+def _spec_chunking_enabled() -> bool:
+    import os
+    value = os.environ.get("WAVEFOUNDRY_SPEC_CHUNKING")
+    if value is not None and value.strip() != "":
+        return value.strip().lower() not in ("0", "false", "no", "off")
+    return SPEC_CHUNKING_DEFAULT_ON
+
+
+def _spec_parse_size_ok(source: str) -> bool:
+    """The `indexing.max_treesitter_parse_bytes` cap applies to spec parsing
+    unchanged (same env contract as `_ts_parse`); over-cap files fall back to
+    the flat emission path, which applies its own cap handling."""
+    import os
+    cap = int(os.environ.get("WAVEFOUNDRY_MAX_TS_PARSE_BYTES") or MAX_TREESITTER_PARSE_BYTES_DEFAULT)
+    return not (cap > 0 and len(source) > cap)
+
+
+def _spec_json_root(source: str) -> Optional[dict]:
+    import json as _json
+    try:
+        data = _json.loads(source)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _is_json_schema_root(root: dict) -> bool:
+    """JSON Schema detection (1wfr8 Requirement 1): the root ``$schema`` VALUE
+    must be a json-schema.org dialect identifier, or the root must be
+    schema-shaped — a ``$defs``/``definitions`` object of subschema objects, or
+    root ``type`` (a JSON-Schema type value) plus ``properties`` whose values
+    are subschema objects. A ``$schema`` pointing anywhere else (schemastore
+    config references) does NOT qualify, and a data file whose root merely
+    carries ``type``/``properties`` keys with non-schema values (event
+    descriptors) is rejected by the value-shape guards."""
+    dialect = root.get("$schema")
+    if isinstance(dialect, str) and _JSON_SCHEMA_DIALECT_RE.match(dialect):
+        return True
+    for defs_key in ("$defs", "definitions"):
+        defs = root.get(defs_key)
+        if (
+            isinstance(defs, dict) and defs
+            and all(isinstance(v, dict) for v in defs.values())
+        ):
+            return True
+    props = root.get("properties")
+    if (
+        root.get("type") in _JSON_SCHEMA_TYPE_VALUES
+        and isinstance(props, dict) and props
+        and all(isinstance(v, dict) for v in props.values())
+    ):
+        return True
+    return False
+
+
+def _spec_locate_line(source: str, needle: str) -> int:
+    idx = source.find(needle)
+    return 1 + source[:idx].count("\n") if idx >= 0 else 1
+
+
+def _spec_chunk(path: str, breadcrumb: str, body: str, start_line: int,
+                language: str, max_line: Optional[int] = None) -> Chunk:
+    text = f"{breadcrumb}\n{body.strip()}" if body.strip() else breadcrumb
+    # ARCH-DEL-1 review (1wfsl): for JSON specs the body is a pretty-printed
+    # rendering, so the derived end line is capped at the source's real length
+    # to keep code_read follow-ups inside the file.
+    end_line = start_line + text.count("\n")
+    if max_line is not None:
+        end_line = min(end_line, max_line)
+        end_line = max(end_line, start_line)
+    return Chunk(
+        id=f"{path}#{breadcrumb.rstrip(':')}",
+        path=path,
+        kind="code",
+        language=language,
+        lines=(start_line, end_line),
+        section=breadcrumb.rstrip(":"),
+        text=text,
+    )
+
+
+def _chunk_openapi_json(root: dict, source: str, path: str) -> list[Chunk]:
+    import json as _json
+    max_line = source.count("\n") + 1
+    chunks: list[Chunk] = []
+    info = root.get("info")
+    if isinstance(info, dict) and info:
+        chunks.append(_spec_chunk(
+            path, "info:", _json.dumps(info, indent=2),
+            _spec_locate_line(source, '"info"'), "json", max_line,
+        ))
+    paths_obj = root.get("paths")
+    if isinstance(paths_obj, dict):
+        for path_key, ops in paths_obj.items():
+            if not isinstance(ops, dict):
+                continue
+            for method in _SPEC_HTTP_METHODS:
+                op = ops.get(method)
+                if not isinstance(op, dict):
+                    continue
+                chunks.append(_spec_chunk(
+                    path, f"paths.{path_key}.{method}:",
+                    _json.dumps(op, indent=2),
+                    _spec_locate_line(source, _json.dumps(path_key)), "json",
+                    max_line,
+                ))
+            # ARCH-DEL-1 reverification residual: path-ITEM-level keys
+            # (parameters, summary, description, servers, $ref) are siblings
+            # of the methods and must keep coverage too.
+            item_rest = {
+                k: v for k, v in ops.items() if k not in _SPEC_HTTP_METHODS
+            }
+            if item_rest:
+                chunks.append(_spec_chunk(
+                    path, f"paths.{path_key}:",
+                    _json.dumps(item_rest, indent=2),
+                    _spec_locate_line(source, _json.dumps(path_key)), "json",
+                    max_line,
+                ))
+    components = root.get("components")
+    schemas = None
+    schemas_prefix = None
+    if isinstance(components, dict) and isinstance(components.get("schemas"), dict):
+        schemas, schemas_prefix = components["schemas"], "components.schemas"
+    elif isinstance(root.get("definitions"), dict):
+        schemas, schemas_prefix = root["definitions"], "definitions"
+    if schemas:
+        for name, schema in schemas.items():
+            if not isinstance(schema, dict):
+                continue
+            chunks.append(_spec_chunk(
+                path, f"{schemas_prefix}.{name}:", _json.dumps(schema, indent=2),
+                _spec_locate_line(source, _json.dumps(name)), "json", max_line,
+            ))
+    # ARCH-DEL-1 (1wfsl delivery review): NON-curated content must never lose
+    # the coverage flat emission served. Non-schemas components subsections
+    # (securitySchemes, responses, parameters, ...) chunk per subsection, and
+    # every remaining root key lands in one spec: residue chunk (the
+    # _chunk_json_schema schema: pattern).
+    if isinstance(components, dict):
+        for key, value in components.items():
+            if key == "schemas" and schemas_prefix == "components.schemas":
+                continue
+            body = _json.dumps(value, indent=2) if isinstance(value, (dict, list)) \
+                else _json.dumps(value)
+            chunks.append(_spec_chunk(
+                path, f"components.{key}:", body,
+                _spec_locate_line(source, _json.dumps(key)), "json", max_line,
+            ))
+    consumed = {"info", "paths", "components"}
+    if schemas_prefix == "definitions":
+        consumed.add("definitions")
+    residue = {k: v for k, v in root.items() if k not in consumed}
+    if residue:
+        chunks.append(_spec_chunk(
+            path, "spec:", _json.dumps(residue, indent=2), 1, "json", max_line,
+        ))
+    return chunks
+
+
+def _chunk_json_schema(root: dict, source: str, path: str) -> list[Chunk]:
+    import json as _json
+    max_line = source.count("\n") + 1
+    chunks: list[Chunk] = []
+    consumed_keys = set()
+    for defs_key in ("$defs", "definitions"):
+        defs = root.get(defs_key)
+        if isinstance(defs, dict):
+            consumed_keys.add(defs_key)
+            for name, schema in defs.items():
+                if not isinstance(schema, dict):
+                    continue
+                chunks.append(_spec_chunk(
+                    path, f"{defs_key}.{name}:", _json.dumps(schema, indent=2),
+                    _spec_locate_line(source, _json.dumps(name)), "json",
+                    max_line,
+                ))
+    props = root.get("properties")
+    if isinstance(props, dict):
+        consumed_keys.add("properties")
+        for name, schema in props.items():
+            if not isinstance(schema, dict):
+                continue
+            chunks.append(_spec_chunk(
+                path, f"properties.{name}:", _json.dumps(schema, indent=2),
+                _spec_locate_line(source, _json.dumps(name)), "json", max_line,
+            ))
+    rest = {k: v for k, v in root.items() if k not in consumed_keys}
+    if rest:
+        chunks.insert(0, _spec_chunk(
+            path, "schema:", _json.dumps(rest, indent=2), 1, "json", max_line,
+        ))
+    return chunks
+
+
+def _yaml_block_ranges(lines: list[str]) -> list[tuple[str, int, int]]:
+    """(root_key, start_index, end_index_exclusive) for column-0 mappings."""
+    keys = [
+        (i, m.group(1))
+        for i, line in enumerate(lines)
+        if (m := _YAML_ROOT_KEY_RE.match(line))
+    ]
+    ranges = []
+    for pos, (i, key) in enumerate(keys):
+        end = keys[pos + 1][0] if pos + 1 < len(keys) else len(lines)
+        ranges.append((key, i, end))
+    return ranges
+
+
+def _yaml_child_entries(lines: list[str], start: int, end: int,
+                        key_re: "re.Pattern[str]") -> list[tuple[int, int, str, int]]:
+    """Entries directly under a block: (start_index, end_exclusive, name, indent).
+    The child level is the minimum indent of matching keys in the block."""
+    matches = []
+    for i in range(start, end):
+        line = lines[i]
+        if not line.strip():
+            continue
+        m = key_re.match(line)
+        if m:
+            matches.append((i, len(m.group(1)), m.group(2)))
+    if not matches:
+        return []
+    child_indent = min(indent for _, indent, _ in matches)
+    level = [(i, name) for i, indent, name in matches if indent == child_indent]
+    entries = []
+    for pos, (i, name) in enumerate(level):
+        nxt = level[pos + 1][0] if pos + 1 < len(level) else end
+        entries.append((i, nxt, name, child_indent))
+    return entries
+
+
+_YAML_PATH_KEY_RE = re.compile(r"^(\s+)('?/[^:']*'?|\"/[^:\"]*\")\s*:")
+_YAML_ANY_KEY_RE = re.compile(r"^(\s+)([\w$./{}-]+)\s*:")
+
+
+def _chunk_openapi_yaml(source: str, path: str) -> Optional[list[Chunk]]:
+    """Bounded indentation-based OpenAPI YAML extractor (no YAML dependency).
+    Returns None when no operation-level structure is found — the caller then
+    falls back to flat emission, never to file exclusion."""
+    lines = source.splitlines()
+    max_line = len(lines)
+    chunks: list[Chunk] = []
+    method_names = set(_SPEC_HTTP_METHODS)
+    residue_sections: list[tuple[int, int]] = []
+    for key, start, end in _yaml_block_ranges(lines):
+        if key == "paths":
+            for p_start, p_end, raw_name, _ in _yaml_child_entries(
+                    lines, start + 1, end, _YAML_PATH_KEY_RE):
+                path_name = raw_name.strip("'\"")
+                item_entries = _yaml_child_entries(
+                    lines, p_start + 1, p_end, _YAML_ANY_KEY_RE)
+                methods = [
+                    entry for entry in item_entries
+                    if entry[2].lower() in method_names
+                ]
+                for m_start, m_end, method, _ in methods:
+                    body = "\n".join(_dedent_lines(lines[m_start + 1:m_end]))
+                    chunks.append(_spec_chunk(
+                        path, f"paths.{path_name}.{method.lower()}:", body,
+                        m_start + 1, "yaml", max_line,
+                    ))
+                # ARCH-DEL-1 reverification residual: path-ITEM-level blocks
+                # (parameters, summary, description, servers) are siblings of
+                # the methods and must keep coverage too.
+                non_method = [
+                    entry for entry in item_entries
+                    if entry[2].lower() not in method_names
+                ]
+                if non_method:
+                    item_body = "\n".join(
+                        line
+                        for nm_start, nm_end, _, _ in non_method
+                        for line in _dedent_lines(lines[nm_start:nm_end])
+                    )
+                    if item_body.strip():
+                        chunks.append(_spec_chunk(
+                            path, f"paths.{path_name}:", item_body,
+                            non_method[0][0] + 1, "yaml", max_line,
+                        ))
+        elif key in ("components", "definitions"):
+            if key == "components":
+                child_entries = _yaml_child_entries(
+                    lines, start + 1, end, _YAML_ANY_KEY_RE)
+                schema_blocks = [e for e in child_entries if e[2] == "schemas"]
+                prefix = "components.schemas"
+                # ARCH-DEL-1 (1wfsl delivery review): non-schemas components
+                # subsections (securitySchemes, responses, parameters, ...)
+                # keep the coverage flat emission served.
+                for c_start, c_end, name, _ in child_entries:
+                    if name == "schemas":
+                        continue
+                    body = "\n".join(_dedent_lines(lines[c_start + 1:c_end]))
+                    chunks.append(_spec_chunk(
+                        path, f"components.{name}:", body, c_start + 1, "yaml",
+                        max_line,
+                    ))
+            else:
+                schema_blocks = [(start, end, key, 0)]
+                prefix = "definitions"
+            for s_start, s_end, _, _ in schema_blocks:
+                for d_start, d_end, name, _ in _yaml_child_entries(
+                        lines, s_start + 1, s_end, _YAML_ANY_KEY_RE):
+                    body = "\n".join(_dedent_lines(lines[d_start + 1:d_end]))
+                    chunks.append(_spec_chunk(
+                        path, f"{prefix}.{name}:", body, d_start + 1, "yaml",
+                        max_line,
+                    ))
+        elif key == "info":
+            body = "\n".join(_dedent_lines(lines[start + 1:end]))
+            chunks.append(_spec_chunk(path, "info:", body, start + 1, "yaml",
+                                       max_line))
+        else:
+            # ARCH-DEL-1: every non-curated root section (servers, security,
+            # tags, webhooks, externalDocs, the version line, ...) lands in one
+            # spec: residue chunk so no source content loses coverage.
+            residue_sections.append((start, end))
+    if not any(c.section and c.section.startswith("paths.") for c in chunks):
+        return None
+    if residue_sections:
+        residue_body = "\n".join(
+            line for start, end in residue_sections
+            for line in lines[start:end]
+        )
+        if residue_body.strip():
+            chunks.append(_spec_chunk(
+                path, "spec:", residue_body, residue_sections[0][0] + 1, "yaml",
+                max_line,
+            ))
+    return chunks
+
+
+def chunk_spec_yaml(source: str, path: str) -> Optional[list[Chunk]]:
+    """OpenAPI / AsyncAPI detection + chunking for YAML files; None = not a spec.
+
+    Detection order IS load-bearing (CODE-DEL-2, falsified by execution): a
+    document can carry BOTH column-0 root keys, so when the AsyncAPI
+    extractor finds no channel structure the OpenAPI detection still runs —
+    otherwise a dual-key file would lose the operation-level units it
+    received before the AsyncAPI branch existed."""
+    if _ASYNCAPI_YAML_ROOT_RE.search(source):
+        chunks = _chunk_asyncapi_yaml(source, path)
+        if chunks is not None:
+            return chunks
+    if not _OPENAPI_YAML_ROOT_RE.search(source):
+        return None
+    return _chunk_openapi_yaml(source, path)
+
+
+def chunk_spec_json(source: str, path: str) -> Optional[list[Chunk]]:
+    """OpenAPI / AsyncAPI / JSON Schema detection + chunking for JSON files;
+    None = not a spec. The AsyncAPI root-key check MUST precede the JSON
+    Schema shape detection (1wfso council note): detection order stays
+    deterministic, and the value-shape guards do not by construction reject
+    an AsyncAPI document."""
+    root = _spec_json_root(source)
+    if root is None:
+        return None
+    if isinstance(root.get("openapi"), str) or isinstance(root.get("swagger"), str):
+        chunks = _chunk_openapi_json(root, source, path)
+        return chunks or None
+    if isinstance(root.get("asyncapi"), str):
+        chunks = _chunk_asyncapi_json(root, source, path)
+        return chunks or None
+    if _is_json_schema_root(root):
+        chunks = _chunk_json_schema(root, source, path)
+        return chunks or None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 1wfso (wave 1wik9): spec-format family — AsyncAPI, GraphQL SDL, Protobuf.
+# Each extends the 1wfr8 pattern (content/extension detection, breadcrumbed
+# prose-bearing kind="code" units, residue coverage, byte-identical
+# non-matching files) behind the same _spec_chunking_enabled() gate, with a
+# per-format recorded measurement and default decision in the change doc.
+# ---------------------------------------------------------------------------
+
+# Column-0 root key — YAML nesting is indented, so this is root-only.
+_ASYNCAPI_YAML_ROOT_RE = re.compile(r"^asyncapi\s*:", re.MULTILINE)
+# Channel addresses may be quoted and may carry `/`, `.`, `{}` segments.
+_YAML_QUOTED_OR_ANY_KEY_RE = re.compile(r"^(\s+)('[^']+'|\"[^\"]+\"|[\w$./{}-]+)\s*:")
+
+
+def _chunk_asyncapi_yaml(source: str, path: str) -> Optional[list[Chunk]]:
+    """Bounded indentation-based AsyncAPI YAML extractor (no YAML dependency),
+    mirroring _chunk_openapi_yaml. Channel-plus-operation units (2.x nests
+    publish/subscribe under the channel; 3.x root `operations:` blocks chunk
+    per operation), message- and schema-level component units, and ARCH-DEL-1
+    residue coverage. None = no channel structure found; the caller falls back
+    to flat emission, never to file exclusion."""
+    lines = source.splitlines()
+    max_line = len(lines)
+    chunks: list[Chunk] = []
+    residue_sections: list[tuple[int, int]] = []
+    for key, start, end in _yaml_block_ranges(lines):
+        if key in ("channels", "operations"):
+            for c_start, c_end, raw_name, _ in _yaml_child_entries(
+                    lines, start + 1, end, _YAML_QUOTED_OR_ANY_KEY_RE):
+                name = raw_name.strip("'\"")
+                body = "\n".join(_dedent_lines(lines[c_start + 1:c_end]))
+                chunks.append(_spec_chunk(
+                    path, f"{key}.{name}:", body, c_start + 1, "yaml", max_line,
+                ))
+        elif key == "components":
+            for c_start, c_end, name, _ in _yaml_child_entries(
+                    lines, start + 1, end, _YAML_ANY_KEY_RE):
+                if name in ("messages", "schemas"):
+                    for m_start, m_end, raw_mname, _ in _yaml_child_entries(
+                            lines, c_start + 1, c_end, _YAML_QUOTED_OR_ANY_KEY_RE):
+                        mname = raw_mname.strip("'\"")
+                        body = "\n".join(_dedent_lines(lines[m_start + 1:m_end]))
+                        chunks.append(_spec_chunk(
+                            path, f"components.{name}.{mname}:", body,
+                            m_start + 1, "yaml", max_line,
+                        ))
+                else:
+                    body = "\n".join(_dedent_lines(lines[c_start + 1:c_end]))
+                    chunks.append(_spec_chunk(
+                        path, f"components.{name}:", body, c_start + 1, "yaml",
+                        max_line,
+                    ))
+        elif key == "info":
+            body = "\n".join(_dedent_lines(lines[start + 1:end]))
+            chunks.append(_spec_chunk(path, "info:", body, start + 1, "yaml",
+                                       max_line))
+        else:
+            # ARCH-DEL-1: every non-curated root section (the version line,
+            # servers, defaultContentType, tags, ...) keeps coverage.
+            residue_sections.append((start, end))
+    if not any(c.section and c.section.startswith("channels.") for c in chunks):
+        return None
+    if residue_sections:
+        residue_body = "\n".join(
+            line for start, end in residue_sections
+            for line in lines[start:end]
+        )
+        if residue_body.strip():
+            chunks.append(_spec_chunk(
+                path, "spec:", residue_body, residue_sections[0][0] + 1, "yaml",
+                max_line,
+            ))
+    return chunks
+
+
+def _chunk_asyncapi_json(root: dict, source: str, path: str) -> list[Chunk]:
+    """AsyncAPI JSON units mirroring _chunk_openapi_json: info, per-channel,
+    per-operation (3.x), per-message and per-schema components, per-subsection
+    other components, and the root residue chunk."""
+    import json as _json
+    max_line = source.count("\n") + 1
+    chunks: list[Chunk] = []
+    info = root.get("info")
+    if isinstance(info, dict) and info:
+        chunks.append(_spec_chunk(
+            path, "info:", _json.dumps(info, indent=2),
+            _spec_locate_line(source, '"info"'), "json", max_line,
+        ))
+    for section in ("channels", "operations"):
+        block = root.get(section)
+        if not isinstance(block, dict):
+            continue
+        for name, body in block.items():
+            if not isinstance(body, dict):
+                continue
+            chunks.append(_spec_chunk(
+                path, f"{section}.{name}:", _json.dumps(body, indent=2),
+                _spec_locate_line(source, _json.dumps(name)), "json", max_line,
+            ))
+    components = root.get("components")
+    if isinstance(components, dict):
+        for key, value in components.items():
+            if key in ("messages", "schemas") and isinstance(value, dict):
+                for name, body in value.items():
+                    if not isinstance(body, dict):
+                        continue
+                    chunks.append(_spec_chunk(
+                        path, f"components.{key}.{name}:",
+                        _json.dumps(body, indent=2),
+                        _spec_locate_line(source, _json.dumps(name)), "json",
+                        max_line,
+                    ))
+            else:
+                body = _json.dumps(value, indent=2) if isinstance(value, (dict, list)) \
+                    else _json.dumps(value)
+                chunks.append(_spec_chunk(
+                    path, f"components.{key}:", body,
+                    _spec_locate_line(source, _json.dumps(key)), "json",
+                    max_line,
+                ))
+    residue = {
+        k: v for k, v in root.items()
+        if k not in ("info", "channels", "operations", "components")
+    }
+    if residue:
+        chunks.append(_spec_chunk(
+            path, "spec:", _json.dumps(residue, indent=2), 1, "json", max_line,
+        ))
+    return chunks
+
+
+# GraphQL SDL (1wfso Requirement 3): bounded internal parser — no grammar
+# dependency. Parsing-route evaluation (AC-4): a tree-sitter GraphQL grammar
+# is not part of the installed language pack, and adopting one for a
+# line-oriented block-string format adds a wheel per platform for no measured
+# gain; the internal parser is bounded the same way as the rst/adoc and
+# OpenAPI-YAML extractors, and suite behavior is identical with or without
+# any grammar because none is consulted.
+_GQL_DECL_RE = re.compile(
+    r"^(?:extend\s+)?(schema|type|interface|enum|input|union|scalar)\b\s*(\w+)?")
+_GQL_FIELD_RE = re.compile(r"^\s+(\w+)\s*(?:\([^)]*\))?\s*:")
+_GQL_ENUM_VALUE_RE = re.compile(r"^\s+([A-Za-z][A-Za-z0-9_]*)\s*$")
+
+
+def _gql_block_strings(lines: list[str]) -> list[tuple[int, int, str]]:
+    """(start_index, end_index_inclusive, text) for every \"\"\" block string."""
+    out: list[tuple[int, int, str]] = []
+    i, n = 0, len(lines)
+    while i < n:
+        stripped = lines[i].strip()
+        if stripped.startswith('"""'):
+            rest = stripped[3:]
+            if rest.endswith('"""') and len(rest) >= 3:
+                out.append((i, i, rest[:-3].strip()))
+            else:
+                content = [rest] if rest else []
+                j = i + 1
+                while j < n and '"""' not in lines[j]:
+                    content.append(lines[j].strip())
+                    j += 1
+                if j < n:
+                    tail = lines[j][:lines[j].find('"""')].strip()
+                    if tail:
+                        content.append(tail)
+                out.append((i, min(j, n - 1),
+                            "\n".join(c for c in content if c).strip()))
+                i = j
+        i += 1
+    return out
+
+
+def chunk_graphql_sdl(source: str, path: str) -> Optional[list[Chunk]]:
+    """GraphQL SDL units (1wfso Requirement 3): one chunk per type-level
+    declaration carrying its block-string description plus the full body
+    (coverage), plus per-field / per-enum-value units for DESCRIBED members
+    with type-path breadcrumbs (`Query.user:`, `LockReason.FRAUD_SUSPECTED:`).
+    Residue outside declarations lands in one `sdl:` chunk. None = no
+    type-level declaration; the caller falls back to the line-window path."""
+    lines = source.splitlines()
+    max_line = len(lines)
+    descs = _gql_block_strings(lines)
+    desc_lines = {i for s, e, _ in descs for i in range(s, e + 1)}
+    # Owner line: the first nonblank line after the block string ends.
+    owner_desc: dict[int, tuple[str, int]] = {}
+    for s, e, text in descs:
+        j = e + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        if j < len(lines):
+            owner_desc[j] = (text, s)
+
+    chunks: list[Chunk] = []
+    covered: set[int] = set()
+    # CODE-DEL-1 repair: `extend` is the one legal duplicate-name construct
+    # in SDL, so repeat crumbs get a file-pass ordinal suffix — the delta
+    # planner and chunk registry key by id, and duplicate ids collapse
+    # silently (the same class the 1whup fence ordinals fixed).
+    crumb_counts: dict[str, int] = {}
+    i, n = 0, len(lines)
+    while i < n:
+        if i in desc_lines:
+            i += 1
+            continue
+        m = _GQL_DECL_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        kind_word, name = m.group(1), m.group(2)
+        crumb = name or kind_word  # bare `schema { ... }` -> "schema"
+        # Block extent: to the matching column-0 closing brace, or one line
+        # for scalar / single-line union declarations. Brace counting skips
+        # block-string lines (CODE-DEL-1 repair: an unbalanced brace inside a
+        # description must not swallow the following declarations).
+        end = i
+        if "{" in lines[i] or (i + 1 < n and lines[i + 1].strip() == "{"):
+            j = i
+            depth = 0
+            seen_open = False
+            while j < n:
+                if j not in desc_lines:
+                    depth += lines[j].count("{") - lines[j].count("}")
+                    seen_open = seen_open or "{" in lines[j]
+                if depth == 0 and seen_open:
+                    break
+                j += 1
+            end = min(j, n - 1)
+        desc, desc_start = owner_desc.get(i, (None, None))
+        block_start = desc_start if desc_start is not None else i
+        body = "\n".join(lines[i:end + 1])
+        text_parts = [f"{crumb}:"]
+        if desc:
+            text_parts.append(desc)
+        text_parts.append(body)
+        crumb_counts[crumb] = crumb_counts.get(crumb, 0) + 1
+        ordinal = crumb_counts[crumb]
+        chunk_id = f"{path}#{crumb}" if ordinal == 1 else f"{path}#{crumb}-{ordinal}"
+        chunks.append(Chunk(
+            id=chunk_id,
+            path=path,
+            kind="code",
+            language="graphql",
+            lines=(block_start + 1, end + 1),
+            section=crumb,
+            text="\n".join(text_parts),
+        ))
+        covered.update(range(block_start, end + 1))
+        # Described members inside the body get their own units.
+        for s, e, dtext in descs:
+            if not (i < s and e < end) or not dtext:
+                continue
+            j = e + 1
+            while j < end and not lines[j].strip():
+                j += 1
+            fm = _GQL_FIELD_RE.match(lines[j]) or _GQL_ENUM_VALUE_RE.match(lines[j])
+            if fm:
+                member = fm.group(1)
+                chunks.append(_spec_chunk(
+                    path, f"{crumb}.{member}:",
+                    f"{dtext}\n{lines[j].strip()}", s + 1, "graphql", max_line,
+                ))
+        i = end + 1
+    if not chunks:
+        return None
+    residue = [
+        lines[i] for i in range(n)
+        if i not in covered and i not in desc_lines and lines[i].strip()
+    ]
+    if residue:
+        residue_chunk = _spec_chunk(
+            path, "sdl:", "\n".join(residue), 1, "graphql", max_line,
+        )
+        # CODE-DEL-1 repair: reserved id namespace — an SDL identifier is \w+
+        # and can never contain ":", so `type sdl` cannot collide with this.
+        residue_chunk.id = f"{path}#sdl:residue"
+        chunks.append(residue_chunk)
+    return chunks
+
+
+# Protobuf (1wfso Requirement 4): bounded internal parser — the same
+# no-dependency route as GraphQL (AC-4 evaluation shared): comment blocks
+# attach to the declaration immediately below (a blank line detaches them,
+# and detached comments and `option` statements create no units).
+_PROTO_CONTAINER_RE = re.compile(r"^\s*(message|enum|service)\s+(\w+)\s*\{")
+_PROTO_RPC_RE = re.compile(r"^\s*rpc\s+(\w+)\s*\(")
+_PROTO_FIELD_RE = re.compile(
+    r"^\s*(?:required\s+|optional\s+|repeated\s+)?[\w.<>, ]+?\s+(\w+)\s*=\s*\d+")
+_PROTO_PACKAGE_RE = re.compile(r"^\s*package\s+([\w.]+)\s*;")
+
+
+def _proto_code_text(line: str) -> str:
+    """The line with string literals and comment segments blanked, for brace
+    counting only (CODE-DEL-1 repair: a brace inside a string default or a
+    trailing comment must not shift block extents). Bounded single-line scan;
+    proto string literals do not span lines."""
+    out: list[str] = []
+    i, n = 0, len(line)
+    in_str = False
+    while i < n:
+        ch = line[i]
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and line[i + 1] == "/":
+            break  # rest of line is a comment
+        if ch == "/" and i + 1 < n and line[i + 1] == "*":
+            close = line.find("*/", i + 2)
+            if close < 0:
+                break  # comment continues past this line
+            i = close + 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _proto_attached_comment(lines: list[str], decl_idx: int) -> tuple[Optional[str], int]:
+    """The comment block IMMEDIATELY above decl_idx (no blank line between);
+    returns (text, start_index) or (None, decl_idx). Handles // runs and
+    /* ... */ blocks. A line that carries CODE before its same-line block
+    comment is not a leading comment (CODE-DEL-1 repair)."""
+    j = decl_idx - 1
+    if j < 0 or not lines[j].strip():
+        return None, decl_idx
+    if lines[j].strip().startswith("//"):
+        start = j
+        while start - 1 >= 0 and lines[start - 1].strip().startswith("//"):
+            start -= 1
+        text = "\n".join(l.strip().lstrip("/").strip() for l in lines[start:decl_idx])
+        return (text or None), start
+    if lines[j].strip().endswith("*/"):
+        start = j
+        while start >= 0 and "/*" not in lines[start]:
+            start -= 1
+        if start < 0 or lines[start].split("/*", 1)[0].strip():
+            # unterminated scan, or code precedes the /* on its line: the
+            # block is a trailing comment on a code line, not a leading doc.
+            return None, decl_idx
+        raw = "\n".join(lines[start:decl_idx])
+        text = re.sub(r"/\*+|\*+/", "", raw)
+        text = "\n".join(l.strip().lstrip("*").strip() for l in text.splitlines())
+        return (text.strip() or None), start
+    return None, decl_idx
+
+
+def chunk_proto(source: str, path: str) -> Optional[list[Chunk]]:
+    """Protobuf units (1wfso Requirement 4): message-, enum-, and
+    service-level chunks pairing the attached leading comment with the full
+    block body (coverage), plus rpc- and field-level units for COMMENTED
+    members with package-qualified symbol-path breadcrumbs
+    (`accounts.v1.UserService.GetUser:`). Detached comments and options
+    create no units; residue (syntax/package/import/option lines) lands in
+    one `proto:` chunk. None = no container declaration; the caller falls
+    back to the line-window path."""
+    lines = source.splitlines()
+    max_line = len(lines)
+    pkg = ""
+    for line in lines:
+        pm = _PROTO_PACKAGE_RE.match(line)
+        if pm:
+            pkg = pm.group(1)
+            break
+    prefix = f"{pkg}." if pkg else ""
+
+    chunks: list[Chunk] = []
+    covered: set[int] = set()
+    n = len(lines)
+
+    def _block_end(start: int) -> int:
+        depth = 0
+        seen_open = False
+        for j in range(start, n):
+            # CODE-DEL-1 repair: count braces on the code text only — braces
+            # inside string literals and comments must not shift extents.
+            code = _proto_code_text(lines[j])
+            depth += code.count("{") - code.count("}")
+            seen_open = seen_open or "{" in code
+            if depth == 0 and seen_open:
+                return j
+        return n - 1
+
+    def _emit_container(idx: int, parent_crumb: str) -> int:
+        m = _PROTO_CONTAINER_RE.match(lines[idx])
+        kind_word, name = m.group(1), m.group(2)
+        crumb = f"{parent_crumb}{name}"
+        end = _block_end(idx)
+        comment, c_start = _proto_attached_comment(lines, idx)
+        body = "\n".join(lines[idx:end + 1])
+        text_parts = [f"{crumb}:"]
+        if comment:
+            text_parts.append(comment)
+        text_parts.append(body)
+        chunks.append(Chunk(
+            id=f"{path}#{crumb}",
+            path=path,
+            kind="code",
+            language="proto",
+            lines=(c_start + 1, end + 1),
+            section=crumb,
+            text="\n".join(text_parts),
+        ))
+        covered.update(range(c_start, end + 1))
+        # Commented members inside the block: rpcs, fields, nested containers.
+        j = idx + 1
+        while j <= end:
+            nested = _PROTO_CONTAINER_RE.match(lines[j])
+            if nested:
+                j = _emit_container(j, f"{crumb}.") + 1
+                continue
+            member = _PROTO_RPC_RE.match(lines[j]) or _PROTO_FIELD_RE.match(lines[j])
+            if member:
+                comment, mc_start = _proto_attached_comment(lines, j)
+                if comment and mc_start > idx:
+                    chunks.append(_spec_chunk(
+                        path, f"{crumb}.{member.group(1)}:",
+                        f"{comment}\n{lines[j].strip()}", mc_start + 1,
+                        "proto", max_line,
+                    ))
+            j += 1
+        return end
+
+    i = 0
+    while i < n:
+        if i in covered:
+            i += 1
+            continue
+        if _PROTO_CONTAINER_RE.match(lines[i]):
+            i = _emit_container(i, prefix) + 1
+        else:
+            i += 1
+    if not chunks:
+        return None
+    # RT-DEL-1 repair: residue keeps COMMENT lines too — detached comments
+    # (license headers, file-level notes) create no UNITS (Requirement 4) but
+    # their text must keep coverage (Requirement 7), exactly as the GraphQL
+    # sdl: and AsyncAPI spec: residues already do for their comment lines.
+    residue = [
+        lines[i] for i in range(n)
+        if i not in covered and lines[i].strip()
+    ]
+    if residue:
+        residue_chunk = _spec_chunk(
+            path, "proto:", "\n".join(residue), 1, "proto", max_line,
+        )
+        # CODE-DEL-1 repair: reserved id namespace — a proto identifier is
+        # \w+ and can never contain ":", so `message proto` cannot collide.
+        residue_chunk.id = f"{path}#proto:residue"
+        chunks.append(residue_chunk)
+    return chunks
+
+
 def chunk_make_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
     return _ts_flat_emit_chunker("make", source, path, "make", frozenset({"rule"}))
 
@@ -6132,7 +7528,11 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
 # so prefixing it would inject a meaningless token into the embedding. The summary text already opens
 # with the H1 title and carries a real "Sections: …" breadcrumb (see _chunk_doc_summary), so it needs
 # no injection. (Mirrors the code-summary exclusion.)
-_DOCS_BREADCRUMB_KINDS = ("doc", "seed", "prompt")
+# doc-code is INCLUDED (1whup): rst/adoc extracted code chunks carry bare text with only
+# `section` set, so injection supplies their heading context (the measured 1p4w9 lever);
+# markdown fences already bake the breadcrumb into text, so the startswith idempotence
+# guard makes injection a no-op there, and preamble fences (section=None) are skipped.
+_DOCS_BREADCRUMB_KINDS = ("doc", "seed", "prompt", "doc-code")
 
 
 def _inject_docs_breadcrumb(chunks: list[Chunk]) -> list[Chunk]:
@@ -6226,6 +7626,18 @@ def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
         if doc_summary:
             chunks = [doc_summary] + chunks
         return chunks
+
+    # Prose documentation formats with heading structure (1wfsm): doc-kind
+    # section chunks; the kind-based layer routing carries them into the docs
+    # layer exactly like markdown.
+    if suffix in RST_EXTENSIONS:
+        return chunk_rst(source, normalized)
+
+    if suffix in ADOC_EXTENSIONS:
+        return chunk_adoc(source, normalized)
+
+    if suffix in DIAGRAM_EXTENSIONS:
+        return chunk_diagram(source, normalized)
 
     if is_design_json:
         return _chunk_design_json(source, normalized)
@@ -6327,12 +7739,24 @@ def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
         return _ts_dispatch(chunk_php_treesitter, None, source, normalized, "php", with_summary=True)
 
     if suffix in YAML_EXTENSIONS:
+        # 1wfr8: content-detected OpenAPI specs chunk at operation level;
+        # everything else keeps the flat emission byte-identically.
+        if _spec_chunking_enabled() and _spec_parse_size_ok(source):
+            spec_chunks = chunk_spec_yaml(source, normalized)
+            if spec_chunks is not None:
+                return spec_chunks
         return _ts_dispatch(chunk_yaml_treesitter, None, source, normalized, "yaml")
 
     if suffix in TOML_EXTENSIONS:
         return _ts_dispatch(chunk_toml_treesitter, None, source, normalized, "toml")
 
     if suffix in JSON_EXTENSIONS:
+        # 1wfr8: content-detected OpenAPI / JSON Schema files chunk at
+        # operation / definition level; everything else stays flat.
+        if _spec_chunking_enabled() and _spec_parse_size_ok(source):
+            spec_chunks = chunk_spec_json(source, normalized)
+            if spec_chunks is not None:
+                return spec_chunks
         return _ts_dispatch(chunk_json_treesitter, None, source, normalized, "json")
 
     if suffix in CSS_EXTENSIONS:
@@ -6355,6 +7779,25 @@ def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
 
     if suffix in IPYNB_EXTENSIONS:
         return chunk_jupyter(source, normalized)
+
+    if suffix in GRAPHQL_SDL_EXTENSIONS:
+        # 1wfso: description-carrying SDL chunks structure-aware; anything the
+        # bounded parser cannot place (and gate-off) keeps today's line-window
+        # output byte-identically.
+        if _spec_chunking_enabled() and _spec_parse_size_ok(source):
+            sdl_chunks = chunk_graphql_sdl(source, normalized)
+            if sdl_chunks is not None:
+                return sdl_chunks
+        return chunk_line_window(source, normalized, language=None, section=_file_stem(normalized))
+
+    if suffix in PROTO_EXTENSIONS:
+        # 1wfso: comment-carrying proto declarations chunk structure-aware;
+        # same byte-identical line-window fallback contract as SDL.
+        if _spec_chunking_enabled() and _spec_parse_size_ok(source):
+            proto_chunks = chunk_proto(source, normalized)
+            if proto_chunks is not None:
+                return proto_chunks
+        return chunk_line_window(source, normalized, language=None, section=_file_stem(normalized))
 
     if suffix in CODE_EXTENSIONS:
         return chunk_line_window(source, normalized, language=_ext_language(suffix) or None,

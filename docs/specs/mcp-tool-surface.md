@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-27
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -407,8 +407,13 @@ recovery tool rather than silently duplicating work.
 
 `docs_search(query: str, kind: str = "", tags: list[str] = [], limit: int = 5)`
 
-- Semantic search over docs, architecture docs, prompts, and seed chunks.
-- Optional `kind`: `doc`, `seed`, `architecture`, `prompt`, `doc-summary`.
+- Semantic search over docs, architecture docs, prompts, and seed chunks, including the
+  `doc-code` chunks extracted from documentation fences, code directives, and listing blocks,
+  and the one-unit-per-file chunks of standalone Mermaid/PlantUML/Graphviz-DOT diagram files
+  (wave `1wik9`).
+- Optional `kind`: `doc`, `seed`, `architecture`, `prompt`, `doc-summary`, `doc-code`. The
+  `architecture` virtual kind matches prose `doc` rows only (doc-code is excluded, mirroring
+  the doc-summary precedent); filter `kind='doc-code'` to target extracted code content.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
 - Query-time embedding must run offline-only once the local model cache exists.
@@ -1165,6 +1170,7 @@ not rely on `status` to signal index absence.
 - **Upgrade-time refusal (wave 1u44n):** while a framework upgrade checkpoint exists (`.wavefoundry/upgrade-in-progress.json`), `index_build` fails fast with an `upgrade_in_progress` diagnostic whose message states the recovery (at zero `memory_backfill_pending`: `resume_after_memory`, then `cleanup`, then `index_build`, confirmed by `index_health`; otherwise `memory_backfill` / `memory_validate`); only the upgrade's own authorized Phase 4 publisher may publish during that window.
 - Successful responses include a `stats` object with indexed-file and chunk counts, plus `up_to_date` when the rebuild was a no-op.
 - Rebuilds must honor any repo-local `docs/workflow-config.json` `indexing.project_include_prefixes` policy so additional opted-in roots are rebuilt consistently through MCP, not just through `wf update-indexes`.
+- Structured-format directories (OpenAPI specs, JSON Schemas, manifests) are searchable by DEFAULT — the code corpus spans the whole repository outside `.wavefoundry/`, the corpus exclusions, and ignore files; the include-prefixes list is the opt-back-in for `.wavefoundry/`-nested (self-hosting) subpaths. Missing-spec checklist and full guidance: seed 211's Index Scope section / `docs/agents/guru.md` and `docs/contributing/build-and-verification.md`.
 - On success, the current MCP process must invalidate its loaded index state so subsequent search calls use the rebuilt files.
 - Recovery: rerun `wf update-indexes --root .`.
 
@@ -1415,7 +1421,7 @@ Use this table to select the right tool for a query type.
 | Look up the symbol enclosing a specific line number | `code_hover` | Faster than `code_outline` when the line is already known |
 | Find an exact token, import path, or string literal | `code_keyword` | Deterministic exhaustive substring search |
 | Read the actual implementation once you know the file | `code_read` | Source-of-truth file content with line numbers |
-| Search markdown docs, prompts, specs, or seeds instead of source code | `docs_search` | Semantic retrieval over docs, not code |
+| Search prose documentation (markdown, reStructuredText, AsciiDoc, plain text), prompts, specs, or seeds instead of source code | `docs_search` | Semantic retrieval over the docs layer's doc-kind prose chunks plus `doc-code` extracted-code and diagram chunks (non-exhaustive format set; chunk-kind routing is the authority), not source code |
 
 ### When to use `code_search` — and which `language` form to pass
 

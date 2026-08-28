@@ -1,0 +1,380 @@
+[
+  {
+    "id": "p01",
+    "query": "Which Python versions does the client support?",
+    "variants": {
+      "md": {
+        "file": "md/installation.md",
+        "anchor": "requires Python 3.10 or newer"
+      },
+      "rst": {
+        "file": "rst/installation.rst",
+        "anchor": "requires Python 3.10 or newer"
+      },
+      "adoc": {
+        "file": "adoc/installation.adoc",
+        "anchor": "requires Python 3.10 or newer"
+      }
+    }
+  },
+  {
+    "id": "p02",
+    "query": "Do the prebuilt packages work on Apple silicon Macs?",
+    "variants": {
+      "md": {
+        "file": "md/installation.md",
+        "anchor": "universal2 wheels that run natively on Apple silicon"
+      },
+      "rst": {
+        "file": "rst/installation.rst",
+        "anchor": "universal2 wheels that run natively on Apple silicon"
+      },
+      "adoc": {
+        "file": "adoc/installation.adoc",
+        "anchor": "universal2 wheels that run natively on Apple silicon"
+      }
+    }
+  },
+  {
+    "id": "p03",
+    "query": "How do I check that the package was installed correctly?",
+    "variants": {
+      "md": {
+        "file": "md/installation.md",
+        "anchor": "prints the installed version and the active profile"
+      },
+      "rst": {
+        "file": "rst/installation.rst",
+        "anchor": "prints the installed version and the active profile"
+      },
+      "adoc": {
+        "file": "adoc/installation.adoc",
+        "anchor": "prints the installed version and the active profile"
+      }
+    }
+  },
+  {
+    "id": "p04",
+    "query": "How much notice is given before a deprecated feature is removed?",
+    "variants": {
+      "md": {
+        "file": "md/installation.md",
+        "anchor": "deprecations are announced one minor release in advance"
+      },
+      "rst": {
+        "file": "rst/installation.rst",
+        "anchor": "deprecations are announced one minor release in advance"
+      },
+      "adoc": {
+        "file": "adoc/installation.adoc",
+        "anchor": "deprecations are announced one minor release in advance"
+      }
+    }
+  },
+  {
+    "id": "p05",
+    "query": "If a setting is defined in several places at once, which value wins?",
+    "variants": {
+      "md": {
+        "file": "md/configuration.md",
+        "anchor": "constructor arguments always take the highest precedence"
+      },
+      "rst": {
+        "file": "rst/configuration.rst",
+        "anchor": "constructor arguments always take the highest precedence"
+      },
+      "adoc": {
+        "file": "adoc/configuration.adoc",
+        "anchor": "constructor arguments always take the highest precedence"
+      }
+    }
+  },
+  {
+    "id": "p06",
+    "query": "How does the client locate its configuration file?",
+    "variants": {
+      "md": {
+        "file": "md/configuration.md",
+        "anchor": "walking up toward the filesystem root"
+      },
+      "rst": {
+        "file": "rst/configuration.rst",
+        "anchor": "walking up toward the filesystem root"
+      },
+      "adoc": {
+        "file": "adoc/configuration.adoc",
+        "anchor": "walking up toward the filesystem root"
+      }
+    }
+  },
+  {
+    "id": "p07",
+    "query": "How do I set a nested option through an environment variable?",
+    "variants": {
+      "md": {
+        "file": "md/configuration.md",
+        "anchor": "double underscore to separate nested keys"
+      },
+      "rst": {
+        "file": "rst/configuration.rst",
+        "anchor": "double underscore to separate nested keys"
+      },
+      "adoc": {
+        "file": "adoc/configuration.adoc",
+        "anchor": "double underscore to separate nested keys"
+      }
+    }
+  },
+  {
+    "id": "p08",
+    "query": "How can I see where each effective setting came from?",
+    "variants": {
+      "md": {
+        "file": "md/configuration.md",
+        "anchor": "the source of every resolved value"
+      },
+      "rst": {
+        "file": "rst/configuration.rst",
+        "anchor": "the source of every resolved value"
+      },
+      "adoc": {
+        "file": "adoc/configuration.adoc",
+        "anchor": "the source of every resolved value"
+      }
+    }
+  },
+  {
+    "id": "p09",
+    "query": "How are retry delays spaced out after repeated failures?",
+    "variants": {
+      "md": {
+        "file": "md/errors.md",
+        "anchor": "exponential backoff with full jitter"
+      },
+      "rst": {
+        "file": "rst/errors.rst",
+        "anchor": "exponential backoff with full jitter"
+      },
+      "adoc": {
+        "file": "adoc/errors.adoc",
+        "anchor": "exponential backoff with full jitter"
+      }
+    }
+  },
+  {
+    "id": "p10",
+    "query": "Does the client automatically retry write requests that fail?",
+    "variants": {
+      "md": {
+        "file": "md/errors.md",
+        "anchor": "mutating calls must opt in with an idempotency key"
+      },
+      "rst": {
+        "file": "rst/errors.rst",
+        "anchor": "mutating calls must opt in with an idempotency key"
+      },
+      "adoc": {
+        "file": "adoc/errors.adoc",
+        "anchor": "mutating calls must opt in with an idempotency key"
+      }
+    }
+  },
+  {
+    "id": "p11",
+    "query": "What happens when a request gets throttled with a 429 response?",
+    "variants": {
+      "md": {
+        "file": "md/errors.md",
+        "anchor": "honors the Retry-After header"
+      },
+      "rst": {
+        "file": "rst/errors.rst",
+        "anchor": "honors the Retry-After header"
+      },
+      "adoc": {
+        "file": "adoc/errors.adoc",
+        "anchor": "honors the Retry-After header"
+      }
+    }
+  },
+  {
+    "id": "p12",
+    "query": "What should I include so support can trace a failed call in their logs?",
+    "variants": {
+      "md": {
+        "file": "md/errors.md",
+        "anchor": "request identifier that support can correlate"
+      },
+      "rst": {
+        "file": "rst/errors.rst",
+        "anchor": "request identifier that support can correlate"
+      },
+      "adoc": {
+        "file": "adoc/errors.adoc",
+        "anchor": "request identifier that support can correlate"
+      }
+    }
+  },
+  {
+    "id": "p13",
+    "query": "How is my key attached to outgoing calls?",
+    "variants": {
+      "md": {
+        "file": "md/api-guide.md",
+        "anchor": "API key in the Authorization header on every request"
+      },
+      "rst": {
+        "file": "rst/api-guide.rst",
+        "anchor": "API key in the Authorization header on every request"
+      },
+      "adoc": {
+        "file": "adoc/api-guide.adoc",
+        "anchor": "API key in the Authorization header on every request"
+      }
+    }
+  },
+  {
+    "id": "p14",
+    "query": "Can I replace my credentials without causing downtime?",
+    "variants": {
+      "md": {
+        "file": "md/api-guide.md",
+        "anchor": "rotate keys without interrupting live traffic"
+      },
+      "rst": {
+        "file": "rst/api-guide.rst",
+        "anchor": "rotate keys without interrupting live traffic"
+      },
+      "adoc": {
+        "file": "adoc/api-guide.adoc",
+        "anchor": "rotate keys without interrupting live traffic"
+      }
+    }
+  },
+  {
+    "id": "p15",
+    "query": "How are large result sets split up when listing resources?",
+    "variants": {
+      "md": {
+        "file": "md/api-guide.md",
+        "anchor": "cursor-based pagination rather than numbered pages"
+      },
+      "rst": {
+        "file": "rst/api-guide.rst",
+        "anchor": "cursor-based pagination rather than numbered pages"
+      },
+      "adoc": {
+        "file": "adoc/api-guide.adoc",
+        "anchor": "cursor-based pagination rather than numbered pages"
+      }
+    }
+  },
+  {
+    "id": "p16",
+    "query": "How can I consume results incrementally instead of waiting for the whole download?",
+    "variants": {
+      "md": {
+        "file": "md/api-guide.md",
+        "anchor": "yields records as they arrive over a single connection"
+      },
+      "rst": {
+        "file": "rst/api-guide.rst",
+        "anchor": "yields records as they arrive over a single connection"
+      },
+      "adoc": {
+        "file": "adoc/api-guide.adoc",
+        "anchor": "yields records as they arrive over a single connection"
+      }
+    }
+  },
+  {
+    "id": "f01",
+    "query": "which stages do webhook events pass through before reaching my endpoint",
+    "variants": {
+      "fence-md": {
+        "file": "md/webhooks.md",
+        "anchor": "DeliveryQueue -->|POST event| YourEndpoint"
+      }
+    }
+  },
+  {
+    "id": "f02",
+    "query": "how do I verify a webhook signature before trusting the payload",
+    "variants": {
+      "fence-md": {
+        "file": "md/webhooks.md",
+        "anchor": "hmac.compare_digest(expected, signature_header)"
+      }
+    }
+  },
+  {
+    "id": "f03",
+    "query": "how many times is a parked webhook delivery redelivered",
+    "variants": {
+      "fence-md": {
+        "file": "md/webhooks.md",
+        "anchor": "max_redeliveries = 7"
+      }
+    }
+  },
+  {
+    "id": "f04",
+    "query": "what command exports completed job history as newline-delimited json",
+    "variants": {
+      "fence-rst": {
+        "file": "rst/cli-recipes.rst",
+        "anchor": "driftbeam jobs export --since 30d"
+      }
+    }
+  },
+  {
+    "id": "f05",
+    "query": "how do I remove artifacts older than the retention window",
+    "variants": {
+      "fence-rst": {
+        "file": "rst/cli-recipes.rst",
+        "anchor": "driftbeam artifacts prune --keep-days 90"
+      }
+    }
+  },
+  {
+    "id": "f06",
+    "query": "how do I enable zsh tab completion for the cli",
+    "variants": {
+      "fence-rst": {
+        "file": "rst/cli-recipes.rst",
+        "anchor": "driftbeam completion zsh"
+      }
+    }
+  },
+  {
+    "id": "f07",
+    "query": "what does the systemd service unit for the relay agent run",
+    "variants": {
+      "fence-adoc": {
+        "file": "adoc/deployment.adoc",
+        "anchor": "ExecStart=/usr/local/bin/driftbeam-relay"
+      }
+    }
+  },
+  {
+    "id": "f08",
+    "query": "which url should the orchestrator health check hit on the container",
+    "variants": {
+      "fence-adoc": {
+        "file": "adoc/deployment.adoc",
+        "anchor": "http://localhost:9631/healthz"
+      }
+    }
+  },
+  {
+    "id": "f09",
+    "query": "what memory limit does the relay container need",
+    "variants": {
+      "fence-adoc": {
+        "file": "adoc/deployment.adoc",
+        "anchor": "memory: 512Mi"
+      }
+    }
+  }
+]

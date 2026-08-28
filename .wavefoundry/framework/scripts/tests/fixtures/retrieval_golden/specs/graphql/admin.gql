@@ -1,0 +1,69 @@
+"""
+Back-office administration schema for support staff tooling.
+"""
+type Query {
+  """
+  Paginated audit trail of staff actions, newest first.
+  """
+  auditLog(after: String, limit: Int = 50): AuditPage!
+
+  """
+  Look up a customer account by email for support investigations.
+  """
+  customerByEmail(email: String!): Customer
+}
+
+"""
+One page of audit entries with an opaque continuation cursor.
+"""
+type AuditPage {
+  entries: [AuditEntry!]!
+
+  """
+  Opaque cursor to fetch the next page; null on the last page.
+  """
+  nextCursor: String
+}
+
+"""
+A single recorded staff action with actor and target references.
+"""
+type AuditEntry {
+  id: ID!
+
+  """
+  Staff member who performed the action.
+  """
+  actor: String!
+
+  """
+  Machine-readable action name, stable across releases.
+  """
+  action: String!
+  occurredAt: String!
+}
+
+"""
+A customer account as visible to support staff.
+"""
+type Customer {
+  id: ID!
+  email: String!
+
+  """
+  Whether the account is currently locked by fraud review.
+  """
+  locked: Boolean!
+}
+
+enum LockReason {
+  """
+  Locked automatically by the fraud scoring pipeline.
+  """
+  FRAUD_SUSPECTED
+
+  """
+  Locked manually by a support agent during an investigation.
+  """
+  MANUAL_REVIEW
+}

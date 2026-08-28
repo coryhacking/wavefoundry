@@ -1,0 +1,78 @@
+# Configuring Driftbeam
+
+Driftbeam is configured through a small set of layered sources, designed so that production overrides never require editing files inside a deployment image.
+
+## Configuration sources and precedence
+
+Settings are resolved from four sources: explicit constructor arguments, environment variables, the project configuration file, and built-in defaults.
+When the same key is defined in more than one source, explicit constructor arguments always take the highest precedence.
+Environment variables override the configuration file, which in turn overrides the built-in defaults.
+Precedence is resolved per key, not per file, so a partial override never discards unrelated settings from lower layers.
+
+## The configuration file
+
+The client looks for a file named `driftbeam.toml`, starting in the current directory and walking up toward the filesystem root.
+The first file found wins; the search never merges multiple configuration files.
+Keep secrets out of the file and inject them through environment variables instead.
+
+```toml
+[server]
+endpoint = "https://api.example.invalid"
+port = 8443
+
+[logging]
+level = "warning"
+format = "json"
+```
+
+## Environment variable overrides
+
+Every setting can be overridden with an environment variable using the `DRIFTBEAM_` prefix.
+Use a double underscore to separate nested keys, so `DRIFTBEAM_SERVER__PORT` overrides the `server.port` setting.
+Boolean values accept true, false, 1, and 0, and parsing is case-insensitive.
+
+```bash
+export DRIFTBEAM_SERVER__ENDPOINT="https://staging.example.invalid"
+export DRIFTBEAM_LOGGING__LEVEL=debug
+```
+
+## Connection settings
+
+Connection behavior is controlled by three settings that trade latency for resilience.
+
+### Timeouts
+
+The connect timeout applies only to the TCP handshake, while the read timeout bounds each individual response.
+Slow endpoints deserve a longer read timeout, not a longer connect timeout.
+Reconnect by calling `connect()` again after adjusting timeouts on a live client.
+
+### Connection pooling
+
+Set the pool size to match your worker concurrency; idle connections are recycled after sixty seconds.
+A pool that is too small shows up as queuing latency, not as errors, so watch the wait-time metric.
+
+```python
+from driftbeam import Client
+
+client = Client(
+    connect_timeout=2.0,
+    read_timeout=30.0,
+    pool_size=16,
+)
+```
+
+## Logging configuration
+
+Driftbeam emits structured JSON logs when the log format is set to json, and plain text otherwise.
+The default level is warning; raise it to debug only for short troubleshooting sessions because request bodies are recorded at that level.
+
+> **Note:** Debug logs may contain request payloads; scrub them before attaching logs to a public issue.
+
+## Validating configuration
+
+The config check command prints the effective configuration along with the source of every resolved value.
+Validation fails fast on unknown keys instead of ignoring them, which catches typos before deployment.
+
+```bash
+driftbeam config check
+```

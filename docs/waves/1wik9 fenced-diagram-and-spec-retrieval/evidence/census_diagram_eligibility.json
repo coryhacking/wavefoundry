@@ -1,0 +1,68 @@
+{
+  "census": "1whuq Requirement 3 executed diagram eligibility census",
+  "walker_version": "13",
+  "method": "indexer.walk_repo + indexer._filter_project_index_excludes on a constructed fixture tree; no grep",
+  "fixture_census": [
+    {
+      "path": "docs/diagrams/auth-flow.mmd",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "docs/diagrams/pipeline.mermaid",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "src/architecture/topology.puml",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "design/lifecycle.plantuml",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "deps/services.dot",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "tooling/targets.gv",
+      "walks": true,
+      "docs_eligible": true,
+      "binary_impostor": false
+    },
+    {
+      "path": "build/inside-excluded-dir.gv",
+      "walks": false,
+      "docs_eligible": false,
+      "binary_impostor": false
+    },
+    {
+      "path": ".wavefoundry/framework/notes/internal.mmd",
+      "walks": true,
+      "docs_eligible": false,
+      "binary_impostor": false
+    },
+    {
+      "path": "templates/legacy-word-template.dot",
+      "walks": false,
+      "docs_eligible": false,
+      "binary_impostor": true
+    }
+  ],
+  "polarity": {
+    "in_docs_root_eligible": true,
+    "out_of_docs_root_eligible": true,
+    "excluded_dir_name_never_walks": true,
+    "wavefoundry_nested_excluded": true,
+    "binary_impostor_walk_excluded": true
+  }
+}

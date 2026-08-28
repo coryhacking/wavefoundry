@@ -1,0 +1,11 @@
+Interface sketch from a design doc, saved as plain text.
+
+syntax = "proto3";
+
+package sketch.v1;
+
+// Proto-shaped content in a .txt file: must never take the Protobuf
+// chunking path, because detection is extension-gated.
+message SketchOnly {
+  string field_one = 1;
+}

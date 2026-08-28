@@ -1,0 +1,28 @@
+{
+  "type": "checkout.completed",
+  "eventId": "evt_01J5W2M9QK7ZT4",
+  "occurredAt": "2026-08-19T17:42:08.221Z",
+  "source": "storefront-web",
+  "sessionId": "sess_9f21cc04",
+  "properties": {
+    "orderId": "ord_58213",
+    "cartValueCents": 12750,
+    "currency": "usd",
+    "itemCount": 3,
+    "paymentMethod": "card",
+    "couponApplied": false,
+    "checkoutDurationMs": 48211,
+    "abVariant": "one-page-checkout"
+  },
+  "context": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "locale": "en-US",
+    "pageUrl": "https://shop.example.com/checkout/confirmation",
+    "referrer": "https://shop.example.com/checkout/payment"
+  },
+  "required": ["consent.analytics"],
+  "sampling": {
+    "rate": 1.0,
+    "reason": "conversion events are never sampled"
+  }
+}

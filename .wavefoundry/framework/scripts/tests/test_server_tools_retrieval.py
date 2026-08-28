@@ -15387,5 +15387,113 @@ class DriftWorklistAuditSurfaceTests(unittest.TestCase):
         self.assertIn("doc_drift_evaluation_stale", codes)
 
 
+class DocCodeKindFilterTests(unittest.TestCase):
+    """Wave 1wik9 (1whup): docs_search kind filtering works for the routed
+    doc-code kind on BOTH enforcement layers. The semantic path filters by
+    raw SQL equality over real Lance rows (the readiness code lane proved
+    live-walk unit tests alone miss this filter class — the `architecture`
+    virtual kind is dead there); the live-walk/lexical path filters through
+    _doc_matches_kind, whose fall-through short-circuit means a kind without
+    its own branch can never match any filter."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _rows(self):
+        return [
+            {
+                "id": "docs/guide.md#install",
+                "path": "docs/guide.md",
+                "kind": "doc",
+                "language": None,
+                "lines": [1, 4],
+                "section": "Install",
+                "text": "Install prose paragraph",
+            },
+            {
+                "id": "docs/guide.md#install:code-1",
+                "path": "docs/guide.md",
+                "kind": "doc-code",
+                "language": "bash",
+                "lines": [5, 7],
+                "section": "Install",
+                "text": "Install\n\nwidgetctl install --profile default",
+            },
+            {
+                "id": "docs/architecture/overview.md#arch:code-1",
+                "path": "docs/architecture/overview.md",
+                "kind": "doc-code",
+                "language": "mermaid",
+                "lines": [1, 3],
+                "section": "Arch",
+                "text": "Arch\n\ngraph TD; A-->B",
+            },
+        ]
+
+    def test_semantic_path_kind_filter_matches_real_doc_code_rows(self):
+        _write_index_layer(
+            self.root / ".wavefoundry" / "index",
+            self._rows(),
+            [[1, 0], [1, 0], [1, 0]],
+        )
+        index = self.srv.WaveIndex(self.root)
+        import numpy as np
+        with patch.object(index, "_indexer_constant", return_value="test-model"):
+            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+                with patch.object(index, "_get_reranker", return_value=None):
+                    results, _ = index.search_docs("install command", kind="doc-code", top_n=5)
+        self.assertTrue(results, "raw-SQL kind filter must find real doc-code rows")
+        self.assertEqual({r["kind"] for r in results}, {"doc-code"})
+        with patch.object(index, "_indexer_constant", return_value="test-model"):
+            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+                with patch.object(index, "_get_reranker", return_value=None):
+                    doc_only, _ = index.search_docs("install command", kind="doc", top_n=5)
+        self.assertEqual({r["kind"] for r in doc_only}, {"doc"},
+                         "kind='doc' must not sweep in doc-code rows")
+
+    def test_docs_search_response_accepts_doc_code_kind(self):
+        index = MagicMock()
+        index.search_docs.return_value = ([], True)
+        resp = self.srv.docs_search_response(index, "query", kind="doc-code")
+        codes = [d.get("code") for d in resp.get("diagnostics", [])]
+        self.assertNotIn("invalid_arguments", codes)
+        self.assertIn("doc-code", self.srv.DOCS_SEARCH_KINDS)
+
+    def test_doc_matches_kind_has_a_doc_code_branch(self):
+        index = self.srv.WaveIndex(self.root)
+        chunk = {"kind": "doc-code", "path": "docs/guide.md"}
+        self.assertTrue(index._doc_matches_kind(chunk, "doc-code"))
+        self.assertTrue(index._doc_matches_kind(chunk, ""))
+        self.assertFalse(index._doc_matches_kind(chunk, "doc"))
+        self.assertFalse(index._doc_matches_kind({"kind": "doc", "path": "docs/x.md"}, "doc-code"))
+
+    def test_architecture_virtual_kind_excludes_doc_code(self):
+        # Recorded decision (1whup Requirement 3): doc-code chunks do NOT
+        # match the architecture virtual kind even under docs/architecture/
+        # (mirrors the doc-summary exclusion precedent).
+        index = self.srv.WaveIndex(self.root)
+        arch_fence = {"kind": "doc-code", "path": "docs/architecture/overview.md"}
+        self.assertFalse(index._doc_matches_kind(arch_fence, "architecture"))
+        self.assertTrue(index._doc_matches_kind(
+            {"kind": "doc", "path": "docs/architecture/overview.md"}, "architecture"))
+
+    def test_code_ask_partition_tuples_stay_complementary(self):
+        # Both literals must carry the same tuple: editing one side alone
+        # puts doc-code in BOTH partitions. Source-level pin.
+        src = inspect.getsource(self.srv)
+        docs_side = src.count('("doc", "doc-summary", "seed", "doc-code")')
+        self.assertEqual(docs_side, 2,
+                         "_docs_src and _code_src must share the one partition tuple")
+
+
 if __name__ == "__main__":
     unittest.main()

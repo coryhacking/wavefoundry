@@ -1,0 +1,23 @@
+{
+  "regeneration": "1whup Requirement 4 versioned differential regeneration",
+  "chunker_version": "35",
+  "markdown_delta": {
+    "row_count_old": 16,
+    "row_count_new": 16,
+    "changed": [
+      {
+        "old_id": "docs/guide.md#installation:code",
+        "new_id": "docs/guide.md#installation:code-1",
+        "old_kind": "code",
+        "new_kind": "doc-code",
+        "classes": [
+          "kind code->doc-code (doc-family extracted block)",
+          "file-pass ordinal id addition"
+        ]
+      }
+    ],
+    "unclassified": []
+  },
+  "specs_negatives_zero_delta": true,
+  "markdown_snapshot_discriminates_on_mutation": true
+}

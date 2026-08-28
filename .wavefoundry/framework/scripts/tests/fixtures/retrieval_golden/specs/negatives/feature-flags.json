@@ -1,0 +1,34 @@
+{
+  "version": 12,
+  "updatedBy": "flag-sync-job",
+  "updatedAt": "2026-08-19T04:12:33Z",
+  "flags": {
+    "checkout.one-click": {
+      "enabled": true,
+      "rollout": 100,
+      "owner": "payments-squad"
+    },
+    "search.vector-rerank": {
+      "enabled": true,
+      "rollout": 25,
+      "owner": "discovery-squad",
+      "segments": ["beta-testers", "employees"]
+    },
+    "pdp.ar-preview": {
+      "enabled": false,
+      "rollout": 0,
+      "owner": "storefront-squad",
+      "note": "blocked on device benchmark results"
+    },
+    "email.digest-v2": {
+      "enabled": true,
+      "rollout": 50,
+      "owner": "lifecycle-squad",
+      "segments": ["opted-in"]
+    }
+  },
+  "killSwitches": {
+    "recommendations": false,
+    "reviews-ingest": false
+  }
+}

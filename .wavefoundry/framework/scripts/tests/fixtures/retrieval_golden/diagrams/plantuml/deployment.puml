@@ -1,0 +1,20 @@
+@startuml
+title Production Deployment Topology
+
+node "Edge Segment" {
+  [Relay Agent] as relay
+}
+
+node "Application Tier" {
+  [Job Scheduler] as scheduler
+  [Webhook Dispatcher] as webhooks
+}
+
+database "Primary Postgres" as pg
+queue "Delivery Queue" as dq
+
+relay --> scheduler : forwards isolated-segment jobs
+scheduler --> pg : persists job state
+scheduler --> dq : enqueues lifecycle events
+webhooks --> dq : consumes lifecycle events
+@enduml

@@ -1,0 +1,229 @@
+openapi: 3.0.3
+info:
+  title: Petstore Storefront API
+  version: 1.4.0
+  description: >-
+    A storefront API for managing catalog pets and purchase orders.
+    Authentication uses the X-Api-Key header on every request; keys are
+    provisioned per store in the merchant dashboard and rotate every 90 days.
+  contact:
+    name: Petstore Platform Team
+    email: platform@petstore.example.com
+servers:
+  - url: https://api.petstore.example.com/v1
+    description: Production
+tags:
+  - name: pets
+    description: Create, browse, update, and retire pets in the storefront catalog.
+  - name: orders
+    description: Purchase orders placed against catalog pets.
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List pets in the catalog
+      description: >-
+        Returns catalog pets in stable creation order. Results are paginated
+        with an opaque cursor: pass the nextCursor value from the previous
+        response as the cursor query parameter to fetch the next page.
+        Cursors expire after fifteen minutes of inactivity, after which the
+        server responds with 400 invalid_cursor and the client must restart
+        from the first page.
+      parameters:
+        - name: limit
+          in: query
+          description: >-
+            Maximum number of pets to return in a single page. The server caps
+            this at 100 even when a larger value is requested; there is no way
+            to disable pagination.
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: cursor
+          in: query
+          description: Opaque pagination cursor taken from a previous response.
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: >-
+            Filter by availability. Retired pets are excluded from every
+            listing unless status is set to retired explicitly.
+          schema:
+            type: string
+            enum: [available, pending, sold, retired]
+      responses:
+        "200":
+          description: One page of pets plus an optional nextCursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PetPage"
+        "400":
+          description: Malformed filter or an expired pagination cursor.
+    post:
+      operationId: createPet
+      tags: [pets]
+      summary: Add a pet to the catalog
+      description: >-
+        Creates a catalog pet in available status. The name must be unique
+        within a store; submitting a duplicate name returns 422 with the
+        duplicate_name error code rather than creating a second record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "201":
+          description: The newly created pet.
+        "422":
+          description: Validation failed, including duplicate pet names.
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        description: Identifier assigned when the pet was created.
+        schema:
+          type: string
+    get:
+      operationId: getPet
+      tags: [pets]
+      summary: Fetch a single pet
+      description: >-
+        Looks up one pet by identifier. Unknown identifiers return 404, while
+        pets that were retired from the catalog return 410 Gone rather than 404
+        so that clients can distinguish a bad id from a discontinued listing.
+      responses:
+        "200":
+          description: The requested pet.
+        "404":
+          description: No pet has ever existed with this identifier.
+        "410":
+          description: The pet existed but has been retired from the catalog.
+    put:
+      operationId: updatePet
+      tags: [pets]
+      summary: Update a pet
+      description: >-
+        Replaces the mutable fields of a pet. Updates use optimistic
+        concurrency: send the version from the last read in the If-Match
+        header, and a stale version returns 412 so the client can re-read
+        and merge before retrying.
+      responses:
+        "200":
+          description: The updated pet.
+        "412":
+          description: The If-Match version was stale.
+    delete:
+      operationId: deletePet
+      tags: [pets]
+      summary: Retire a pet from the catalog
+      description: >-
+        Retires a pet so it no longer appears in listings. A pet with an
+        open order cannot be deleted; the server responds with 409 Conflict
+        until every order that references the pet is completed or cancelled.
+      responses:
+        "204":
+          description: The pet was retired.
+        "409":
+          description: An open order still references this pet.
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [orders]
+      summary: List purchase orders
+      description: >-
+        Returns the store's orders, most recent first, using the same cursor
+        pagination scheme as the pet listing. Completed and cancelled orders
+        remain visible for 13 months for bookkeeping.
+      responses:
+        "200":
+          description: One page of orders.
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Place an order for a pet
+      description: >-
+        Creates an order in pending state and places a hold on the pet.
+        Unpaid orders are automatically cancelled after 48 hours and the pet
+        returns to available status. Ordering a pet that is already sold
+        returns 409.
+      responses:
+        "201":
+          description: The pending order.
+        "409":
+          description: The pet is not currently available for purchase.
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      tags: [orders]
+      summary: Fetch a single order
+      description: >-
+        Looks up one order by identifier, including its payment status and
+        the point in the fulfilment pipeline it has reached.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Identifier returned when the order was placed.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested order.
+        "404":
+          description: No such order.
+components:
+  schemas:
+    NewPet:
+      type: object
+      required: [name, species]
+      properties:
+        name:
+          type: string
+          description: Display name, unique within the store.
+        species:
+          type: string
+          description: Species label shown on the listing card.
+        priceCents:
+          type: integer
+          description: Asking price in the store currency's minor unit.
+    Pet:
+      allOf:
+        - $ref: "#/components/schemas/NewPet"
+        - type: object
+          properties:
+            id:
+              type: string
+              description: Server-assigned identifier.
+            status:
+              type: string
+              description: Lifecycle state of the listing.
+              enum: [available, pending, sold, retired]
+            version:
+              type: integer
+              description: Optimistic-concurrency version echoed in If-Match.
+    PetPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pet"
+        nextCursor:
+          type: string
+          description: >-
+            Cursor for the next page; absent on the final page. Treat the
+            value as opaque and do not attempt to parse it.
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+security:
+  - ApiKeyAuth: []

@@ -1,0 +1,25 @@
+{
+  "census": "1wfsn-enh Requirement 6 before/after corpus statistics",
+  "attribution_note": "The fixture-census before/after pair (census_results.json / census_results_after.json) is the attributable measurement for the exclusion change. The repository-level index deltas below carry two disclosed confounds: the 'after' index came from a walker-version-forced FULL rebuild that trues up prior incremental drift, and the build's optimize pass compacts Lance storage; both move chunk counts and bytes independently of the exclusions. The walked-file delta is attributable (measured through the same walk function before and after the landing). The after-walk file count also includes fixture files added to the tree by the sibling changes' corpus-authoring lanes between the two measurements; the definitive real-tree signal is scan_findings_json_walks flipping true -> false.",
+  "before": {
+    "walker_version": "11",
+    "walked_file_count": 1904,
+    "code_corpus_file_count": 180,
+    "index_dir_size_bytes": 212314625,
+    "docs_chunk_rows": 25671,
+    "code_chunk_rows": 7509,
+    "graph_nodes": 19167,
+    "graph_edges": 58313
+  },
+  "after": {
+    "walker_version": "12",
+    "walked_file_count": 1910,
+    "code_corpus_file_count": 181,
+    "index_dir_size_bytes": 186955579,
+    "docs_chunk_rows": 28682,
+    "code_chunk_rows": 7543,
+    "graph_nodes": 19229,
+    "graph_edges": 58643,
+    "scan_findings_json_walks": false
+  }
+}

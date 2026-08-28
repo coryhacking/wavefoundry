@@ -1,0 +1,43 @@
+= Deploying the Agent
+
+The relay agent forwards jobs from an isolated network segment to the Driftbeam service.
+
+== Running under systemd
+
+Install the unit file, then enable the service so the relay survives reboots.
+
+[source,ini]
+----
+[Unit]
+Description=Driftbeam relay agent
+
+[Service]
+ExecStart=/usr/local/bin/driftbeam-relay --profile production
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+----
+
+== Container health checks
+
+The container image exposes a health endpoint on the admin port; wire it into your orchestrator.
+
+[source,bash]
+----
+curl --fail --max-time 3 http://localhost:9631/healthz
+----
+
+== Resource limits
+
+Set memory ceilings explicitly; the relay buffers bursts in memory before spilling to disk.
+
+[source,yaml]
+----
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    memory: 128Mi
+----
