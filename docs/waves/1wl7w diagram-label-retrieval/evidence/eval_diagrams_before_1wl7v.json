@@ -1,0 +1,419 @@
+{
+  "set": "diagrams",
+  "label": "pre-1wl7v-baseline (CHUNKER 38, fixtures + queries + grouping added, chunker unchanged)",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "38",
+  "rank_depth": 20,
+  "metrics": {
+    "recall_at_5": 1.0,
+    "mrr": 1.0,
+    "query_count": 9,
+    "chunk_count": 6,
+    "per_query": [
+      {
+        "id": "d01",
+        "query": "which service validates the bearer token signature during login",
+        "expected_file": "mermaid/auth-flow.mmd",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram"
+        ]
+      },
+      {
+        "id": "d02",
+        "query": "what happens on a session cache miss during login",
+        "expected_file": "mermaid/auth-flow.mmd",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+        ]
+      },
+      {
+        "id": "d03",
+        "query": "where do rejected rows go in the data pipeline",
+        "expected_file": "mermaid/data-pipeline.mermaid",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+        ]
+      },
+      {
+        "id": "d04",
+        "query": "which component forwards jobs from the isolated network segment",
+        "expected_file": "plantuml/deployment.puml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+        ]
+      },
+      {
+        "id": "d05",
+        "query": "what does the production deployment topology look like",
+        "expected_file": "plantuml/deployment.puml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+        ]
+      },
+      {
+        "id": "d06",
+        "query": "what state does an order enter when payment is declined",
+        "expected_file": "plantuml/order-lifecycle.plantuml",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram"
+        ]
+      },
+      {
+        "id": "d07",
+        "query": "which services read from the config service",
+        "expected_file": "dot/service-deps.dot",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+        ]
+      },
+      {
+        "id": "d08",
+        "query": "who renders and emails invoices for billing",
+        "expected_file": "dot/service-deps.dot",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "dot/build-graph.gv#dot/build-graph.gv#diagram"
+        ]
+      },
+      {
+        "id": "d09",
+        "query": "which build target links against the parser library",
+        "expected_file": "dot/build-graph.gv",
+        "rank": 1,
+        "hit_at_5": true,
+        "top5": [
+          "dot/build-graph.gv#dot/build-graph.gv#diagram",
+          "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+          "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+          "dot/service-deps.dot#dot/service-deps.dot#diagram",
+          "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram"
+        ]
+      }
+    ]
+  },
+  "metrics_by_format": {
+    "core": {
+      "recall_at_5": 1.0,
+      "mrr": 1.0,
+      "query_count": 9,
+      "chunk_count": 6,
+      "per_query": [
+        {
+          "id": "d01",
+          "query": "which service validates the bearer token signature during login",
+          "expected_file": "mermaid/auth-flow.mmd",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        },
+        {
+          "id": "d02",
+          "query": "what happens on a session cache miss during login",
+          "expected_file": "mermaid/auth-flow.mmd",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+          ]
+        },
+        {
+          "id": "d03",
+          "query": "where do rejected rows go in the data pipeline",
+          "expected_file": "mermaid/data-pipeline.mermaid",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+          ]
+        },
+        {
+          "id": "d04",
+          "query": "which component forwards jobs from the isolated network segment",
+          "expected_file": "plantuml/deployment.puml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+          ]
+        },
+        {
+          "id": "d05",
+          "query": "what does the production deployment topology look like",
+          "expected_file": "plantuml/deployment.puml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+          ]
+        },
+        {
+          "id": "d06",
+          "query": "what state does an order enter when payment is declined",
+          "expected_file": "plantuml/order-lifecycle.plantuml",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram"
+          ]
+        },
+        {
+          "id": "d07",
+          "query": "which services read from the config service",
+          "expected_file": "dot/service-deps.dot",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram"
+          ]
+        },
+        {
+          "id": "d08",
+          "query": "who renders and emails invoices for billing",
+          "expected_file": "dot/service-deps.dot",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        },
+        {
+          "id": "d09",
+          "query": "which build target links against the parser library",
+          "expected_file": "dot/build-graph.gv",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram"
+          ]
+        }
+      ]
+    },
+    "drawio": {
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "query_count": 5,
+      "chunk_count": 6,
+      "per_query": [
+        {
+          "id": "drawio-q01",
+          "query": "which component terminates mutual TLS at the edge",
+          "expected_file": "drawio/platform-architecture.drawio",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram"
+          ]
+        },
+        {
+          "id": "drawio-q02",
+          "query": "where does fraud scoring happen in the platform",
+          "expected_file": "drawio/platform-architecture.drawio",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+          ]
+        },
+        {
+          "id": "drawio-q03",
+          "query": "what worker reconciles the ledger",
+          "expected_file": "drawio/platform-architecture.drawio",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram"
+          ]
+        },
+        {
+          "id": "drawio-q04",
+          "query": "how do analytics snapshots reach the cold region",
+          "expected_file": "drawio/platform-architecture.drawio",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        },
+        {
+          "id": "drawio-q05",
+          "query": "what gates a canary rollout to production",
+          "expected_file": "drawio/deploy-flow.drawio",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "mermaid/auth-flow.mmd#mermaid/auth-flow.mmd#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram"
+          ]
+        }
+      ]
+    },
+    "excalidraw": {
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "query_count": 4,
+      "chunk_count": 6,
+      "per_query": [
+        {
+          "id": "excalidraw-q01",
+          "query": "who should be paged first during an incident",
+          "expected_file": "excalidraw/incident-runbook.excalidraw",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        },
+        {
+          "id": "excalidraw-q02",
+          "query": "when do we escalate to the database owner",
+          "expected_file": "excalidraw/incident-runbook.excalidraw",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        },
+        {
+          "id": "excalidraw-q03",
+          "query": "which runbook frame covers severity one containment",
+          "expected_file": "excalidraw/incident-runbook.excalidraw",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram"
+          ]
+        },
+        {
+          "id": "excalidraw-q04",
+          "query": "how often does the incident commander rotate",
+          "expected_file": "excalidraw/incident-runbook.excalidraw",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "dot/service-deps.dot#dot/service-deps.dot#diagram",
+            "mermaid/data-pipeline.mermaid#mermaid/data-pipeline.mermaid#diagram",
+            "plantuml/deployment.puml#plantuml/deployment.puml#diagram",
+            "plantuml/order-lifecycle.plantuml#plantuml/order-lifecycle.plantuml#diagram",
+            "dot/build-graph.gv#dot/build-graph.gv#diagram"
+          ]
+        }
+      ]
+    }
+  }
+}

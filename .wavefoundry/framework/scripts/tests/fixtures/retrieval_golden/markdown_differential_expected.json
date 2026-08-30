@@ -190,5 +190,125 @@
     ],
     "section": "Big Doc > Deployment > Verification",
     "text": "Big Doc > Deployment > Verification\n\nVerification prose paragraph."
+  },
+  {
+    "id": "docs/team-guide.md#doc-summary",
+    "path": "docs/team-guide.md",
+    "kind": "doc-summary",
+    "language": null,
+    "lines": [
+      1,
+      21
+    ],
+    "section": "doc-summary",
+    "text": "Team Guide\nFirst onboarding steps.\nSections: Team Guide \u00b7 Setup \u00b7 Setup \u00b7 Setup 2"
+  },
+  {
+    "id": "docs/team-guide.md#preamble",
+    "path": "docs/team-guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      1,
+      3
+    ],
+    "section": null,
+    "text": "# Team Guide"
+  },
+  {
+    "id": "docs/team-guide.md#setup:code-1",
+    "path": "docs/team-guide.md",
+    "kind": "doc-code",
+    "language": "bash",
+    "lines": [
+      7,
+      8
+    ],
+    "section": "Team Guide > Setup",
+    "text": "Team Guide > Setup\n\nteamctl init --profile default"
+  },
+  {
+    "id": "docs/team-guide.md#setup",
+    "path": "docs/team-guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      3,
+      10
+    ],
+    "section": "Team Guide > Setup",
+    "text": "Team Guide > Setup\n\nFirst onboarding steps."
+  },
+  {
+    "id": "docs/team-guide.md#setup:code-2",
+    "path": "docs/team-guide.md",
+    "kind": "doc-code",
+    "language": "bash",
+    "lines": [
+      15,
+      16
+    ],
+    "section": "Team Guide > Setup",
+    "text": "Team Guide > Setup\n\nteamctl init --profile shared"
+  },
+  {
+    "id": "docs/team-guide.md#setup~2",
+    "path": "docs/team-guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      11,
+      18
+    ],
+    "section": "Team Guide > Setup",
+    "text": "Team Guide > Setup\n\nDuplicate-titled second setup section."
+  },
+  {
+    "id": "docs/team-guide.md#setup-2",
+    "path": "docs/team-guide.md",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      19,
+      21
+    ],
+    "section": "Team Guide > Setup 2",
+    "text": "Team Guide > Setup 2\n\nA literal title that slugifies into the -2 tail."
+  },
+  {
+    "id": "docs/metrics-notebook.ipynb#cell-0",
+    "path": "docs/metrics-notebook.ipynb",
+    "kind": "doc",
+    "language": null,
+    "lines": [
+      1,
+      2
+    ],
+    "section": "notebook > Metrics Walkthrough",
+    "text": "notebook > Metrics Walkthrough\n# Metrics Walkthrough\nWeekly rollup notes.\n"
+  },
+  {
+    "id": "docs/metrics-notebook.ipynb#cell-1",
+    "path": "docs/metrics-notebook.ipynb",
+    "kind": "doc-code",
+    "language": "python",
+    "lines": [
+      3,
+      3
+    ],
+    "section": "notebook > Cell 2",
+    "text": "notebook > Cell 2\nrollup = aggregate_weekly(events)\n"
+  },
+  {
+    "id": "docs/metrics-notebook.ipynb#cell-2",
+    "path": "docs/metrics-notebook.ipynb",
+    "kind": "doc-code",
+    "language": "python",
+    "lines": [
+      4,
+      4
+    ],
+    "section": "notebook > Cell 3",
+    "text": "notebook > Cell 3\npublish_dashboard(rollup)\n"
   }
 ]

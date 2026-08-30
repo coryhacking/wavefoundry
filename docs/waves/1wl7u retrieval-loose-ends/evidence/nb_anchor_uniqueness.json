@@ -1,0 +1,61 @@
+{
+  "proof": "nb golden anchor uniqueness (Requirement 4)",
+  "entries": {
+    "nb01": {
+      "anchor": "drop trial rows before cohorting so free tiers never skew retention",
+      "files_containing": [
+        "ipynb/churn_cohort_analysis.ipynb"
+      ],
+      "fixture_chunks_containing": [
+        "ipynb/churn_cohort_analysis.ipynb#cell-1"
+      ],
+      "unique_to_fixture": true,
+      "single_chunk": true
+    },
+    "nb02": {
+      "anchor": "Scale each cohort's weight by the seasonal baseline factor",
+      "files_containing": [
+        "ipynb/churn_cohort_analysis.ipynb"
+      ],
+      "fixture_chunks_containing": [
+        "ipynb/churn_cohort_analysis.ipynb#cell-3"
+      ],
+      "unique_to_fixture": true,
+      "single_chunk": true
+    },
+    "nb03": {
+      "anchor": "a decaying share above a persistent floor",
+      "files_containing": [
+        "ipynb/churn_cohort_analysis.ipynb"
+      ],
+      "fixture_chunks_containing": [
+        "ipynb/churn_cohort_analysis.ipynb#cell-4"
+      ],
+      "unique_to_fixture": true,
+      "single_chunk": true
+    },
+    "nb04": {
+      "anchor": "Subtract the linear tidal gauge drift accumulated since install",
+      "files_containing": [
+        "ipynb/churn_cohort_analysis.ipynb"
+      ],
+      "fixture_chunks_containing": [
+        "ipynb/churn_cohort_analysis.ipynb#cell-5"
+      ],
+      "unique_to_fixture": true,
+      "single_chunk": true
+    },
+    "nb05": {
+      "anchor": "a short February never reads as a retention dip",
+      "files_containing": [
+        "ipynb/churn_cohort_analysis.ipynb"
+      ],
+      "fixture_chunks_containing": [
+        "ipynb/churn_cohort_analysis.ipynb#cell-2"
+      ],
+      "unique_to_fixture": true,
+      "single_chunk": true
+    }
+  },
+  "all_unique": true
+}

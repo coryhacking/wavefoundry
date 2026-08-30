@@ -11177,7 +11177,12 @@ class GuruCitationContractRenderTests(unittest.TestCase):
     """Release review round 6 P1: the code_ask citation-field block must stay
     byte-identical between the canonical seed and the rendered guru surface,
     and its load-bearing claims must match the implementation — so this
-    contract cannot silently diverge again."""
+    contract cannot silently diverge again.
+
+    Cross-reference (wave 1wip2): a SECOND seed-211/guru parity oracle,
+    GuruIndexScopeParityTests in test_shipped_reference_docs.py, byte-guards
+    the `## Index Scope` section of the same file pair. The two oracles
+    deliberately guard disjoint regions."""
 
     BLOCK_HEADER = "Citation fields in `code_ask` response:"
 

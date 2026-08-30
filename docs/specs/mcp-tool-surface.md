@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-08-29
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -408,7 +408,7 @@ recovery tool rather than silently duplicating work.
 `docs_search(query: str, kind: str = "", tags: list[str] = [], limit: int = 5)`
 
 - Semantic search over docs, architecture docs, prompts, and seed chunks, including the
-  `doc-code` chunks extracted from documentation fences, code directives, and listing blocks,
+  `doc-code` chunks extracted from documentation fences, code directives, listing blocks, notebook code cells, and diagram labels (Mermaid/PlantUML/DOT raw-source units; drawio/excalidraw extracted-label units),
   and the one-unit-per-file chunks of standalone Mermaid/PlantUML/Graphviz-DOT diagram files
   (wave `1wik9`).
 - Optional `kind`: `doc`, `seed`, `architecture`, `prompt`, `doc-summary`, `doc-code`. The

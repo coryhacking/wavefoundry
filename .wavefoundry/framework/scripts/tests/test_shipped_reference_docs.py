@@ -315,5 +315,64 @@ class McpPythonLaunchGuidanceTests(unittest.TestCase):
         self.assertIn("do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
 
 
+def _extract_h2_section(path: Path, heading: str) -> str:
+    """The `## <heading>` section through the line before the next `## `."""
+    out: list[str] = []
+    in_section = False
+    for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        if line.startswith("## "):
+            if in_section:
+                break
+            in_section = line.rstrip() == heading
+            if in_section:
+                out.append(line)
+            continue
+        if in_section:
+            out.append(line)
+    return "".join(out)
+
+
+class GuruIndexScopeParityTests(unittest.TestCase):
+    """Wave 1wip2 (1wgwn): the seed-211 Index Scope section and its
+    hand-maintained mirror block in docs/agents/guru.md must stay
+    byte-identical. The 1wik9 delivery review (DOCS-DEL-1) proved the
+    previously cited oracle (this module's PAIRS table) never guarded this
+    pair, so mirror drift was invisible between manual byte-diffs.
+
+    Cross-reference: a SECOND seed-211/guru parity oracle already exists —
+    GuruCitationContractRenderTests in test_server_tools_lifecycle.py
+    byte-guards the "Citation fields in `code_ask` response:" block. The two
+    oracles deliberately guard disjoint regions; consolidation of oracle
+    homes is a recorded non-goal of wave 1wip2."""
+
+    SEED = REPO_ROOT / ".wavefoundry/framework/seeds/211-guru.prompt.md"
+    GURU = REPO_ROOT / "docs/agents/guru.md"
+    HEADING = "## Index Scope"
+
+    def test_index_scope_sections_are_byte_identical(self):
+        seed_section = _extract_h2_section(self.SEED, self.HEADING)
+        guru_section = _extract_h2_section(self.GURU, self.HEADING)
+        self.assertTrue(seed_section.strip(),
+                        "seed 211 must carry an Index Scope section")
+        self.assertTrue(guru_section.strip(),
+                        "guru.md must carry the Index Scope mirror")
+        self.assertEqual(
+            seed_section, guru_section,
+            "seed-211 Index Scope and its guru.md mirror have drifted — "
+            "edit both twins together (seed edits behind seed_edit_allowed)",
+        )
+
+    def test_each_twin_has_exactly_one_index_scope_heading(self):
+        # The extraction is well-defined only while the heading is unique;
+        # a duplicate heading would silently narrow the guarded region.
+        for path in (self.SEED, self.GURU):
+            count = sum(
+                1 for line in path.read_text(encoding="utf-8").splitlines()
+                if line.rstrip() == self.HEADING
+            )
+            self.assertEqual(count, 1, f"{path.name}: expected exactly one "
+                             f"'{self.HEADING}' heading, found {count}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -658,9 +658,13 @@ HARDCODED_EXCLUDE_FILENAMES = frozenset({
 HARDCODED_EXCLUDE_FILENAME_SUFFIXES = (".min.js", ".min.css")
 
 # Extensions for machine-generated files that are valid text but have no code semantics.
+# .drawio and .excalidraw LEFT this set in wave 1wl7w (1wl7v): their earlier
+# exclusions (the 1wl7u census-grounded .drawio decision and the original
+# .excalidraw entry) were correct while the files shipped zero rows, and are
+# SUPERSEDED now that the chunker extracts their labels into docs-routed
+# doc-code units — the files return only WITH retrieval value.
 _GENERATED_EXCLUDE_EXTENSIONS = frozenset({
     ".snap",        # Vitest / Jest snapshot files
-    ".excalidraw",  # Excalidraw diagram JSON
 })
 
 # All extensions we treat as known text — no null-byte sniff needed.
@@ -710,7 +714,24 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # unchanged since these text files already passed the sniff). The bump rides the
 # same clause so consumer indexes re-walk and re-chunk them through the new
 # doc-kind section chunkers (paired with the CHUNKER_VERSION 33 bump).
-WALKER_VERSION = "13"
+# 13 -> 14 (1wh1b, wave 1wl7u): `.drawio` joins `_GENERATED_EXCLUDE_EXTENSIONS`
+# (the `.excalidraw` precedent). Census-grounded decision closing the 1whuq
+# open question: a text-XML .drawio passes the content sniff, WALKS in, chunks
+# as one code-kind line window, and ships zero rows in either table (not
+# code-eligible; kind never docs-routed) — all cost, no value. Existing
+# indexes must re-walk to drop the files. The reinclude hatch cannot override
+# the generated-extension layer (by design, pinned by
+# test_reinclude_hatch_cannot_override_extension_or_sniff), and nothing is
+# lost: a re-included .drawio would still ship zero rows; surfacing .drawio
+# content would be a future CHUNKER decision, not a walk hatch.
+# 14 -> 15 (1wl7v, wave 1wl7w): that future chunker decision is now taken —
+# `.drawio` AND `.excalidraw` leave `_GENERATED_EXCLUDE_EXTENSIONS`, an
+# executable SUPERSESSION of the 14 rationale above ("still ship zero rows")
+# and of the original `.excalidraw` exclusion: the chunker now extracts their
+# node/edge/frame labels into docs-routed doc-code units, so the files return
+# WITH retrieval value (paired with the CHUNKER_VERSION 39 bump). Existing
+# indexes must re-walk to pick both extensions up.
+WALKER_VERSION = "15"
 _MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
 _MEMORY_LEGACY_POINTER_PREFIX = "docs/agents/memory/pointers/"
 

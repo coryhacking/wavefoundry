@@ -1,0 +1,56 @@
+{
+  "differential": "1wh1b per-line content coverage (id-collapse surviving rows)",
+  "old_chunker_version": "37",
+  "new_chunker_version": "38",
+  "forward": {
+    "files": {
+      "docs/churn_cohort_analysis.ipynb": {
+        "content_lines": 28,
+        "covered_any_old": 28,
+        "covered_any_new": 28,
+        "covered_docs_eligible_new": 28,
+        "lines_lost_vs_old": [],
+        "code_cell_lines": 23,
+        "code_cell_lines_docs_eligible": 23,
+        "code_cell_lines_missing_from_docs": []
+      },
+      "docs/dup-guide.md": {
+        "content_lines": 3,
+        "covered_any_old": 3,
+        "covered_any_new": 3,
+        "covered_docs_eligible_new": 3,
+        "lines_lost_vs_old": [],
+        "prose_lines_missing_after_id_collapse": []
+      },
+      "docs/dup-guide.rst": {
+        "content_lines": 2,
+        "covered_any_old": 1,
+        "covered_any_new": 2,
+        "covered_docs_eligible_new": 2,
+        "lines_lost_vs_old": [],
+        "prose_lines_missing_after_id_collapse": []
+      },
+      "docs/dup-guide.adoc": {
+        "content_lines": 2,
+        "covered_any_old": 1,
+        "covered_any_new": 2,
+        "covered_docs_eligible_new": 2,
+        "lines_lost_vs_old": [],
+        "prose_lines_missing_after_id_collapse": []
+      }
+    },
+    "violations": [],
+    "pass": true
+  },
+  "revert_simulation": {
+    "pass": false,
+    "violations": [
+      "docs/churn_cohort_analysis.ipynb: 23 code-cell lines not docs-eligible",
+      "docs/dup-guide.md: 1 prose lines lost to id collapse",
+      "docs/dup-guide.rst: 1 prose lines lost to id collapse",
+      "docs/dup-guide.adoc: 1 prose lines lost to id collapse"
+    ],
+    "non_vacuous": true
+  },
+  "result": "PASS"
+}

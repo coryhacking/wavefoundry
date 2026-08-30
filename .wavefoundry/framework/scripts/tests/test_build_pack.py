@@ -765,6 +765,75 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         self.assertIn("Create the changelog entry first", err)
         bz.assert_not_called()
 
+    def test_release_preflight_refuses_stale_version_constant_claim(self):
+        """DOCS-DEL-1 repair (wave 1wip2): the RELEASE preflight home of the
+        claims check is executed, not only source-pinned — a stale claim in
+        the packed section refuses the release before any side effect."""
+        import contextlib
+        import io
+
+        (self.tmp / "CHANGELOG.md").write_text(
+            "# Changelog\n\n## [9.9.9] - 2026-08-28\n\n"
+            "- rechunk everything; `CHUNKER_VERSION` to 1\n",
+            encoding="utf-8",
+        )
+        argv = [
+            "build_pack.py", "--version", "9.9.9",
+            "--output", str(self.tmp), "--release", "--with-models",
+        ]
+        stderr = io.StringIO()
+        code = 0
+        with patch.object(sys, "argv", argv), \
+             patch.object(build_pack, "_reexec_with_venv_if_needed"), \
+             patch.object(build_pack, "find_repo_root", return_value=self.tmp), \
+             patch.object(build_pack, "_check_git_working_tree_clean"), \
+             patch.object(build_pack, "_check_on_main_branch"), \
+             patch.object(build_pack, "_check_tag_does_not_exist"), \
+             patch.object(build_pack, "_check_gh_authenticated"), \
+             patch.object(build_pack, "check_docs_gate") as gate, \
+             patch.object(build_pack, "build_zip") as bz, \
+             contextlib.redirect_stderr(stderr), \
+             contextlib.redirect_stdout(io.StringIO()):
+            try:
+                build_pack.main()
+            except SystemExit as exc:
+                code = exc.code
+        self.assertNotEqual(code, 0)
+        err = stderr.getvalue()
+        self.assertIn("release preflight failed", err)
+        self.assertIn("version-constant claims", err)
+        self.assertIn("`CHUNKER_VERSION` claim `1`", err)
+        bz.assert_not_called()
+        gate.assert_not_called()
+
+    def test_versioned_build_refuses_stale_version_constant_claim(self):
+        """Wave 1wip2 (1wgwn): the packed section's version-constant claims
+        must match the live code constants — the coverage the 1.20.0 pm1l
+        pack escaped through (it shipped `CHUNKER_VERSION` "to 34" while the
+        delivered tree was 37)."""
+        code, err, bz, _gate = self._main_with_repo(
+            "9.9.9",
+            "# Changelog\n\n## [9.9.9] - 2026-08-28\n\n"
+            "- rechunk everything; `CHUNKER_VERSION` to 1\n",
+        )
+        self.assertNotEqual(code, 0)
+        self.assertIn("version-constant claims", err)
+        self.assertIn("`CHUNKER_VERSION` claim `1`", err)
+        bz.assert_not_called()
+
+    def test_versioned_build_proceeds_with_matching_constant_claim(self):
+        import sys as _sys
+        _sys.path.insert(0, str(Path(build_pack.__file__).resolve().parent))
+        from wave_lint_lib.docs_constants_validators import _module_constant
+        live = _module_constant("chunker.py", "CHUNKER_VERSION")
+        code, err, bz, _gate = self._main_with_repo(
+            "9.9.9",
+            "# Changelog\n\n## [9.9.9] - 2026-08-28\n\n"
+            f"- rechunk everything; `CHUNKER_VERSION` to {live}\n",
+        )
+        self.assertEqual(code, 0, err)
+        bz.assert_called_once()
+
     def test_versioned_build_proceeds_once_section_exists(self):
         code, err, bz, _gate = self._main_with_repo(
             "9.9.9", "# Changelog\n\n## [9.9.9] - 2026-07-22\n\n- the fix\n"

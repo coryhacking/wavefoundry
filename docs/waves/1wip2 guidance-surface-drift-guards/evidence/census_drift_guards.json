@@ -1,0 +1,48 @@
+{
+  "census": "1wgwn-enh executed census (parity region, oracle, changelog homes, guru divergence)",
+  "parity_region": {
+    "seed_bytes": 5672,
+    "guru_bytes": 5672,
+    "seed_sha256": "358770ea97522f49",
+    "guru_sha256": "358770ea97522f49",
+    "byte_identical": true,
+    "seed_heading_count": 1,
+    "guru_heading_count": 1
+  },
+  "existing_oracle": {
+    "class_present": true,
+    "guards_citation_block": true,
+    "module": "tests/test_server_tools_lifecycle.py"
+  },
+  "changelog": {
+    "top_heading": "## [1.20.0] - 2026-08-27",
+    "top_is_unreleased": false,
+    "top_claims": [
+      {
+        "constant": "WALKER_VERSION",
+        "claimed": "13",
+        "live": "13"
+      },
+      {
+        "constant": "CHUNKER_VERSION",
+        "claimed": "37",
+        "live": "37"
+      }
+    ],
+    "top_claims_all_match": true,
+    "historical_claim_matches_below_top": 0,
+    "packed_section_1_20_0_has_claims": true,
+    "packed_section_len": 8382
+  },
+  "guru_divergence": {
+    "guru_setup_wavefoundry_mentions": [
+      746,
+      748
+    ],
+    "seed_setup_wavefoundry_mentions": [],
+    "seed_wf_setup_registration_lines": [
+      757,
+      759
+    ]
+  }
+}

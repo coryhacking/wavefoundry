@@ -3066,12 +3066,15 @@ class JupyterChunkerTests(unittest.TestCase):
         self.assertEqual(chunks[0].kind, "doc")
         self.assertEqual(chunks[0].text, "# Hello\nsome text")
 
-    # 2. Code cell → code chunk with language
-    def test_code_cell_produces_code_chunk(self):
+    # 2. Code cell → doc-code chunk with language (1wh1b: docs-routed; the
+    # pre-change kind="code" reached NEITHER table because .ipynb is never
+    # code-eligible — this test is the executable supersession of the 1whup
+    # preserved-invisibility disposition)
+    def test_code_cell_produces_doc_code_chunk(self):
         source = self._nb([self._cell("code", "x = 1")])
         chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
         self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].kind, "code")
+        self.assertEqual(chunks[0].kind, "doc-code")
         self.assertEqual(chunks[0].language, "python")
 
     # 3. Empty cell is skipped
@@ -3113,6 +3116,22 @@ class JupyterChunkerTests(unittest.TestCase):
         chunks = self.chunker.chunk_jupyter("{not valid json", "nb.ipynb")
         self.assertGreater(len(chunks), 0)
 
+    # 8b. Valid JSON with a non-notebook shape falls back, never raises
+    # (QA delivery advisory, 1wh1b: these previously raised AttributeError
+    # from inside the walk).
+    def test_wrong_shape_json_falls_back(self):
+        import json as _json
+        for payload in (
+            '["not", "a", "notebook"]',
+            _json.dumps({"cells": "oops"}),
+            _json.dumps({"cells": [["not", "a", "dict"]]}),
+            _json.dumps({"cells": [{"cell_type": "code", "source": 42}],
+                         "metadata": "oops"}),
+        ):
+            chunks = self.chunker.chunk_jupyter(payload, "nb.ipynb")
+            self.assertTrue(all(c.kind == "code" for c in chunks) or chunks == [],
+                            payload)
+
     # 9. Raw cell is skipped
     def test_raw_cell_skipped(self):
         source = self._nb([
@@ -3121,7 +3140,7 @@ class JupyterChunkerTests(unittest.TestCase):
         ])
         chunks = self.chunker.chunk_jupyter(source, "nb.ipynb")
         self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0].kind, "code")
+        self.assertEqual(chunks[0].kind, "doc-code")
 
     # 10. Virtual line offsets non-overlapping
     def test_virtual_line_offsets_non_overlapping(self):
@@ -3161,7 +3180,7 @@ class JupyterChunkerTests(unittest.TestCase):
         chunks = self.chunker.chunk_file(source, "analysis.ipynb")
         self.assertGreater(len(chunks), 0)
         # Should not produce raw JSON line-window chunks — first chunk language should not be None
-        code_chunks = [c for c in chunks if c.kind == "code"]
+        code_chunks = [c for c in chunks if c.kind == "doc-code"]
         self.assertGreater(len(code_chunks), 0)
         self.assertEqual(code_chunks[0].language, "python")
 
@@ -3240,7 +3259,7 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         cls.chunker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.chunker)
 
-    def test_chunker_version_bumped_to_37(self):
+    def test_chunker_version_bumped_to_39(self):
         """Wave 1sbfl: CHUNKER_VERSION bumped 31 → 32 — Java static/instance initializer
         blocks are now emitted as their own kind="code" chunks across class/enum/record
         containers (records static-only). Chunk-set shape change → bump so any 31-index
@@ -3276,8 +3295,10 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         33 → 34 (wave 1wfsl, 1wfr8): content-detected OpenAPI/JSON-Schema operation/definition chunking with baked breadcrumbs (undetected YAML/JSON byte-identical, differential-pinned).
         34 → 35 (wave 1wik9, 1whup): doc-family extracted code blocks emit kind="doc-code" routed to the DOCS table, with file-pass-scoped fence ordinals (markdown gains the ordinal; rst/adoc ordinals stop resetting per section).
         35 → 36 (wave 1wik9, 1whuq): standalone Mermaid/PlantUML/DOT diagram files chunk as one docs-routed doc-code unit each (title-or-stem breadcrumb + raw source; chunker-only registration, no walker bump).
-        36 → 37 (wave 1wik9, 1wfso): spec-format family — AsyncAPI (content-detected, channel/operation/message units), GraphQL SDL and Protobuf (extension-gated internal parsers, description/comment units with symbol-path breadcrumbs); undetected files byte-identical."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "37")
+        36 → 37 (wave 1wik9, 1wfso): spec-format family — AsyncAPI (content-detected, channel/operation/message units), GraphQL SDL and Protobuf (extension-gated internal parsers, description/comment units with symbol-path breadcrumbs); undetected files byte-identical.
+        37 → 38 (wave 1wl7u, 1wh1b): notebook code cells emit kind="doc-code" (docs-routed; ids/language unchanged) and duplicate-titled prose sections gain repeat-only `~k` file-pass ordinals across md/rst/adoc, the H3-split and line-window bases, and the HTML/XML regex fallbacks (single-title files byte-identical, differential-pinned; `~` is outside the _slugify alphabet so no literal heading forges the shape).
+        38 → 39 (wave 1wl7w, 1wl7v): tool-diagram LABEL EXTRACTION — .drawio chunks one docs-routed doc-code unit per page (mxCell values + object/UserObject wrapper labels, two-layer HTML decode, bounded per-page inflate cap, #diagram/#diagram~k ids) and .excalidraw one labels-plus-frames unit (isDeleted and empty skipped); degenerate inputs emit zero chunks; paired with WALKER 15 re-admitting both extensions."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "39")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -6230,8 +6251,9 @@ class DocCodeRoutingTests(unittest.TestCase):
     docs table (previously the per-table eligibility gate dropped them from
     both tables). Regressions here pin the emission kind, the ordinal
     identity shape, the per-emitter breadcrumb truth, the cap selection, the
-    prompt byte-path exemption, the preserved notebook state, and the
-    per-emission-site content-coverage invariant (the 1wfsl ARCH-DEL-1
+    prompt byte-path exemption, the notebook doc-code routing (1wh1b: the
+    executable supersession of the 1whup preserved-invisibility state), and
+    the per-emission-site content-coverage invariant (the 1wfsl ARCH-DEL-1
     lesson: golden sets alone cannot see coverage loss)."""
 
     # Mirrors indexer._is_docs_kind — the docs-table-eligible kind set.
@@ -6358,11 +6380,13 @@ class DocCodeRoutingTests(unittest.TestCase):
         merged = "\n".join(c.text for c in chunks if c.kind == "prompt")
         self.assertIn("run --step one", merged)
 
-    def test_notebook_code_cells_keep_their_current_kind(self):
-        # Dispositioned follow-up (1whup Requirement 1): .ipynb code cells
-        # keep kind="code" — still dropped from both tables because notebooks
-        # are not code-eligible. This pin makes the preserved state explicit;
-        # changing notebook routing is a separate decision.
+    def test_notebook_code_cells_route_to_doc_code(self):
+        # 1wh1b (wave 1wl7u): the executable supersession of the 1whup
+        # preserved-invisibility disposition. The old pin
+        # (test_notebook_code_cells_keep_their_current_kind) asserted
+        # kind="code" — still dropped from both tables because notebooks are
+        # not code-eligible. Notebook routing IS now the decided change:
+        # code cells emit kind="doc-code" and reach the docs table.
         import json as _json
         nb = _json.dumps({
             "cells": [
@@ -6374,7 +6398,7 @@ class DocCodeRoutingTests(unittest.TestCase):
         })
         chunks = self.chunker.chunk_file(nb, "docs/analysis.ipynb")
         cell_kinds = {c.kind for c in chunks if "compute_answer" in c.text}
-        self.assertEqual(cell_kinds, {"code"})
+        self.assertEqual(cell_kinds, {"doc-code"})
 
     def test_every_emission_site_keeps_full_content_coverage(self):
         # Coverage invariant (Requirement 6 / AC-4): every nonblank extracted
@@ -6403,6 +6427,207 @@ class DocCodeRoutingTests(unittest.TestCase):
 
     def test_chunker_version_bumped_for_doc_code_shape_change(self):
         self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 35)
+
+    # ------------------------------------------------------------------
+    # 1wh1b (wave 1wl7u): notebook code cells route to the docs table on
+    # the landed doc-code plumbing.
+    # ------------------------------------------------------------------
+
+    def _nb_json(self):
+        import json as _json
+        return _json.dumps({
+            "cells": [
+                {"cell_type": "markdown", "source": ["# Churn Study\n"]},
+                {"cell_type": "code",
+                 "source": ["fit_retention_curve(cohorts)\n"],
+                 "outputs": [{"output_type": "stream",
+                              "text": ["OUTPUT_SENTINEL_UNINDEXED\n"]}]},
+            ],
+            "metadata": {"kernelspec": {"language": "python"}},
+            "nbformat": 4, "nbformat_minor": 5,
+        })
+
+    def test_notebook_code_cells_are_docs_table_eligible(self):
+        chunks = self.chunker.chunk_file(self._nb_json(), "docs/study.ipynb")
+        cell = next(c for c in chunks if "fit_retention_curve" in c.text)
+        self.assertEqual(cell.kind, "doc-code")
+        self.assertIn(cell.kind, self.DOCS_TABLE_KINDS)
+        self.assertEqual(cell.id, "docs/study.ipynb#cell-1")
+        self.assertEqual(cell.language, "python")
+
+    def test_notebook_cell_gets_breadcrumb_injection_and_code_cap(self):
+        chunks = self.chunker.chunk_file(self._nb_json(), "docs/study.ipynb")
+        cell = next(c for c in chunks if "fit_retention_curve" in c.text)
+        # Bare cell source + section set → _inject_docs_breadcrumb supplies
+        # the context line; doc-code takes the CODE size cap.
+        self.assertTrue(cell.text.startswith("notebook > Cell 2\n"))
+        self.assertEqual(self.chunker._max_chars_for_chunk(cell),
+                         self.chunker.MAX_CODE_CHUNK_CHARS)
+
+    def test_notebook_outputs_stay_unindexed(self):
+        chunks = self.chunker.chunk_file(self._nb_json(), "docs/study.ipynb")
+        self.assertFalse(any("OUTPUT_SENTINEL_UNINDEXED" in c.text
+                             for c in chunks))
+
+    def test_oversized_notebook_cell_is_split_under_the_code_cap(self):
+        import json as _json
+        big = "\n".join(f"row_{i} = transform(row_{i - 1})" for i in range(1, 200))
+        nb = _json.dumps({
+            "cells": [{"cell_type": "code", "source": [big], "outputs": []}],
+            "metadata": {"kernelspec": {"language": "python"}},
+            "nbformat": 4, "nbformat_minor": 5,
+        })
+        chunks = self.chunker.chunk_file(nb, "docs/big.ipynb")
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertEqual(c.kind, "doc-code")
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CODE_CHUNK_CHARS)
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+
+
+class ProseIdOrdinalTests(unittest.TestCase):
+    """1wh1b (wave 1wl7u): repeat-only file-pass ordinals for prose ids.
+
+    Duplicate-titled prose sections previously emitted IDENTICAL ids that
+    collapsed silently (last-writer-wins) in the id-keyed delta planner and
+    the sqlite chunk registry. The fix: each section occurrence claims its
+    slug through ``_dedupe_id_base``; the first keeps the bare id (dominant
+    single-title case byte-identical, differential-pinned), the k-th repeat
+    gets ``~k``. ``~`` is outside the ``_slugify`` alphabet, so no literal
+    heading can forge the suffixed shape — the census proved a bare ``-N``
+    tail is a legal slug (a literal ``Setup 2`` title emits ``#setup-2``),
+    which is why the SDL ``-N`` ordinal shape was NOT reused. Fence ids keep
+    their raw slug base (unique via the 1whup file-pass fence counter)."""
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _doc_ids(self, src, path):
+        return [c.id for c in self.chunker.chunk_file(src, path)
+                if c.kind == "doc"]
+
+    def test_duplicate_h2_sections_get_repeat_ordinals(self):
+        ids = self._doc_ids(
+            "# G\n\n## Setup\n\nOne.\n\n## Setup\n\nTwo.\n", "d/g.md")
+        self.assertEqual(
+            ids, ["d/g.md#preamble", "d/g.md#setup", "d/g.md#setup~2"])
+
+    def test_literal_numeric_suffix_title_cannot_collide(self):
+        # The census-proven trap: 'Setup 2' slugifies to setup-2, so a bare
+        # -N ordinal would have collided. The ~N shape keeps all three apart.
+        ids = self._doc_ids(
+            "# G\n\n## Setup\n\nOne.\n\n## Setup\n\nTwo.\n\n"
+            "## Setup 2\n\nLiteral.\n", "d/s2.md")
+        self.assertEqual(
+            ids, ["d/s2.md#preamble", "d/s2.md#setup", "d/s2.md#setup~2",
+                  "d/s2.md#setup-2"])
+
+    def test_literal_tilde_in_title_cannot_forge_the_ordinal_shape(self):
+        # A heading 'Setup ~2' loses the ~ in _slugify (outside the keep-set)
+        # and lands on setup-2 — the generated setup~2 shape stays reserved.
+        ids = self._doc_ids(
+            "# G\n\n## Setup\n\nOne.\n\n## Setup\n\nTwo.\n\n"
+            "## Setup ~2\n\nTilde literal.\n", "d/t.md")
+        self.assertEqual(
+            ids, ["d/t.md#preamble", "d/t.md#setup", "d/t.md#setup~2",
+                  "d/t.md#setup-2"])
+
+    def test_h3_split_duplicate_subsections_get_unique_composed_bases(self):
+        pad = ("Filler prose sentence for the split threshold. " * 30 + "\n\n") * 8
+        src = (f"# G\n\n## Config\n\n### Advanced\n\n{pad}"
+               f"\n### Advanced\n\n{pad}")
+        ids = self._doc_ids(src, "d/h3.md")
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        bases = {i.split("#", 1)[1].split(":", 1)[0] for i in ids}
+        self.assertIn("config/advanced", bases)
+        self.assertIn("config/advanced~2", bases)
+
+    def test_duplicate_oversized_sections_dedupe_line_window_bases(self):
+        # Window line numbers are relative to the extracted prose, so twin
+        # oversized sections previously emitted byte-identical window ids.
+        pad = ("Filler prose sentence for the window path. " * 30 + "\n\n") * 8
+        src = f"# G\n\n## Notes\n\n{pad}\n## Notes\n\n{pad}"
+        ids = self._doc_ids(src, "d/lw.md")
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        bases = {i.split("#", 1)[1].split(":", 1)[0] for i in ids}
+        self.assertEqual(bases - {"preamble"}, {"notes", "notes~2"})
+
+    def test_preamble_sentinel_vs_literal_preamble_title(self):
+        ids = self._doc_ids(
+            "Opening prose.\n\n# G\n\n## Preamble\n\nLiteral.\n", "d/p.md")
+        self.assertEqual(ids, ["d/p.md#preamble", "d/p.md#preamble~2"])
+
+    def test_doc_summary_sentinel_is_reserved(self):
+        # Every markdown file gets a #doc-summary summary chunk from the
+        # dispatch layer; the counter is seeded so a literal 'Doc Summary'
+        # heading cannot collide with it.
+        chunks = self.chunker.chunk_file(
+            "# G\n\nIntro prose.\n\n## Doc Summary\n\nLiteral heading.\n",
+            "d/ds.md")
+        ids = [c.id for c in chunks]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        self.assertIn("d/ds.md#doc-summary", ids)       # the summary chunk
+        self.assertIn("d/ds.md#doc-summary~2", ids)     # the literal section
+
+    def test_rst_and_adoc_duplicate_sections_get_repeat_ordinals(self):
+        rst_ids = self._doc_ids(
+            "G\n===\n\nSetup\n-----\n\nOne.\n\nSetup\n-----\n\nTwo.\n",
+            "d/g.rst")
+        self.assertEqual(rst_ids, ["d/g.rst#setup", "d/g.rst#setup~2"])
+        adoc_ids = self._doc_ids(
+            "= G\n\n== Setup\n\nOne.\n\n== Setup\n\nTwo.\n", "d/g.adoc")
+        self.assertEqual(adoc_ids, ["d/g.adoc#setup", "d/g.adoc#setup~2"])
+
+    def test_html_and_xml_regex_fallbacks_dedupe(self):
+        # The census found the same collision class in the doc-kind regex
+        # fallbacks (they run when tree-sitter is unavailable).
+        html = ("<html><body>\n<section>\n<p>A</p>\n</section>\n"
+                "<section>\n<p>B</p>\n</section>\n</body></html>")
+        ids = [c.id for c in self.chunker.chunk_html(html, "d/p.html")]
+        self.assertEqual(ids, ["d/p.html#section", "d/p.html#section~2"])
+        xml = ("<cat>\n<item>\nA\n</item>\n<item>\nB\n</item>\n</cat>")
+        ids = [c.id for c in self.chunker.chunk_xml(xml, "d/c.xml")]
+        self.assertEqual(
+            ids, ["d/c.xml#cat", "d/c.xml#item", "d/c.xml#item~2"])
+
+    def test_treesitter_html_same_line_siblings_dedupe(self):
+        # CODE-DEL-1 (delivery review): the DEFAULT tree-sitter HTML path
+        # anchors ids as {slug}-L{start}, so same-line sibling elements (the
+        # compact/minified-HTML shape) collided. The census fixture had one
+        # element per line and could not see it. With tree-sitter available
+        # this exercises _ts_markup_chunker; without it, the (already fixed)
+        # regex fallback — collision-free either way.
+        one_line = ("<html><body><section><p>alpha alpha</p></section>"
+                    "<section><p>beta beta</p></section></body></html>")
+        ids = [c.id for c in self.chunker.chunk_file(one_line, "d/one.html")]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        # Multi-line control keeps distinct line anchors and stays unsuffixed.
+        multi = ("<html><body>\n<section>\n<p>alpha</p>\n</section>\n"
+                 "<section>\n<p>beta</p>\n</section>\n</body></html>")
+        ids = [c.id for c in self.chunker.chunk_file(multi, "d/multi.html")]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+
+    def test_single_title_files_keep_bare_first_occurrence_ids(self):
+        # Id stability for the dominant case: a real corpus file with unique
+        # titles must emit NO suffixed ids (byte-identity also pinned by the
+        # markdown differential snapshot).
+        fixture = (Path(__file__).resolve().parent / "fixtures"
+                   / "retrieval_golden" / "prose" / "md" / "installation.md")
+        chunks = self.chunker.chunk_file(
+            fixture.read_text(encoding="utf-8"), "md/installation.md")
+        ids = [c.id for c in chunks]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertFalse(any("~" in i for i in ids), ids)
+
+    def test_fence_ids_keep_their_raw_slug_base(self):
+        # Fences are NOT re-based by the dedupe (unique via fence_counter);
+        # the duplicate section's fence keeps the bare slug with the next
+        # file-pass ordinal.
+        src = ("# G\n\n## Setup\n\n```bash\necho one\n```\n\n"
+               "## Setup\n\n```bash\necho two\n```\n")
+        dc = [c.id for c in self.chunker.chunk_file(src, "d/f.md")
+              if c.kind == "doc-code"]
+        self.assertEqual(dc, ["d/f.md#setup:code-1", "d/f.md#setup:code-2"])
 
 
 class DiagramChunkerTests(unittest.TestCase):
@@ -6487,20 +6712,30 @@ class DiagramChunkerTests(unittest.TestCase):
         # curated extensions and collides with no other chunker dispatch set.
         # The indexer-side half (never in _KNOWN_TEXT_EXTENSIONS — sniff
         # bypass; binary .dot namesake) is pinned in test_indexer's
-        # DiagramCorpusMembershipTests.
-        for ext in sorted(self.chunker.DIAGRAM_EXTENSIONS):
+        # DiagramCorpusMembershipTests. 1wl7v: the tool-diagram extraction
+        # sets join the same disjointness census (extension-gated dispatch,
+        # never a member of any other chunker set).
+        extraction = (self.chunker.DRAWIO_EXTENSIONS
+                      | self.chunker.EXCALIDRAW_EXTENSIONS)
+        for ext in sorted(self.chunker.DIAGRAM_EXTENSIONS | extraction):
             self.assertNotIn(ext, self.chunker.MARKDOWN_EXTENSIONS)
             self.assertNotIn(ext, self.chunker.TEXT_EXTENSIONS)
             self.assertNotIn(ext, self.chunker.RST_EXTENSIONS)
             self.assertNotIn(ext, self.chunker.ADOC_EXTENSIONS)
+            self.assertNotIn(ext, self.chunker.XML_EXTENSIONS)
+            self.assertNotIn(ext, self.chunker.JSON_EXTENSIONS)
         self.assertEqual(
             self.chunker.DIAGRAM_EXTENSIONS,
             {".mmd", ".mermaid", ".puml", ".plantuml", ".dot", ".gv"})
+        self.assertEqual(extraction, {".drawio", ".excalidraw"})
+        self.assertFalse(self.chunker.DIAGRAM_EXTENSIONS & extraction)
 
     def test_excluded_formats_do_not_dispatch_to_diagram_chunker(self):
-        # .drawio / .excalidraw / .d2 / .dsl are explicitly out (tool-generated
-        # XML, already generated-excluded, share, extension ambiguity).
-        for path in ("a.drawio", "b.excalidraw", "c.d2", "d.dsl"):
+        # .d2 / .dsl stay explicitly out (share, extension ambiguity).
+        # 1wl7v supersession: .drawio / .excalidraw LEFT this pin — they now
+        # dispatch to their extraction chunkers (which emit nothing for this
+        # non-diagram content: degrade-to-zero, pinned in their own classes).
+        for path in ("c.d2", "d.dsl"):
             chunks = self.chunker.chunk_file("graph LR\n  A --> B\n", path)
             self.assertFalse(
                 any(c.kind == "doc-code" and c.id.endswith("#diagram")
@@ -6509,6 +6744,314 @@ class DiagramChunkerTests(unittest.TestCase):
 
     def test_chunker_version_bumped_for_diagram_shape_change(self):
         self.assertGreaterEqual(int(self.chunker.CHUNKER_VERSION), 36)
+
+
+class DrawioChunkerTests(unittest.TestCase):
+    """1wl7v (wave 1wl7w): draw.io label extraction. One docs-routed doc-code
+    unit per <diagram> page: mxCell `value` attrs AND object/UserObject
+    wrapper `label` attrs (draw.io's Edit Data serialization — value-only
+    extraction silently drops those labels), two-layer HTML decode, page ids
+    on the `_dedupe_id_base` `diagram` base, and the bounded per-page inflate
+    cap (the on-disk walk cap cannot bound inflation). Degenerate inputs emit
+    ZERO chunks — a recorded departure from the 1whuq raw-source degrade,
+    because mxGraph XML is machine noise."""
+
+    DOCS_TABLE_KINDS = ("doc", "seed", "prompt", "doc-summary", "doc-code")
+
+    FIXTURES = (
+        Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+        / "diagrams"
+    )
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    @staticmethod
+    def _compress_page(model_xml: str) -> str:
+        # The canonical draw.io compression: URL-encode -> raw deflate -> base64.
+        import base64 as b64
+        import urllib.parse as up
+        import zlib
+        co = zlib.compressobj(9, zlib.DEFLATED, -15)
+        raw = co.compress(up.quote(model_xml, safe="").encode()) + co.flush()
+        return b64.b64encode(raw).decode()
+
+    MODEL = (
+        '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
+        '<mxCell id="2" value="gateway terminates mutual TLS" edge="1" parent="1"/>'
+        '<mxCell id="3" value="&lt;b&gt;Billing &amp;amp; Invoicing&lt;/b&gt;" '
+        'style="html=1" vertex="1" parent="1"/>'
+        '<object label="Reconciliation worker" data="x">'
+        '<mxCell id="4" style="shape=process" vertex="1" parent="1"/></object>'
+        "</root></mxGraphModel>"
+    )
+
+    def _mxfile(self, body: str, name: str = "Topology") -> str:
+        return (f'<mxfile host="app.diagrams.net">'
+                f'<diagram id="d1" name="{name}">{body}</diagram></mxfile>')
+
+    def test_compressed_and_plain_forms_extract_identical_labels(self):
+        plain = self.chunker.chunk_file(self._mxfile(self.MODEL), "d/a.drawio")
+        packed = self.chunker.chunk_file(
+            self._mxfile(self._compress_page(self.MODEL)), "d/a.drawio")
+        self.assertEqual([c.text for c in plain], [c.text for c in packed])
+        self.assertEqual([c.id for c in plain], ["d/a.drawio#diagram"])
+
+    def test_wrapper_labels_and_two_layer_html_decode(self):
+        (chunk,) = self.chunker.chunk_file(self._mxfile(self.MODEL), "d/a.drawio")
+        self.assertIn("Reconciliation worker", chunk.text)   # object label attr
+        self.assertIn("Billing & Invoicing", chunk.text)     # tags stripped, entities decoded
+        self.assertNotIn("<b>", chunk.text)
+        self.assertIn("gateway terminates mutual TLS", chunk.text)
+
+    def test_multi_page_ids_and_breadcrumbs(self):
+        src = ('<mxfile><diagram id="p1" name="Service topology">'
+               f"{self._compress_page(self.MODEL)}</diagram>"
+               '<diagram id="p2" name="Data plane">'
+               '<mxGraphModel><root><mxCell id="0"/>'
+               '<mxCell id="2" value="cold region archive" vertex="1"/>'
+               "</root></mxGraphModel></diagram></mxfile>")
+        chunks = self.chunker.chunk_file(src, "d/multi.drawio")
+        self.assertEqual([c.id for c in chunks],
+                         ["d/multi.drawio#diagram", "d/multi.drawio#diagram~2"])
+        self.assertEqual([c.section for c in chunks],
+                         ["Service topology", "Data plane"])
+        self.assertTrue(chunks[0].text.startswith("Service topology\n"))
+
+    def test_auto_page_name_falls_back_to_stem(self):
+        for auto in ("Page-1", "Page 2", "Page-14"):
+            src = self._mxfile(self.MODEL, name=auto)
+            (chunk,) = self.chunker.chunk_file(src, "d/deploy-flow.drawio")
+            self.assertEqual(chunk.section, "deploy-flow", auto)
+
+    def test_decompression_bomb_degrades_to_zero_chunks(self):
+        import base64 as b64
+        import zlib
+        cap = self.chunker.DRAWIO_MAX_INFLATED_BYTES
+        co = zlib.compressobj(9, zlib.DEFLATED, -15)
+        raw = co.compress(b"A" * (cap + 1_000_000)) + co.flush()
+        bomb = b64.b64encode(raw).decode()
+        self.assertLess(len(bomb), 5_000_000)  # sails under the on-disk cap
+        src = self._mxfile(bomb, name="Bomb")
+        self.assertEqual(self.chunker.chunk_file(src, "d/bomb.drawio"), [])
+
+    def test_escape_aligned_overcap_page_is_refused(self):
+        # QA-DEL-1 (delivery review): the plain bomb above truncates to
+        # UNPARSEABLE bytes, so zero-chunks was redundantly enforced by the
+        # ParseError fallback and a mutant deleting the eof/unconsumed_tail
+        # guard survived the whole suite. This payload is the executed
+        # non-equivalence witness: the truncated-at-cap prefix is VALID XML
+        # (the quoted model padded to a 3-byte %0A boundary, then %0A units
+        # past the cap), so only the over-cap guard itself can refuse it —
+        # under the guard-removed mutant the sentinel gets silently indexed.
+        import base64 as b64
+        import urllib.parse as up
+        import zlib
+        cap = self.chunker.DRAWIO_MAX_INFLATED_BYTES
+        model = ('<mxGraphModel><root><mxCell id="0"/>'
+                 '<mxCell id="1" value="OVERCAP_LABEL_SENTINEL" vertex="1"/>'
+                 "</root></mxGraphModel>")
+        quoted = up.quote(model, safe="")
+        while (cap - len(quoted)) % 3 != 0:
+            model = model.replace("SENTINEL", "SENTINELx", 1)
+            quoted = up.quote(model, safe="")
+        stream = quoted + "%0A" * ((cap - len(quoted)) // 3 + 400_000)
+        self.assertGreater(len(stream), cap)
+        co = zlib.compressobj(9, zlib.DEFLATED, -15)
+        raw = co.compress(stream.encode()) + co.flush()
+        src = self._mxfile(b64.b64encode(raw).decode(), name="Aligned bomb")
+        chunks = self.chunker.chunk_file(src, "d/aligned.drawio")
+        self.assertEqual(chunks, [])
+        self.assertFalse(any("OVERCAP_LABEL_SENTINEL" in c.text for c in chunks))
+
+    def test_wrapped_base64_body_still_extracts(self):
+        # Delivery repair: whitespace inside base64 is legal by the codec's
+        # default semantics (MIME 76-column wrapping); a reflowed body must
+        # extract identically to the unwrapped form.
+        body = self._compress_page(self.MODEL)
+        wrapped = "\n".join(body[i:i + 76] for i in range(0, len(body), 76))
+        plain = self.chunker.chunk_file(self._mxfile(body), "d/a.drawio")
+        rewrapped = self.chunker.chunk_file(self._mxfile(wrapped), "d/a.drawio")
+        self.assertEqual([c.text for c in plain], [c.text for c in rewrapped])
+        self.assertTrue(plain)
+
+    def test_synthesized_split_line_metadata_stays_within_the_file(self):
+        # Delivery repair: a compact board's label text spans thousands of
+        # synthetic lines; split-part line METADATA must clamp to the real
+        # file span while the id suffixes keep the raw window numbers for
+        # uniqueness.
+        labels = "".join(
+            f'<mxCell id="{i}" value="stage {i} hands off to consumer {i}" '
+            'vertex="1"/>' for i in range(2, 200))
+        model = f'<mxGraphModel><root><mxCell id="0"/>{labels}</root></mxGraphModel>'
+        src = self._mxfile(self._compress_page(model), name="Compact board")
+        file_lines = src.count("\n") + 1
+        chunks = self.chunker.chunk_file(src, "d/compact.drawio")
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+        for c in chunks:
+            self.assertLessEqual(c.lines[1], file_lines, c.id)
+            self.assertGreaterEqual(c.lines[0], 1, c.id)
+
+    def test_whitespace_only_page_body_emits_nothing(self):
+        # QA delivery advisory: a diagram element whose body is pure
+        # whitespace is degenerate and must emit zero chunks (and must not
+        # disturb a sibling real page's bare #diagram id).
+        src = ('<mxfile><diagram id="w" name="Blank">   \n\t  </diagram>'
+               f'<diagram id="r" name="Real">{self._compress_page(self.MODEL)}'
+               "</diagram></mxfile>")
+        chunks = self.chunker.chunk_file(src, "d/ws.drawio")
+        self.assertEqual([c.id for c in chunks], ["d/ws.drawio#diagram"])
+
+    def test_degenerate_inputs_emit_zero_chunks(self):
+        cases = (
+            "<mxfile><diagram",                                   # malformed XML
+            self._mxfile("!!!not-base64!!!"),                     # bad body
+            self._mxfile('<mxGraphModel><root><mxCell id="0"/>'
+                         "</root></mxGraphModel>"),               # label-free
+            "<mxfile></mxfile>",                                  # no pages
+            "",                                                   # empty
+        )
+        for src in cases:
+            self.assertEqual(
+                self.chunker.chunk_file(src, "d/x.drawio"), [], src[:40])
+
+    def test_docs_membership_language_cap_and_no_raw_serialization(self):
+        (chunk,) = self.chunker.chunk_file(self._mxfile(self.MODEL), "d/a.drawio")
+        self.assertEqual(chunk.kind, "doc-code")
+        self.assertIn(chunk.kind, self.DOCS_TABLE_KINDS)
+        self.assertEqual(chunk.language, "drawio")
+        self.assertEqual(self.chunker._max_chars_for_chunk(chunk),
+                         self.chunker.MAX_CODE_CHUNK_CHARS)
+        for noise in ("mxGeometry", "shape=process", "parent=", "vertex"):
+            self.assertNotIn(noise, chunk.text)
+
+    def test_oversized_page_splits_with_composed_ids(self):
+        labels = "".join(
+            f'<mxCell id="{i}" value="pipeline stage {i} routes to the '
+            f'downstream {i} consumer" vertex="1"/>' for i in range(2, 120))
+        model = f'<mxGraphModel><root><mxCell id="0"/>{labels}</root></mxGraphModel>'
+        src = ('<mxfile><diagram id="a" name="Big board">'
+               f"{self._compress_page(model)}</diagram>"
+               '<diagram id="b" name="Second board">'
+               f"{self._compress_page(model)}</diagram></mxfile>")
+        chunks = self.chunker.chunk_file(src, "d/big.drawio")
+        self.assertGreater(len(chunks), 2)
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+        bases = {c.id.split("#", 1)[1].split(":", 1)[0] for c in chunks}
+        self.assertEqual(bases, {"diagram", "diagram~2"})
+        for c in chunks:
+            self.assertLessEqual(len(c.text), self.chunker.MAX_CODE_CHUNK_CHARS)
+
+    def test_breadcrumb_injection_is_idempotent(self):
+        chunks = self.chunker.chunk_file(self._mxfile(self.MODEL), "d/a.drawio")
+        before = [c.text for c in chunks]
+        after = [c.text for c in self.chunker._inject_docs_breadcrumb(chunks)]
+        self.assertEqual(before, after)
+
+    def test_committed_golden_fixture_extracts_wrapper_label(self):
+        src = (self.FIXTURES / "drawio" / "platform-architecture.drawio"
+               ).read_text(encoding="utf-8")
+        chunks = self.chunker.chunk_file(src, "drawio/platform-architecture.drawio")
+        self.assertEqual([c.id for c in chunks],
+                         ["drawio/platform-architecture.drawio#diagram",
+                          "drawio/platform-architecture.drawio#diagram~2"])
+        merged = "\n".join(c.text for c in chunks)
+        self.assertIn("Ledger reconciliation worker", merged)
+        self.assertIn("Fraud scoring engine", merged)
+        self.assertNotIn("<b>", merged)
+
+
+class ExcalidrawChunkerTests(unittest.TestCase):
+    """1wl7v (wave 1wl7w): Excalidraw label extraction — one labels-plus-frames
+    doc-code unit per file, `originalText` preferred, `isDeleted` ghosts and
+    empty strings SKIPPED, the `files` blob never read, degenerates zero."""
+
+    FIXTURES = DrawioChunkerTests.FIXTURES
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    def _board(self, elements, files=None):
+        import json as _json
+        return _json.dumps({
+            "type": "excalidraw", "version": 2,
+            "source": "https://excalidraw.com",
+            "elements": elements, "appState": {}, "files": files or {},
+        })
+
+    def test_labels_and_frames_extracted_original_text_preferred(self):
+        src = self._board([
+            {"type": "text", "id": "t1", "isDeleted": False,
+             "text": "page the\non-call resolver", "originalText": "page the on-call resolver"},
+            {"type": "frame", "id": "f1", "isDeleted": False, "name": "Containment"},
+            {"type": "rectangle", "id": "r1", "isDeleted": False},
+        ])
+        (chunk,) = self.chunker.chunk_file(src, "e/runbook.excalidraw")
+        self.assertEqual(chunk.id, "e/runbook.excalidraw#diagram")
+        self.assertEqual(chunk.kind, "doc-code")
+        self.assertEqual(chunk.language, "excalidraw")
+        self.assertEqual(chunk.section, "runbook")
+        self.assertIn("page the on-call resolver", chunk.text)
+        self.assertIn("Containment", chunk.text)
+        self.assertNotIn("page the\non-call", chunk.text)  # unwrapped form wins
+
+    def test_is_deleted_and_empty_strings_are_skipped(self):
+        src = self._board([
+            {"type": "text", "id": "g", "isDeleted": True,
+             "text": "GHOST_SENTINEL", "originalText": "GHOST_SENTINEL"},
+            {"type": "frame", "id": "gf", "isDeleted": True, "name": "GhostFrame"},
+            {"type": "text", "id": "e", "isDeleted": False,
+             "text": "   ", "originalText": ""},
+            {"type": "text", "id": "k", "isDeleted": False,
+             "text": "keep this label", "originalText": "keep this label"},
+        ])
+        (chunk,) = self.chunker.chunk_file(src, "e/b.excalidraw")
+        self.assertNotIn("GHOST_SENTINEL", chunk.text)
+        self.assertNotIn("GhostFrame", chunk.text)
+        self.assertIn("keep this label", chunk.text)
+
+    def test_files_blob_is_never_indexed(self):
+        src = self._board(
+            [{"type": "text", "id": "t", "isDeleted": False,
+              "text": "visible", "originalText": "visible"}],
+            files={"img1": {"mimeType": "image/png",
+                            "dataURL": "data:image/png;base64,FILESBLOB_SENTINEL"}})
+        (chunk,) = self.chunker.chunk_file(src, "e/img.excalidraw")
+        self.assertNotIn("FILESBLOB_SENTINEL", chunk.text)
+
+    def test_degenerate_inputs_emit_zero_chunks(self):
+        for src in ("{broken", '["not a board"]', '{"elements": "oops"}',
+                    self._board([]), self._board(
+                        [{"type": "rectangle", "id": "r", "isDeleted": False}]),
+                    ""):
+            self.assertEqual(
+                self.chunker.chunk_file(src, "e/x.excalidraw"), [], src[:30])
+
+    def test_typeless_and_malformed_elements_are_skipped(self):
+        # QA delivery advisory: elements missing "type", null entries, and
+        # non-string text values must be skipped without crashing while a
+        # sibling real label still extracts.
+        src = self._board([
+            {"id": "no-type", "isDeleted": False, "text": "typeless leak"},
+            None,
+            {"type": "text", "id": "n", "isDeleted": False, "text": 42},
+            {"type": "text", "id": "k", "isDeleted": False,
+             "text": "kept label", "originalText": "kept label"},
+        ])
+        (chunk,) = self.chunker.chunk_file(src, "e/t.excalidraw")
+        self.assertNotIn("typeless leak", chunk.text)
+        self.assertNotIn("42", chunk.text)
+        self.assertIn("kept label", chunk.text)
+
+    def test_committed_golden_fixture_skips_ghost(self):
+        src = (self.FIXTURES / "excalidraw" / "incident-runbook.excalidraw"
+               ).read_text(encoding="utf-8")
+        (chunk,) = self.chunker.chunk_file(
+            src, "excalidraw/incident-runbook.excalidraw")
+        self.assertIn("Sev1 containment steps", chunk.text)
+        self.assertIn("rotate the incident commander every four hours", chunk.text)
+        self.assertNotIn("GHOST_DELETED_LABEL_SENTINEL", chunk.text)
 
 
 class SpecFamilyTests(unittest.TestCase):

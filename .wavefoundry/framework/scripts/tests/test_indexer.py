@@ -503,17 +503,47 @@ class TimestampedLogTests(unittest.TestCase):
         self.assertNotIn("prompt-surface-manifest.json", names)
         self.assertIn("index.md", names)
 
-    def test_excludes_snap_and_excalidraw(self):
-        # AC-4, AC-5 (12c7n-bug generated-lock-files-indexed): snapshots and diagrams excluded
+    def test_excludes_snap_keeps_generated_layer_non_vacuous(self):
+        # AC-4, AC-5 (12c7n-bug generated-lock-files-indexed): snapshots stay
+        # excluded. `.excalidraw` LEFT this layer in wave 1wl7w (1wl7v) — see
+        # test_readmits_drawio_and_excalidraw_with_extraction below; `.snap`
+        # remains, so the generated-extension layer stays non-vacuous.
         _make_repo(self.root, {"src/foo.ts": "export {};", "src/bar.json": "{}"}),
         (self.root / "src" / "Component.test.ts.snap").write_text("{}", encoding="utf-8")
-        (self.root / "src" / "diagram.excalidraw").write_text("{}", encoding="utf-8")
         files = self.bi.walk_repo(self.root)
         names = {f.name for f in files}
         self.assertNotIn("Component.test.ts.snap", names)
-        self.assertNotIn("diagram.excalidraw", names)
         self.assertIn("foo.ts", names)
         self.assertIn("bar.json", names)
+        self.assertIn(".snap", self.bi._GENERATED_EXCLUDE_EXTENSIONS)
+
+    def test_readmits_drawio_and_excalidraw_with_extraction(self):
+        # 1wl7v (wave 1wl7w): the executable SUPERSESSION of two shipped
+        # exclusions — the 1wl7u census-grounded `.drawio` decision (correct
+        # while the file shipped zero rows) and the original `.excalidraw`
+        # entry. Label extraction landed (CHUNKER 39), so both extensions walk
+        # again WITH retrieval value; WALKER 15 rides the filter-logic clause
+        # so consumer indexes re-walk to pick them up.
+        _make_repo(self.root, {"docs/readme.md": "# Control\n\nProse.\n"})
+        (self.root / "docs" / "pipeline.drawio").write_text(
+            '<mxfile host="app.diagrams.net"><diagram id="p" name="Pipeline">'
+            '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="2" value="walker readmission label" vertex="1" parent="1"/>'
+            "</root></mxGraphModel></diagram></mxfile>\n",
+            encoding="utf-8")
+        (self.root / "docs" / "board.excalidraw").write_text(
+            '{"type": "excalidraw", "version": 2, "elements": ['
+            '{"type": "text", "id": "t1", "isDeleted": false,'
+            ' "text": "board label", "originalText": "board label"}],'
+            ' "appState": {}, "files": {}}\n',
+            encoding="utf-8")
+        names = {f.name for f in self.bi.walk_repo(self.root)}
+        self.assertIn("pipeline.drawio", names)
+        self.assertIn("board.excalidraw", names)
+        self.assertIn("readme.md", names)
+        self.assertNotIn(".drawio", self.bi._GENERATED_EXCLUDE_EXTENSIONS)
+        self.assertNotIn(".excalidraw", self.bi._GENERATED_EXCLUDE_EXTENSIONS)
+        self.assertGreaterEqual(int(self.bi.WALKER_VERSION), 15)
 
     def test_respects_gitignore(self):
         _make_repo(self.root, {
@@ -3613,7 +3643,10 @@ class CorpusExclusionCensusTests(unittest.TestCase):
     EXTENSION_LAYER = ["Cargo.lock", "poetry.lock", "uv.lock", "Pipfile.lock",
                        "composer.lock", "Gemfile.lock", "flake.lock"]
     SNIFF_LAYER = ["bun.lockb"]
-    GENERATED_EXT_LAYER = ["ui-state.snap", "diagram.excalidraw"]
+    # 1wl7v (wave 1wl7w): diagram.excalidraw and pipeline.drawio LEFT this
+    # layer (label extraction re-admitted both extensions); .snap remains the
+    # layer's pinned member so the census and hatch pins stay non-vacuous.
+    GENERATED_EXT_LAYER = ["ui-state.snap"]
     CORPUS_FILTERED = ["go.sum", "gradle.lockfile", "app.js.map"]
     MACHINE_AUTHORITY = ["docs/scan-findings.json"]
     LEGITIMATE_SIBLINGS = ["package.json", "app.js", "styles.css"]
@@ -3697,6 +3730,8 @@ class CorpusExclusionCensusTests(unittest.TestCase):
         # applies, but the .lock binary extension still excludes it.
         self.assertNotIn("yarn.lock", rels)
         self.assertNotIn("ui-state.snap", rels)  # generated extension holds
+        # (1wl7v: pipeline.drawio left this pin when the extension left the
+        # generated layer — it walks by default now, no hatch needed.)
 
     def test_reinclude_hatch_cannot_resurrect_machine_authority_paths(self):
         self._write_fixture()

@@ -394,6 +394,19 @@ def _extract_changelog_section(changelog_path: Path, version: str) -> str:
     return "\n".join(out)
 
 
+def _check_changelog_claims(section_body: str, version: str) -> list[str]:
+    """Wave 1wip2 (1wgwn): run the shared docs-constants claims engine over
+    the changelog section being packed. One engine, two homes — the docs gate
+    checks the [Unreleased] top section; this gate checks the packed section,
+    version-explicitly, so a stale constant can never ship inside a pack."""
+    from wave_lint_lib.docs_constants_validators import (
+        check_changelog_section_constants,
+    )
+    return check_changelog_section_constants(
+        section_body, f"CHANGELOG.md [{version}]"
+    )
+
+
 def _check_git_working_tree_clean(repo_root: Path) -> None:
     """Refuse if any tracked file is modified or any untracked-non-ignored file exists."""
     import subprocess
@@ -1274,6 +1287,12 @@ def main():
                     f"CHANGELOG.md has no `## [{args.version}]` section. "
                     "Add the section (with release notes) before --release."
                 )
+            claim_failures = _check_changelog_claims(changelog_body, args.version)
+            if claim_failures:
+                raise RuntimeError(
+                    "changelog version-constant claims do not match the code "
+                    "constants:\n  " + "\n  ".join(claim_failures)
+                )
             release_notes_body = _assemble_release_notes(repo_root, changelog_body)
         except RuntimeError as exc:
             print(f"error: release preflight failed: {exc}", file=sys.stderr)
@@ -1285,14 +1304,27 @@ def main():
         # otherwise a circulating pack carries a stale release history, as the
         # published 1.14.0 archive did. The release path performs the same
         # check inside its own preflight above.
-        if not _extract_changelog_section(
+        packed_section = _extract_changelog_section(
             repo_root / "CHANGELOG.md", args.version
-        ).strip():
+        )
+        if not packed_section.strip():
             print(
                 f"error: CHANGELOG.md has no `## [{args.version}]` section. "
                 "Create the changelog entry first — the pack ships "
                 "CHANGELOG.md, and every build must carry the release "
                 "history for the version it stamps.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # Wave 1wip2 (1wgwn): the section being packed must not carry stale
+        # version-constant claims — the coverage the 1.20.0 pm1l pack escaped
+        # through (its internal changelog shipped `CHUNKER_VERSION` "to 34"
+        # while the delivered tree was 37).
+        claim_failures = _check_changelog_claims(packed_section, args.version)
+        if claim_failures:
+            print(
+                "error: changelog version-constant claims do not match the "
+                "code constants:\n  " + "\n  ".join(claim_failures),
                 file=sys.stderr,
             )
             sys.exit(1)

@@ -1,0 +1,145 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "type": "rectangle",
+      "id": "r1",
+      "x": 120,
+      "y": 120,
+      "width": 220,
+      "height": 70,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "seed": 1839224,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "t1",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t1",
+      "x": 130,
+      "y": 140,
+      "width": 200,
+      "height": 25,
+      "angle": 0,
+      "seed": 552211,
+      "isDeleted": false,
+      "containerId": "r1",
+      "text": "page the on-call\nresolver first",
+      "originalText": "page the on-call resolver first",
+      "fontSize": 20,
+      "fontFamily": 1
+    },
+    {
+      "type": "arrow",
+      "id": "a1",
+      "x": 340,
+      "y": 150,
+      "width": 180,
+      "height": 0,
+      "angle": 0,
+      "seed": 90417,
+      "isDeleted": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          180,
+          0
+        ]
+      ],
+      "boundElements": [
+        {
+          "id": "t2",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t2",
+      "x": 360,
+      "y": 125,
+      "width": 150,
+      "height": 25,
+      "seed": 66120,
+      "isDeleted": false,
+      "containerId": "a1",
+      "text": "escalate to the database owner\nafter two failed probes",
+      "originalText": "escalate to the database owner after two failed probes",
+      "fontSize": 16,
+      "fontFamily": 1
+    },
+    {
+      "type": "text",
+      "id": "t3",
+      "x": 140,
+      "y": 260,
+      "width": 260,
+      "height": 25,
+      "seed": 771029,
+      "isDeleted": false,
+      "containerId": null,
+      "text": "rotate the incident commander\nevery four hours",
+      "originalText": "rotate the incident commander every four hours",
+      "fontSize": 16,
+      "fontFamily": 1
+    },
+    {
+      "type": "text",
+      "id": "ghost",
+      "x": 400,
+      "y": 400,
+      "width": 100,
+      "height": 25,
+      "seed": 424242,
+      "isDeleted": true,
+      "containerId": null,
+      "text": "GHOST_DELETED_LABEL_SENTINEL retire the legacy pager rotation",
+      "originalText": "GHOST_DELETED_LABEL_SENTINEL retire the legacy pager rotation",
+      "fontSize": 16,
+      "fontFamily": 1
+    },
+    {
+      "type": "text",
+      "id": "empty",
+      "x": 10,
+      "y": 10,
+      "width": 10,
+      "height": 25,
+      "seed": 11,
+      "isDeleted": false,
+      "containerId": null,
+      "text": "   ",
+      "originalText": "",
+      "fontSize": 16,
+      "fontFamily": 1
+    },
+    {
+      "type": "frame",
+      "id": "f1",
+      "x": 100,
+      "y": 100,
+      "width": 480,
+      "height": 220,
+      "seed": 9917,
+      "isDeleted": false,
+      "name": "Sev1 containment steps"
+    }
+  ],
+  "appState": {
+    "gridSize": null,
+    "viewBackgroundColor": "#ffffff"
+  },
+  "files": {}
+}

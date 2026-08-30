@@ -376,5 +376,55 @@
         "anchor": "memory: 512Mi"
       }
     }
+  },
+  {
+    "id": "nb01",
+    "query": "Are free trial accounts included when building the churn cohorts?",
+    "variants": {
+      "ipynb": {
+        "file": "ipynb/churn_cohort_analysis.ipynb",
+        "anchor": "drop trial rows before cohorting so free tiers never skew retention"
+      }
+    }
+  },
+  {
+    "id": "nb02",
+    "query": "How are cohort weights adjusted for seasonal effects?",
+    "variants": {
+      "ipynb": {
+        "file": "ipynb/churn_cohort_analysis.ipynb",
+        "anchor": "Scale each cohort's weight by the seasonal baseline factor"
+      }
+    }
+  },
+  {
+    "id": "nb03",
+    "query": "What functional form does the retention curve fit use?",
+    "variants": {
+      "ipynb": {
+        "file": "ipynb/churn_cohort_analysis.ipynb",
+        "anchor": "a decaying share above a persistent floor"
+      }
+    }
+  },
+  {
+    "id": "nb04",
+    "query": "How is tidal gauge drift corrected in the measurement series?",
+    "variants": {
+      "ipynb": {
+        "file": "ipynb/churn_cohort_analysis.ipynb",
+        "anchor": "Subtract the linear tidal gauge drift accumulated since install"
+      }
+    }
+  },
+  {
+    "id": "nb05",
+    "query": "Why doesn't February's shorter length distort the retention numbers?",
+    "variants": {
+      "ipynb": {
+        "file": "ipynb/churn_cohort_analysis.ipynb",
+        "anchor": "a short February never reads as a retention dip"
+      }
+    }
   }
 ]

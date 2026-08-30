@@ -1,0 +1,933 @@
+{
+  "set": "prose",
+  "label": "pre-1wh1b-baseline (CHUNKER 37, nb fixture + queries added, chunker unchanged)",
+  "model": "Snowflake/snowflake-arctic-embed-s",
+  "chunker_version": "37",
+  "rank_depth": 20,
+  "metrics_by_format": {
+    "adoc": {
+      "recall_at_5": 0.75,
+      "mrr": 0.40788690476190476,
+      "query_count": 16,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "p01:adoc",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 10,
+          "hit_at_5": false,
+          "top5": [
+            "rst/api-guide.rst#rst/api-guide.rst#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#prerequisites",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#getting-started:code-1",
+            "md/api-guide.md#md/api-guide.md#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p02:adoc",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#platform-notes",
+            "md/installation.md#md/installation.md#platform-notes",
+            "adoc/installation.adoc#adoc/installation.adoc#platform-notes",
+            "rst/installation.rst#rst/installation.rst#installing-from-source",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion:code-3"
+          ]
+        },
+        {
+          "id": "p03:adoc",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation",
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble",
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p04:adoc",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "adoc/installation.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p05:adoc",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides"
+          ]
+        },
+        {
+          "id": "p06:adoc",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "adoc/configuration.adoc#adoc/configuration.adoc#the-configuration-file",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p07:adoc",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#environment-variable-overrides",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble"
+          ]
+        },
+        {
+          "id": "p08:adoc",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "adoc/configuration.adoc",
+          "rank": 7,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-1",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p09:adoc",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p10:adoc",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 5,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#client-side-errors",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "adoc/errors.adoc#adoc/errors.adoc#client-side-errors",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff"
+          ]
+        },
+        {
+          "id": "p11:adoc",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#server-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors"
+          ]
+        },
+        {
+          "id": "p12:adoc",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "adoc/errors.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#preamble",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p13:adoc",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#authentication",
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "rst/api-guide.rst#rst/api-guide.rst#authentication",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p14:adoc",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#preamble",
+            "md/errors.md#md/errors.md#preamble",
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p15:adoc",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#making-requests",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#preamble",
+            "rst/api-guide.rst#rst/api-guide.rst#making-requests"
+          ]
+        },
+        {
+          "id": "p16:adoc",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "adoc/api-guide.adoc",
+          "rank": 4,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results:code-7",
+            "md/api-guide.md#md/api-guide.md#streaming-results:code-7",
+            "rst/api-guide.rst#rst/api-guide.rst#streaming-results:code-7",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        }
+      ]
+    },
+    "fence-adoc": {
+      "recall_at_5": 1.0,
+      "mrr": 0.5,
+      "query_count": 3,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "f07:fence-adoc",
+          "query": "what does the systemd service unit for the relay agent run",
+          "expected_file": "adoc/deployment.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/deployment.adoc#adoc/deployment.adoc#running-under-systemd",
+            "adoc/deployment.adoc#adoc/deployment.adoc#running-under-systemd:code-1",
+            "adoc/deployment.adoc#adoc/deployment.adoc#preamble",
+            "adoc/deployment.adoc#adoc/deployment.adoc#resource-limits",
+            "adoc/deployment.adoc#adoc/deployment.adoc#container-health-checks:code-2"
+          ]
+        },
+        {
+          "id": "f08:fence-adoc",
+          "query": "which url should the orchestrator health check hit on the container",
+          "expected_file": "adoc/deployment.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/deployment.adoc#adoc/deployment.adoc#container-health-checks",
+            "adoc/deployment.adoc#adoc/deployment.adoc#container-health-checks:code-2",
+            "adoc/errors.adoc#adoc/errors.adoc#server-side-errors",
+            "rst/errors.rst#rst/errors.rst#server-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors"
+          ]
+        },
+        {
+          "id": "f09:fence-adoc",
+          "query": "what memory limit does the relay container need",
+          "expected_file": "adoc/deployment.adoc",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/deployment.adoc#adoc/deployment.adoc#resource-limits",
+            "adoc/deployment.adoc#adoc/deployment.adoc#resource-limits:code-3",
+            "adoc/deployment.adoc#adoc/deployment.adoc#running-under-systemd",
+            "adoc/deployment.adoc#adoc/deployment.adoc#preamble",
+            "rst/errors.rst#rst/errors.rst#rate-limiting"
+          ]
+        }
+      ]
+    },
+    "fence-md": {
+      "recall_at_5": 1.0,
+      "mrr": 0.4166666666666667,
+      "query_count": 3,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "f01:fence-md",
+          "query": "which stages do webhook events pass through before reaching my endpoint",
+          "expected_file": "md/webhooks.md",
+          "rank": 4,
+          "hit_at_5": true,
+          "top5": [
+            "md/webhooks.md#md/webhooks.md#doc-summary",
+            "md/webhooks.md#md/webhooks.md#delivery-flow",
+            "md/webhooks.md#md/webhooks.md#preamble",
+            "md/webhooks.md#md/webhooks.md#delivery-flow:code-1",
+            "md/webhooks.md#md/webhooks.md#verifying-signatures"
+          ]
+        },
+        {
+          "id": "f02:fence-md",
+          "query": "how do I verify a webhook signature before trusting the payload",
+          "expected_file": "md/webhooks.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/webhooks.md#md/webhooks.md#verifying-signatures",
+            "md/webhooks.md#md/webhooks.md#verifying-signatures:code-2",
+            "md/webhooks.md#md/webhooks.md#delivery-flow",
+            "md/webhooks.md#md/webhooks.md#doc-summary",
+            "md/webhooks.md#md/webhooks.md#tuning-redelivery"
+          ]
+        },
+        {
+          "id": "f03:fence-md",
+          "query": "how many times is a parked webhook delivery redelivered",
+          "expected_file": "md/webhooks.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/webhooks.md#md/webhooks.md#tuning-redelivery",
+            "md/webhooks.md#md/webhooks.md#tuning-redelivery:code-3",
+            "md/webhooks.md#md/webhooks.md#delivery-flow",
+            "md/webhooks.md#md/webhooks.md#delivery-flow:code-1",
+            "md/webhooks.md#md/webhooks.md#doc-summary"
+          ]
+        }
+      ]
+    },
+    "fence-rst": {
+      "recall_at_5": 1.0,
+      "mrr": 0.6666666666666666,
+      "query_count": 3,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "f04:fence-rst",
+          "query": "what command exports completed job history as newline-delimited json",
+          "expected_file": "rst/cli-recipes.rst",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#exporting-job-history",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#exporting-job-history:code-1",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion:code-3",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#some-authors-paste-ascii-banners-straight-into-running-prose-like-this-one",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion"
+          ]
+        },
+        {
+          "id": "f05:fence-rst",
+          "query": "how do I remove artifacts older than the retention window",
+          "expected_file": "rst/cli-recipes.rst",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#pruning-old-artifacts",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#pruning-old-artifacts:code-2",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-2",
+            "md/webhooks.md#md/webhooks.md#tuning-redelivery:code-3",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#exporting-job-history:code-1"
+          ]
+        },
+        {
+          "id": "f06:fence-rst",
+          "query": "how do I enable zsh tab completion for the cli",
+          "expected_file": "rst/cli-recipes.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion:code-3",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#exporting-job-history",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#preamble",
+            "adoc/deployment.adoc#adoc/deployment.adoc#container-health-checks:code-2"
+          ]
+        }
+      ]
+    },
+    "ipynb": {
+      "recall_at_5": 0.2,
+      "mrr": 0.2,
+      "query_count": 5,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "nb01:ipynb",
+          "query": "Are free trial accounts included when building the churn cohorts?",
+          "expected_file": "ipynb/churn_cohort_analysis.ipynb",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-2",
+            "rst/installation.rst#rst/installation.rst#platform-notes",
+            "md/installation.md#md/installation.md#platform-notes",
+            "adoc/installation.adoc#adoc/installation.adoc#platform-notes"
+          ]
+        },
+        {
+          "id": "nb02:ipynb",
+          "query": "How are cohort weights adjusted for seasonal effects?",
+          "expected_file": "ipynb/churn_cohort_analysis.ipynb",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-2",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "md/errors.md#md/errors.md#rate-limiting"
+          ]
+        },
+        {
+          "id": "nb03:ipynb",
+          "query": "What functional form does the retention curve fit use?",
+          "expected_file": "ipynb/churn_cohort_analysis.ipynb",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-2",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-1",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#some-authors-paste-ascii-banners-straight-into-running-prose-like-this-one",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-2"
+          ]
+        },
+        {
+          "id": "nb04:ipynb",
+          "query": "How is tidal gauge drift corrected in the measurement series?",
+          "expected_file": "ipynb/churn_cohort_analysis.ipynb",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading",
+            "rst/installation.rst#rst/installation.rst#upgrading:code-4"
+          ]
+        },
+        {
+          "id": "nb05:ipynb",
+          "query": "Why doesn't February's shorter length distort the retention numbers?",
+          "expected_file": "ipynb/churn_cohort_analysis.ipynb",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-2",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-1",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#some-authors-paste-ascii-banners-straight-into-running-prose-like-this-one",
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0"
+          ]
+        }
+      ]
+    },
+    "md": {
+      "recall_at_5": 0.6875,
+      "mrr": 0.3515151515151515,
+      "query_count": 16,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "p01:md",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "md/installation.md",
+          "rank": 11,
+          "hit_at_5": false,
+          "top5": [
+            "rst/api-guide.rst#rst/api-guide.rst#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#prerequisites",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#getting-started:code-1",
+            "md/api-guide.md#md/api-guide.md#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p02:md",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "md/installation.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#platform-notes",
+            "md/installation.md#md/installation.md#platform-notes",
+            "adoc/installation.adoc#adoc/installation.adoc#platform-notes",
+            "rst/installation.rst#rst/installation.rst#installing-from-source",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion:code-3"
+          ]
+        },
+        {
+          "id": "p03:md",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "md/installation.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation",
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble",
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p04:md",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "md/installation.md",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p05:md",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "md/configuration.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides"
+          ]
+        },
+        {
+          "id": "p06:md",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "md/configuration.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "adoc/configuration.adoc#adoc/configuration.adoc#the-configuration-file",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p07:md",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "md/configuration.md",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#environment-variable-overrides",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble"
+          ]
+        },
+        {
+          "id": "p08:md",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "md/configuration.md",
+          "rank": 6,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-1",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p09:md",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "md/errors.md",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p10:md",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "md/errors.md",
+          "rank": 6,
+          "hit_at_5": false,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#client-side-errors",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "adoc/errors.adoc#adoc/errors.adoc#client-side-errors",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff"
+          ]
+        },
+        {
+          "id": "p11:md",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "md/errors.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#server-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors"
+          ]
+        },
+        {
+          "id": "p12:md",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "md/errors.md",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#preamble",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p13:md",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "md/api-guide.md",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#authentication",
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "rst/api-guide.rst#rst/api-guide.rst#authentication",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p14:md",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "md/api-guide.md",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#preamble",
+            "md/errors.md#md/errors.md#preamble",
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p15:md",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "md/api-guide.md",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#making-requests",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#preamble",
+            "rst/api-guide.rst#rst/api-guide.rst#making-requests"
+          ]
+        },
+        {
+          "id": "p16:md",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "md/api-guide.md",
+          "rank": 5,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results:code-7",
+            "md/api-guide.md#md/api-guide.md#streaming-results:code-7",
+            "rst/api-guide.rst#rst/api-guide.rst#streaming-results:code-7",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        }
+      ]
+    },
+    "rst": {
+      "recall_at_5": 0.75,
+      "mrr": 0.5323660714285714,
+      "query_count": 16,
+      "chunk_count": 174,
+      "per_query": [
+        {
+          "id": "p01:rst",
+          "query": "Which Python versions does the client support?",
+          "expected_file": "rst/installation.rst",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "rst/api-guide.rst#rst/api-guide.rst#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#prerequisites",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#getting-started:code-1",
+            "md/api-guide.md#md/api-guide.md#getting-started:code-1",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p02:rst",
+          "query": "Do the prebuilt packages work on Apple silicon Macs?",
+          "expected_file": "rst/installation.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#platform-notes",
+            "md/installation.md#md/installation.md#platform-notes",
+            "adoc/installation.adoc#adoc/installation.adoc#platform-notes",
+            "rst/installation.rst#rst/installation.rst#installing-from-source",
+            "rst/cli-recipes.rst#rst/cli-recipes.rst#shell-completion:code-3"
+          ]
+        },
+        {
+          "id": "p03:rst",
+          "query": "How do I check that the package was installed correctly?",
+          "expected_file": "rst/installation.rst",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation",
+            "md/installation.md#md/installation.md#verifying-the-installation",
+            "rst/installation.rst#rst/installation.rst#verifying-the-installation",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble",
+            "adoc/installation.adoc#adoc/installation.adoc#verifying-the-installation:code-3"
+          ]
+        },
+        {
+          "id": "p04:rst",
+          "query": "How much notice is given before a deprecated feature is removed?",
+          "expected_file": "rst/installation.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p05:rst",
+          "query": "If a setting is defined in several places at once, which value wins?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides"
+          ]
+        },
+        {
+          "id": "p06:rst",
+          "query": "How does the client locate its configuration file?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "md/configuration.md#md/configuration.md#the-configuration-file",
+            "adoc/configuration.adoc#adoc/configuration.adoc#the-configuration-file",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p07:rst",
+          "query": "How do I set a nested option through an environment variable?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/configuration.rst#rst/configuration.rst#environment-variable-overrides",
+            "adoc/configuration.adoc#adoc/configuration.adoc#environment-variable-overrides",
+            "md/configuration.md#md/configuration.md#environment-variable-overrides",
+            "rst/configuration.rst#rst/configuration.rst#the-configuration-file",
+            "adoc/installation.adoc#adoc/installation.adoc#preamble"
+          ]
+        },
+        {
+          "id": "p08:rst",
+          "query": "How can I see where each effective setting came from?",
+          "expected_file": "rst/configuration.rst",
+          "rank": 8,
+          "hit_at_5": false,
+          "top5": [
+            "ipynb/churn_cohort_analysis.ipynb#ipynb/churn_cohort_analysis.ipynb#cell-0",
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes:code-1",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence",
+            "adoc/configuration.adoc#adoc/configuration.adoc#configuration-sources-and-precedence",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p09:rst",
+          "query": "How are retry delays spaced out after repeated failures?",
+          "expected_file": "rst/errors.rst",
+          "rank": 2,
+          "hit_at_5": true,
+          "top5": [
+            "md/errors.md#md/errors.md#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff",
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting"
+          ]
+        },
+        {
+          "id": "p10:rst",
+          "query": "Does the client automatically retry write requests that fail?",
+          "expected_file": "rst/errors.rst",
+          "rank": 4,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#client-side-errors",
+            "md/errors.md#md/errors.md#client-side-errors",
+            "adoc/errors.adoc#adoc/errors.adoc#client-side-errors",
+            "rst/errors.rst#rst/errors.rst#retry-semantics-and-backoff",
+            "adoc/errors.adoc#adoc/errors.adoc#retry-semantics-and-backoff"
+          ]
+        },
+        {
+          "id": "p11:rst",
+          "query": "What happens when a request gets throttled with a 429 response?",
+          "expected_file": "rst/errors.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#rate-limiting",
+            "md/errors.md#md/errors.md#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#rate-limiting",
+            "adoc/errors.adoc#adoc/errors.adoc#server-side-errors",
+            "md/errors.md#md/errors.md#server-side-errors"
+          ]
+        },
+        {
+          "id": "p12:rst",
+          "query": "What should I include so support can trace a failed call in their logs?",
+          "expected_file": "rst/errors.rst",
+          "rank": 1,
+          "hit_at_5": true,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#inspecting-error-payloads",
+            "md/errors.md#md/errors.md#inspecting-error-payloads",
+            "adoc/errors.adoc#adoc/errors.adoc#preamble",
+            "md/errors.md#md/errors.md#preamble"
+          ]
+        },
+        {
+          "id": "p13:rst",
+          "query": "How is my key attached to outgoing calls?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 3,
+          "hit_at_5": true,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#authentication",
+            "md/api-guide.md#md/api-guide.md#authentication",
+            "rst/api-guide.rst#rst/api-guide.rst#authentication",
+            "rst/configuration.rst#rst/configuration.rst#configuration-sources-and-precedence",
+            "md/configuration.md#md/configuration.md#configuration-sources-and-precedence"
+          ]
+        },
+        {
+          "id": "p14:rst",
+          "query": "Can I replace my credentials without causing downtime?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "rst/errors.rst#rst/errors.rst#preamble",
+            "md/errors.md#md/errors.md#preamble",
+            "rst/installation.rst#rst/installation.rst#upgrading",
+            "adoc/installation.adoc#adoc/installation.adoc#upgrading",
+            "md/installation.md#md/installation.md#upgrading"
+          ]
+        },
+        {
+          "id": "p15:rst",
+          "query": "How are large result sets split up when listing resources?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 0,
+          "hit_at_5": false,
+          "top5": [
+            "adoc/title-lookalike.adoc#adoc/title-lookalike.adoc#title-lookalikes",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#making-requests",
+            "md/api-guide.md#md/api-guide.md#making-requests",
+            "rst/adornment-lookalike.rst#rst/adornment-lookalike.rst#preamble",
+            "rst/api-guide.rst#rst/api-guide.rst#making-requests"
+          ]
+        },
+        {
+          "id": "p16:rst",
+          "query": "How can I consume results incrementally instead of waiting for the whole download?",
+          "expected_file": "rst/api-guide.rst",
+          "rank": 7,
+          "hit_at_5": false,
+          "top5": [
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results:code-7",
+            "md/api-guide.md#md/api-guide.md#streaming-results:code-7",
+            "rst/api-guide.rst#rst/api-guide.rst#streaming-results:code-7",
+            "adoc/api-guide.adoc#adoc/api-guide.adoc#streaming-results",
+            "md/api-guide.md#md/api-guide.md#streaming-results"
+          ]
+        }
+      ]
+    }
+  }
+}

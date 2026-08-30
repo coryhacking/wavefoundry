@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-11
+Last verified: 2026-08-29
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -53,7 +53,7 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 
    **Quality criteria:** operator impact (not chronology); required-action callouts surfaced as standalone bullets (cache invalidation, `GRAPH_BUILDER_VERSION` bumps, MCP server restart needs, breaking changes with migration guidance); each bullet ends with the owning wave/change for traceability (e.g., "Wave 1p3dk / 1p3ho.").
 
-   **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package and the only place an offline consumer can read what just changed. **Changelog-first is mechanically enforced:** `build_pack.py` refuses ANY versioned build — test builds included — when `CHANGELOG.md` has no `## [MAJOR.MINOR.PATCH]` section for the version being built. Create the entry (a skeleton is fine early in a cycle) before the first pack; keep it current as changes land.
+   **Do not skip this step** — `CHANGELOG.md` is the only release surface that travels with the package and the only place an offline consumer can read what just changed. **Changelog-first is mechanically enforced:** `build_pack.py` refuses ANY versioned build — test builds included — when `CHANGELOG.md` has no `## [MAJOR.MINOR.PATCH]` section for the version being built, and refuses a build whose packed section carries a version-constant claim (`CHUNKER_VERSION` / `WALKER_VERSION` / `GRAPH_BUILDER_VERSION`) that does not match the live code constant (wave `1wip2`; the docs gate runs the same claims engine over the `[Unreleased]` top section only, so dated release history is never checked). Create the entry (a skeleton is fine early in a cycle) before the first pack; keep it current as changes land.
 
    **Changelog completeness and amendments:** the entry must be COMPLETE — covering every landed change for the version — before the final pack that goes out for field testing, so the archive's internal changelog matches what ships. If the changelog is amended after a pack was built (late fixes, post-test additions), rebuild before publishing: a released zip must never carry a stale internal changelog. When only the changelog changed, the rebuild differs from the tested archive in that one file, which keeps ship-what-you-tested honest. For the actual publish, prefer `build_pack.py --release`: its preflight requires a clean tree on `main` with the matching changelog section and then builds fresh, so the uploaded archive cannot lag the repo.
 5. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.

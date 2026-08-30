@@ -213,9 +213,25 @@ def main() -> int:
     elif args.set == "diagrams":
         # 1whuq: flat spec-shaped queries over the docs-kind mirror (diagram
         # chunks are docs-routed); per-set-disjoint corpus directory.
+        # Per-format grouping (1wl7v): prefixed ids (`drawio-q01`) group under
+        # that format exactly like the specs branch, so each new format's bar
+        # reads off the committed JSON; the original unprefixed d01-d09 set
+        # groups as `core` and `metrics` keeps its frozen 1whuq meaning.
         queries = _load_spec_queries(HERE / "golden_queries_diagrams.json")
         rows = _chunk_corpus(corpus_dir, _DOCS_KINDS)
-        result["metrics"] = _evaluate(queries, rows, model_name, args.depth)
+        def _fmt(qid: str) -> str:
+            head = qid.split("-", 1)[0]
+            return head if "-" in qid and not head.startswith("q") else "core"
+        by_format = {}
+        for q in queries:
+            by_format.setdefault(_fmt(q["id"]), []).append(q)
+        result["metrics"] = _evaluate(
+            by_format.get("core", []), rows, model_name, args.depth)
+        if set(by_format) - {"core"}:
+            result["metrics_by_format"] = {
+                fmt: _evaluate(qs, rows, model_name, args.depth)
+                for fmt, qs in sorted(by_format.items())
+            }
     else:
         by_format = _load_prose_queries(HERE / "golden_queries_prose.json")
         rows = _chunk_corpus(corpus_dir, _DOCS_KINDS)

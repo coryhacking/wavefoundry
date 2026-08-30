@@ -145,7 +145,92 @@ def check_docs_constants(root: Path) -> list[str]:
                 f"match the code constant `{expected}`; "
                 f"fix: change `{m.group(1)}` to `{expected}` on that line"
             )
+    # Wave 1wip2 (1wgwn): the CHANGELOG claims ride the same entry point so
+    # every existing full-gate caller carries them with no new gate surface.
+    failures.extend(check_changelog_unreleased_constants(root))
     return failures
+
+
+# ---------------------------------------------------------------------------
+# CHANGELOG version-constant claims (wave 1wip2, 1wgwn). ONE claims engine,
+# two homes: check_docs_constants runs it over the TOP CHANGELOG section only
+# when that section is `## [Unreleased]` (a dated top section is history the
+# moment it is dated — checking it would deadlock the docs gate at the first
+# post-release constant bump), and build_pack's changelog-first gate runs the
+# same engine over the `## [<version>]` section being packed (the coverage
+# the 1.20.0 pm1l pack escaped through). Claims are optional-but-must-match:
+# absence never fails, and historical sections are never checked
+# (historical-reference preservation).
+# ---------------------------------------------------------------------------
+
+_CHANGELOG_CONSTANT_SOURCES = {
+    "CHUNKER_VERSION": ("chunker.py", "CHUNKER_VERSION"),
+    "WALKER_VERSION": ("indexer.py", "WALKER_VERSION"),
+    "GRAPH_BUILDER_VERSION": ("graph_indexer.py", "GRAPH_BUILDER_VERSION"),
+}
+# Backtick-anchored constant name, a bounded same-line connector, a numeral.
+# Deliberately conservative: quoted historical numerals (`"24"` to `"25"`) and
+# prose forms ("is unchanged") do not match and are outside the claim class.
+_CHANGELOG_CLAIM_RE = re.compile(
+    r"`(CHUNKER_VERSION|WALKER_VERSION|GRAPH_BUILDER_VERSION)`"
+    r"[^`\n]{0,80}?\b(?:to|at)\s+(\d+)\b"
+)
+
+
+def check_changelog_section_constants(section_text: str, context: str) -> list[str]:
+    """Shared claims engine over ONE changelog section body (both homes)."""
+    failures: list[str] = []
+    for m in _CHANGELOG_CLAIM_RE.finditer(section_text):
+        name, claimed = m.group(1), m.group(2)
+        rel, const = _CHANGELOG_CONSTANT_SOURCES[name]
+        live = _module_constant(rel, const)
+        if live is None:
+            failures.append(
+                f"ERROR: {context}: docs-constants check cannot resolve `{name}` "
+                f"from {rel}; update wave_lint_lib/docs_constants_validators.py"
+            )
+        elif claimed != str(live):
+            failures.append(
+                f"ERROR: {context}: documented `{name}` claim `{claimed}` does not "
+                f"match the code constant `{live}`; "
+                f"fix: change `{claimed}` to `{live}` in that claim"
+            )
+    return failures
+
+
+def _changelog_top_section(text: str) -> tuple[str | None, str]:
+    """(top `## [` heading line, its section body) or (None, "")."""
+    lines = text.splitlines()
+    start = None
+    heading = None
+    for i, line in enumerate(lines):
+        if line.startswith("## ["):
+            start = i
+            heading = line.rstrip()
+            break
+    if start is None:
+        return None, ""
+    body: list[str] = []
+    for line in lines[start + 1:]:
+        if line.startswith("## ["):
+            break
+        body.append(line)
+    return heading, "\n".join(body)
+
+
+def check_changelog_unreleased_constants(root: Path) -> list[str]:
+    """Docs-gate home: top section checked ONLY while it is `## [Unreleased]`."""
+    changelog = root / "CHANGELOG.md"
+    if not changelog.is_file():
+        return []
+    try:
+        text = changelog.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    heading, body = _changelog_top_section(text)
+    if heading != "## [Unreleased]":
+        return []  # dated top section: history; deliberately a no-op
+    return check_changelog_section_constants(body, "CHANGELOG.md [Unreleased]")
 
 
 _WAVE_FIELD_RE = re.compile(r"^Wave:\s*(.+?)\s*$", re.MULTILINE)

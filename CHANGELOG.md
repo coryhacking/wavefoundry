@@ -6,1295 +6,723 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.20.0] - 2026-08-27
+## [Unreleased]
 
+### Added
+
+- **Notebook code cells are now searchable.** Code cells in `.ipynb` files previously reached
+  neither retrieval table; they now route into the docs index as `doc-code` chunks with their
+  cell breadcrumbs, cell ids and kernel language unchanged, outputs still never indexed. On the
+  frozen notebook golden queries, recall at 5 went from 0.2 to 1.0. Wave `1wl7u
+  retrieval-loose-ends` / change `1wh1b`.
+
+- **Duplicate-titled documentation sections no longer silently lose index rows.** Sections with
+  the same title in one file emitted identical chunk ids, and the id-keyed index planner kept
+  only the last one. Repeats now get a `~2`, `~3` ordinal suffix while first occurrences keep
+  their existing ids, across markdown (including sub-section and long-section splits),
+  reStructuredText, AsciiDoc, and the HTML/XML chunkers. The `~` character cannot appear in a
+  heading-derived slug, so a literal title can never collide with a generated ordinal. Wave
+  `1wl7u` / change `1wh1b`.
+
+- **Stale changelog version constants can no longer ship inside a pack.** The docs gate now
+  checks version-constant claims in the `[Unreleased]` section, and the packaging gate refuses
+  any build whose packed changelog section claims a `CHUNKER_VERSION`, `WALKER_VERSION`, or
+  `GRAPH_BUILDER_VERSION` numeral that does not match the code, the escape path a 1.20.0 local
+  pack briefly shipped through. Dated release history is never checked, so post-release bumps
+  cannot block the gate. Wave `1wip2 guidance-surface-drift-guards` / `1wgwn`.
+
+- **The seed-211 / guru.md Index Scope mirror is machine-guarded.** A byte-parity test now fails
+  on any divergence between the canonical seed's Index Scope section and its hand-maintained
+  `docs/agents/guru.md` mirror, and the drifted registration passages found by review are
+  converged to the seed's `wf setup` wording. Wave `1wip2` / `1wgwn`.
+
+- **draw.io and Excalidraw diagrams are now searchable.** `.drawio` files chunk one docs-routed
+  label unit per diagram page (node, edge, and Edit-Data wrapper labels, both the compressed and
+  plain save forms, HTML markup stripped) and `.excalidraw` files one unit of text and frame
+  labels (deleted elements skipped), each breadcrumbed and filterable via
+  `docs_search(kind='doc-code')`. On the frozen diagram golden set both formats went from zero
+  to 1.0 recall at 5 with every query ranking its diagram first, and the existing
+  Mermaid/PlantUML/DOT queries held 1.0. Raw geometry serializations are never indexed, and
+  malformed or decompression-bomb inputs degrade to zero chunks behind a bounded per-page
+  inflate cap that a delivered hostile fixture provably pins. Wave `1wl7w
+  diagram-label-retrieval` / change `1wl7v`.
+
+### Changed
+
+- **Both tool-diagram extensions walk again, with value this time.** A `1wl7u` census had
+  excluded `.drawio` from the walk because it shipped zero retrieval rows; with label extraction
+  landed, `.drawio` and `.excalidraw` leave the generated-file exclusions as a recorded
+  supersession. Across the two waves `CHUNKER_VERSION` moves to 39 and `WALKER_VERSION` to 15,
+  so existing indexes converge with a one-time re-walk and re-chunk on the next index build
+  after upgrade. Waves `1wl7u` / `1wl7w`.
+
+## [1.20.0] - 2026-08-27
 
 ### Added
 
 - **Fenced code blocks and diagrams inside documentation are now searchable.** Code examples,
-  config snippets, and mermaid diagrams embedded in markdown, reStructuredText, and AsciiDoc
-  files previously reached neither retrieval table; they now route into the docs index as a new
-  `doc-code` chunk kind with section breadcrumbs and are filterable via
-  `docs_search(kind='doc-code')` (wave `1wik9 fenced-diagram-and-spec-retrieval`, change
-  `1whup`). On the extended prose golden set, fence-targeted queries went from structurally zero
-  to 1.0 recall at 5 across all three formats while content-anchored prose retrieval was
-  unchanged, and a per-line coverage differential proves no documentation content lost coverage.
-  Reconnect MCP hosts after upgrading: the `docs_search` kind filter is a tool-schema change.
+  config snippets, and mermaid blocks embedded in markdown, reStructuredText, and AsciiDoc files
+  previously reached neither retrieval table; they now route into the docs index as `doc-code`
+  chunks with section breadcrumbs, filterable via `docs_search(kind='doc-code')`. Fence-targeted
+  queries went from zero to 1.0 recall at 5 on all three formats with prose retrieval unchanged.
+  Reconnect MCP hosts after upgrading: the kind filter is a tool-schema change. Wave `1wik9` /
+  change `1whup`.
 
-- **Standalone diagram files are now docs-search citizens.** Hand-authored Mermaid
-  (`.mmd`/`.mermaid`), PlantUML (`.puml`/`.plantuml`), and Graphviz DOT (`.dot`/`.gv`) files
-  previously produced zero retrieval rows; each now chunks as one breadcrumbed unit (declared
-  diagram title or file stem, plus the raw source whose node and edge labels carry the
-  architecture prose) routed to the docs index (change `1whuq`). On the frozen 9-query diagram
-  golden set, retrieval went from zero to 1.0 recall at 5 with every query ranking its diagram
-  first. Tool-generated formats such as `.drawio` and `.excalidraw` stay out of retrieval.
+- **Standalone diagram files are docs-search citizens.** Mermaid, PlantUML, and Graphviz DOT
+  files previously produced zero retrieval rows; each now chunks as one breadcrumbed unit whose
+  node and edge labels carry the architecture prose. Diagram retrieval went from zero to 1.0
+  recall at 5 on the frozen golden set. Tool-generated formats stay out. Change `1whuq`.
 
 - **AsyncAPI, GraphQL SDL, and Protobuf join the structure-aware spec family, default-on.**
-  AsyncAPI documents (2.x and 3.x, YAML or JSON) chunk at channel, operation, and message level
-  with their summary and description prose; GraphQL SDL files chunk per type and per described
-  field (`Query.user:`); Protobuf files pair leading comments with their message, field, enum,
-  and RPC symbols (`accounts.v1.UserService.GetUser:`) — all behind the same
-  `indexing.spec_aware_chunking` gate as OpenAPI (change `1wfso`). Each format shipped on its
-  own recorded measurement (AsyncAPI recall at 5 0.875 to 1.0; GraphQL and Protobuf held their
-  baseline ceilings with MRR improving or holding), the existing 24-query OpenAPI/JSON-Schema
-  set held its 1.0 recall floor, and per-format coverage differentials prove detected files
-  lose no content.
+  AsyncAPI chunks at channel, operation, and message level; SDL per type and described field;
+  Protobuf pairs leading comments with message, field, enum, and RPC symbols, all behind the
+  same `indexing.spec_aware_chunking` gate as OpenAPI. Each format shipped on its own recorded
+  measurement, and coverage differentials prove detected files lose no content. Change `1wfso`.
 
 - **reStructuredText and AsciiDoc documentation is now searchable.** `.rst`, `.adoc`, and
-  `.asciidoc` files chunk into doc-kind sections with breadcrumb labels, exactly like markdown, so
-  Sphinx- and AsciiDoc-documented repositories get `docs_search` and `code_ask` coverage over their
-  actual documentation for the first time (wave `1wfsl structured-docs-retrieval`, change `1wfsm`).
-  Section titles are recognized by underline/overline adornment (rst) and `=`-run prefixes (adoc);
-  code blocks and listings extract as separate chunks (shipped as `doc-code` docs-table rows — see the fenced-content bullet); media and table directives are bounded so they
-  never dominate prose ranking. Measured on matched golden query sets, rst retrieval quality equals
-  markdown (0.875 recall at 5) and markdown chunking itself is byte-identical, pinned by a
-  differential test against the pre-change chunker.
+  `.asciidoc` files chunk into breadcrumbed doc sections exactly like markdown, so Sphinx- and
+  AsciiDoc-documented repositories get `docs_search` and `code_ask` coverage for the first time.
+  Measured rst retrieval quality equals markdown; markdown chunking itself stays byte-identical,
+  pinned by a differential test. Wave `1wfsl` / change `1wfsm`.
 
-- **OpenAPI specs and JSON Schemas chunk structure-aware, shipped default-on.** Content-detected
-  OpenAPI documents (3.x YAML/JSON and Swagger 2.x) chunk at operation level and JSON Schemas at
-  definition/property level, each unit carrying its breadcrumb (`paths./users/{id}.get:`,
-  `$defs.Address:`) baked into the embedded text (change `1wfr8`). On the committed 24-query golden
-  set, recall at 5 rose from 0.833 to 1.000 and mean reciprocal rank from 0.819 to 0.948 with zero
-  per-query regressions, meeting the pre-declared numeric bar for default-on; disable per project
-  with `indexing.spec_aware_chunking: false`. Detection is guarded: schemastore config files
-  (`renovate.json`, tsconfig-style), data files with coincidental `type`/`properties` keys, and all
-  other YAML/JSON chunk byte-identically to before, and every section of a detected spec keeps
-  coverage through per-subsection and residue chunks.
+- **OpenAPI specs and JSON Schemas chunk structure-aware, default-on.** Detected specs chunk at
+  operation and definition/property level with the breadcrumb baked into the embedded text.
+  Recall at 5 rose from 0.833 to 1.0 on the committed golden set with zero per-query
+  regressions; disable per project with `indexing.spec_aware_chunking: false`. Detection is
+  guarded: config and data files that merely look schema-shaped chunk byte-identically to
+  before. Change `1wfr8`.
 
 - **A per-project re-include hatch for name-excluded files.** `indexing.walk_reinclude_filenames`
-  in `docs/workflow-config.json` (default empty) restores exact filenames excluded by the
-  name/pattern layer; it can never override the binary-extension, content-sniff, or
-  machine-authority exclusions (change `1wfsn`).
+  restores exact filenames excluded by the name layer; it never overrides the binary-extension,
+  content-sniff, or machine-authority exclusions. Change `1wfsn`.
 
-- **Focused diagnostic runs for repair loops.** `run_tests.py --file <basename>` (repeatable) runs
-  only the named test files through the same lock, subprocess, timeout, and stray-artifact-guard
-  path as a full run, labels its output as focused, and never touches the last-green cache or any
-  timing data. Focused runs are diagnostic only; one complete canonical run remains the delivery
-  authority. Argument parsing is now strict: unknown options, positional arguments, and invalid
-  flag combinations fail clearly with exit code 2. Note that `--no-cache` still reads the cache
-  file once for the advisory timing map; timing data never authorizes a skip or a pass.
+- **Focused diagnostic runs for repair loops.** `run_tests.py --file <basename>` runs only the
+  named test files through the same lock, timeout, and guard path as a full run and never
+  touches the last-green cache. Focused runs are diagnostic only; one complete run remains the
+  delivery authority.
 
 ### Changed
 
 - **The corpus exclusion story is consolidated and the last machine-generated stragglers are
-  closed.** All walk exclusion mechanisms are now documented in one banner in `indexer.py`;
-  `npm-shrinkwrap.json`, `packages.lock.json`, `*.min.js`, and `*.min.css` no longer index, and the
-  committed secret-scan findings ledger (`docs/scan-findings.json`) joined the machine-authority
-  path exclusions that no configuration can re-include (change `1wfsn`). Secret scanning itself is
-  unchanged, regression-pinned against narrowing. `WALKER_VERSION` moved to 13
-  (change `1wfsn`), and with the fenced-content, diagram, and spec-family work above,
-  `CHUNKER_VERSION` finishes this release at 37 (34 was an intermediate step within the same
-  release), so existing indexes converge with a one-time full re-walk and re-chunk on the next
-  index build after upgrade.
+  closed.** `npm-shrinkwrap.json`, `packages.lock.json`, and minified assets no longer index,
+  and the committed secret-scan findings ledger joined the machine-authority exclusions no
+  configuration can re-include. `WALKER_VERSION` moved to 13 and `CHUNKER_VERSION` finishes this
+  release at 37, so existing indexes converge with a one-time full re-walk and re-chunk on the
+  next index build. Change `1wfsn`.
 
-- **Operator guidance now states the accurate retrieval contract.** Seed 211 (mirrored in
-  `docs/agents/guru.md` and the self-hosted twins) teaches that the code index covers the whole
-  repository by default, including YAML/JSON/TOML spec files, with a missing-spec checklist (check
-  ignore files first) and the `indexing.project_include_prefixes.code` opt-in scoped to its real
-  role: re-admitting `.wavefoundry/`-nested subpaths for self-hosting (change `1wdvr`). The
-  docs-layer contract is stated non-exhaustively (markdown, rst/adoc, plain text, docstrings,
-  HTML/XML text, notebook cells) with machine-authority files always excluded from search.
+- **Operator guidance states the accurate retrieval contract.** Seed 211 and its mirrors now
+  teach that the code index covers the whole repository by default, with a missing-spec
+  checklist and the include-prefixes opt-in scoped to its real role: re-admitting
+  `.wavefoundry/`-nested subpaths. Change `1wdvr`.
 
-- **The canonical framework test suite runs 37% faster with no coverage change.** A frozen
-  baseline measured the suite at a 216.7 s median; the delivered tree runs the same inventory at a
-  135.9 s median (wave `1tmtx test-suite-performance`, change `1tm6d`). The dominant
-  `test_server_tools.py` monolith is now a three-shard family (`test_server_tools.py` core/infra,
-  `test_server_tools_retrieval.py`, `test_server_tools_lifecycle.py`) with shared fixtures in a
-  non-discovered `server_tools_support.py`; the split preserved the exact frozen
-  (class, test method) identity set and per-class AST fingerprints, proven by a mutant-checked
-  verification harness archived with the wave. Scheduling stays alphabetical because a
-  counterbalanced benchmark measured it faster than timing-guided longest-first; the comparison is
-  reproducible through the new benchmark-only `--schedule-control` interface.
+- **The framework test suite runs 37% faster with no coverage change.** The dominant test
+  monolith is now a three-shard family with shared fixtures; the split preserved the exact
+  frozen test identity set, proven by a mutant-checked harness. Wave `1tmtx` / change `1tm6d`.
 
-- **The runner reports real per-file telemetry and true test counts.** Every run prints per-file
-  elapsed seconds, a bounded top-10 slowest-file summary, aggregate worker service time, and the
-  skip count; successful complete runs persist an advisory `durations_s` map beside the last-green
-  cache (never skip authority). Three long-standing runner defects are fixed with regressions:
-  per-file counts were parsed from the first "Ran N tests" match, so tests that print runner-style
-  lines inflated the suite total by five (totals are now anchored to unittest's own final summary);
-  the input digest hashed nested bytecode and the run lock's per-run pid write, destabilizing the
-  cache across runs; and the monolith's mid-file `__main__` block silently truncated direct
-  execution.
+- **The runner reports real per-file telemetry and true test counts.** Per-file timings, a
+  slowest-file summary, and skip counts print on every run, and three counting defects are
+  fixed, including inflated totals from tests that print runner-style lines.
 
 ## [1.19.0] - 2026-08-22
+
+### Added
+
+- **TechDocs publication audit, read-only.** `wf techdocs-audit` and the `wf_techdocs_audit` MCP
+  tool report what the built site actually publishes: the effective page set, `nav` targets that
+  are missing or excluded, dangling or boundary-escaping links, ownership of the
+  Backstage/TechDocs trio, and agent startup-order integrity. Findings are data, never a gate; a
+  run that could not compute something reports `degraded` rather than `clean`, symlinks escaping
+  the repository are refused and named, and MCP responses are bounded with true totals. Exit
+  codes follow content: `1` for any finding, `2` when the audit could not run, `0` otherwise.
+  Reconnect MCP hosts once after upgrading to see the new tool. Wave `1vqqi` / change `1vmt2`.
+
+- **Backstage catalog and TechDocs baseline, one command.** `wf techdocs-baseline` (and the
+  `wf_techdocs_baseline` MCP tool) generates `catalog-info.yaml`, `mkdocs.yml`, and a landing
+  page, missing-only and with conservative deny-by-default publication scope. Existing files are
+  preserved byte-for-byte, generated files carry a stamp, and a mixed trio prints one warning
+  naming the project-owned members. Nothing runs automatically at setup or upgrade. Wave `1vj4e`
+  / change `1vj4d`.
+
+- **Refresh TechDocs workflow and `wf-techdocs` skill.** The public shortcut runs the baseline
+  and then has the technical-writer specialist author the published pages with cited facts,
+  bounded by an audience invariant (agent startup-order content is framed, never removed) and a
+  link-boundary rule. Fresh installs run it at the end of Phase 2; upgrades that first ship the
+  seed re-render surfaces so the skill appears. Change `1vmpz`.
 
 ### Changed
 
 - **Plan review uses the product's review vocabulary.** The optional plan stress test is now
-  **Review plan** / `wf-review-plan`; **Interrogate this plan** and **Stress-test this plan** remain
-  accepted natural-language aliases, but the retired `wf-interrogate-plan` skill is not rendered.
-  The workflow still reviews a named change doc (or the current wave when none is named), may run
-  before or after admission but before implementation, and records no typed signoff or lifecycle
-  approval. **Review wave** / `wf-review-wave` remains the distinct required-lane delivery review.
-  Upgrade migrates either recognized canonical old prompt profile (including the earlier Trigger
-  Phrases form), preserves project-authored prose and newline style, and fails closed on customized,
-  mixed-profile, or dual-path conflicts. Project-specific agents prompts remain manual merge/removal
-  work, while reconciliation output now prints the existing key used to disposition truthful history.
+  **Review plan** / `wf-review-plan`, with **Interrogate this plan** and **Stress-test this
+  plan** as accepted aliases. Upgrade migrates recognized old prompt profiles, preserves
+  project-authored prose, and fails closed on customized or conflicting copies. **Review wave**
+  remains the distinct required-lane delivery review.
 
 - **Reconciliation dispositions are finding-specific.** New `v2:` keys bind the file, retired
-  surface, matched token, complete logical line, and nearest Markdown heading without using a line
-  number. Existing 16-hex keys remain preserved but fail open and request explicit operator
-  reclassification; duplicate v2 fingerprints also remain reported instead of suppressing by scan
-  order. The raw audit view and the three existing reconciliation channels are unchanged.
+  surface, matched token, logical line, and nearest heading without line numbers; old keys are
+  preserved but fail open and request explicit reclassification.
 
-### Added
-
-- **TechDocs publication audit, read-only.** `wf techdocs-audit` and the read-tier
-  `wf_techdocs_audit` MCP tool report what the Refresh TechDocs workflow's rules imply but nothing
-  computed before: which pages the built site actually publishes (the `mkdocs.yml` `nav` plus the
-  survivors of `exclude_docs`, matched the way MkDocs matches them), `nav` targets that are missing
-  or excluded, relative links on published pages that dangle or escape the publication boundary,
-  published-page metadata, the Backstage/TechDocs trio's ownership, and whether the agent
-  startup-order documents kept their heading order (wave `1vqqi techdocs-audit-and-review-branch`,
-  change `1vmt2`). It gates nothing: findings are data, severities are `low`/`medium`/`high`, and a
-  run that could not compute something reports `degraded` rather than `clean` so an unevaluated
-  check never reads as a clean site. No `mkdocs.yml` is a first-class `not_applicable` result. **Exit codes follow the report's content, not its verdict:** `1` whenever any finding is present or the run degraded, `2` when the audit could not run, `0` otherwise, so a plain `not_applicable` exits `0` while `not_applicable` alongside trio findings exits `1`. This deliberately differs from the sibling `wf techdocs-baseline`, where `1` means precondition-unmet: there `1` is a refusal, here it is an informative result. Over MCP the report is **bounded** at 200 findings and 200 survivor pages, with `findings_total`, `truncated`, and `publication.survivor_count` carrying the true totals; the CLI is uncapped. The
-  audit's repository-derived work is bounded by a ten-second worker deadline at both public
-  entries; expiry terminates the isolated worker and constructs `audit_timeout` without any
-  parent-side repository I/O. A `nav` symlink resolving outside the repository is classified by
-  realpath (which may read metadata) and then refused before `is_file`, open, or content read, and reported as
-  `nav_target_escapes_root` under its logical path. A markdown survivor candidate whose symlink
-  resolves outside the repository is likewise named under
-  `publication.unsafe_survivor_targets`, degrades as
-  `survivor_target_escapes_root`, and is included in link-boundary scoring for both an exact
-  normalized unsafe directory node and its descendants rather than being silently dropped;
-  neither refusal performs external `is_file`, open, or content read. The MCP response caps this
-  new tree-sized list at 200, reports `unsafe_survivor_targets_total` and the conditional
-  `unsafe_survivor_targets_omitted`, and includes that cap in `truncated`; the CLI remains
-  uncapped. The
-  audience check is honest about its scope: its baseline is HEAD content, so it is informative
-  against an uncommitted authoring edit and reports an identity check as such on a clean tree.
-  **Refresh TechDocs** gains a review-only branch, selected by an explicit read-only request, that
-  runs the audit and returns findings and proposed edits while writing nothing on either host type.
-  A new MCP tool requires a one-time reconnect after upgrade to appear.
-
-- **Backstage catalog and TechDocs baseline, one command.** `wf techdocs-baseline` generates the
-  standalone-documentation `Component` descriptor (`catalog-info.yaml`), the TechDocs configuration
-  (`mkdocs.yml`), and a landing page (`docs/index.md`) for the installing project, missing-only and
-  only once `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md`
-  exist (wave `1vj4e backstage-techdocs-baseline`, change `1vj4d`). Conservative defaults
-  (`spec.type: documentation`, `spec.lifecycle: experimental`, `spec.owner: engineering`,
-  `backstage.io/techdocs-ref: dir:.`, a `<name>-docs` entity name, deny-by-default `exclude_docs`
-  that publishes only the landing page, architecture, references, and the prompt index) are
-  project-owned after generation. Existing files are preserved byte-for-byte; each generated file
-  carries a one-line generated-by stamp, and when the trio is mixed (some generated, some
-  project-owned) the command prints one `techdocs-baseline: WARNING` naming the project-owned files
-  (`--json` returns the same `partial` record in a typed envelope; exit codes 0 / 1 precondition
-  unmet / 2 refused or failed, where a post-preflight failure reports the members it wrote
-  before failing instead of claiming nothing was written). Nothing runs at setup, `wf render-surfaces`, or upgrade; opt-in auto-generation
-  is a later change. This repository ships its own trio (`wavefoundry-docs`).
-- **`wf_techdocs_baseline` MCP tool.** The same baseline as an MCP tool for agents (the CLI stays
-  the no-MCP and install-row fallback): `mode='dry_run'` (default) runs the precondition and the
-  containment classification and reports what a run would write, writing nothing; `mode='run'`
-  writes the absent members under the project publication lock and returns the CLI envelope plus
-  `absent_paths`. Precondition failure and a refused destination are `status: error` with nothing
-  written; a mixed trio adds the advisory `backstage_techdocs_partial`. Write tier, a registered
-  publisher (refuses during an upgrade checkpoint like every project-state writer). A new MCP tool
-  requires a one-time reconnect after upgrade to appear.
-- **Refresh TechDocs workflow and `wf-techdocs` skill.** A public shortcut (**Refresh TechDocs**, alias
-  **Author TechDocs**; seed `178`, rendered to `docs/prompts/refresh-techdocs.prompt.md`) runs the
-  baseline command and then has the `technical-writer` specialist author the published pages with
-  cited facts from Guru, the architecture narrative, the security posture, qa/reality-checker
-  verification, and a docs-contract check, bounded by an audience invariant (agent startup-order
-  content is framed, never removed) and a link-boundary rule (no relative links to surfaces
-  `exclude_docs` removes); the workflow carries the operator follow-up checklist (owner, catalog-unique
-  name, preview, production CI plus storage, edit links, files intentionally not generated). The
-  skill renders wherever the prompt exists (every target after seed-100 reconciliation). Fresh
-  installs run it at install-log row 2.13.5 (end of Phase 2, `[~]` when declined or the precondition
-  is unmet); upgrades point at it and, on the upgrade that first ships seed 178, re-run
-  `wf render-surfaces` after the prompt backfill so the skill appears (change `1vmpz`).
-
-### Changed
-
-- **Refresh TechDocs no longer asks you to run an external renderer.** The workflow previously
-  told agents to run `npx @techdocs/cli` / `techdocs-cli generate --no-docker` under a condition
-  that did not actually establish those tools were available or wanted. Validation is now entirely
-  Python and in-repo: docs validation, nav existence, the publication audit, citation
-  re-resolution, and the supplier report. **No Wavefoundry surface requires Docker, Node, the
-  TechDocs CLI, MkDocs, or `mkdocs-techdocs-core`.**
-
-  **Existing installs do not pick this up automatically.**
-  `docs/prompts/refresh-techdocs.prompt.md` is project-owned, not renderer-owned: it is
-  materialized once by seed-100 reconciliation and no renderer or upgrade phase writes it again.
-  A repository that already has that file keeps its old copy, with the external-renderer
-  instructions intact, after upgrading. Nothing in the upgrade or the reconciliation scan detects
-  the divergence. Reconcile the file by hand against
-  `.wavefoundry/framework/seeds/178-refresh-techdocs.prompt.md`: remove the build-smoke bullet,
-  generalize the read-only branch's prohibition from `techdocs-cli generate` to any renderer or
-  preview command, and confirm zero residual `npx` / `techdocs-cli` references.
-
-  This is not specific to this file. **No upgrade or render phase overwrites an existing prompt
-  doc.** The renderer materializes a missing one and then leaves it alone; the manifest states the
-  intent directly ("preserve repo-grown adaptations in `docs/prompts/` during upgrade; do not
-  overwrite project-specific guidance"). All 27 top-level `*.prompt.md` files under `docs/prompts/`
-  are project-owned as whole files once materialized. Nine prompt docs carry marker-fenced regions
-  that the renderer does rewrite, so those regions self-heal; the rest, `refresh-techdocs.prompt.md`
-  among them, carry no fence at all. Seed prose that lives outside a marker fence therefore never
-  reaches a repository that has already materialized the file.
-
-  Two consequences worth knowing if you maintain a long-lived target. Your prompt docs can be
-  *behind* the framework as well as ahead of it, so a document you have never edited may still be
-  missing instructions later releases added. And the reverse also happens: an upgrade's
-  agent-driven reconciliation step does sometimes rewrite these documents, so the propagation is
-  partial and unpredictable rather than absent. If a workflow behaves differently than the release
-  notes describe, compare your `docs/prompts/` copy against
-  `.wavefoundry/framework/install/lifecycle-prompts/` and the backing seed before assuming the
-  behavior changed.
+- **Refresh TechDocs no longer asks you to run an external renderer.** Validation is entirely
+  Python and in-repo; no Wavefoundry surface requires Docker, Node, the TechDocs CLI, or MkDocs.
+  One caveat for existing installs: `docs/prompts/refresh-techdocs.prompt.md` is project-owned
+  after first materialization and no upgrade rewrites it, so a repository that already has the
+  old copy keeps the external-renderer instructions until it reconciles the file by hand against
+  the shipped seed. This is general: no upgrade overwrites an existing prompt doc, so prompt
+  docs can lag the release notes; compare against the shipped seeds when behavior differs.
 
 ### Fixed
 
-- **`nav` targets containing spaces are audited instead of being dropped.** The `mkdocs.yml`
-  reader recognized a nav path only as a single non-whitespace token, so a valid entry such as
-  `decisions/1abc-adr architecture choice.md` was not seen as a published page and never took part
-  in the publication boundary. Plain, single-quoted and double-quoted forms now yield the same
-  target. A genuinely unreadable nav shape still degrades with `mkdocs_shape` rather than being
-  guessed at (wave `1vvei techdocs-python-only-validation`).
+- **`nav` targets containing spaces are audited instead of dropped.** Plain, single-quoted, and
+  double-quoted nav paths now yield the same target; genuinely unreadable nav shapes still
+  degrade rather than being guessed at. Wave `1vvei`.
 
 - **Council role-doc citations in freshly materialized prompt docs resolve again.** Six seed
-  citations named `docs/agents/wave-council.md` and `docs/agents/archetype-council.md` while the
-  framework emits those role docs under `docs/agents/specialists/`, so a repository materializing
-  the upgrade or council-review prompt from the seeds inherited references its agents could not
-  open. The six sites now cite the `specialists/` paths, each verified against the shipped
-  canonical role map. The deliberate both-layouts accommodation for `red-team` is untouched:
-  targets keeping the flat layout remain supported, and existing project-owned prompt docs are
-  not rewritten by this change (wave `1vwyc prompt-surface-correctness`).
+  citations pointed at the flat `docs/agents/` layout while the framework renders those role
+  docs under `specialists/`; the citations now match the shipped layout, and existing
+  project-owned prompt docs are not rewritten. Wave `1vwyc`.
 
+- **TechDocs audit patterns are faster and honest about unsupported escapes.** Redundant
+  `**/` prefixes compile to one matcher, and a pattern MkDocs itself would refuse is named in
+  `unsupported_patterns` instead of being guessed at. Wave `1vry5`.
 
-- **TechDocs validation stays inside Wavefoundry's Python toolchain.** **Refresh TechDocs** no longer
-  probes for or prescribes a local external renderer, preview, or build smoke. Its required contract
-  remains full docs validation, explicit navigation-target existence, the read-only publication
-  audit, citation re-resolution, and supplier reporting. Wavefoundry does not render downstream
-  sites; operators own rendering and publication in their chosen Backstage/CI environment. The
-  bounded Python parser now accepts plain and quoted `nav` paths containing spaces while degrading
-  on unsupported YAML shapes instead of guessing (wave `1vvei techdocs-python-only-validation`,
-  change `1vrzu`).
-- **TechDocs audit boundary: redundant pattern work removed, and a mismatched escape now degrades
-  instead of guessing.** Adjacent `**/` prefixes in an `exclude_docs` block compile to one matcher
-  rather than several, which removes a large amount of redundant backtracking on patterns like
-  `**/**/*.md` without changing which pages the audit reports as published. Separately, a pattern
-  escaping a path separator (`a\/b`) is now refused and named in `publication.unsupported_patterns`,
-  because MkDocs itself refuses to load such a config; an escaped backslash followed by a separator
-  (`a\\/b`) is still accepted, as MkDocs accepts it. Note that this does not change the audit's
-  worst-case run time: the ten-second worker deadline remains the guard (wave
-  `1vry5 techdocs-pattern-fidelity`).
-- **`wf_reload_mcp` now reports what actually happened to its tool-list notification.** The tool
-  awaits the notification instead of scheduling it and reporting success it never observed, so the
-  response carries a real outcome rather than an optimistic one. The upgrade path keeps its existing
-  behaviour and its escalation guidance unchanged. Retired values: the `queued` dispatch state and
-  the `tool_list_changed_notification_sent` field. **This fix lives in the un-reloadable runner, so
-  no `wf_reload_mcp` can load it: a full host restart is required, and the first reload that behaves
-  correctly is the one after that restart** (wave `1vt2q mcp-reload-notification-delivery`).
+- **`wf_reload_mcp` reports what actually happened to its tool-list notification.** The tool
+  awaits the notification instead of reporting optimistic success. The fix lives in the
+  un-reloadable runner, so it takes effect after the next full host restart. Wave `1vt2q`.
 
-- **Fresh installs pass their own docs gate.** A new target repository no longer ends Phase 2 with a
-  wall of docs-lint errors it has to hand-repair (wave `1viyu fresh-install-gate-coherence`, from the
-  2026-08-17 field report):
-  - `wf setup` Step 0 now provisions the seven `docs/workflow-config.json` sections the docs gate
-    requires (`wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`,
-    `prompt_generation`, `factor_review_policy`, `persona_review_policy`) from a shipped
-    `install/workflow-config.defaults.json`, key-wise and absent-only, so an operator-edited section is
-    never touched and a config that already carries the keys is left byte-identical. The `wave_review`
-    default is the same value every upgrade provisions.
-  - `docs/plans/plan-template.md` is materialized from a shipped `install/plan-template.md` (missing-only,
-    date stamped) at setup and upgrade instead of being authored by the install agent from prose; the
-    shipped scaffold declares no review targets, so change docs created from it are not born in
-    declared mode. `wf_new_*` scaffolds from the same file when a project template is absent.
-  - `wf_audit_install` no longer blocks a fresh Phase 2 entry on artifacts later install rows will
-    create: absence-class lint errors about not-yet-existing files are carried as `pending_lint`
-    (count, capped list, note) while any seed row is still pending, and only real findings in existing
-    files block. `phase=1` now reaches `phase_complete`, the no-argument call reaches `next_step`, and
-    the final gate still blocks on everything once no seed row remains. A lint run that fails without
-    emitting an `ERROR:` line still blocks (fail-closed).
-  - The five shipped lifecycle prompt baselines and the two minimum review carriers materialized at
-    setup now carry `Owner` / `Status` / `Last verified` metadata, so the Phase 1 render is lint-clean
-    on its own. Existing target repositories that already hold the older metadata-less copies of
-    `docs/prompts/{create,prepare,implement,review,close}-wave.prompt.md` are not rewritten by upgrade
-    (missing-only) and `wf_garden_docs` only refreshes an existing date: add the three metadata lines
-    after the title by hand, or delete an untouched baseline copy and re-run `wf render-surfaces`.
-  - The install-log template no longer lists the retired per-role journals row (`seed-130`); existing
-    row numbers are unchanged, seed-012's Phase 2 steps mirror the template row for row, seed-010/011
-    name the real live-log path, seed-040 states the exact design-token dot-path grammar the validator
-    enforces, and the framework README no longer names retired seeds or artifact homes.
+- **Fresh installs pass their own docs gate.** A new target repository no longer ends Phase 2
+  with docs-lint errors to hand-repair: setup provisions the required workflow-config sections
+  absent-only, the plan template is materialized from a shipped file instead of authored from
+  prose, the install audit carries not-yet-existing files as `pending_lint` instead of blocking
+  Phase 2 entry, shipped lifecycle prompt baselines carry lint-required metadata, and the
+  install-log template drops a retired row. Existing metadata-less baselines are not rewritten
+  by upgrade; add the three metadata lines by hand or delete the untouched copy and re-render.
+  Wave `1viyu`.
 
 ## [1.17.1] - 2026-08-16
 
 ### Added
 
-- **Agent-role integrity audit (advisory).** Upgraded target repositories can end up with two live
-  documents for one framework review-carrier role (reviewer or specialist): the renderer creates its
-  canonical carrier at the registry destination while an older repo-grown copy at another path stays
-  a routing target, and per-file lint passes both. `wf_audit` now returns an
-  `agent_surface_integrity` report naming every contributing path, the registry-derived canonical
-  destination, and the merge-before-retire remediation, plus an `agent_surface_integrity_drift`
-  diagnostic when a fork exists; the upgrade operator summary prints the same advisory with per-role
-  paths. Read-only and non-blocking: nothing is deleted, moved, or rewritten, and docs-lint stays
-  green when a merge is the only issue. The upgrade that delivers this release already reports it,
-  because the operator summary prints from the cleanup phase, which runs the freshly installed
-  runner. Wave 1vgep / change 1vflu.
+- **Agent-role integrity audit, advisory.** When an upgraded repository holds two live documents
+  for one review-carrier role (the canonical rendered carrier plus an older repo-grown copy),
+  `wf_audit` now names every contributing path, the canonical destination, and the
+  merge-before-retire remediation, and the upgrade summary prints the same advisory. Read-only:
+  nothing is deleted or rewritten. Wave `1vgep` / change `1vflu`.
 
 ### Fixed
 
-- **Reconciliation scan no longer reports the `## Resolved / closed` archive rows seed-230 tells
-  repos to write.** `docs/missing-docs.md` mixes live gap tables with an archive table; when a
-  resolved component is a later-retired surface, its dated resolution note necessarily names it,
-  and every upgrade reported that historical record as a stale reference (field feedback from the
-  first 1.17.1 upgrades). Table rows under the exact ATX H2 heading `## Resolved / closed` in
-  `docs/missing-docs.md` are now excluded structurally for every scan pattern, fence-aware and
-  failing toward reporting: the same string in a priority table, in prose under the heading, under
-  any other heading, in a fenced code block, or in any other file still reports, and nothing else
-  gains section-based suppression. Seed-230 §6, seed-150, and seed-160 now agree that a resolved
-  row is removed or moved under that exact heading. If you recorded a stopgap `historical-record`
-  disposition for such a row, drop it: the disposition key hashes the matched text (here the
-  retired path), not the row, so it also silences the same path in the live tables of that file. Wave 1vk4c / change 1vk4b.
-- **`platform-mapping.md` § Skills is now specified.** Seed-100 pointed every repository's
-  `docs/prompts/index.md` at a `docs/agents/platform-mapping.md` § Skills section that no seed told
-  anyone to write. Seed-050 now specifies it (active host skill directories, the rendered set listed
-  from disk, and the gating rules: render on setup/upgrade, doc-gated `wf-guru`/`wf-package`/
-  `wf-code-cleanup`, independent of `enabled_agent_roles`), the upgrade checklist re-verifies it
-  against the rendered directories on every upgrade, and the rendered upgrade prompt gains the
-  matching verify item. Wave 1vk4c / change 1vk4a.
-- **Offline model set 3 (`wavefoundry-models-3.zip`): first-lookup cache misses are gone and the
-  one-command release path is restored.** Model set 2 shipped one Hugging Face cache reference
-  file (`refs/main` for the Arctic S ONNX source) with a trailing newline, so `huggingface_hub`
-  missed the installed snapshot on the first index build, re-downloaded ~100 MB from `main`
-  unpinned, and left the cache with two snapshots that no longer matched the canonical manifest.
-  On the release machine that same drift made `build_pack.py --with-models` refuse to build, so
-  1.16.4 and 1.17.0 shipped by hand. Set 3 carries byte-identical weights and the SAME embedding
-  fingerprint (no existing index re-embeds; ADR `1vglc`); the only content change is that one
-  reference file. The bundle code now normalizes `refs/*` members at build, at install, and in
-  attestation through one helper, so a defective ref can neither be packed nor block a build
-  again, and the online fallback for managed models is pinned to the canonical revision (with a
-  stderr miss log) instead of drifting to `main`. Set 3 is published at the permanent `models`
-  release tag next to set 2; releases after 1.17.0 declare set 3, and **Upgrade Wavefoundry**
-  installs it over an existing set-2 cache. Wave 1vglb / change 1vgla.
+- **The reconciliation scan no longer reports archived resolution rows as stale references.**
+  Rows under the exact `## Resolved / closed` heading of `docs/missing-docs.md` are excluded
+  structurally, fence-aware and failing toward reporting; the same text anywhere else still
+  reports. Drop any stopgap `historical-record` disposition you recorded for such a row, since
+  it also silences the same path in live tables. Wave `1vk4c` / change `1vk4b`.
+
+- **`platform-mapping.md` § Skills is now specified.** Seed-050 defines the section every
+  repository's prompt index already pointed at (active skill hosts, the rendered set, the gating
+  rules), and the upgrade checklist re-verifies it on every upgrade. Change `1vk4a`.
+
+- **Offline model set 3: first-lookup cache misses are gone and the one-command release path is
+  restored.** Set 2 shipped one Hugging Face ref file with a trailing newline, so the first
+  index build missed the installed snapshot and re-downloaded ~100 MB unpinned. Set 3 carries
+  byte-identical weights and the same embedding fingerprint (no index re-embeds); ref files are
+  now normalized at build, install, and attestation, and the online fallback is pinned to the
+  canonical revision. Wave `1vglb` / change `1vgla`.
 
 ## [1.17.0] - 2026-08-15
 
 ### Added
 
-- **Wavefoundry skills: the operator lifecycle is now `/wf`-discoverable in skill-supporting
-  hosts.** One skill registry renders standard `SKILL.md` files into each active host directory
-  (`.codex/skills/`, `.claude/skills/`, `.agents/skills/`) with a `wf-` kebab-case namespace, so
-  typing `/wf` filters the host's command list to the whole family. Twelve skills ship: the
-  lifecycle set (`wf-plan-feature`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`,
-  `wf-close-wave`, `wf-interrogate-plan`, `wf-evaluate-decision`, `wf-memory-review`,
-  `wf-pause-wave`), a review router (`wf-council`), and the two migrated skills (`wf-guru`,
-  `wf-upgrade`). Bodies are thin pointers to the backing `docs/prompts/` workflow docs, so
-  skills cannot drift from the prompts that own behavior. The old flat
-  `.claude/skills/upgrade-wave.md` (invisible to current Claude Code skill discovery) and the
-  pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render, with a containment
-  check that refuses symlink-escaping legacy paths instead of deleting through them.
-  Wave 1p6lp / changes 1p6lo, 1p6lw.
+- **Wavefoundry skills: the operator lifecycle is `/wf`-discoverable in skill-supporting
+  hosts.** One registry renders `SKILL.md` files into each active host directory under a `wf-`
+  namespace, so typing `/wf` filters the host's command list to the whole family. Twelve skills
+  ship, all thin pointers to the backing `docs/prompts/` workflow docs so they cannot drift from
+  the prompts that own behavior; stale pre-namespace skill files are cleaned on render with a
+  symlink-containment check. Wave `1p6lp` / changes `1p6lo`, `1p6lw`.
+
 - **New operator command: Red-team review (`Red team this`).** Runs the red-team specialist in
-  isolation against one artifact (plan, code, ADR, design, prose, workflow) using its standalone
-  modes, with `improvement-review` as the default lens. The command records no signoffs and
-  satisfies no gate; the archetype and council prompts now route their "reach for red-team"
-  guidance at it. Wave 1p6lp / change 1v877.
-- **Doc-gated skills: a skill can now follow a capability instead of rendering everywhere.**
-  The registry's guru-specific gate generalized into `requires_doc`, so a skill emits only in
-  repositories that carry its backing prompt doc. Two entries use it: `wf-package` (Package
-  Wavefoundry; renders only where the packaging prompt exists, normally the framework source
-  repository) and `wf-code-cleanup` (the recommend-only whole-codebase maintainability sweep).
-  Target repositories are proven unaffected in both directions by test, and a gated skill can
-  never render where its own pointer doc is missing. Wave 1ve3a / changes 1vbpl, 1ve3b.
+  isolation against one artifact with `improvement-review` as the default lens; records no
+  signoffs and satisfies no gate. Change `1v877`.
+
+- **Doc-gated skills.** A skill can require its backing prompt doc, so `wf-package` and
+  `wf-code-cleanup` render only in repositories that carry the capability instead of
+  everywhere. Wave `1ve3a` / changes `1vbpl`, `1ve3b`.
 
 ### Fixed
 
-- **The `accel_embedder` docstring no longer mislabels the resident-model fallback as unreachable.**
-  `_resolve_model_files` claimed its resident-graph branch was dead once every shipped model was
-  registered for a clean ONNX export; in fact the branch is the live degradation route whenever a
-  clean-export fetch fails (offline cold cache, CA-trust failure), and the offline-fallback tests
-  execute it. The docstring now names both routes and cites the fallback semantics, so a future
-  cleanup pass cannot re-derive a removal verdict from it. Comment-only; no behavior change.
-  Wave 1ve3e / change 1ve3c.
-- **Seed 160 no longer directs upgrades at agents-prompt bodies that do not exist.** The upgrade
-  seed named `docs/prompts/agents/architecture-reviewer.prompt.md` as a backfill target and
-  `docs/prompts/agents/upgrade-wavefoundry.md` (which exists nowhere) as expected-present. The
-  specialist-body list now carries the directory's actual optional, reconcile-when-present
-  semantics and the ghost reference is removed, so upgrade agents in target repos stop searching
-  for files that were never provisioned. Wave 1ve3e / change 1ve3d.
-- **The cleanup review distinguishes two kinds of "dead" and `code_impact` stops reporting a
-  silent empty for test callers.** The code-reviewer's maintainability sweep now separates
-  node reachability (no caller the graph can see) from condition reachability (a fallback or
-  degradation branch whose guard "is never true"), and for the second class requires
-  enumerating every producer of the guarding sentinel and checking the module's own tests
-  before recommending removal, treating any prose claim of unreachability as a hypothesis to
-  falsify. `code_impact(include_tests=true)` now attaches the advisory `test_callers_not_visible`
-  when it finds no test-path callers, because index-excluded test trees and mock-driven
-  coverage are invisible to call edges; the affected list is unchanged and `include_tests=false`
-  is untouched. Wave 1vbuu / change 1vbut.
+- **The `accel_embedder` docstring no longer mislabels the resident-model fallback as
+  unreachable.** The branch is the live degradation route when a clean-export fetch fails;
+  the docstring now says so, preventing a future cleanup from re-deriving a removal verdict.
+  Comment-only. Wave `1ve3e` / change `1ve3c`.
+
+- **Seed 160 no longer directs upgrades at agents-prompt bodies that do not exist.** The
+  specialist-body list carries the directory's actual reconcile-when-present semantics and a
+  ghost reference is removed. Change `1ve3d`.
+
+- **The cleanup review distinguishes two kinds of "dead", and `code_impact` flags invisible test
+  callers.** Condition-reachability claims now require enumerating every producer of the
+  guarding sentinel before recommending removal, and `code_impact(include_tests=true)` attaches
+  `test_callers_not_visible` when index-excluded test trees hide callers. Change `1vbut`.
 
 ### Documentation
 
-- **The skills are documented where operators look.** The README gains a *Skills: the lifecycle
-  as slash commands* section (the full `/wf-…` table, which hosts render them, and that each skill
-  runs the identical workflow as its phrase), a pointer in the first-wave walkthrough, and skill
-  markers in the host-support table; `docs/prompts/index.md` and `docs/references/project-overview.md`
-  carry usage notes; seed 100 instructs target repositories' prompt indexes to carry the same
-  note when a skill host is active; the shipped framework README describes the registry.
+- **The skills are documented where operators look:** README section with the full `/wf-…`
+  table, prompt-index and project-overview usage notes, and seed guidance so target
+  repositories' indexes carry the same note when a skill host is active.
 
 ## [1.16.4] - 2026-08-13
 
 ### Fixed
 
-- **`wf setup` now works on the supported Python 3.11 runtime.** The archive-manifest
-  renderer used a nested f-string grammar that Python 3.12 accepts but Python 3.11 rejects
-  during import, preventing setup from reaching its normal validation phases. The renderer
-  now resolves the fallback archive path before formatting it, preserving both default and
-  explicit archive paths; focused regression coverage also parses the source with Python
-  3.11. Wave 1v4yf / change 1v4or.
+- **`wf setup` works on the supported Python 3.11 runtime again.** A nested f-string that only
+  Python 3.12 accepts broke import before setup could start; the expression is resolved before
+  formatting, and a regression parses the source with 3.11. Wave `1v4yf` / change `1v4or`.
 
 ## [1.16.3] - 2026-08-13
 
 ### Fixed
 
-- **The Claude MCP registration names the server file again instead of embedding an inline Python
-  program.** `.mcp.json` launched the server through `python3 -c "import os,runpy; …"`, and a
-  Git-tracked configuration that executes a code string is flagged by enterprise security tooling: a
-  config that names a file is auditable, a config that carries a program is a code-execution surface.
-  It now reads `"args": [".wavefoundry/framework/scripts/server.py"]`, matching what the Antigravity
-  and Codex registrations already shipped. **Existing repositories migrate on the upgrade that
-  installs this** — the surface render rewrites the stale stanza in place rather than merging
-  alongside it, and a non-Wavefoundry server in the same file is left untouched.
-  Wave 1v7a3 / change 1v7a2.
-
-  Nothing is given up in how the server finds your repository: it anchors on its own install
-  location, above any environment variable, so no `--root` and no project anchor belongs in the
-  stanza. The inline wrapper only ever helped the interpreter locate the file. The supported contract
-  is repository-root launch, which is what MCP clients do; if a client ever spawns the server from
-  another directory it now fails at startup with a missing file rather than binding to the wrong
-  repository.
-
-  **Hook launchers are deliberately unchanged and still use `CLAUDE_PROJECT_DIR`.** Hooks are
-  invoked by the host from an unknown working directory and that failure is reproduced, not
-  theoretical, so the two surfaces are treated differently on purpose.
+- **The Claude MCP registration names the server file instead of embedding an inline Python
+  program.** A Git-tracked config that executes a code string is flagged by enterprise security
+  tooling; `.mcp.json` now reads `"args": [".wavefoundry/framework/scripts/server.py"]`, matching
+  the other host registrations. Existing repositories migrate on the upgrade that installs this;
+  a non-Wavefoundry server in the same file is untouched. The server still anchors on its own
+  install location, so nothing changes in how it finds your repository, and hook launchers
+  deliberately keep `CLAUDE_PROJECT_DIR` for their unknown working directory. Wave `1v7a3` /
+  change `1v7a2`.
 
 ## [1.16.2] - 2026-08-12
 
 ### Fixed
 
 - **A broken review-protocol marker now fails the docs gate instead of silently freezing the
-  content it guards.** Reviewer role docs carry a framework-rendered `wave:executable-review-evidence`
-  region. When its begin and end markers were not properly paired, the renderer left the file
-  untouched and printed one line to stderr, while `docs-lint` reported ok and the docs gate passed.
-  Downstream this went unnoticed across four role docs and a full upgrade cycle: those docs stopped
-  receiving review-protocol updates and nothing reported it. The sibling `wavefoundry:review-policy`
-  family already treated a malformed marker pair as a failure; both families now share one
-  implementation of that rule, so they cannot drift apart again. **Operator-visible change: a
-  repository whose markers are already broken will fail its next docs gate rather than pass
-  quietly.** Adopting the shared rule also brings the second half the review-policy family already
-  had: a well-formed region whose content no longer matches its registered source now fails too,
-  in either drift direction. That case is largely self-correcting during an upgrade, because the
-  render runs before the docs gate and re-renders the region; it bites when a region is hand-edited
-  and linted without re-rendering, which is what it is for. The failure names the file and the
-  specific condition. Nothing is auto-repaired; repair the markers and re-render.
-  Wave 1v4mw / change 1v4mt.
-- **The upgrade summary reports carriers the render skipped, as `renderer_warnings`.** This finding
-  previously existed only as a stderr line among roughly 90 others, absent from the structured
-  summary, on a run that reported `failed_phase: null`. It now sits beside `reconciliation` and
-  `host_permission_flags`, and prints in the operator summary on every run that produces one,
-  including patch upgrades and failed phases. Unlike `renderer_provenance_flags`, these do not
-  self-heal. Wave 1v4mw / change 1v4mt.
-- **A rejected CoreML probe now says why it was rejected.** The probe runs the production graph in
-  a crash-isolated child and captured that child's stderr, then reported only that it had failed.
-  Diagnosing one field occurrence cost a full reverse-engineering session and still did not find
-  the cause. The warning now carries the child's return code and a bounded, path-scrubbed tail of
-  its stderr; absolute paths collapse to basenames so a traceback stays readable without publishing
-  the host's filesystem layout. A passing probe stays silent. What the probe decides, and when it
-  runs, are unchanged. Wave 1v4mw / change 1v4mu.
+  content it guards.** Malformed marker pairs previously left role docs stuck without updates
+  while lint reported ok; both marker families now share one fail-on-malformed rule, and a
+  well-formed region whose content drifted from its source fails too. A repository whose markers
+  are already broken will fail its next docs gate rather than pass quietly; repair the markers
+  and re-render. Wave `1v4mw` / change `1v4mt`.
 
-- **The upgrade no longer instructs a retired step on every run.** The editing-pass output told
-  operators to perform "Journal reconciliation (seed-160 step 0 / Reconcile journals)", which was
-  wrong twice over: the journal system is retired, and seed-160's step 0 is pack adoption, not
-  journal work. The step is removed and the remaining steps renumbered. Wave 1v4mx / change 1v4mv.
-- **The retired-surface reconciliation scan now reports two more surfaces.** Migrations move files
-  but nothing reconciled the instructions pointing at them, so a repository that ran every
-  prescribed migration still carried instructions naming things that no longer exist. The scan now
-  reports references to the retired journal system, and `.md` references to prompt files that now
-  carry `.prompt.md`. The prompt check resolves against your tree rather than matching text, so a
-  prompt doc that genuinely ends in `.md` is never flagged, and every stale reference on a line is
-  reported rather than the first. Findings stay **report-only**: the scan never edits your files,
-  and a repository with no stale references reports none. Wave 1v4mx / change 1v4mv.
+- **The upgrade summary reports carriers the render skipped.** `renderer_warnings` now sits in
+  the structured summary and prints in the operator summary instead of hiding in stderr; unlike
+  provenance flags, these do not self-heal. Change `1v4mt`.
 
-- **The generated-surface manifest now reconciles against the framework default instead of freezing
-  at install time.** `docs/prompts/prompt-surface-manifest.json` is renderer-managed, so the
-  reconciliation scan excludes it, and the gardener only ever stamped a date onto an existing file.
-  Nothing reconciled it, so its generated-artifact list drifted permanently. The drift runs in both
-  directions and the second one is the more consequential: entries retired from the framework
-  lingered forever, **and** entries added to the framework never reached a repository installed
-  before they existed, leaving the framework's own record of what it generates incomplete. The
-  gardening pass now reconciles that list. Keys the default does not model are untouched, a manifest
-  that already matches is not rewritten, and a retired `agent_journals` feature entry is pruned.
-  Wave 1v79z / change 1v7a0.
-- **A reconciliation finding that is correct as written can now be settled once.** The scan had one
-  disposition, unresolved, so a sentence *recording* that something was retired could be silenced
-  only by rewriting that sentence — which the framework's own seeded policy forbids: seed-160 and
-  seed-220 both state that retiring a file removes the file, not the historical record of it. Mark
-  such a finding as a historical record in `docs/reconcile-dispositions.json` and it stops being
-  reported. The marking is **per finding, not per file**, so a live stale reference in the same file
-  still reports; and it is keyed to the matched text, so changing that text reports the new text as a
-  new finding rather than inheriting the old judgment. A repository that marks nothing is unaffected.
-  Wave 1v79z / change 1v7a1.
+- **A rejected CoreML probe now says why.** The warning carries the child's return code and a
+  bounded, path-scrubbed stderr tail, so a field rejection is diagnosable without a
+  reverse-engineering session. A passing probe stays silent. Change `1v4mu`.
+
+- **The upgrade no longer instructs a retired step, and the reconciliation scan covers two more
+  retired surfaces.** The journal-reconciliation instruction is removed, and the scan now
+  reports references to the retired journal system and to `.md` prompt paths that now carry
+  `.prompt.md`, resolved against your tree so genuine `.md` prompts are never flagged. Findings
+  stay report-only. Change `1v4mv`.
+
+- **The generated-surface manifest reconciles against the framework default instead of freezing
+  at install time.** Entries retired from the framework no longer linger forever, and entries
+  added later now reach repositories installed before they existed; operator keys the default
+  does not model are untouched. Change `1v7a0`.
+
+- **A reconciliation finding that is correct as written can be settled once.** Mark it as a
+  historical record in `docs/reconcile-dispositions.json` and it stops reporting, per finding
+  and keyed to the matched text, so a live stale reference in the same file still reports.
+  Change `1v7a1`.
 
 ### Changed
 
-- **The small-batch CPU routing message no longer reads like a failure.** Routing a sub-batch-sized
-  incremental run to the CPU embedder is a deliberate optimization, but printed next to a GPU
-  degradation warning it was read as a second fault. It now states that it is an optimization, not
-  a failure, and that GPU use is unchanged for larger runs. Wave 1v4mw / change 1v4mu.
+- **The small-batch CPU routing message no longer reads like a failure.** It states that routing
+  a sub-batch-sized run to the CPU embedder is an optimization and GPU use is unchanged for
+  larger runs. Change `1v4mu`.
 
 ## [1.16.1] - 2026-08-12
 
 ### Fixed
 
 - **INT8 embedding vectors no longer depend on which other chunks shared their inference
-  batch.** This affects CPU-bound hosts only. The INT8 export derives one activation scale per
-  tensor across the whole batch, so a chunk's stored vector shifted depending on its neighbours.
-  Two things followed: re-indexing the same corpus was not reproducible, because chunk ordering or
-  a change in chunk count moved batch boundaries and reassigned neighbours; and every query was
-  encoded in a different regime from the bulk index, because a full batch carries no padding rows
-  while a query is one row plus 31 of them. Measured against the index it searched, a query sat at
-  cos 0.996160. The INT8 path now encodes one row per inference call, so a vector is a function of
-  its own text alone and query and index agree exactly. Throughput is unchanged (0.96x of the
-  previous batched path) because the graph padded every row to 512 tokens regardless, so batching
-  was buying nothing here, and the CPU-bound query path's peak resident memory drops from roughly
-  1353 MiB to 245 MiB. **Upgrade cost: CPU-bound repositories re-embed both semantic layers once
-  on this upgrade. GPU-class repositories re-embed nothing** and are unaffected, because the FP16
-  graph carries no quantization operators and its vectors did not move. Wave 1v454 / change 1v453;
-  rationale and the constraints it imposes are recorded in ADR `1v22e`.
+  batch.** CPU-bound hosts only: batch-wide activation scales made re-indexing unreproducible
+  and encoded queries in a different regime from the bulk index. The INT8 path now encodes one
+  row per call, so a vector is a function of its own text alone and query and index agree
+  exactly; throughput is unchanged and peak query memory drops from ~1353 MiB to ~245 MiB.
+  Upgrade cost: CPU-bound repositories re-embed both semantic layers once; GPU-class
+  repositories are unaffected. Wave `1v454` / change `1v453`; ADR `1v22e`.
 
 ## [1.16.0] - 2026-08-11
 
 ### Changed
 
-- **Retrieval now uses one supplier-lineage-compliant Snowflake Arctic S
-  embedder for documents and code.** CPU uses INT8, supported GPU providers use
-  FP16, embedding batch is 32, and MiniLM L6 remains the batch-40 reranker. The
-  independently configurable layer selectors share one instance when equal.
-  Model set v2 and its matching offline companion are mandatory for release
-  builds; upgrades remove only verified Wavefoundry-owned retired BAAI cache
-  components after the complete v2 semantic epoch is durable. On hosts without
-  the fd-anchored deletion capabilities (native Windows), cleanup uses a
-  revalidated no-follow fallback whose check-to-use guarantee is narrower than
-  the fd-anchored path. Removal applies to the user-global model cache shared
-  by every repository on the machine: sibling repositories still on older
-  versions re-fetch the retired models from Hugging Face on their next index
-  build, so offline or controlled machines should upgrade all repositories
-  together. Wave 1v0r0 / change 1v0qz.
-- **The first index build after this upgrade is a one-time full re-embed of
-  both semantic layers.** The shared embedding model fingerprint changed with
-  model set v2, so documents and code are each re-embedded from scratch once;
-  expect operator-visible foreground work proportional to repository size.
-  Upgrades now build both index layers in the foreground and the detached
-  background code pass is removed, so when the upgrade reports complete, the
-  semantic index is fully published. Wave 1v0r0 / change 1v0qz.
+- **Retrieval uses one supplier-lineage-compliant Snowflake Arctic S embedder for documents and
+  code.** CPU runs INT8, supported GPUs run FP16, and MiniLM L6 remains the reranker. Upgrades
+  remove retired BAAI cache components only after the new model epoch is durable; the model
+  cache is machine-global, so sibling repositories on older versions re-fetch retired models on
+  their next build, and offline machines should upgrade all repositories together. Wave `1v0r0`
+  / change `1v0qz`.
+
+- **The first index build after this upgrade is a one-time full re-embed of both semantic
+  layers.** The embedding fingerprint changed with model set v2; upgrades now build both layers
+  in the foreground, so when the upgrade reports complete the index is fully published.
+
+- **Review-policy receipts move to evaluator version 7, one re-Prepare in total.** This release
+  carries every intermediate evaluator step, so upgrading is a single transition: any readied or
+  open wave goes stale once at its next `wf_prepare_wave`, its readiness approvals are
+  re-recorded, and the receipt settles. Closed waves are untouched.
+
+- **Advancing a change's `Change Status` no longer lapses readiness approvals.** Marking a
+  change complete is progress, not a contract change, so it is digest-neutral; an AC `[~]`
+  deferral still lapses approvals, and close still requires the delivery approvals regardless.
+
+- **The retrieval-posture advisory is bounded to the wave's declared files,** so unrelated
+  working-tree dirt can no longer become evidence about your wave; a wave declaring no
+  Serialization Points gets silence rather than guesses. **Automatic lanes are no longer
+  recruited by prose that merely mentions a path**; declaring Serialization Points replaces the
+  legacy fallback with exact per-path reasons, decided per document so one migrated plan never
+  reduces a sibling's coverage.
 
 ### Fixed
 
-- **`code_ask` now puts an exact, source-current declaration first when a
-  broader question names a known symbol.** The correction is language-neutral
-  wherever the published graph provides a declaration-capable node, preserves
-  the rest of the hybrid context, and fails closed to ordinary retrieval when
-  the graph or source receipt is stale, ambiguous, or unavailable. Direct
-  `code_definition` remains the preferred low-latency lookup tool. Wave 1v08w
-  / change 1v08v.
+- **`code_ask` puts an exact, source-current declaration first when a question names a known
+  symbol.** Language-neutral wherever the graph provides a declaration node, and fails closed to
+  ordinary retrieval when the graph is stale or ambiguous. Change `1v08v`.
 
-- **A readiness approval that could never satisfy a gate is now refused instead of
-  silently accepted.** Recording a readiness approval while a policy input had already
-  moved returned `ok` with no diagnostics, wrote a permanently unusable record into the
-  append-only review ledger, and left you to discover it only when the next Prepare
-  lapsed the approval. It is now refused, and the refusal names the current receipt, the
-  pending receipt, which receipt fields differ, and which change documents were digested.
-  Recovery is one `wf_prepare_wave(mode='ready')` plus one approval per readiness lane.
-  This covers every receipt-bound readiness key, not just the council key -- specialist
-  lanes were accepting stale binds too. An idempotent retry of an already-recorded
-  approval still replays without appending, as before.
-- **Closing a wave no longer requires less review after the refusal than before it.** The
-  close-time carve-out for waves that predate the review policy keyed on approval absence,
-  and a refused approval is also absent -- so doing the right thing produced a weaker close
-  gate than ignoring the problem. It now keys on whether the wave was ever prepared under
-  the policy, and both branches of that gate are covered.
-- **A lapsed approval now tells you why it lapsed.** Every failure of the approval-validity check
-  reported the same reason, "invalid actor or independence", even when both were fine and the real
-  cause was a superseded receipt -- so the message sent you to re-check the recording agent when
-  the fix was one re-Prepare. The reason now names the condition that actually failed, and the
-  no-current-receipt and malformed-context cases each get their own message. Re-deriving the
-  review state of every approval ever recorded in this repository produced zero changes: only the
-  reasons get truthful, no approval flips.
-- **`wf_prepare_wave(mode='dry_run')` now tells you a receipt mint is pending.** The
-  preview was the one surface silent about the mutation it previews; the signal existed
-  only buried in the response payload. It is reported as an advisory, so a pending mint --
-  the ordinary state after any change-doc edit -- does not turn your preview into a failure.
-- **`wf_mark_ac(state='~')` now says when it superseded your receipt.** Deferring an
-  acceptance criterion publishes a new receipt and moves any current readiness approval to
-  non-current; that was reported only as a payload field, so it read as a silent success.
-- **Recordkeeping edits no longer lapse your review approvals.** Editing a boilerplate
-  `## Session Handoff`, a Windows checkout, a stray trailing space, an editor that strips
-  whitespace on save, a missing or extra newline at end of file, or reordering the `## Changes`
-  entries in a wave record all moved the review-policy digest and lapsed every approval the wave had
-  collected, with no claim changed. None of them do now. The `## Session Handoff` exclusion is
-  deliberately conditional: it applies only when the section body is exactly the shipped template
-  sentence, so the 5% of change docs that use that section substantively stay fully reviewable.
-  Trailing whitespace inside a fenced block is preserved, because there it can be the subject rather
-  than the formatting. Measured across every change document in this repository: zero lost review
-  lanes, zero changed council triggers, zero changed council seats.
+- **Stale readiness approvals are refused instead of silently accepted.** Recording an approval
+  after a policy input moved used to write a permanently unusable ledger record; it is now
+  refused with the differing receipt fields named, recovery is one re-Prepare plus one approval
+  per lane, and the close-time gate no longer weakens when an approval is absent because it was
+  refused. Lapsed approvals also now name the actual failing condition instead of one generic
+  reason.
 
-  **Lane selection no longer depends on invisible whitespace.** Four kind triggers were matched with
-  a literal trailing space, so a line ending `-bug ` recruited a lane and a line ending `-bug` did
-  not. The trigger is the token. This widens matching slightly and only ever adds review: one
-  document in this repository gains `qa-reviewer`, none loses anything.
+- **Recordkeeping edits no longer lapse review approvals.** Whitespace normalization, newline
+  style, boilerplate `## Session Handoff` bodies, and reordered `## Changes` entries are
+  digest-neutral; measured across every change doc in this repository, zero review lanes were
+  lost. Lane triggers also stopped depending on invisible trailing whitespace. A heading
+  variant that silently re-enables digesting is now reported by name.
 
-  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` advances to `7` -- its final
-  value in this release -- so the permanent `events.jsonl` history can tell a plan edit apart from
-  this canonicalization change. Upgrading from 1.15.4 pays for this once, together with the other
-  evaluator steps below, not separately; see the net transition under **Changed**. Any
-  wave that is readied or open when this lands goes stale once at its next `wf_prepare_wave` and its
-  READINESS-phase approvals lapse once; re-record them and the receipt settles. Delivery-phase
-  approvals, finding heads, and repair records are untouched, and CLOSED waves are untouched. Note
-  the re-digest happens because the canonicalizer changed, not because of the bump; the bump is what
-  lets the ledger attribute it.
+- **Declared review targets are parsed strictly, in both directions.** A template or scaffold
+  that declares example paths is now a lint error and the upgrade fences the shipped shapes for
+  you; one prose sentence in `## Serialization Points` no longer switches a document out of
+  whole-document scoring (measured: 95 documents gain lanes, none lose); paths containing
+  spaces are declarable without shredding into fragments that emptied the roster.
 
-  **A heading that disables its own exclusion now says so.** `## Progress Log (delivery)`,
-  `### Progress Log`, a duplicated heading, or any near-miss variant silently switched that section
-  back into the digest, so narration started superseding the receipt with nothing naming the cause.
-  Prepare now reports it by name. No document in this repository is currently in that state.
+- **Unreadable records fail closed everywhere instead of crashing or weakening gates.** A change
+  doc or wave record that is not valid UTF-8 now returns a named diagnostic from every lifecycle
+  boundary rather than a stack trace, enumeration tools list the readable siblings with a
+  per-entry error, a missing admitted document blocks close instead of vanishing from it, an
+  unreadable wave record no longer drops the council-readiness requirement from the close
+  roster, and the dashboard renders broken entries as degraded rows instead of crashing the
+  snapshot. No message carries your absolute filesystem path.
 
-- **A change-doc template that declares review targets is now a lint error, and the upgrade repairs
-  it for you.** Reported from the field by a repository running an earlier build: its `docs/plans/plan-template.md`
-  carried an example under `**Review targets (repo-relative paths):**` that was **not** fenced, so the
-  template itself declared `path/to/file.swift` and `docs/specs/`. Every plan created from it was born
-  in declared mode and silently lost review lanes it should have had: reproduced here, a plan scored
-  against a clean template recruits three lanes, and the same plan against the contaminated template
-  recruits one. The reporting operator also saw a lane recruited by a placeholder path they never
-  chose. docs-lint now fails when a scaffold declares anything, naming the targets it found and the
-  fix. **In the shapes the framework itself teaches, you do not need to repair the template by
-  hand:** the upgrade that installs this rule fences the example block for you before the docs gate
-  runs, and prints what it changed, so an already affected repository upgrades cleanly rather than
-  halting. (That report goes to the console as the upgrade runs; it is not written to
-  `.wavefoundry/logs/upgrade.log`.) This covers a plain example bullet, a `**Review targets…**` block, several of either, and
-  any of those sitting beside an example you had already fenced. If your template is shaped in a way
-  the upgrade does not recognize, it changes nothing and tells you so, naming the file and the fix
-  rather than guessing at your content. The same repair also runs on `--resume-after-gate`, which is
-  the path the upgrade's own halt message directs you to.
+- **The review-policy digest stops rewriting body prose it promised to leave alone.** The
+  metadata carrier is bounded by a known-key allowlist, so a `Status:` line in the body can no
+  longer be normalized away and hidden from the receipt.
 
-  **Scope is deliberately narrow.** Only the template is checked and only the template is repaired.
-  Your authored change docs are never blocked and never rewritten, because the repair cannot safely
-  edit content you wrote and a closed wave's history is not rewritable at all. No placeholder
-  detection ships: measured across this repository's change documents, every literal placeholder
-  pattern matched none of the real declared targets, so such a rule would have caught nothing. The
-  one heuristic with any reach, "the declared target no longer exists on disk", matched a single
-  path, and that match was a legitimately deleted historical file rather than a placeholder. Zero
-  catches and a false positive is the combination that teaches you to ignore a warning.
+- **Upgrade preflight fixes.** A config carrying `"wave_review": {}` upgrades again (it means
+  what an absent key means); the retired-prose scan treats the whole `.wavefoundry/` tree as
+  framework-owned instead of asking you to rewrite shipped files; and admitting a change fills
+  an angle-bracket `<wave-id>` placeholder. On protocol-2 installs the preflight runs pre-extraction,
+  so these take effect from the next upgrade after the one that installs them.
 
-- **One sentence of prose in `## Serialization Points` no longer removes required review lanes.**
-  Any path-shaped token found in that section was read as proof the author had adopted the
-  declared-target contract, so a narrative mention of a directory switched the change doc out of
-  prose scoring. Measured worst case: a plan whose section said "shared with the wave that also
-  touches the docs/ folder" went from two required lanes to **none**. Worse, adoption was decided
-  per WAVE, so one plan declaring targets silently emptied an un-migrated sibling's coverage in the
-  same wave. Adoption is now decided per **document** and the results union, so migrating one plan
-  can never reduce another's review. A target is declared by a bullet whose content is entirely
-  repo-relative paths, or inside an explicit `**Review targets (repo-relative paths):**` block whose
-  backtick-quoted entries may contain spaces; prose declares nothing in any shape, including prose
-  written as a bullet. Across this repository's 814 change docs the stricter rule reclassifies 101
-  documents from declared to whole-document scoring, **95 gain lanes and none lose any**.
+- **Diagnostics teach their own fix.** Validation errors render the valid value set from the
+  same constant the check used; `wf_review_wave` accepts the `readiness`/`delivery` vocabulary;
+  `wf_prepare_wave(mode='evaluate')` is documented; the dry-run preview reports a pending
+  receipt mint; and `wf_mark_ac(state='~')` says when it superseded your receipt.
 
-- **A declared path containing a space no longer yields zero required lanes.** Path extraction had
-  no space in its character class, so a real wave-owned target such as
-  `docs/waves/<id> <slug>/wave.md` shredded into fragments, and a fragment was accepted as a
-  declared target: it matched no risk trigger, suppressed the fallback, and left the document with
-  an empty roster. Declaring a genuine on-disk artifact was therefore actively harmful. Spaced
-  targets are now declarable inside the explicit block, and a shredded fragment declares nothing.
-  A related parse defect is repaired with it: `git status --porcelain` rename entries quote each
-  side independently, so a renamed spaced path never matched the wave footprint.
+- **Review findings that cite code anchor by symbol.** The citation rule reaches the evidence
+  record, the council seat guidance, and the runtime prepare brief; the five deliberate
+  line-anchor cases stay legitimate and must be named inline. Every carrier of the rule is now
+  test-pinned so a weakened copy cannot reach targets through an upgrade unnoticed.
 
-- **A freshly scaffolded change doc no longer declares a target its author never wrote.** The
-  shipped template's placeholder bullet extracted `src/app/handler.py`, so every new change document
-  was born in declared mode with a code-reviewer-only roster before anyone had declared anything.
+- **docs-lint catches a rendered review-policy region that drifted from its source block,**
+  compared using the renderer's own composition, closing the drift window between upgrades.
 
-- **The review-policy digest stops rewriting body prose it promises to leave alone.** The leading
-  metadata carrier was bounded by line SHAPE, so any body line reading `Word: text` held the region
-  open and a later `Status:` line in the document body was normalized away. A contract edit on that
-  line was invisible to the receipt, meaning an operator could change a document's meaning and the
-  recorded approvals would not lapse. The carrier is now bounded by a known-key allowlist, and a
-  blockquote inside it no longer truncates it early. One document in this repository is affected and
-  its wave is closed.
-
-- **Upgrade note (one-time re-Prepare).** These two fixes move lane semantics and the digest
-  boundary together and ship as a single evaluator-version bump, one of the intermediate steps
-  folded into this release's net `4`-to-`7` transition. Every **non-closed**
-  wave needs exactly one re-Prepare to publish the current version; repeated Prepare is idempotent
-  after it. Approvals recorded against the old receipt lapse once at that re-Prepare and must be
-  re-recorded. **Closed waves and their event ledgers stay byte-immutable.** Change docs need no bulk
-  re-authoring: an undeclared plan keeps whole-document scoring, which is more review, not less. A
-  plan whose Serialization Points are prose sentences is now treated as undeclared; re-declare it in
-  one of the two supported forms to get its precise roster back.
-
-- **A repository whose `wave_review` is an empty object can upgrade again.** The migration treated
-  only an absent key as unset, so a config carrying `"wave_review": {}` hard-failed the preflight
-  with `wave_review.enabled must be boolean` before any change was made, and the upgrade could not
-  proceed at all. An empty object now means what an absent key means. Genuinely malformed policy is
-  still rejected exactly as before.
-
-- **The upgrade no longer asks you to hand-edit files it ships.** The retired-prose preflight scanned
-  the `.wavefoundry/` root, where the pack delivers `README.md` and `CHANGELOG.md`, and refused to
-  proceed until the operator rewrote prose they did not author and must not maintain. The whole
-  `.wavefoundry/` tree is now treated as framework-owned; your authored surface under `docs/` is
-  still scanned exactly as before. The changelog case was the more serious half and had not yet been
-  hit: a release history must name retired concepts to do its job, so the first note that did would
-  have blocked every target repository.
-
-- **Admitting a change fills in an `<wave-id>` placeholder.** The `Wave:` repair recognized only
-  `[wave-id or TBD]` and bare `TBD`, so an angle-bracket placeholder was left for the operator to
-  correct by hand. Recognition widens to bracketed forms only: an operator-authored `Wave:` value is
-  still never overwritten, and dry-run still writes nothing.
-
-  **When these take effect depends on your upgrade path.** Crossing from a pre-1.15 protocol-1
-  installation, the bridge installs the new framework and then runs the upgrade from it, so all three
-  fixes apply on that same run and no manual repair is needed. On an ordinary protocol-2 to
-  protocol-2 upgrade the review-policy preflight deliberately runs before any extraction, using the
-  framework already installed, so these fixes take effect from the **next** upgrade. If that preflight
-  is what is blocking you today on a protocol-2 install, repair it once by hand and the following
-  upgrade will not ask again.
-
-- **Validation errors now state the values that would satisfy them.** Failures whose validity is
-  defined by a fixed set render that set from the same constant the check used, so the printed
-  values cannot drift from the rule. Status shape checks name the full vocabulary; rejected
-  transitions and blocked dependencies name the subset valid from the current value and name that
-  value; the watchpoint message no longer lists three of its six markers. Publishing a set is
-  guidance, not a gate: no membership check was added and nothing that linted clean before this
-  change fails after it.
-
-- **`wf_review_wave` accepts the approval-phase vocabulary.** `readiness` and `delivery` now map onto
-  the `prepare` and `implementation` review phases instead of being rejected, and the invalid-phase
-  message states the mapping in both directions.
-
-- **`wf_prepare_wave(mode='evaluate')` is documented where callers can find it.** The read-only alias
-  was already accepted but appeared in no tool docstring and in no shipped lifecycle prompt.
-
-- **A change document that cannot be read no longer crashes the tool you reach for first.** A file
-  that is not valid UTF-8 -- a bad checkout, a mangled paste, a wrong-encoding save -- raised a stack
-  trace out of `wf_prepare_wave` instead of telling you which document was broken. Twelve read sites
-  were involved, not the two originally reported, and the recovery tools were among them --
-  `wf_get_change` and `wf_list_plans` are exactly where the diagnostic sends you, so the crash
-  repeated one tool over. Every lifecycle boundary now returns a `change_doc_unreadable` diagnostic
-  naming the document and the cause: prepare, implement, close, `wf_get_change`, `wf_list_plans`,
-  `wf_add_change`, and the `wavefoundry://change/{change_id}` resource, which renders
-  `# Unreadable Change` rather than an empty body. A bulk `wave_id` lookup still returns the readable
-  siblings, and `wf_list_plans` still lists the readable plans, each unreadable entry carrying a
-  `read_error` instead of parsed content. No failure message carries your absolute filesystem path.
-
-  **Two behavior changes are deliberate rather than incidental.** An unreadable admitted document used
-  to be skipped silently at close, so the close hard gate passed over a document it could not verify;
-  it is now a blocker. And one unreadable document no longer disables the retrieval-posture scan for
-  an entire wave -- that check reads per document instead of aborting the whole pass. Waves whose
-  documents all decode normally are unaffected.
-
-  **`wf_add_change` refuses before it moves.** Making the resolver honest about unreadable documents
-  also let `wf_add_change(mode='create')` reach the relocation step and move a file it could not read.
-  It now checks readability first and refuses without touching anything.
-
-- **A wave record that cannot be read no longer crashes every lifecycle tool.** The companion gap
-  to the change-document fix above: an undecodable `wave.md` raised a stack trace out of every
-  tool probed, including the enumeration tools you would reach for to diagnose it, and a
-  permission-broken record was reported as `wave_not_found` at every by-id boundary -- the wave
-  exists, and the tools said it did not. Wave-record reads now flow through a single seam: twelve
-  by-id lifecycle tools plus `wf_create_wave` refuse with a `wave_record_unreadable` diagnostic
-  naming the record and the cause, `wf_list_waves` and `wf_current_wave` list the readable waves
-  and carry a per-entry `read_error` for the broken one, wave resolution reports what it actually
-  found instead of swallowing the failure, and the `wavefoundry://wave/{wave_id}` resource renders
-  `# Unreadable Wave`. No message carries your absolute filesystem path. Healthy records are
-  unaffected, verified byte-identical across sixteen enumeration and lifecycle surfaces.
-
-- **A missing admitted change document now blocks close instead of vanishing from it.** The close
-  hard gate verified the checkboxes of every document it could find and silently skipped an
-  admitted document whose file was gone, and the close summary then fabricated an empty delivered
-  record for it. Close now refuses with a `change_doc_missing` diagnostic naming the document,
-  the summary raises rather than recording work nobody verified, and docs-lint reports the
-  missing file as soon as the wave is implementing, so the discovery does not wait for close.
-
-- **The upgrade's rollback-failure detail no longer embeds absolute filesystem paths.** When a
-  rollback itself failed, the double-fault report interpolated raw exception text -- exactly where
-  the operating system embeds the full path -- defeating the path-stripping helper this release
-  ships everywhere else. The detail is now composed path-free at the raise site, and the
-  review-ledger read path that produces the same class of detail was made path-free with it.
-
-- **The receipt-authority documentation matches what the code does.** Five statements in the
-  architecture reference described the system as it was before the previous release: that Prepare is
-  the sole writer of the review roster and receipt (`wf_mark_ac(state='~')` is a second writer), the
-  evaluator version, the count of tools that report avoided context, the count of lifecycle tools
-  that record telemetry debits, and the event-ledger ownership row that omitted both receipt
-  writers. The closure rule in the shipped review-system seed also described a carve-out no
-  predicate implements. All are corrected, and installed repositories see the seed correction at
-  their next upgrade.
-
-- **An unreadable wave record no longer weakens the review gates it should be blocking.** When a
-  declared wave's `wave.md` could not be read, the review authority resolver silently reclassified
-  the wave as legacy prose with empty text on a permission failure, and crashed outright on a
-  wrong-encoding one. In the worst case the close-time gate read the silent downgrade as "this wave
-  predates the review policy" and dropped the council-readiness requirement from the close roster,
-  so a broken record demanded less review than a healthy one. Both causes now return a structured
-  refusal that every downstream gate treats as fail-closed, the readiness requirement stays on the
-  close roster, and the diagnostic names the file and the cause without your absolute filesystem
-  path. Readable records classify exactly as before, verified by a zero-diff comparison across
-  every wave record in this repository.
-
-- **The dashboard now shows you the broken records you opened it to investigate.** A wave record
-  that was not valid UTF-8 crashed the entire snapshot, a permission-broken one vanished from the
-  list with no trace, and whether either happened depended on the server's working directory. A
-  change document with the same encoding problem crashed the snapshot from one function away. Each
-  broken entry now renders as a degraded row that names the cause (path-free), healthy siblings
-  are unaffected, path resolution is anchored to the repository root instead of the working
-  directory, and a healthy corpus renders a byte-identical snapshot before and after the change.
-
-- **Review findings that cite code now anchor by symbol.** The citation rule that already governed
-  plans and implementation reaches the surfaces where review evidence is authored: the evidence
-  record's `artifact_or_test_id` and prose, the council seat's finding-authoring guidance, and the
-  runtime prepare-council brief a seat actually receives at readiness. A symbol anchor resolves to
-  today's text; a bare line number drifts hardest exactly when a sibling wave edits the target.
-  The five deliberate line-anchor cases (constant blocks, data files, generated artifacts,
-  hand-authored prose, historical citations) stay legitimate and must be named inline. Installed
-  repositories see the seed half at their next upgrade. Every shipped carrier of this rule,
-  across the planning, implementation, evidence, and council surfaces, is now pinned by a test,
-  so a drifted copy can no longer reach target repositories through an upgrade unnoticed; that
-  is how an earlier weakening of this rule escaped.
-
-- **docs-lint now catches a rendered review-policy region that drifted from its source block.**
-  A policy block edited without re-rendering, or a hand-edit inside a rendered marker region,
-  passed lint with the two carriers disagreeing. The new check compares each rendered region
-  against its block using the renderer's own composition -- never a second implementation of it --
-  and names the destination and the repair. Target repositories already self-heal at every
-  upgrade; this closes the drift window in between.
-
-### Changed
-
-- **Advancing a change's `Change Status` no longer lapses the readiness approvals.** Marking a change
-  `complete` is progress, not a change to the agreed contract: it edits no Requirement, Scope,
-  Acceptance Criteria, or AC Priority text, so it is now digest-neutral and the readiness roster it
-  was granted against stays current. This continues the direction set by the Progress Log exclusion
-  and by making AC completion and task marks progress-only, while an AC `[~]` still counts as a
-  contract change and still lapses approvals. **Verification of the work is unaffected:** closing a
-  wave still requires the delivery lane approvals and operator signoff regardless of any status
-  value. Previously, advancing a change superseded the review-policy receipt and forced a re-Prepare
-  plus a full re-record of readiness approvals against plan text that had not changed by a byte.
-
-- **Review-policy receipts move to evaluator version 7, which costs one re-Prepare in total.** The
-  last released version was 4, and this release carries every intermediate step, so upgrading from
-  1.15.4 is a single 4-to-7 transition and not three. Any wave that is readied or open when this
-  lands goes stale once at its next `wf_prepare_wave`; re-record the readiness approvals and the
-  receipt settles. Closed waves are untouched. The notes under **Fixed** describe each intermediate
-  step and what it changed; versions 5 and 6 never reached a release, so you never pay for them
-  separately.
-
-- **The retrieval-posture advisory is now bounded to the wave's declared files.** It counts only
-  changed files matching the `## Serialization Points` of the wave's admitted change docs, so
-  unrelated working-tree dirt can no longer become evidence about your wave. The consequence worth
-  knowing: a wave whose changes declare no Serialization Points has no trustworthy signal, so the
-  advisory stays **silent** for it rather than guessing.
-
-- **Automatic review lanes are no longer recruited by prose that merely mentions a path.** For waves
-  predating the Serialization Points contract, the legacy fallback now requires a genuine
-  path-shaped match. Required lanes can therefore **drop** for an undeclared wave whose only trigger
-  was a bare file extension or a Progress Log line. Declaring Serialization Points replaces the
-  fallback with exact per-path reasons for the declaring change doc; adoption is decided per
-  document, so an un-migrated sibling in the same wave keeps its own fallback coverage.
+- **The upgrade's rollback-failure detail no longer embeds absolute filesystem paths,** and five
+  receipt-authority documentation claims are corrected to match the code.
 
 ## [1.15.4] - 2026-08-06
 
 ### Fixed
 
-- **Installations from 1.8.0 onward now upgrade directly to the current release.** The upgrade
-  bridge previously accepted only an exact 1.14.0 source, which forced every other supported
-  installation to stage through an intermediate release before it could move. The bridge now
-  enforces a 1.8.0 minimum-source floor instead, so any protocol-1 installation at or above that
-  version crosses in a single run. The integrity boundary is unchanged: a source below 1.8.0, a
-  source this release would not advance, and an installation already on protocol 2 are each still
-  refused with their own distinct message, and a missing or malformed source version still fails
-  closed.
+- **Installations from 1.8.0 onward upgrade directly to the current release.** The bridge
+  previously accepted only an exact 1.14.0 source; it now enforces a 1.8.0 minimum floor, so any
+  supported protocol-1 installation crosses in a single run, with the same fail-closed refusals
+  below the floor.
 
-- **Admitting a change now fills in its `Wave:` field, and preparing a declared wave no longer
-  reports absent legacy prose as a defect.** `wf_add_change(mode='create')` replaces only an exact
-  `Wave: [wave-id or TBD]` or `Wave: TBD` scaffold value with the containing wave ID, so docs
-  validation stops failing on a value the tool already knew. An operator-authored `Wave:` value is
-  never overwritten, and dry-run stays read-only. For waves declaring
-  `review-evidence-source: events.jsonl`, `wf_prepare_wave` now derives readiness from the current
-  typed `wave-council-readiness` approval and its review-policy receipt instead of also demanding a
-  hand-authored `## Review Checkpoints` verdict, which previously made a successful readiness pass
-  look invalid. Legacy prose-only waves keep their existing structured `prepare-council` authority
-  and validation unchanged.
+- **Admitting a change fills its `Wave:` field, and preparing a declared wave no longer demands
+  legacy prose.** Scaffold placeholders are replaced with the containing wave id (never an
+  operator-authored value), and readiness on declared waves derives from the typed approval
+  instead of also requiring a hand-authored checkpoint verdict.
 
-- **Upgrades now reconcile all scalar docs-vs-code facts they own.** The
-  snapshot/reconcile guard covers embedding and reranker model names, chunker,
-  state-store, and graph-builder versions across extraction and crash-resume;
-  edited, duplicate, or missing claims remain fail-safe for docs-lint.
+- **Upgrades reconcile all scalar docs-vs-code facts they own:** embedding and reranker model
+  names plus chunker, state-store, and graph-builder versions, across extraction and
+  crash-resume.
 
-- **Deferring a required acceptance criterion now refreshes the review receipt in the same operation.**
-  `wf_mark_ac(state="~")` publishes the changed contract and returns fresh review actions without
-  carrying approvals forward; failed publication rolls back the AC, receipt ledger, and projection.
-  Ordinary completion and task marks remain receipt-neutral. Wave 1uj12 / 1ulnu.
+- **Routine checkbox tracking no longer reopens review; an AC deferral still does.** AC
+  completion and task marks are progress-only; `wf_mark_ac(state='~')` publishes the changed
+  contract and returns fresh review actions in the same operation. Wave `1uj12` / `1ulnu`.
 
-- **Routine checkbox tracking no longer reopens review, while an acceptance-criterion deferral still does.**
-  The receipt canonicalizer now treats AC completion and every task marker as progress-only, but
-  preserves an AC `[~]` and its rationale as a reviewable contract change. `wf_mark_ac` and
-  `wf_mark_task` supply the same narrow write path: each changes one unambiguous item, while the AC
-  tool applies exactly the existing docs-lint rationale rule for required-priority deferrals.
+- **Automatic review lanes come only from declared `## Serialization Points` paths, not plan
+  prose,** removing false lanes triggered by quoted filenames and change ids; the wave-level
+  `Requested review lanes` field is the explicit route for security and performance risks.
 
-- **Automatic review lanes now come only from declared `## Serialization Points` paths, not plan
-  prose.** This removes false lanes triggered by quoted filenames and change IDs, keeps extension
-  matching boundary-aware, and makes the existing wave-level `Requested review lanes` field the
-  explicit route for security and performance risks. Evaluator version 4 marks only non-closed waves
-  with an older current receipt for one re-Prepare during upgrade; a newly planned no-receipt wave is
-  untouched.
+- **Recording a repair in `## Progress Log` no longer lapses untouched approvals.** The digest
+  replaces the Progress Log body with a stable sentinel, hash-only, while every
+  requirement-bearing section still lapses approvals on edit. One-time cost: the evaluator
+  version bump gives every readied or open wave exactly one re-Prepare; closed waves are
+  untouched. The change is server-resident and takes effect after `wf_reload_mcp` or a restart.
 
-- **Guided review actions now include the caller schema once per response and carry the current
-  judgment template for reverification.** The response names the blocking constraint without
-  weakening the evidence validator or duplicating the schema onto every action.
-
-- **Recording a repair in a change doc's `## Progress Log` no longer lapses the approvals that the
-  repair did not touch.** The review-policy receipt digests change-doc bytes, and `AGENTS.md`
-  requires every repairer to log what they did, so the mandated act of logging a trivial repair
-  moved the digest, superseded the receipt, and forced a re-Prepare plus a re-record of the whole
-  readiness signoff roster. The digest now replaces the Progress Log body with a stable sentinel,
-  exactly as it already does for the gardener-owned `Last verified:` date. This is the only new
-  exclusion, it is hash-only (the section stays in the file verbatim, and the `Gapfill:` retrieval
-  advisory still reads it), and every requirement-bearing section (Rationale, Requirements, Scope,
-  Acceptance Criteria, Tasks, AC Priority, Decision Log, Risks, Session Handoff) still lapses
-  approvals on edit. Review coverage is unchanged: the same lanes run and the same findings block.
-  **One-time re-Prepare on upgrade.** `REVIEW_POLICY_EVALUATOR_VERSION` moves from 2 to 3 so the
-  permanent `events.jsonl` history can tell a plan edit apart from a canonicalization change. Any
-  wave that is readied or open when this lands goes stale once at its next `wf_prepare_wave` and its
-  READINESS-phase approvals (the council readiness approval and the prepare lanes) lapse once;
-  re-record them and the receipt settles, proven by a convergence test. Delivery-phase approvals,
-  finding heads, and repair records are untouched, and CLOSED waves are untouched because
-  receipt-chain validation re-derives ids from the fields stored on each record rather than from
-  change-doc bytes, so every sealed archive keeps validating. On a wave already open for review, the
-  stale receipt gates guided signoff recording until that one re-Prepare; recorded findings and
-  delivery approvals are unaffected. The change is server-resident and is NOT immediate: it takes
-  effect after either `wf_reload_mcp` or a full host restart (`gardener_metadata` is in the
-  reload-purge set, so a reload genuinely suffices).
-
-- **The review seeds now state when an editorial delivery-review finding stays inline, and that the
-  Progress Log narrates rather than amends.** An editorial-only finding (imprecise but true wording,
-  drifted citations, formatting) does not by itself open another repair cycle; every finding needing
-  verification, a boundary repair, or escalation retains its existing action-matrix route. An
-  editorial finding that makes a shipped claim false counts as a correctness defect. Paired with it:
-  a scope, requirement, or AC change is recorded in the
-  section that owns it, with the Progress Log row pointing at that edit, which is what keeps the new
-  digest exclusion safe. The rule also states plainly that a re-Prepare depends on WHERE a repair
-  lands: a repair confined to `## Progress Log` needs none, and a repair that edits any digested
-  section still supersedes the receipt even when the finding was editorial.
-  **Transition run (class (b) carrier).** The behavioral rule is live in the seeds as soon as the
-  pack extracts, so fresh installs and every agent reading the seeds get it immediately. The
-  project-local `docs/prompts/review-wave.prompt.md` copy is rewritten by the review-policy
-  reconciler, whose replacement plan is built before extraction and deliberately frozen for the
-  whole upgrade, so the upgrade that INSTALLS this release still runs the previous release's
-  replacement set and leaves that file unchanged; the NEXT upgrade applies the sentence, and a third
-  is a no-op. That one-run lag is the frozen-plan preflight working as designed, not the reconciler
-  failing: do not report it as the rule not landing.
+- **The review seeds state when an editorial finding stays inline** (a true-but-imprecise
+  wording fix opens no repair cycle; a claim made false is a correctness defect) **and that the
+  Progress Log narrates rather than amends**, which is what keeps the digest exclusion safe.
 
 ### Changed
 
-- **Newly scaffolded change docs are told to fill the AC Priority table at plan time, not at
-  Prepare.** The scaffold and `docs/plans/plan-template.md` previously carried
-  `(Populated at Prepare wave.)`, which instructed an edit at exactly the moment it invalidated the
-  readiness approval just collected: AC Priority is requirement-bearing and correctly stays in the
-  digest, so the remedy is ordering rather than exclusion. `170-plan-feature.prompt.md` now states
-  that AC Priority is populated and Tasks are fully enumerated before the prepare council runs, and
-  the upgrade prompt migrates an existing repository's plan template. The `ac_priority_unpopulated`
-  Prepare advisory is unchanged and remains the backstop. Existing change docs keep their text.
+- **Newly scaffolded change docs fill the AC Priority table at plan time, not at Prepare.** The
+  old `(Populated at Prepare wave.)` instruction invalidated the readiness approval at exactly
+  the moment it was collected; the ordering is fixed and the upgrade migrates existing plan
+  templates.
 
 ## [1.15.3] - 2026-08-04
 
 ### Fixed
 
-- **Every upgrade summary the cleanup phase prints now carries the `summary_schema_version`
-  freshness token, so a missing token means something specific.** The token used to be emitted only
-  by the delegated primary-phase producer, which left the runs that deviated (a memory-checkpoint
-  pause, `--resume-after-memory`, and every ordinary cleanup) indistinguishable from a run whose
-  token had drifted or been dropped. The cleanup emit site now sets it on both the success and the
-  failure branch, so a paused run reaches a token-bearing summary at its recovery `--cleanup`. The
-  token is a claim about the code that rendered the summary, not about whether the upgrade
-  succeeded; `failed_phase` remains the success discriminator and `summary_source_degraded` remains
-  the sole degradation discriminator, which the in-process fallback still carries without a token.
-  The seed-160 upgrade prompt and the session-handoff reporting hook now state the three causes of
-  token absence so a report names the right one instead of a bare "absent". `summary_schema_version`
-  is also registered as a terminal summary key so response bounding can never make a present token
-  read as absent; that half is server-resident and takes effect after a full host restart, while
-  emission takes effect on the upgrade that installs it.
+- **Every upgrade summary now carries the `summary_schema_version` freshness token,** including
+  memory-checkpoint pauses, resumes, and ordinary cleanups, so an absent token means something
+  specific instead of being routine. The token claims which code rendered the summary;
+  `failed_phase` remains the success discriminator. Response bounding can never drop a present
+  token; that half is server-resident and takes effect after a full host restart.
 
 - **Four documentation surfaces no longer promise a heavier review posture than the upgrade
-  actually configures.** The upgrade prompt, the build-and-verification guide, and the project
-  overview each claimed that enabled review maps to `delivery_mode=universal` (full Council on
-  every wave) when it has mapped to `targeted` since delivery review became risk-tiered; the
-  overview also named `universal` as the shipped fresh-install default. All three now state the
-  delivered modes in the same wording the upgrade itself reports, and the review-policy decision
-  record carries an inline amendment naming the wave that superseded its original default while
-  preserving that original text as history. An executable census pins the corrected claim so the
-  drift cannot silently return: it keys on the three claim-shaped phrasings rather than the word
-  `universal`, which remains a legal delivery mode with legitimate uses everywhere, and it now
-  reads `docs/references/` where one of the drifted surfaces had been sitting outside every
-  automated check.
+  configures.** They claimed enabled review maps to a full Council on every wave when it has
+  been risk-tiered (`targeted`) since delivery review shipped that way; all now state the
+  delivered modes, and an executable census pins the corrected claims.
 
-- **The secrets scan no longer walks native Windows virtual environments, and neither the scan nor
-  the index walks Graphify's default output directory.** The shipped virtual-environment exclusion
-  matched only `venv/lib/...` after path normalization, so a native Windows
-  `.venv/Lib/site-packages` tree was selected and read: an entire dependency tree scanned, with the
-  worker processes to match. The path pattern now accepts the dot-prefixed layout, in both the
-  active Python allowlist and the Betterleaks prefilter, which are kept in step so they cannot
-  drift apart. The same two rules now also exclude `graphify-out/`, the directory Graphify
-  documents as its generated-artifact home, and the shared semantic-and-graph repository walker
-  prunes that directory before descending into it. Existing indexes do not need a rebuild: one
-  ordinary incremental update detects the former Graphify paths as removed and reaps them from both
-  semantic and graph state. The exclusions stay narrow by design. Only virtual-environment library
-  trees and the exact default `graphify-out` directory segment are skipped, so an ordinary source
-  file such as `src/graphify-output.ts` remains scannable, and custom `GRAPHIFY_OUT` locations stay
-  project-owned configuration.
+- **The secrets scan no longer walks native Windows virtual environments, and neither the scan
+  nor the index walks Graphify's default output directory.** The dot-prefixed `.venv/Lib` layout
+  is excluded in both the allowlist and the prefilter, `graphify-out/` is pruned before descent,
+  and one ordinary incremental update reaps the former paths; the exclusions stay narrow, so a
+  source file like `src/graphify-output.ts` remains scannable.
 
 ## [1.15.2] - 2026-08-04
 
 ### Fixed
 
-- **The five `integrity_checks` booleans now have defined phase-aware semantics.** Seed 209's
-  Executable Evidence Record table gives each boolean a distinct plain-language definition, one
-  readiness/delivery phase rule (a readiness approval attests to the review of the current tree,
-  plan, census, or feasibility probe, not unimplemented product behavior; a non-executed finding
-  may honestly carry `false`), and a readiness-safe known-bad control. Both validator messages
-  now teach the attestation contract (affirm honestly, or do not record the claim as executed)
-  instead of demanding `=true`; validator semantics are unchanged. The `wf_review_event`
-  description and MCP tool spec carry the same phase-aware meaning. Wave 1uf65 / change 1uf64.
+- **The five `integrity_checks` booleans have defined phase-aware semantics.** Seed 209 gives
+  each a plain-language definition and a readiness/delivery phase rule, and both validator
+  messages teach the attestation contract (affirm honestly, or do not record the claim as
+  executed) instead of demanding `=true`. Wave `1uf65` / change `1uf64`.
 
-- **The docs-constants lint now states the exact one-line fix, unstranding docs gates after a
-  `GRAPH_BUILDER_VERSION` bump.** When a documented fact does not match its code constant, the
-  failure names the file, line, both values, and the instruction to change the current value to
-  the expected value on that line; when the claim line is missing, the failure names the exact
-  line to add (with the expected value) and where. Every conservative-advancer precondition miss
-  now resolves through the gate message; the advancer itself is unchanged. Wave 1uf65 / change
-  1uf66.
+- **The docs-constants lint states the exact one-line fix,** naming file, line, both values, and
+  the change to make, so a `GRAPH_BUILDER_VERSION` bump can no longer strand a docs gate.
+  Change `1uf66`.
 
-- **A routine memory-checkpoint pause no longer prints `Upgrade failed` prose or stamps a
-  failure marker over its checkpoint state.** The upgrade runner's exit handling recognizes the
-  typed action-required pause (action-required exit code plus a token/run-id-bearing
-  `action_required` block in the lock), keeps `failed_phase`/`failed_at` untouched, and prints
-  checkpoint wording naming the memory work and `wf_upgrade(phase='resume_after_memory')`.
-  Genuine failures keep the existing retained-lock failure report. One transition-run residue:
-  the upgrade that INSTALLS this fix still runs the pre-fix parent, so if that one run pauses at
-  the memory checkpoint it may print the old failure prose a final time; the typed state and
-  `resume_after_memory` are unaffected, so do not report that one run as this fix failing. Every
-  later upgrade prints the corrected wording. Wave 1uf65 / change 1uf67.
+- **A routine memory-checkpoint pause no longer prints failure prose or stamps a failure
+  marker.** The runner recognizes the typed action-required pause and prints checkpoint wording
+  naming `wf_upgrade(phase='resume_after_memory')`; genuine failures keep the failure report.
+  The upgrade that installs this still runs the pre-fix parent once. Change `1uf67`.
 
-- **A no-op review-policy migration no longer marks every readied wave for re-Prepare.** When the
-  migrated `wave_review` config is byte-identical to the existing config and the carrier
-  reconciliation plans zero edits, the upgrade's wave sweep skips the re-Prepare marker, the
-  reprojection, and every wave write, and the structured result reports an empty
-  `waves_marked_for_reprepare`. A genuine policy delta still marks and reprojects every
-  non-closed declared wave; the plan-phase validation walk (unreadable waves and ledger errors
-  failing preflight) is unchanged, so both resume paths keep their preflight. One transition-run
-  residue: the wave sweep is planned and applied from the pre-extraction module, so the upgrade
-  that INSTALLS this fix still marks each readied wave one final time. That same run re-renders
-  the target's surfaces from the new code, so `docs/prompts/upgrade-wavefoundry.prompt.md` will
-  already state that a no-op migration marks nothing while the marker that run just wrote is
-  still on the wave; the new prose is correct from the next upgrade onward, not for the run that
-  wrote it. Recovery is unchanged: `wf_prepare_wave(mode='ready')` re-readies the wave and the
-  typed `wave-council-readiness` approval survives, so no re-review is needed. Do not report that
-  one run as this fix failing; every later upgrade honors the guard. Wave 1uf65 / change 1uf69.
+- **A no-op review-policy migration no longer marks every readied wave for re-Prepare.** A
+  byte-identical migrated config with zero planned edits skips the markers entirely; a genuine
+  policy delta still marks every non-closed declared wave. The installing run itself still marks
+  one final time; recovery stays one `wf_prepare_wave(mode='ready')` with the typed approval
+  surviving. Change `1uf69`.
 
 ## [1.15.1] - 2026-08-03
 
 ### Added
 
-- **Verified online model downloads now converge with the offline model-set identity.** Every
-  feature package carries the release-pinned verification manifest (without model bytes). After a
-  normal download, setup writes the same v1 identity marker as offline materialization only when
-  every declared file hash and revision matches; incomplete, altered, mixed, or incompatible
-  caches remain unmanaged. Wave 1uas8 / change 1uas7.
+- **Verified online model downloads converge with the offline model-set identity.** After a
+  normal download, setup writes the same identity marker as offline materialization, but only
+  when every declared file hash and revision matches; incomplete or mixed caches remain
+  unmanaged. Wave `1uas8` / change `1uas7`.
 
 ## [1.15.0] - 2026-08-03
 
-### Fixed
-
-- **Historical-memory publication checkpoints no longer report as `index_update` failures.** A
-  ready-for-publication checkpoint retains action-required recovery state and exits 4 without an
-  `ERROR`; this also works when the installing pghn/pgi7 runner is still the parent. Reload or
-  reconnect before reading the distinct publication-ready MCP state, then use
-  `wf_upgrade(phase='resume_after_memory')`.
-
 ### Upgrading to 1.15.0
 
-**From 1.14.0 or earlier** (protocol change — treat it as a short maintenance window):
+**From 1.14.0 or earlier** (protocol change; treat it as a short maintenance window):
 
-1. Stop the dashboard and disconnect every attached MCP/agent host for the repository, including
-   the one you are working in.
-2. Run the upgrade with `wavefoundry-1.15.0.<build>.zip` as usual. If `wf_upgrade` refuses, let
-   the agent execute the exact argv the refusal returns; the single package handles verification,
-   install, and rollback on its own.
+1. Stop the dashboard and disconnect every attached MCP/agent host for the repository.
+2. Run the upgrade with the release zip as usual; if `wf_upgrade` refuses, run the exact argv
+   the refusal returns.
 3. When it finishes, **fully restart every attached host**, then follow the returned recovery
-   action (complete any reported memory work via `wf_upgrade(phase='resume_after_memory')`, then
-   `wf_upgrade(phase='cleanup')`).
-
-**Already on a 1.15.0 prerelease:** run the ordinary upgrade. Fully restart hosts when the
-response says a cutover-active run occurred.
+   action (`resume_after_memory` if reported, then `cleanup`).
 
 **What changes for you after upgrading:**
 
 - `wf_review_evidence` is renamed **`wf_review_event`** (no alias), and `wf_reopen_wave` now
   requires `purpose` (`"review"` or `"implement"`). Update host permission rules that pin old
-  `wave_*`/`wf_review_evidence` names (notably `.claude/settings.local.json`); the upgrade's
-  reconciliation output lists them. Renderer-managed rules in the committed `.claude/settings.json`
-  self-heal from this release forward.
-- The upgrade writes a read-only wavefoundry allowlist into your committed `.claude/settings.json`
-  and names the delta. Review that diff deliberately — it changes agent permission posture. The
-  mutating tool tier stays off unless you set `wavefoundryAllowWriteTools` yourself.
-- After upgrading, check `wf_server_info`: `runner_stale: true` (or `null` right after an
-  upgrade) means a full host restart is still owed.
-- The transition run itself may show one benign, one-time summary quirk: an unmarked old-schema
-  summary (coming from 1.14.0 or early prereleases), or a single
-  `summary_source_degraded: unrecognized_schema_token_None` run (coming from the pg8h/pg9m
-  prereleases, due to the pre-freeze rename of the summary envelope key to
-  `summary_schema_version`). Neither is a failure; the next upgrade reports normally. If index
-  publication is refused on a prerelease transition run, recover with `resume_after_memory`, then
-  `cleanup`, then `index_build`.
-- Offline model assets ship separately as `wavefoundry-models-<set>.zip` (attached to this
-  release), downloaded once per model set; setup validates hashes and licenses before use.
+  names; the upgrade's reconciliation output lists them.
+- The upgrade writes a read-only wavefoundry allowlist into your committed
+  `.claude/settings.json` and names the delta; review that diff deliberately. The mutating tool
+  tier stays off unless you set `wavefoundryAllowWriteTools` yourself.
+- Check `wf_server_info` afterward: `runner_stale: true` means a full host restart is still
+  owed.
+- Offline model assets now ship separately as `wavefoundry-models-<set>.zip`, downloaded once
+  per model set and hash- and license-validated before use.
 
 ### Added
 
-- **Offline model assets are independently versioned.** The standard
-  `wavefoundry-<version>.<build>.zip` remains the sole feature-upgrade input.
-  When the pinned embedding/reranker set changes, `--with-models` additionally
-  publishes `wavefoundry-models-<set>.zip`; framework-only releases do not
-  duplicate model bytes. Upgrade and freshly extracted setup search the normal
-  distribution locations for the exact set declared by the selected feature,
-  validate its provenance, hashes, licenses, and compatibility fingerprint,
-  then materialize it atomically. This also works on the first upgrade from a
-  pre-model-bundle runner. Wave 1u95o / change 1uat8.
+- **Offline model assets are independently versioned.** The feature zip remains the sole upgrade
+  input; when the pinned model set changes, `--with-models` additionally publishes the models
+  zip, and upgrade and setup locate, validate, and materialize the declared set atomically.
+  Wave `1u95o` / change `1uat8`. Model warm failures print the exact asset name and placement
+  locations for offline recovery. Change `1ua8u`.
 
-- **Model warm failures print the manual recovery path.** When setup cannot download a required
-  model, the failure message now names the exact `wavefoundry-models-<set>.zip` asset and the
-  standard placement locations, so an offline operator can recover without guessing; setup still
-  validates hashes and licenses before replacing a verified cache. Wave 1ua8v / change 1ua8u.
+- **Memory maintenance has a deployable public shortcut.** **Review memories** runs reviewed
+  validation, bounded consolidation, history-worthy archive, and irreversible purge with
+  before/after results; purge stores only SHA-256 identities in a repo-visible disposition file
+  so deleted history cannot regenerate after an index reset. Setup and upgrade migrate the
+  retired pointer directory and backfill the prompt without touching project prose. Wave `1u8r2`
+  / changes `1u75c`, `1u8r1`.
 
-- **Memory maintenance now has a deployable public shortcut.** **Review memories** (alias **Memory review**) runs the existing reviewed validation, bounded consolidation, history-worthy archive, and irreversible purge workflow with measurable before/after results; an explicit read-only branch performs no mutation. Consolidation preflights every source, caps each apply at five records with deterministic continuation metadata, creates the replacement through the normal forbidden-content checks, and restores its pre-apply snapshot after a caught multi-source failure. Purge is advertised as destructive and stores only SHA-256 source identities in the repo-visible, non-indexed `.wavefoundry/memory-purge-dispositions.json`, so deleted history cannot regenerate after an index reset or fresh clone. The compact archive register remains searchable while full archive bodies remain excluded. Setup and upgrade migrate the retired generated `memory/pointers/` directory into that register before indexing; index walks exclude any residue and lint rejects the old schema. Retired records have no bulk archival path—the archive-versus-purge judgment remains per record. Fresh setup and every upgrade backfill the missing prompt without replacing project-authored prompt prose, and upgrade may recommend the shortcut after a memory brief but never runs curation automatically. Wave 1u8r2 / changes 1u75c and 1u8r1.
+- **One package installs, bridges protocols, and rolls back.** The release builder emits only
+  `wavefoundry-<version>.zip`; that package verifies its embedded bridge, installs protocol 2
+  with rollback, and runs the feature hop in one invocation on every supported platform.
+  Wave `1tz6l` / change `1txh7`.
 
-- **The one Wavefoundry package is also the protocol-bridge executable.** The release builder emits only `wavefoundry-<version>.zip`; after explicit dashboard and host shutdown, that same package verifies its embedded bridge and exact feature payload, installs protocol 2 with rollback, and runs the feature hop in one invocation. Native Windows, WSL2, macOS, and Linux share the structured argv contract; no special upgrade package or bridge composition files are operator-facing release assets. Wave 1tz6l / change 1txh7.
+- **Docs-lint detects orphaned review ledgers:** a non-empty `events.jsonl` whose sibling
+  `wave.md` is missing or undeclared fails lint with an actionable message; empty scaffolds
+  pass.
 
-- **Docs-lint detects orphaned review ledgers.** A non-empty `events.jsonl` in a wave-shaped directory whose sibling `wave.md` is missing, unreadable, or carries neither the events source declaration nor the legacy inline marker now fails lint with an actionable message. Enumeration is directory-driven, so deleting or renaming `wave.md` while its ledger survives is detected rather than walked around; empty ledgers (fresh scaffolds) and non-wave folders pass. The honest undetected boundary narrows to whole-ledger rollback, empty-ledger declaration removal, and co-deletion of ledger plus declaration.
+- **Memory-retrieval quality is measurable in any project.** The read-only `wf_memory_eval`
+  tool runs the curated eval over the repository's own memory records, reporting aggregate
+  metrics and never record bodies, and returns an explicit unavailable report when the backend
+  or corpus is missing.
 
-- **Verification now matches the events-only claims.** The residue census covers the tests tree with per-file load-bearing allowances (a stale allowance fails the census), and the crash matrix gains true-termination cuts: a spawned child process is killed at each named boundary around the ledger's atomic replace, with the parent asserting the surviving on-disk state, canonical parseability, and exact-replay convergence. The existing exception-injection cuts remain as fast equivalents.
-
-- **Memory-retrieval quality is measurable in any project.** The eval engine now ships with the framework instead of living in the test tree, and a new read-only `wf_memory_eval` tool runs the curated live-corpus pass over the repository's own memory records. It reports aggregate metrics, kind/status counts, a content fingerprint, and the fusion adoption verdict — never record bodies, summaries, or ids — and returns an explicit unavailable report rather than failing when the semantic backend or corpus is missing. The hermetic invariant pass remains a test, with its golden fixture as test-only scaffolding.
-
-- **The wavefoundry MCP allowlist in `.claude/settings.json` is now rendered and self-healing.** Install and upgrade merge the read-only tier of the canonical tool roster into `permissions.allow` and record exactly the entries they emitted under a top-level `wavefoundryManagedAllow` provenance key, so a tool rename no longer leaves a stale rule that prompts on every call. Ownership is never inferred from the `mcp__wavefoundry__` name prefix: operator-authored rules, including ones that happen to name a wavefoundry tool, plus all deny and ask entries and unknown keys, survive every render. The mutating tier (lifecycle writes, both edit gates, memory, index, dashboard, sensors, upgrade) renders only when the operator sets `wavefoundryAllowWriteTools` in the same file, and it is all or nothing. Because this mutates a committed file, the upgrade names the rendered delta as an explicit consent line. A fresh install and a protocol-bridge upgrade render the block immediately, and an ordinary upgrade renders it during the upgrade that installs this release. Wavefoundry rules a repo already hand-maintained are left unclaimed and reported as such: they get rename self-heal only after the operator deletes them and lets the renderer re-emit them. Wave 1u2b0 / change 1u2az.
+- **The wavefoundry MCP allowlist in `.claude/settings.json` is rendered and self-healing.**
+  Install and upgrade merge the read-only tool tier into `permissions.allow` under an explicit
+  provenance key, so tool renames no longer leave stale prompting rules; operator-authored
+  rules, deny/ask entries, and unknown keys survive every render, and the mutating tier renders
+  only when `wavefoundryAllowWriteTools` is set. Wave `1u2b0` / change `1u2az`.
 
 ### Changed
 
-- **Each wave's `events.jsonl` ledger is now the sole review-evidence authority.** The retired project-global review-evidence adoption and migration sidecars are removed one-way on upgrade, with no receipt, hash, or replacement authority written anywhere; historical `wave.md` and `events.jsonl` files stay byte-for-byte untouched. Upgrading across this boundary is a maintenance window: every attached MCP/agent host, including the invoking one, must fully restart before lifecycle mutation resumes, because an in-process reload alone leaves a pre-upgrade host writing state the new implementation no longer reads.
+- **Each wave's `events.jsonl` ledger is the sole review-evidence authority.** On declared
+  waves, every gate reads typed ledger records through one authority facade; prose signoff
+  lines and stray severity words in `wave.md` are inert in both directions. Legacy waves keep
+  the prose mechanism. Retired sidecars are removed one-way on upgrade with historical files
+  byte-untouched; the cutover requires a full host restart, scoped to runs that actually
+  crossed the boundary, and cleanup holds both publication locks through sidecar deletion.
 
-- **Gate derivation on declared waves is typed-exclusive.** On a wave declaring `review-evidence-source: events.jsonl`, every gate read of review-evidence content (operator signoff presence, per-lane and council signoff currency, max severity) derives solely from typed ledger records through a single authority facade; prose signoff lines and standalone severity words in `wave.md` are inert narrative in both directions, so a prose-only signoff satisfies nothing and a severity word in prose trips nothing. Legacy waves without the declaration keep the prose mechanism unchanged, and the required-lane roster parsing is untouched.
-
-- **The cutover restart requirement is scoped to runs that actually crossed the boundary.** `restart_required` is true only when the run removed a sidecar or the stale root lock, or the installed version predates 1.15 (an unknown version fails safe to true); a rerun on an already-converged repository reports it false. On cutover-active runs the upgrade suppresses its automatic in-process reload at both automatic-reload phases, drops `wf_reload_mcp` from the suggested next tools, and instructs the full host restart instead; ordinary later upgrades keep the established reload flow.
-
-- **Upgrade cleanup holds both publication locks through sidecar deletion.** The probe-then-release window is gone: the current lock and the v1.13 root lock stay held across the deletions so no concurrent acquirer can interleave, and the root-lock file is released and then unlinked last, with the residual platform slivers (Windows open-file deletion, POSIX split lock domain) stated plainly rather than claimed away. Refusal semantics for a held or unprovable lock are unchanged.
-
-- **Retired inline-ledger compatibility machinery is deleted.** The unused inline parsing, rendering, and scaffolding paths are gone; fail-closed detection remains, so an inline-marker wave still fails validation with an actionable message naming the manual migration path instead of silently reclassifying as legacy prose.
-
-- **`wf_review_evidence` is now `wf_review_event`.** The tool inspects and appends typed review events (`list`, `finding`, `run`, `approval`); an Evidence Record is only one of the record types it writes, so the old name mislabelled the abstraction. This is a clean rename with **no alias**: upgrades reconcile stale references in rendered surfaces automatically, but host permission allowlists that pin exact tool names need a one-time update, and the MCP host must be fully restarted after upgrading so the client picks up the renamed surface.
-- **`wf_reopen_wave` now requires an explicit `purpose`.** Pass `"review"` or `"implement"` to select the context-efficiency stage the following work is attributed to. Omitting it previously defaulted to `implement`, which silently recorded pre-close reviews as implementation work; there is **no fallback and no alias**, so callers written against the 1.14.0 signature must pass the argument. An empty or unrecognized value returns a typed `invalid_purpose` error with recovery hints, and an omitted argument is rejected by the published schema before the tool body runs — both leave the wave status, the telemetry seal, and the focus stage untouched.
+- **`wf_review_evidence` is now `wf_review_event`** (it appends typed review events, of which an
+  evidence record is only one), a clean rename with no alias; rendered surfaces reconcile
+  automatically, host allowlists pinning exact names need a one-time update, and the host must
+  restart to pick up the renamed surface. **`wf_reopen_wave` requires an explicit `purpose`**
+  (`"review"` or `"implement"`) so pre-close reviews stop being silently attributed to
+  implementation; there is no fallback.
 
 ### Fixed
 
-- **Graph-builder upgrades no longer fail their own docs gate on an exact reliability-version transition.** The incoming upgrade extension snapshots a unique `docs/RELIABILITY.md` claim only when it matches the pre-extract `GRAPH_BUILDER_VERSION`, retains that guarded observation in the existing upgrade lock across interruption/recovery, then advances the unchanged claim to the newly installed version before docs-lint. Missing, ambiguous, previously mismatched, or mid-upgrade customized claims remain untouched and continue to be reviewed normally. Wave 1u8r2 / change 1u8r1.
+- **Historical-memory publication checkpoints no longer report as `index_update` failures.** A
+  ready-for-publication checkpoint retains recovery state and exits without an `ERROR`; reload
+  or reconnect, then `wf_upgrade(phase='resume_after_memory')`.
 
-- **Gardener-only drift evaluation now handles Wavefoundry's space-containing document paths.** Git terminates an unquoted `+++` filename containing spaces with a tab before any timestamp metadata; the parser retained that tab in the blob path, so `git cat-file` failed and drift evaluation stayed stale on repositories following the framework's own `<id> <slug>` naming convention. The parser now strips the unquoted terminator, keeps C-quoted control-character paths fail-closed, and is pinned by a real-git space-named living-doc regression. Wave 1u8r2 / change 1u91n.
+- **Phase 4 index publication is no longer refused by the upgrade's own checkpoint.** Spawned
+  index children now carry a value-bound publisher grant, a failed docs-layer child exit is
+  reported instead of swallowed, and the refusal message states the complete recovery path.
 
-- **MCP reload reporting no longer equates queued notification work with client adoption.** Tool-list changes now report `tool_list_changed_notification_dispatch` as `not_needed`, `queued`, `completed`, or `failed`; the compatibility boolean remains additive, while diagnostics distinguish an active-loop queue from a completed server-side send. Successful automatic upgrade reloads preserve those diagnostics. Upgrade guidance checks a fresh model turn first, then reconnects MCP, then restarts the host, instead of diagnosing a host defect from a tool schema captured at the start of the invoking turn. Wave 1u8r2 / change 1u8r1.
+- **The primary-phase upgrade summary is produced by the freshly extracted code** behind a
+  pinned entry-point contract, so a reconciliation report can no longer be silently emptied by
+  an old orchestrator unpacking newer modules; any delegation failure degrades to a marked
+  in-process summary. Wave `1u5vl` / change `1u44o`.
 
-- **Rendering `.aiignore` no longer grows two blank lines per render.** The renderer's meta-line filter recognized only the index block's non-blank members, so the block's interior blank and the appended separator survived into the project-owned region on every render, forever (one fielded repository accumulated 189 blank lines in four months). The leading blank run is now collapsed to the single canonical separator, already-accumulated debris self-heals in one render, and intentional blank lines inside project-owned content are preserved.
+- **The upgrade no longer extracts the release zip's installer members into the project root.**
+  Extraction is allowlist-filtered to `.wavefoundry/**`, so runner members can never overwrite
+  same-named project files; manual instructions now use scoped extraction. Change `1u0cc`.
 
-- **Orphaned graph and sidecar store rows now reconcile on incremental index builds.** Store rows whose registry entry was gone (out-of-band cleanup, older-pack residue) survived every zero-change build in the graph file table and the `file_freshness` / `secret_scan_cache` sidecars, and the secret-scan cache leaked on every build shape. Each incremental build now plans a read-only store-minus-authority reconciliation and executes it inside the build epoch at the existing reap seam: ENOENT removes, unreadable paths are preserved, a mass-removal circuit breaker defers wholesale retirements loudly, graph retirement routes through the normal merge so store, payload, and clusters stay consistent, and a removal-only pass opens and finalizes a build epoch.
+- **Gardener-only dates no longer stale review-policy receipts.** The digest normalizes the
+  canonical `Last verified` value; evaluator version 2 gives non-closed waves one deterministic
+  re-Prepare. Change `1tz6k`.
 
-- **A deleted living doc no longer freezes the doc-drift classifier, and a frozen evaluation can no longer read as clean.** A commit deleting (or, with rename detection pinned off, renaming) a living doc emitted a `+++ /dev/null` frame the patch parser rejected, failing the whole classification closed for the lifetime of the commit window while `wf_audit` kept reporting an evaluated-looking zero. Deletion frames are now parsed as the material changes they are; every fail-closed return site in the history walk and the gardener classifier carries a per-site reason threaded into the skip log (replacing the static three-way parenthetical); the store records consecutive failures, stage, reason, and last-success age from the first failure; and `wf_audit`'s `doc_drift` gains an additive `evaluation` object distinguishing evaluated-clean from stale from never-evaluated, with a `doc_drift_evaluation_stale` advisory. Drift still never blocks `ready`.
+- **Graph and sidecar stores reconcile orphaned rows on incremental builds,** with an ENOENT
+  reap, a mass-removal circuit breaker, and consistent graph retirement, so out-of-band cleanup
+  residue no longer survives every zero-change build.
 
-- **The coherence scan no longer flags pack-owned migration text as stale tool references.** The `wf_cli` module reference (already module-path form in every seed) joins the non-tool identifier allowlist, both retired gate names that upgrade migration instructions must keep citing (`wave_open_gate`, `wf_close_wave_gate`) are exempt symmetrically, and remaining `harness_coherence` findings carry a `classification` field (`pack_internal` for vendored-pack paths, non-blocking for target repositories; `project` otherwise) with additive per-class counts, so downstream audits lose the permanent unfixable noise while a genuinely stale tool name still flags on both sides. The upgrade seed's transition-debris guidance now also names the `payload/*.json` manifest criterion and states that removal is safe once every identification criterion holds.
+- **A deleted living doc no longer freezes the doc-drift classifier,** and a frozen evaluation
+  can no longer read as clean: `wf_audit`'s `doc_drift` now distinguishes evaluated-clean from
+  stale from never-evaluated.
 
-- **The primary-phase upgrade summary is now produced by the freshly extracted code behind a pinned entry-point contract.** The pre-extraction parent spawns the extracted tree's `upgrade_wavefoundry.py --emit-summary` (pinned flag, argv, sentinel prefix, and `summary_schema_version` token; upgrade lock as the old-schema-tolerant state carrier; pinned timeout; the pins guard against silent drift while deliberate versioned evolution bumps the token), captures the child's sentinel, and re-emits the payload byte-verbatim through its own logger, so the reconciliation scan runs on the producer's own module version and the silent empty-channel skew (a `[]` reconciliation report from an old orchestrator unpacking a newer scan module) cannot recur. Any delegation failure (entry point absent, non-zero exit, malformed or absent sentinel, timeout, unrecognized token) degrades to the parent's own in-process summary carrying a `summary_source_degraded` marker that bounding never drops, with exactly one sentinel per run and the upgrade's exit status unchanged; a fallback summary is never presented as new-schema output. A permanent contract test guards the surface for every fielded runner. Wave 1u5vl / change 1u44o.
+- **Upgrade and coherence-scan noise removed:** graph-builder version transitions no longer fail
+  their own docs gate; space-containing document paths parse in drift evaluation; `.aiignore`
+  stops growing two blank lines per render; pack-owned migration text is no longer flagged as
+  stale tool references; MCP reload reporting distinguishes queued notification work from client
+  adoption; and repair-chain guidance names the `repair_start` prerequisite and the
+  implementer/reverifier split.
 
-- **Phase 4 index publication is no longer refused by the upgrade's own checkpoint, and the summary no longer reports a failed publication as success.** The `setup_index.py` children spawned for the blocking docs and graph passes now hold value-bound authorized-publisher status (a `publisher_grant` token recorded in the upgrade checkpoint and matched against the child environment), on the primary phase and both standalone index phases; the detached background code child never carries a grant. The new pack's `pre_index_update` hook establishes the same grant when the upgrade is still driven by an old parent runner, so the fix takes effect on the upgrade that installs it. The summary's `index_update` field now derives from the observed publication outcome at every writer, a failed docs-layer child exit is reported instead of silently swallowed (the standalone index phases exit non-zero), the refusal message states the complete recovery branched on the actual pending count (`resume_after_memory`, then `cleanup`, then `index_build`, confirmed by `index_health`, at zero pending; backfill plus validation otherwise), and the MCP response carries an `index_publication_failed` diagnostic naming `index_health` whenever publication did not complete.
+- **`wf_server_info` can tell a stale MCP runner from a current one.** `runner_stale` is a
+  tri-state comparison of the launch-time runner hash against disk, never a fabricated value,
+  so the one field whose job is to say "restart owed" can finally say it. Change `1u2ay`.
 
-- **The upgrade no longer extracts the release zip's installer members into the project root.** Phase 0b extraction is allowlist-filtered to `.wavefoundry/**` plus the transient bootstrap file, so the combined package's zipapp runner members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) never land in a target repository and can never overwrite same-named project files; the upgrade log records the withheld-member count. Manual install and upgrade instructions now use scoped extraction (`unzip -o <zip> '.wavefoundry/*' -d .`); never delete those member names from a project root to compensate. Wave 1tz6l / change 1u0cc.
-- **Gardener-only dates no longer stale review-policy receipts.** The admitted-change digest normalizes exactly one canonical top-level `Last verified` value while keeping every other byte significant. Evaluator version 2 gives non-closed waves one deterministic re-Prepare transition; closed Markdown and ledgers remain immutable. Wave 1tz6l / change 1tz6k.
-
-- **`wf_reopen_wave` no longer reports a focus stage it did not apply.** A failed context-efficiency focus write was swallowed while the response still claimed the requested stage had been set. Reopening still succeeds, because telemetry is observational, but the response now returns `data.focus_stage: null` alongside `data.focus_error` and a `focus_stage_not_applied` diagnostic naming how to recover.
-
-- **Repair-chain guidance leads to the right call.** The lane-clearing recipe — in both the agent-harness prompt and the tool's own description — now names the `repair_start` prerequisite, states that `repair_start` and `reverification` are finding events rather than run events, and distinguishes the implementer who records the repair from the blocking reviewer lane that independently reverifies it. The two sequence errors are self-correcting: submitting a repair run kind as a run event, or a reverification with no preceding repair start, now names the corrective call instead of only restating the constraint.
-
-- **Memory candidates no longer target the test runner.** Decision-log drafting applied no verification-harness filter, so a decision whose rationale mentioned the test runner could be recorded against it instead of the module it governs. Runner entries are now excluded on both drafting paths, and illustrative placeholder tokens are rejected everywhere.
-
-- **`wf_server_info` can tell a stale MCP runner from a current one.** `server_runner_version` was a constant that never changed, including across releases that replaced the runner file, so the one field whose job is to say "a full host restart is needed" could never say it. It is now a content hash captured at process launch over the un-reloadable runner set (`server.py` plus `venv_bootstrap.py`) and compared against the same hash recomputed from disk at query time. `runner_stale` is tri-state: true with a recovery diagnostic and detail, false when the process matches disk, and null when either side is genuinely unknown (no runner process, an unreadable or torn tree mid-upgrade, or a pre-hash runner), never a fabricated value. An in-process reload deliberately leaves the launch identity untouched, because the runner is exactly the part a reload does not replace. Wave 1u2b0 / change 1u2ay.
+- **`wf_reopen_wave` no longer reports a focus stage it did not apply,** and memory candidates
+  no longer target the test runner instead of the module a decision governs.
 
 ## [1.14.0] - 2026-07-21
 
 ### Added
 
-- **The MCP tool surface uses subsystem-prefixed names.** Framework and wave-lifecycle tools are `wf_*` (verb-first: `wf_close_wave`, `wf_open_gate`, `wf_start_dashboard`), agent-memory tools are `memory_*`, and index tools are `index_*`; the old `wave_`-prefixed names are retired with no aliases. Upgrades reconcile stale tool references in rendered surfaces automatically via a complete rename map, but host permission allowlists that pin exact tool names may need a one-time update, and the MCP host must be fully restarted after upgrading so the client picks up the renamed surface.
+- **The MCP tool surface uses subsystem-prefixed names.** Lifecycle tools are `wf_*`, memory
+  tools `memory_*`, index tools `index_*`; the old `wave_` names are retired with no aliases.
+  Rendered surfaces reconcile automatically; host allowlists pinning exact names may need a
+  one-time update, and the host must fully restart after upgrading.
 
-- **`wf_audit` answers instantly with a bounded index-readiness snapshot.** The default first-call audit no longer cold-loads native vector storage or hashes the working tree — the two unbounded costs behind a field-reported native-Windows hang. The snapshot reads only the index control plane, honestly reports `freshness: "unknown"`, and defers full hash-walk verification to the explicit `index_health` tool; a diagnostic on every healthy audit makes the two-surface split explicit.
+- **`wf_audit` answers instantly with a bounded index-readiness snapshot,** deferring the
+  unbounded hash-walk verification to `index_health`; this removes a field-reported
+  native-Windows hang on first call.
 
-- **The review-evidence ledger has a standardized read surface.** `wf_review_evidence(event="list")` returns a compact per-record index, a per-finding chain summary composed from the close gate's own derivations (current head, repair state, unresolved required lanes, terminal flag), and per-signoff approval currency, with filters and bounded output. Chain-state-dependent write rejections now point at the list event, replacing hand-parsing of the ledger file. Accounting is honest by design: the first listing of a ledger version earns source credit; identical-content repeat listings are neutral (no credit, no debit).
+- **The review-evidence ledger has a standardized read surface.** The list event returns a
+  per-record index, per-finding chain summaries composed from the close gate's own derivations,
+  and approval currency, replacing hand-parsing of the ledger file.
 
-- **Wave records render a current-state review projection.** `wave.md` carries a generated signoff table (one `Signoff | State | Why | Next action` row per required key) and a finding-synthesis summary derived from the canonical event ledger, so approval currency and open blocks are readable at a glance while `events.jsonl` remains the only authority.
+- **Wave records render a current-state review projection:** a generated signoff table and
+  finding-synthesis summary derived from the ledger, readable at a glance while `events.jsonl`
+  remains the only authority.
 
-- **Context-efficiency telemetry measures per-wave token savings end to end.** A three-stage model (plan/implement/review) records every first-party tool call durably per wave, publishes checkpoints into wave records at lifecycle boundaries, and seals/compacts at close. Credits cover derived artifacts (floored per artifact against the request), demonstrably-read state files, and digest tools under a bounded-enumeration rule — a response credits only what it conveys or enumerates as live, and listings never credit closed history. Pre-wave exploration is held in an explicit general bucket and folded into the next wave at creation or preparation. A separately labeled exploration-avoided estimate from memory advisories is reported but never summed into the measured total.
+- **Context-efficiency telemetry measures per-wave token savings end to end,** with durable
+  per-wave recording, lifecycle checkpoints, and honest crediting rules; a paired-evaluation
+  scaffold lets counterfactual claims graduate from estimates to measurements.
 
-- **An in-band MCP-first retrieval directive with a measuring sensor.** Every wave activation and review response carries the retrieval-posture directive (rule, recorded escape hatch, and the advisory it clears), now covering implementation, review verification, repair work, and briefed subagents; a sensor flags near-zero code-retrieval telemetry against a non-trivial diff, cleared by a recorded rationale.
+- **An in-band MCP-first retrieval directive with a measuring sensor:** every wave activation
+  and review response carries the retrieval-posture rule, and a sensor flags near-zero
+  retrieval telemetry against a non-trivial diff, cleared by a recorded rationale.
 
-- **A paired-evaluation scaffold makes the counterfactual measurable.** Registered evaluation scopes accept quality-equivalent paired evidence (with-tooling vs without) through a typed attach/replace/revoke surface, so "what would the agent have spent" claims can graduate from estimates to measurements.
+- **Commits trace back to their reasoning.** `code_commit_provenance` maps a commit or blamed
+  line to the wave(s) that produced it and their recorded decision-log reasoning.
 
-- **Commits trace back to their reasoning.** `code_commit_provenance` maps a commit SHA or a blamed line to the wave(s) that produced it and their recorded decision-log reasoning, honest about conflicts and absences.
-
-- **The agent memory layer supplies, validates, and populates its own records.** Evidence-derived candidates draft conservatively from decision logs and repaired findings (`memory_propose`); duplicate detection is diagnostic, never destructive; wave close requires each candidate to be explicitly validated (promote/retain/reject/rewrite) against its evidence and current target; and deterministic structural criteria may auto-promote a candidate to active — auto-supersede, merge, and delete remain forbidden. A hermetic retrieval eval records the ranking-policy baseline.
-
-- **Historical memory backfill at install and upgrade.** Existing wave history is mechanically drafted into memory candidates with resumable, transactionally unique runs; setup and upgrade refuse semantic-index publication while drafted candidates await validation, and publication is protected by a run-scoped receipt integrated with the index epoch, so it happens exactly once even across interrupted or version-mixed runs.
+- **The agent memory layer supplies, validates, and populates its own records:**
+  evidence-derived candidates draft conservatively, duplicate detection is diagnostic only,
+  close requires explicit validation of each candidate, and historical backfill runs at install
+  and upgrade with exactly-once publication protection.
 
 ### Fixed
 
-- **Lifecycle mutations are serialized and forward-recoverable.** An advisory per-repository lock covers the mutating lifecycle tools with a clear busy diagnostic; multi-file wave mutations write their referencing record last so an interruption converges on retry; prepare validates council seat alignment against the generated brief.
+- **Lifecycle mutations are serialized and forward-recoverable** behind an advisory
+  per-repository lock, with multi-file mutations written referencing-record-last so an
+  interruption converges on retry.
 
-- **The test suite and background index builds no longer interfere.** Mutual exclusion with atomic post-acquire rechecks in both directions (suite defers to a running build, hook-spawned builds defer to a running suite) — holding nothing while waiting, so neither side can present as a phantom peer.
+- **The test suite and background index builds no longer interfere:** mutual exclusion with
+  atomic post-acquire rechecks in both directions, holding nothing while waiting.
 
-- **Public search vocabularies have one source of truth.** A canonical contract module now feeds both the serving handlers and a docs-vs-code constants lint, including the complete five-value fallback-reason set; documented model names, versions, and content values fail the docs gate when they drift from code.
+- **Public search vocabularies have one source of truth:** a canonical contract module feeds
+  both the serving handlers and a docs-vs-code constants lint, so documented names and versions
+  fail the docs gate when they drift.
 
-- **Silent telemetry losses repaired.** Non-writing review-evidence responses (previews, errors, listings) record their costs instead of being dropped by a swallowed type error; lifecycle focus can no longer be set from an unresolvable wave argument; one unprojectable telemetry row can no longer block MCP reload or upgrade (unknown wave keys are skipped and surfaced explicitly); per-stage savings reconcile exactly with the displayed total (a net-negative stage floors at zero); and general-bucket savings survive process restarts instead of orphaning.
+- **Silent telemetry losses repaired:** non-writing review responses record their costs,
+  per-stage savings reconcile exactly with the total, and general-bucket savings survive
+  restarts.
 
-- **Memory retrieval ranking respects policy tiers.** Semantic similarity now tie-breaks within a confidence tier instead of overriding trust policy wholesale, so high-trust records are never demoted below fresher-but-less-trusted matches; the recorded eval baseline independently confirms the fix.
+- **Memory retrieval ranking respects policy tiers:** semantic similarity tie-breaks within a
+  confidence tier instead of demoting high-trust records below fresher matches.
 
-- **`memory_propose` extracts repair targets from the right fields.** Candidate targets now come from the public path and artifact identifiers, never from the verification command line — a finding repaired in one file no longer gets attributed to the test runner that verified it.
-
-- **Dashboard rendering repairs.** Multi-line acceptance-criteria and task continuation lines render completely (backend list-item extraction, not a CSS patch), and wave-document rendering handles the current record format.
-
-- **The `wf` CLI resolves its repository root independently of the working directory.** Dispatched subcommands work from any cwd inside the checkout.
-
-- **Freshly scaffolded wave records pass docs-lint as generated** and survive their first lifecycle transition without manual repair.
-
-- **Operational contracts rewritten from measured evidence.** RELIABILITY and the performance budget now cite recorded measurements with lint-bound claim lines, and performance-test budgets are contention-safe: a registered budget table, a slowdown guard that exercises the real thresholds, and a permissiveness invariant that fails on inflated budgets.
-
-- **Upgrades crossing the tool rename no longer fail at the pre-extract dashboard stop.** The lock-cutover hook resolves the dashboard-stop entry point with a fallback to the retired pre-rename symbol and raises a legible error only when neither exists.
-
-- **Post-extraction upgrade hooks run the newly extracted code, not a stale cache.** The docs-gate projection reloads a pre-extraction `review_evidence` module in place before running, and the memory-backfill loader applies the same in-place reload, so a pre-upgrade runner's cached modules can no longer shadow the just-installed implementation.
-
-- **A recovered memory resume clears its own failure marker.** A successful `--resume-after-memory` removes the retained `failed_phase` marker when it names the phase the resume just recovered, so cleanup proceeds without a full re-run; markers naming other phases are never cleared by an unrelated success.
-
-- **Memory-publication success survives trailing index passes.** Publication is recorded at the moment the authorized build epoch commits instead of being re-derived from the last-build row, and follow-on passes in the same publication scope (graph extraction, lexical derived rebuilds, optimization) finalize normally instead of being refused by the memory gate — previously a validated resume deterministically failed with the index left looking mid-build, forcing a manual workaround. The validation gate and every crash-recovery window are unchanged.
-
-- **Opening a wave directly from prepare attributes work to the implement stage.** Context-efficiency focus advances on any activation path, so implementation retrieval no longer counts against planning and the retrieval-posture sensor no longer false-fires on prepare-activated waves.
+- **Operational polish:** `memory_propose` extracts repair targets from the right fields; the
+  dashboard renders multi-line ACs and current wave records; the `wf` CLI resolves its
+  repository root from any cwd; fresh wave scaffolds pass docs-lint as generated; RELIABILITY
+  and the performance budget cite recorded measurements with lint-bound claims; upgrades
+  crossing the tool rename no longer fail at the dashboard stop; post-extraction hooks reload
+  the newly extracted code; a recovered memory resume clears its own failure marker;
+  publication success survives trailing index passes; and prepare-activated waves attribute
+  work to the implement stage.
 
 ### Changed
 
-- **MCP-first retrieval guidance covers the full lifecycle.** The in-band directive, the canonical exploration-order seed, and the rendered implement/review/close prompts now name review verification, repair work, and briefed subagents explicitly — investigation at any stage routes through the retrieval tools first.
+- **MCP-first retrieval guidance covers the full lifecycle,** naming review verification,
+  repair work, and briefed subagents explicitly.
 
-- **`wf_sync_surfaces` reports a structured changed-file manifest** (written/skipped, per file) instead of an opaque render log.
-
-- **Dedicated lock files are consolidated under `.wavefoundry/locks/`** with a one-way migration; every lock creator owns its parent directory, and the dashboard launch mutex is preserved as a persistent file.
-
-- **Short operational subprocesses are time-bounded.** Gardener and surface-render spawns carry configurable timeouts with truncation-flagged captured output; upgrade, setup, and index builds remain intentionally unbounded.
+- **`wf_sync_surfaces` reports a structured changed-file manifest** instead of an opaque render
+  log; **lock files consolidate under `.wavefoundry/locks/`** with a one-way migration; and
+  **short operational subprocesses are time-bounded** with truncation-flagged captured output.
 
 ## [1.13.0] - 2026-07-16
 

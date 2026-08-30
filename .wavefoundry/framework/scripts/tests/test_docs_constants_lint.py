@@ -249,6 +249,102 @@ class DocsConstantsLintTests(unittest.TestCase):
             self.assertEqual(check_docs_constants(Path(tmp)), [])
 
 
+class ChangelogConstantsTests(unittest.TestCase):
+    """Wave 1wip2 (1wgwn): CHANGELOG version-constant claims. One claims
+    engine, two homes: the docs gate checks the top section only while it is
+    `## [Unreleased]`; build_pack checks the section being packed (covered in
+    test_build_pack). Claims are optional-but-must-match; historical sections
+    are never checked."""
+
+    def setUp(self):
+        import importlib
+        import sys
+        sys.path.insert(0, str(SCRIPTS_ROOT / "wave_lint_lib"))
+        from wave_lint_lib import docs_constants_validators as dcv
+        self.dcv = dcv
+
+    def _live(self, name):
+        rel, const = self.dcv._CHANGELOG_CONSTANT_SOURCES[name]
+        return self.dcv._module_constant(rel, const)
+
+    def test_live_repo_top_section_state_is_handled(self):
+        # Whatever the current top-section state (dated post-release, or
+        # Unreleased mid-cycle), the docs-gate home must report no failures
+        # on the healthy tree. Today the top section is dated, which pins the
+        # designed no-op state (the post-release deadlock the council found).
+        self.assertEqual(
+            self.dcv.check_changelog_unreleased_constants(REPO_ROOT), []
+        )
+
+    def test_dated_top_section_is_a_no_op_even_with_stale_claim(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## [1.0.0] - 2026-01-01\n\n"
+                "- `CHUNKER_VERSION` to 1 (stale but RELEASED history)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self.dcv.check_changelog_unreleased_constants(root), []
+            )
+
+    def test_unreleased_top_section_catches_stale_claim(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## [Unreleased]\n\n"
+                "- `CHUNKER_VERSION` to 1\n\n"
+                "## [1.0.0] - 2026-01-01\n\n- `WALKER_VERSION` to 2 (historical)\n",
+                encoding="utf-8",
+            )
+            failures = self.dcv.check_changelog_unreleased_constants(root)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("`CHUNKER_VERSION` claim `1`", failures[0])
+            self.assertIn("fix: change `1` to", failures[0])
+
+    def test_unreleased_top_section_with_matching_or_absent_claims_passes(self):
+        import tempfile
+        live = self._live("CHUNKER_VERSION")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## [Unreleased]\n\n"
+                f"- rechunk; `CHUNKER_VERSION` to {live}\n"
+                "- a bullet with no constant claim at all\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self.dcv.check_changelog_unreleased_constants(root), []
+            )
+
+    def test_shared_engine_catches_the_shipped_pm1l_phrasing(self):
+        stale = (
+            "- `WALKER_VERSION` moved to "
+            + self._live("WALKER_VERSION")
+            + " and\n  `CHUNKER_VERSION` to 34, so existing indexes converge."
+        )
+        failures = self.dcv.check_changelog_section_constants(stale, "ctx")
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("`CHUNKER_VERSION` claim `34`", failures[0])
+
+    def test_historical_quoted_phrasings_never_match(self):
+        hist = (
+            '`CHUNKER_VERSION` bumps from `"24"` to `"25"`; '
+            "`CHUNKER_VERSION` is unchanged, so there is no re-chunk."
+        )
+        self.assertEqual(
+            self.dcv.check_changelog_section_constants(hist, "ctx"), []
+        )
+
+    def test_check_docs_constants_carries_the_changelog_home(self):
+        # The claims ride the existing entry point — no new gate surface.
+        import inspect
+        src = inspect.getsource(self.dcv.check_docs_constants)
+        self.assertIn("check_changelog_unreleased_constants", src)
+
+
 class ScaffoldingIntegrityTests(unittest.TestCase):
     """AC-5: fixtures are this session's actual defect shapes."""
 

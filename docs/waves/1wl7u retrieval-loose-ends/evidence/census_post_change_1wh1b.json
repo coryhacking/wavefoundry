@@ -1,0 +1,194 @@
+{
+  "census": "1wh1b-enh executed censuses: prose-id emission sites (all chunkers), notebook emission, kind mirrors, drawio membership",
+  "chunker_version": "38",
+  "walker_version": "14",
+  "prose_id_site_census": {
+    "md_dup_h2": {
+      "site": "chunk_markdown section emission (id=f\"{path}#{slug}\")",
+      "ids": [
+        "docs/guide.md#doc-summary",
+        "docs/guide.md#preamble",
+        "docs/guide.md#setup",
+        "docs/guide.md#setup~2"
+      ],
+      "collisions": {}
+    },
+    "md_dup_h3": {
+      "site": "_split_h3_sections (id=f\"{path}#{h2_slug}/{h3_slug}\")",
+      "collisions": {}
+    },
+    "md_dup_linewindow": {
+      "site": "chunk_markdown oversized-section line-window base (id=f\"{path}#{slug}:L{a}-L{b}\", window lines RELATIVE to extracted prose)",
+      "collisions": {}
+    },
+    "md_preamble_vs_literal_title": {
+      "site": "preamble sentinel slug vs a literal 'Preamble' H2 title",
+      "collisions": {}
+    },
+    "rst_dup": {
+      "site": "_emit_prose_sections shared rst/adoc emission (id=f\"{path}#{slug}\")",
+      "collisions": {}
+    },
+    "adoc_dup": {
+      "site": "_emit_prose_sections via chunk_adoc",
+      "collisions": {}
+    },
+    "md_literal_suffix_shape": {
+      "site": "why bare -N ordinals are unsafe: 'Setup 2' slugifies into the -2 tail",
+      "ids": [
+        "docs/s2.md#doc-summary",
+        "docs/s2.md#preamble",
+        "docs/s2.md#setup",
+        "docs/s2.md#setup~2",
+        "docs/s2.md#setup-2"
+      ],
+      "collisions": {}
+    },
+    "html_regex_fallback_dup": {
+      "site": "chunk_html regex fallback (id=f\"{path}#{_slugify(tag)}\", kind doc; runs when tree-sitter is unavailable)",
+      "collisions": {},
+      "kinds": [
+        "doc"
+      ]
+    },
+    "html_treesitter_path": {
+      "site": "chunk_file on the same source (tree-sitter path when available)",
+      "ids": [
+        "docs/page.html#html-L1",
+        "docs/page.html#body-L1",
+        "docs/page.html#section-L2",
+        "docs/page.html#p-L3",
+        "docs/page.html#section-L5",
+        "docs/page.html#p-L6"
+      ],
+      "collisions": {}
+    },
+    "html_treesitter_same_line_siblings": {
+      "site": "_ts_markup_chunker (id=f\"{path}#{slug}-L{start}\", kind doc; DEFAULT dispatch path)",
+      "ids": [
+        "docs/min.html#html-L1",
+        "docs/min.html#body-L1",
+        "docs/min.html#section-L1",
+        "docs/min.html#p-L1",
+        "docs/min.html#section-L1~2",
+        "docs/min.html#p-L1~2"
+      ],
+      "collisions": {}
+    },
+    "xml_regex_fallback_dup": {
+      "site": "chunk_xml regex fallback (id=f\"{path}#{_slugify(label)}\", kind doc)",
+      "collisions": {},
+      "kinds": [
+        "doc"
+      ]
+    },
+    "config_ts_flat_dup": {
+      "site": "_ts_flat_emit_chunker (id=f\"{path}#{slug}\", kind code; config/markup flat files)",
+      "ids": [
+        "config/app.yaml#node-0",
+        "config/app.yaml#node-1"
+      ],
+      "collisions": {},
+      "kinds": [
+        "code"
+      ]
+    },
+    "collision_free_controls": {
+      "note": "fence :code-N file-pass ordinals, SDL crumb_counts, #cell-N, one-per-file diagrams \u2014 all collision-free by construction",
+      "collisions_found": {}
+    }
+  },
+  "notebook_census": {
+    "emitted": [
+      {
+        "id": "docs/analysis.ipynb#cell-0",
+        "kind": "doc",
+        "language": null,
+        "section": "notebook > Analysis Overview"
+      },
+      {
+        "id": "docs/analysis.ipynb#cell-1",
+        "kind": "doc-code",
+        "language": "python",
+        "section": "notebook > Cell 2"
+      },
+      {
+        "id": "docs/analysis.ipynb#cell-2",
+        "kind": "doc-code",
+        "language": "python",
+        "section": "notebook > Cell 3"
+      }
+    ],
+    "output_sentinel_in_any_chunk_text": false,
+    "per_cell_language_metadata_honored": false,
+    "docs_table_ids_today": [
+      "docs/analysis.ipynb#cell-0",
+      "docs/analysis.ipynb#cell-1",
+      "docs/analysis.ipynb#cell-2"
+    ],
+    "ipynb_is_code_table_eligible": false,
+    "code_cell_rows_shipped_today": [
+      "docs/analysis.ipynb#cell-0",
+      "docs/analysis.ipynb#cell-1",
+      "docs/analysis.ipynb#cell-2"
+    ]
+  },
+  "kind_mirror_census": {
+    "indexer._is_docs_kind_members": [
+      "doc",
+      "seed",
+      "prompt",
+      "doc-summary",
+      "doc-code"
+    ],
+    "harness._DOCS_KINDS": [
+      "doc",
+      "doc-code",
+      "doc-summary",
+      "prompt",
+      "seed"
+    ],
+    "server_impl.DOCS_SEARCH_KINDS": [
+      "architecture",
+      "doc",
+      "doc-code",
+      "doc-summary",
+      "prompt",
+      "seed"
+    ],
+    "server_impl._doc_matches_kind_doc_code_matches_any_filter": true,
+    "server_impl_code_ask_partition_tuples_count": 0,
+    "server_impl_validation_required_tuple_present": false,
+    "chunker._DOCS_BREADCRUMB_KINDS": [
+      "doc",
+      "seed",
+      "prompt",
+      "doc-code"
+    ],
+    "mirrors_key_on_kind_not_format": true,
+    "note": "notebook cells reuse the landed doc-code kind, so every mirror carries them with no new site; verified by the docs_table_ids post-change regression, not assumed."
+  },
+  "drawio_census": {
+    "walked_paths": [
+      "docs/readme.md"
+    ],
+    "drawio_walks_in_today": false,
+    "in_generated_exclude_extensions": true,
+    "excalidraw_precedent_in_generated_exclude": true,
+    "in_binary_extensions": false,
+    "walker_version": "14",
+    "chunk_output": [
+      {
+        "id": "docs/pipeline.drawio:L1-L16",
+        "kind": "code",
+        "lines": [
+          1,
+          16
+        ]
+      }
+    ],
+    "docs_rows_shipped": [],
+    "code_table_eligible": false,
+    "cost_summary": "walked + chunked (one code-kind line window) but ships zero rows in either table: pure walk/chunk cost, zero value"
+  }
+}

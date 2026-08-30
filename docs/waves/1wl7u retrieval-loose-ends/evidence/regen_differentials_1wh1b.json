@@ -1,0 +1,14 @@
+{
+  "old_chunker_version": "37",
+  "new_chunker_version": "38",
+  "preexisting_sources_byte_identical": true,
+  "classified_deltas": {
+    "repeat-title-ordinal-id": 1,
+    "notebook-cell-kind": 2
+  },
+  "unclassified_deltas": [],
+  "revert_simulation_detects_mismatch": true,
+  "specs_negatives_zero_delta": true,
+  "specs_negatives_changed": [],
+  "result": "PASS"
+}

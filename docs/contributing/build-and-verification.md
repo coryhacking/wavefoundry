@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-08-29
 
 ## Verification Commands
 
@@ -142,11 +142,11 @@ GraphQL SDL / Protobuf files chunk structure-aware with breadcrumbed prose units
 serves documentation content — doc-kind prose chunks (markdown, reStructuredText, and
 AsciiDoc sections, plain-text/extensionless docs, docstring doc chunks, HTML/XML element text,
 notebook markdown cells) plus `doc-code` chunks for the fenced code blocks, code-directive
-bodies, and listing blocks extracted from those formats AND standalone hand-authored diagram
+bodies, listing blocks, and notebook code cells extracted from those formats AND standalone hand-authored diagram
 files (Mermaid `.mmd`/`.mermaid`, PlantUML `.puml`/`.plantuml`, Graphviz DOT `.dot`/`.gv` —
 one title-or-stem-breadcrumbed unit per file), filterable via
 `docs_search(kind='doc-code')` (non-exhaustive; chunk-kind routing is the authority;
-prompt-kind files keep fences inline; tool-generated diagram formats stay out) — while
+prompt-kind files keep fences inline; tool-generated diagram formats contribute extracted labels, never raw serializations) — while
 machine-authority files (per-wave `events.jsonl`, memory-archive bodies, the secret-scan
 findings ledger) stay excluded by path predicates and route through typed tools. CSV is never
 indexed (use a markdown carrier page); `indexing.walk_reinclude_filenames` can restore a

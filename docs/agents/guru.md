@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-08-27
+Last verified: 2026-08-29
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -653,14 +653,17 @@ other structured files chunk syntax-aware.
 including markdown sections, reStructuredText and AsciiDoc sections, plain-text and
 extensionless documentation files, docstring/comment doc chunks extracted from code, HTML/XML
 element text, and notebook markdown cells, plus `doc-code` chunks: fenced code blocks,
-code-directive bodies, and listing blocks extracted from those documentation formats
-(commands, config snippets, mermaid diagrams), and standalone hand-authored diagram files —
+code-directive bodies, listing blocks, and notebook code cells extracted from those
+documentation formats (commands, config snippets, mermaid diagrams, `.ipynb` cell source —
+notebook outputs stay unindexed), and standalone hand-authored diagram files —
 Mermaid (`.mmd`/`.mermaid`), PlantUML (`.puml`/`.plantuml`), Graphviz DOT (`.dot`/`.gv`) —
 as one title-or-stem-breadcrumbed unit per file (whole-repo eligible outside `.wavefoundry/`;
 nested framework diagram files need the include-prefix opt-in), breadcrumbed and filterable
 via `docs_search(kind='doc-code')` (a non-exhaustive list; chunk-kind routing is the
-authority; prompt-kind files keep fences inline by design; tool-generated diagram formats
-such as `.drawio`/`.excalidraw` stay out). Machine-authority
+authority; prompt-kind files keep fences inline by design; tool-generated diagram formats —
+draw.io (`.drawio`, both save forms) and Excalidraw (`.excalidraw`) — contribute their
+extracted node/edge/frame LABELS as one breadcrumbed `doc-code` unit per page or board,
+never their raw geometry serializations). Machine-authority
 data files — per-wave `events.jsonl` ledgers, memory-archive bodies, the committed secret-scan
 findings ledger — are excluded by path predicates and served through typed tools, never
 search. CSV is not indexed under any configuration; a markdown carrier page describing the
@@ -743,9 +746,9 @@ When falling back:
 - Confidence is implicitly `medium` (keyword match only, no semantic ranking).
 - Note that results are from a keyword scan and may be incomplete.
 
-Once **Enable Wavefoundry MCP** has been run and `setup_wavefoundry.py` has built the index, switch back to the MCP tools.
+Once **Enable Wavefoundry MCP** has been run and `wf setup` has built the index, switch back to the MCP tools.
 
-**Availability note:** MCP is not active at `Init wave framework` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `setup_wavefoundry.py` after registration (`setup_index.py` remains the compatibility implementation path behind it).
+**Availability note:** MCP is not active at `Init Wavefoundry` time — it is registered separately via **Enable Wavefoundry MCP**. The index is built via `wf setup` after registration (`setup_index.py` remains the compatibility implementation path behind it).
 
 ## Incident Documentation
 

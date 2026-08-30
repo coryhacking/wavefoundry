@@ -52,5 +52,59 @@
     "query": "which build target links against the parser library",
     "expected_file": "dot/build-graph.gv",
     "expected_anchor": "query_engine -> parser_lib [label=\"links against\"]"
+  },
+  {
+    "id": "drawio-q01",
+    "query": "which component terminates mutual TLS at the edge",
+    "expected_file": "drawio/platform-architecture.drawio",
+    "expected_anchor": "Ingress gateway terminates mutual TLS"
+  },
+  {
+    "id": "drawio-q02",
+    "query": "where does fraud scoring happen in the platform",
+    "expected_file": "drawio/platform-architecture.drawio",
+    "expected_anchor": "Fraud scoring engine"
+  },
+  {
+    "id": "drawio-q03",
+    "query": "what worker reconciles the ledger",
+    "expected_file": "drawio/platform-architecture.drawio",
+    "expected_anchor": "Ledger reconciliation worker"
+  },
+  {
+    "id": "drawio-q04",
+    "query": "how do analytics snapshots reach the cold region",
+    "expected_file": "drawio/platform-architecture.drawio",
+    "expected_anchor": "replicates snapshots to the cold region"
+  },
+  {
+    "id": "drawio-q05",
+    "query": "what gates a canary rollout to production",
+    "expected_file": "drawio/deploy-flow.drawio",
+    "expected_anchor": "canary rollout gate checks error budget"
+  },
+  {
+    "id": "excalidraw-q01",
+    "query": "who should be paged first during an incident",
+    "expected_file": "excalidraw/incident-runbook.excalidraw",
+    "expected_anchor": "page the on-call resolver first"
+  },
+  {
+    "id": "excalidraw-q02",
+    "query": "when do we escalate to the database owner",
+    "expected_file": "excalidraw/incident-runbook.excalidraw",
+    "expected_anchor": "escalate to the database owner after two failed probes"
+  },
+  {
+    "id": "excalidraw-q03",
+    "query": "which runbook frame covers severity one containment",
+    "expected_file": "excalidraw/incident-runbook.excalidraw",
+    "expected_anchor": "Sev1 containment steps"
+  },
+  {
+    "id": "excalidraw-q04",
+    "query": "how often does the incident commander rotate",
+    "expected_file": "excalidraw/incident-runbook.excalidraw",
+    "expected_anchor": "rotate the incident commander every four hours"
   }
 ]

@@ -207,7 +207,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in the index-state store's build snapshot after rebuild.
-CHUNKER_VERSION = "37"  # 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "39"  # 1wl7v (diagram-label-retrieval, wave 1wl7w): tool-diagram LABEL EXTRACTION. .drawio files chunk one docs-routed kind="doc-code" unit per <diagram> page — breadcrumb (page name, or the file stem when the name matches the auto Page-N pattern) plus extracted labels: mxCell value attrs AND object/UserObject wrapper label attrs (draw.io's Edit Data serialization; value-only extraction silently drops those labels), two-layer HTML decode (XML attr layer via ElementTree, then tag strip + html.unescape). The canonical compressed save (URL-encode -> raw deflate -> base64) inflates through a bounded decompressobj seam capped at DRAWIO_MAX_INFLATED_BYTES per page (an executed 64 KB deflate bomb inflates past 10 MB; the on-disk walk cap cannot see it) — over-cap, malformed, or label-free pages emit ZERO chunks, a recorded departure from the 1whuq raw-source degrade because these serializations are machine noise. Page ids ride _dedupe_id_base on the `diagram` base (#diagram, #diagram~2). .excalidraw files chunk one labels-plus-frames unit per file (originalText preferred, isDeleted ghosts and empty strings SKIPPED, files blob never read), id #diagram, language pins drawio/excalidraw. Paired with WALKER_VERSION 15 (both extensions re-admitted at the walk layer with retrieval value). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (38) 1wh1b (retrieval-loose-ends, wave 1wl7u): two chunk-set shape changes. (1) Notebook code cells emit kind="doc-code" instead of kind="code" — .ipynb files are never code-eligible, so code cells reached NEITHER table (the 1whup both-tables drop class); doc-code routes them into the DOCS table on the landed plumbing (code size cap, breadcrumb injection; `#cell-N` ids and notebook-level kernel language unchanged; outputs stay unread). Executed on the frozen nb golden set: code-cell recall@5 0 -> measured post-change. (2) Repeat-only file-pass prose-id ordinals via _dedupe_id_base: duplicate-titled sections in markdown (section, H3-split, line-window bases, preamble-vs-literal-title, doc-summary sentinel), rst/adoc (_emit_prose_sections), the HTML/XML regex fallbacks, and the tree-sitter markup path's {slug}-L{start} ids (same-line siblings, CODE-DEL-1) previously emitted IDENTICAL ids that collapsed silently (last-writer-wins) in the id-keyed delta planner and sqlite chunk registry. First occurrence keeps its bare id (single-title dominant case byte-identical, differential-pinned); the k-th repeat gets `~k` — `~` is outside the _slugify alphabet, so no literal heading can forge the shape (bare -N is a legal slug tail: `Setup 2` -> `setup-2`; the SDL -N ordinal shape deliberately NOT reused). Fence/code-directive ids keep their raw slug base (already unique via the 1whup file-pass fence counter). _ts_flat_emit_chunker (config/markup code-kind `{path}#{slug}` ids) is a recorded adjacent-class follow-up, not changed here. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (37) 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -368,12 +368,29 @@ ADOC_EXTENSIONS = {".adoc", ".asciidoc"}
 # CHUNKER-ONLY registration — these extensions deliberately do NOT join
 # _KNOWN_TEXT_EXTENSIONS (that registration bypasses the content sniff, and
 # .dot has a binary Word-template namesake the sniff excludes today). Walk
-# membership is unchanged. Tool-generated formats (.drawio, .excalidraw) and
-# ambiguous extensions (.d2, Structurizr .dsl) are excluded by decision.
+# membership is unchanged. Tool-generated formats (.drawio, .excalidraw) get
+# LABEL EXTRACTION instead (wave 1wl7w, superseding their exclusions — see
+# DRAWIO_EXTENSIONS below); ambiguous extensions (.d2, Structurizr .dsl)
+# remain excluded by decision.
 MERMAID_EXTENSIONS = {".mmd", ".mermaid"}
 PLANTUML_EXTENSIONS = {".puml", ".plantuml"}
 DOT_EXTENSIONS = {".dot", ".gv"}
 DIAGRAM_EXTENSIONS = MERMAID_EXTENSIONS | PLANTUML_EXTENSIONS | DOT_EXTENSIONS
+
+# Wave 1wl7w (1wl7v): tool-diagram label-extraction formats. Unlike the
+# hand-authored DIAGRAM_EXTENSIONS family whose raw source is readable, these
+# serializations are machine noise (mxGraph geometry XML; Excalidraw
+# coordinate JSON), so only EXTRACTED labels are indexed and every degenerate
+# input degrades to ZERO chunks. Registration is chunker-extension-gated and
+# the extensions never join _KNOWN_TEXT_EXTENSIONS (content sniff stays).
+DRAWIO_EXTENSIONS = {".drawio"}
+EXCALIDRAW_EXTENSIONS = {".excalidraw"}
+# Per-page inflated-bytes cap for the canonical compressed drawio save
+# (URL-encode -> raw deflate -> base64). The on-disk MAX_INDEX_FILE_BYTES
+# walk cap cannot bound inflation (an executed 64 KB deflate bomb inflates
+# past 10 MB), so the bounded decompressobj seam enforces this cap and an
+# over-cap page degrades to zero chunks (1wl7v Requirement 1).
+DRAWIO_MAX_INFLATED_BYTES = 5_000_000
 
 # Spec-format family (wave 1wik9, 1wfso): extension-gated dispatch for the
 # GraphQL SDL and Protobuf structure-aware chunkers (AsyncAPI is
@@ -410,6 +427,23 @@ def _slugify(text: str) -> str:
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = slug.strip("-")
     return slug
+
+
+def _dedupe_id_base(base: str, counts: dict[str, int]) -> str:
+    """Repeat-only file-pass ordinal for prose id bases (1wh1b, wave 1wl7u).
+
+    The first occurrence of a base keeps its bare form (id stability for the
+    dominant single-title case); the k-th repeat within one chunk_file pass
+    gets a ``~k`` suffix. ``~`` is stripped by ``_slugify`` (outside its
+    ``[\\w\\s-]`` keep-set), so no literal heading can ever produce a suffixed
+    shape — a bare ``-N`` tail is a legal slug (``Setup 2`` -> ``setup-2``),
+    which is why the SDL ``-N`` ordinal shape must not be reused here.
+    Duplicate bases otherwise collapse silently in the id-keyed delta planner
+    and the sqlite chunk registry (last writer wins).
+    """
+    n = counts.get(base, 0) + 1
+    counts[base] = n
+    return base if n == 1 else f"{base}~{n}"
 
 
 @dataclass
@@ -925,6 +959,15 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
     out: list[Chunk] = []
     total = len(windows)
     base_section = chunk.section or ""
+    # For SYNTHESIZED chunk text (the drawio/excalidraw label units), the
+    # text-relative window numbers can exceed the source file's real line
+    # count (a one-line board with thousands of labels), so the line
+    # METADATA is clamped to the parent's span — a citation must never point
+    # past the file. The id suffix keeps the raw window numbers: they are
+    # the uniqueness anchor, and clamping them would collide (1wl7w
+    # delivery repair; scoped to the synthesized kinds so existing corpus
+    # chunk shapes stay byte-identical).
+    clamp_end = chunk.lines[1] if chunk.language in ("drawio", "excalidraw") else None
     for idx, (ws, we, wl) in enumerate(windows, start=1):
         section = f"{base_section} (part {idx}/{total})" if base_section else f"(part {idx}/{total})"
         body_text = "\n".join(wl)
@@ -932,12 +975,14 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
             text = preamble_text + "\n" + body_text
         else:
             text = body_text
+        meta_lines = (ws, we) if clamp_end is None else (
+            min(ws, clamp_end), min(we, clamp_end))
         out.append(Chunk(
             id=f"{chunk.id}:L{ws}-L{we}",
             path=chunk.path,
             kind=chunk.kind,
             language=chunk.language,
-            lines=(ws, we),
+            lines=meta_lines,
             section=section,
             text=text,
         ))
@@ -1084,8 +1129,22 @@ def _split_h3_sections(
     path: str,
     default_kind: str,
     fence_counter: Optional[list[int]] = None,
+    h2_id_base: Optional[str] = None,
+    id_counts: Optional[dict[str, int]] = None,
 ) -> list[Chunk]:
-    """Split an oversized ## section body at ### boundaries."""
+    """Split an oversized ## section body at ### boundaries.
+
+    ``h2_id_base`` is the caller-resolved (already deduped) id base for this
+    ## section occurrence; ``h2_slug`` stays the raw slug because fence ids
+    keep their original base (they are unique via the file-pass fence
+    counter). Composed ``{h2_id_base}/{h3_slug}`` bases dedupe through the
+    shared ``id_counts`` so repeated ### titles within one section stay
+    collision-free (1wh1b).
+    """
+    if h2_id_base is None:
+        h2_id_base = h2_slug
+    if id_counts is None:
+        id_counts = {}
     chunks: list[Chunk] = []
     sub_sections: list[tuple[str, int, str]] = []
     lines = body.splitlines(keepends=True)
@@ -1137,7 +1196,11 @@ def _split_h3_sections(
         prose = prose.strip()
 
         if prose:
-            id_str = f"{path}#{h2_slug}/{h3_slug}" if h3_slug else f"{path}#{h2_slug}"
+            if h3_slug:
+                sub_base = _dedupe_id_base(f"{h2_id_base}/{h3_slug}", id_counts)
+                id_str = f"{path}#{sub_base}"
+            else:
+                id_str = f"{path}#{h2_id_base}"
             chunks.append(Chunk(
                 id=id_str,
                 path=path,
@@ -1325,6 +1388,13 @@ def chunk_markdown(
     # chunk_markdown invocation so fence chunk ids stay unique across
     # duplicate-titled sections and multi-fence sections alike.
     fence_counter: list[int] = [0]
+    # File-pass prose-id dedupe (1wh1b): each section occurrence claims its
+    # slug; repeats get a `~k` suffix. Fence ids are NOT deduped (unique via
+    # fence_counter, and re-basing them would churn ids for no correctness
+    # gain). Seeded with the `#doc-summary` sentinel the dispatch layer emits
+    # for every markdown file, so a literal "Doc Summary" heading cannot
+    # collide with the summary chunk.
+    id_counts: dict[str, int] = {"doc-summary": 1}
 
     # Split on primary heading level
     sections: list[tuple[Optional[str], int, str]] = []  # (title, start_line, text)
@@ -1353,6 +1423,9 @@ def chunk_markdown(
 
         is_preamble = title is None
         slug = _slugify(title) if title else "preamble"
+        # Resolved (repeat-deduped) id base for THIS section occurrence.
+        # Fence extraction below keeps the raw slug.
+        id_base = _dedupe_id_base(slug, id_counts)
         section_end = start_line + len(body.splitlines())
 
         # Preamble: no breadcrumb injection
@@ -1368,11 +1441,11 @@ def chunk_markdown(
                     if (default_kind in ("seed", "prompt")
                             and len(prose) > MAX_CHUNK_CHARS):
                         chunks.extend(_decompose_oversized_markdown_body(
-                            prose, start_line, path, default_kind, slug,
+                            prose, start_line, path, default_kind, id_base,
                         ))
                     else:
                         chunks.append(Chunk(
-                            id=f"{path}#{slug}",
+                            id=f"{path}#{id_base}",
                             path=path,
                             kind=default_kind,
                             language=None,
@@ -1397,11 +1470,11 @@ def chunk_markdown(
                     if (default_kind in ("seed", "prompt")
                             and len(prose) > MAX_CHUNK_CHARS):
                         chunks.extend(_decompose_oversized_markdown_body(
-                            prose, start_line, path, default_kind, slug,
+                            prose, start_line, path, default_kind, id_base,
                         ))
                         continue
                     chunks.append(Chunk(
-                        id=f"{path}#{slug}",
+                        id=f"{path}#{id_base}",
                         path=path,
                         kind=default_kind,
                         language=None,
@@ -1422,6 +1495,7 @@ def chunk_markdown(
             chunks.extend(_split_h3_sections(
                 body, start_line, title, slug, doc_title, path, default_kind,
                 fence_counter=fence_counter,
+                h2_id_base=id_base, id_counts=id_counts,
             ))
             continue
 
@@ -1431,14 +1505,14 @@ def chunk_markdown(
             if prose:
                 if not suppress_h3_split and len(prose) > H3_SPLIT_THRESHOLD_CHARS:
                     for fw_chunk in chunk_line_window(prose, path):
-                        fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
                         fw_chunk.kind = default_kind
                         fw_chunk.section = section_label
                         fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
                         chunks.append(fw_chunk)
                 else:
                     chunks.append(Chunk(
-                        id=f"{path}#{slug}",
+                        id=f"{path}#{id_base}",
                         path=path,
                         kind=default_kind,
                         language=None,
@@ -1463,14 +1537,14 @@ def chunk_markdown(
                 # For oversized sections without ### (line-window fallback), inject breadcrumb
                 if len(prose) > H3_SPLIT_THRESHOLD_CHARS:
                     for fw_chunk in chunk_line_window(prose, path):
-                        fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
                         fw_chunk.kind = default_kind
                         fw_chunk.section = section_label
                         fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
                         chunks.append(fw_chunk)
                 else:
                     chunks.append(Chunk(
-                        id=f"{path}#{slug}",
+                        id=f"{path}#{id_base}",
                         path=path,
                         kind=default_kind,
                         language=None,
@@ -1854,8 +1928,13 @@ def _emit_prose_sections(
     chunks: list[Chunk] = []
     # File-pass-scoped code ordinal shared across every section (1whup).
     fence_counter: list[int] = [0]
+    # File-pass prose-id dedupe (1wh1b), mirroring chunk_markdown: each
+    # section occurrence claims its slug; repeats get `~k`. Code-directive /
+    # listing ids keep the raw slug (unique via fence_counter).
+    id_counts: dict[str, int] = {}
     for title, start_line, body_start, body_lines in sections:
         slug = _slugify(title) if title else "preamble"
+        id_base = _dedupe_id_base(slug, id_counts)
         section_label = None
         if title:
             section_label = f"{doc_title} > {title}" if doc_title else title
@@ -1870,7 +1949,7 @@ def _emit_prose_sections(
         section_end = body_start + max(len(body_lines) - 1, 0)
         if title is None:
             chunks.append(Chunk(
-                id=f"{path}#{slug}",
+                id=f"{path}#{id_base}",
                 path=path,
                 kind="doc",
                 language=None,
@@ -1880,14 +1959,14 @@ def _emit_prose_sections(
             ))
         elif len(prose) > H3_SPLIT_THRESHOLD_CHARS:
             for fw_chunk in chunk_line_window(prose, path):
-                fw_chunk.id = f"{path}#{slug}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
                 fw_chunk.kind = "doc"
                 fw_chunk.section = section_label
                 fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
                 chunks.append(fw_chunk)
         else:
             chunks.append(Chunk(
-                id=f"{path}#{slug}",
+                id=f"{path}#{id_base}",
                 path=path,
                 kind="doc",
                 language=None,
@@ -2159,6 +2238,171 @@ def chunk_diagram(source: str, path: str) -> list[Chunk]:
         lines=(1, source.count("\n") + 1),
         section=title,
         text=f"{title}\n\n{body}",
+    )]
+
+
+# Auto-generated draw.io page names carry no retrieval value as breadcrumbs.
+_DRAWIO_AUTO_PAGE_NAME_RE = re.compile(r"^Page[- ]?\d+$")
+# Tag-shaped runs only, so a literal "a < b" label survives the strip.
+_HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
+
+
+def _drawio_clean_label(value: str) -> str:
+    """Second decode layer for an mxCell/object label: ElementTree already
+    applied the XML attribute decode; this strips HTML tags, decodes HTML
+    entities, and collapses whitespace (1wl7v Requirement 1: labels can carry
+    markup like ``<b>Fraud scoring engine</b>``)."""
+    import html as _html
+    text = _HTML_TAG_RE.sub(" ", value)
+    text = _html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _drawio_page_model(diagram_elem):
+    """A page's ``mxGraphModel`` element: the nested child (plain save) or the
+    inflated compressed body (canonical save: URL-encode -> raw deflate ->
+    base64). None on ANY degenerate shape — bad base64, zlib error, an
+    over-cap or truncated inflate (the bounded decompressobj seam), undecodable
+    bytes, or unparseable model XML — so degenerate pages emit zero chunks."""
+    import base64 as _base64
+    import binascii as _binascii
+    import urllib.parse as _urlparse
+    import xml.etree.ElementTree as _ET
+    import zlib as _zlib
+    children = list(diagram_elem)
+    if children:
+        return children[0]
+    body = (diagram_elem.text or "").strip()
+    if not body:
+        return None
+    # Whitespace inside base64 is legal by the codec's own default semantics
+    # (MIME 76-column wrapping); strip it BEFORE the strict decode so a
+    # reflowed body is not silently dropped, while validate=True still
+    # rejects genuinely non-alphabet bytes (1wl7w delivery repair).
+    body = "".join(body.split())
+    try:
+        raw = _base64.b64decode(body, validate=True)
+    except (_binascii.Error, ValueError):
+        return None
+    d = _zlib.decompressobj(-15)
+    try:
+        inflated = d.decompress(raw, DRAWIO_MAX_INFLATED_BYTES)
+    except _zlib.error:
+        return None
+    if not d.eof or d.unconsumed_tail:
+        return None  # over-cap or truncated: degrade, never inflate unbounded
+    try:
+        model_xml = _urlparse.unquote(inflated.decode("utf-8"))
+        return _ET.fromstring(model_xml)
+    except (UnicodeDecodeError, _ET.ParseError):
+        return None
+
+
+def chunk_drawio(source: str, path: str) -> list[Chunk]:
+    """Chunk a draw.io / diagrams.net file into docs-routed doc-code LABEL
+    units (wave 1wl7w, 1wl7v): one chunk per ``<diagram>`` page carrying a
+    breadcrumb line (page ``name`` unless it matches the auto ``Page-N``
+    pattern, else the file stem) plus the page's extracted labels — ``mxCell``
+    ``value`` attributes AND ``object``/``UserObject`` wrapper ``label``
+    attributes (draw.io's Edit Data serialization; value-only extraction
+    silently drops those labels) — in document order. Raw source, geometry,
+    and style strings are never indexed; malformed or over-cap pages emit
+    nothing. Ids ride ``_dedupe_id_base`` on the ``diagram`` base so a
+    single-page file keeps the 1whuq ``#diagram`` shape."""
+    import xml.etree.ElementTree as _ET
+    path = _normalize_path(path)
+    if not source.strip():
+        return []
+    try:
+        root = _ET.fromstring(source)
+    except _ET.ParseError:
+        return []
+    stem = _file_stem(path)
+    line_count = source.count("\n") + 1
+    id_counts: dict[str, int] = {}
+    chunks: list[Chunk] = []
+    for diagram in root.iter("diagram"):
+        model = _drawio_page_model(diagram)
+        if model is None:
+            continue
+        labels: list[str] = []
+        for elem in model.iter():
+            if elem.tag == "mxCell":
+                value = elem.get("value")
+            elif elem.tag in ("object", "UserObject"):
+                value = elem.get("label")
+            else:
+                continue
+            if not value:
+                continue
+            cleaned = _drawio_clean_label(value)
+            if cleaned:
+                labels.append(cleaned)
+        if not labels:
+            continue
+        name = (diagram.get("name") or "").strip()
+        if not name or _DRAWIO_AUTO_PAGE_NAME_RE.match(name):
+            breadcrumb = stem
+        else:
+            breadcrumb = name
+        chunks.append(Chunk(
+            id=f"{path}#{_dedupe_id_base('diagram', id_counts)}",
+            path=path,
+            kind="doc-code",
+            language="drawio",
+            lines=(1, line_count),
+            section=breadcrumb,
+            text=breadcrumb + "\n\n" + "\n".join(labels),
+        ))
+    return chunks
+
+
+def chunk_excalidraw(source: str, path: str) -> list[Chunk]:
+    """Chunk an Excalidraw file into one docs-routed doc-code LABEL unit
+    (wave 1wl7w, 1wl7v): a file-stem breadcrumb line plus text-element
+    strings (``originalText`` preferred over the display-wrapped ``text``)
+    and frame ``name``s in document order. Elements carrying
+    ``isDeleted: true`` and empty/whitespace-only strings are SKIPPED
+    (deleted ghost labels must never become retrievable). Geometry, styles,
+    and the embedded-image ``files`` blob are never indexed; degenerate
+    inputs emit nothing."""
+    import json as _json
+    path = _normalize_path(path)
+    if not source.strip():
+        return []
+    try:
+        doc = _json.loads(source)
+    except ValueError:
+        return []
+    if not isinstance(doc, dict):
+        return []
+    elements = doc.get("elements")
+    if not isinstance(elements, list):
+        return []
+    labels: list[str] = []
+    for el in elements:
+        if not isinstance(el, dict) or el.get("isDeleted"):
+            continue
+        el_type = el.get("type")
+        if el_type == "text":
+            value = el.get("originalText") or el.get("text") or ""
+        elif el_type == "frame":
+            value = el.get("name") or ""
+        else:
+            continue
+        if isinstance(value, str) and value.strip():
+            labels.append(re.sub(r"\s+", " ", value).strip())
+    if not labels:
+        return []
+    stem = _file_stem(path)
+    return [Chunk(
+        id=f"{path}#diagram",
+        path=path,
+        kind="doc-code",
+        language="excalidraw",
+        lines=(1, source.count("\n") + 1),
+        section=stem,
+        text=stem + "\n\n" + "\n".join(labels),
     )]
 
 
@@ -3621,13 +3865,17 @@ def chunk_html(source: str, path: str) -> list[Chunk]:
         if not sections:
             return _fallback_with_stem(source, path, "html")
 
+        # Repeat-only id dedupe (1wh1b): repeated landmark tags / duplicate
+        # id= attributes previously collided and collapsed in the id-keyed
+        # delta planner.
+        id_counts: dict[str, int] = {}
         for tag, start, sec_lines in sections:
             breadcrumb = f"{stem} > {tag}"
             text = "\n".join(sec_lines).strip()
             if not text:
                 continue
             chunks.append(Chunk(
-                id=f"{path}#{_slugify(tag)}",
+                id=f"{path}#{_dedupe_id_base(_slugify(tag), id_counts)}",
                 path=path,
                 kind="doc",
                 language="html",
@@ -4585,13 +4833,16 @@ def chunk_xml(source: str, path: str) -> list[Chunk]:
         if not sections:
             return _fallback_with_stem(source, path, "xml")
 
+        # Repeat-only id dedupe (1wh1b): repeated shallow element names
+        # previously collided and collapsed in the id-keyed delta planner.
+        id_counts: dict[str, int] = {}
         for label, start, sec_lines in sections:
             breadcrumb = f"{stem} > {label}"
             text = "\n".join(sec_lines).strip()
             if not text:
                 continue
             chunks.append(Chunk(
-                id=f"{path}#{_slugify(label)}",
+                id=f"{path}#{_dedupe_id_base(_slugify(label), id_counts)}",
                 path=path,
                 kind="doc",
                 language="xml",
@@ -5901,6 +6152,11 @@ def _ts_markup_chunker(
     source_lines = source.splitlines()
     chunks: list[Chunk] = []
     counter = 0
+    # CODE-DEL-1 (wave 1wl7u): the -L{start} anchor alone is NOT unique —
+    # same-line sibling elements (compact/minified HTML) share a start line
+    # and collided in the id-keyed delta planner. The per-call dedupe gives
+    # the k-th repeat of a base a `~k` suffix, mirroring the prose-id fix.
+    id_counts: dict[str, int] = {}
 
     def _walk(node, depth: int = 0) -> None:
         nonlocal counter
@@ -5917,7 +6173,7 @@ def _ts_markup_chunker(
             breadcrumb = f"{stem} > {tag}"
             text = _ts_collapse_body(_ts_node_text(node, source_lines))
             chunks.append(Chunk(
-                id=f"{path}#{slug}-L{start}",
+                id=f"{path}#{_dedupe_id_base(f'{slug}-L{start}', id_counts)}",
                 path=path,
                 kind="doc",
                 language=language,
@@ -7446,8 +7702,15 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
     """Chunk a Jupyter notebook into typed chunks — one per non-empty cell.
 
     markdown cells → kind="doc"
-    code cells     → kind="code"
-    raw/unknown    → skipped
+    code cells     → kind="doc-code" (1wh1b: routed into the DOCS table via
+                     _is_docs_kind — .ipynb is never code-eligible, so
+                     kind="code" cells reached NEITHER table; doc-code rides
+                     the landed 1whup plumbing: code size cap and breadcrumb
+                     injection supply cap and section context)
+    raw/unknown    → skipped; cell OUTPUTS are never read (source only)
+
+    ``language`` comes from notebook-level kernel metadata only; per-cell
+    language metadata is deliberately ignored (no shipped mechanism reads it).
     """
     import json
 
@@ -7458,13 +7721,25 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
     except (json.JSONDecodeError, ValueError):
         return chunk_line_window(source, path)
 
+    # Valid-JSON-but-wrong-shape notebooks (QA delivery advisory, 1wh1b):
+    # anything that is not a mapping with a list of mapping cells degrades
+    # to the same line-window fallback instead of raising mid-walk.
+    if not isinstance(nb, dict):
+        return chunk_line_window(source, path)
     cells = nb.get("cells", [])
+    if not isinstance(cells, list) or not all(
+            isinstance(c, dict) for c in cells):
+        return chunk_line_window(source, path)
 
     # Detect kernel language from notebook metadata
     meta = nb.get("metadata", {})
+    if not isinstance(meta, dict):
+        meta = {}
+    kernelspec = meta.get("kernelspec", {})
+    language_info = meta.get("language_info", {})
     language = (
-        meta.get("kernelspec", {}).get("language")
-        or meta.get("language_info", {}).get("name")
+        (kernelspec.get("language") if isinstance(kernelspec, dict) else None)
+        or (language_info.get("name") if isinstance(language_info, dict) else None)
         or "python"
     )
 
@@ -7476,7 +7751,10 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
 
         cell_source = cell.get("source", "")
         if isinstance(cell_source, list):
-            cell_source = "".join(cell_source)
+            cell_source = "".join(
+                part for part in cell_source if isinstance(part, str))
+        if not isinstance(cell_source, str):
+            cell_source = ""
 
         if cell_type not in ("markdown", "code"):
             # skip raw and unknown cell types — still advance virtual line counter
@@ -7507,7 +7785,7 @@ def chunk_jupyter(source: str, path: str) -> list[Chunk]:
             cell_language = None
         else:
             section = f"notebook > Cell {n}"
-            kind = "code"
+            kind = "doc-code"
             cell_language = language
 
         chunk = Chunk(
@@ -7638,6 +7916,12 @@ def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:
 
     if suffix in DIAGRAM_EXTENSIONS:
         return chunk_diagram(source, normalized)
+
+    if suffix in DRAWIO_EXTENSIONS:
+        return chunk_drawio(source, normalized)
+
+    if suffix in EXCALIDRAW_EXTENSIONS:
+        return chunk_excalidraw(source, normalized)
 
     if is_design_json:
         return _chunk_design_json(source, normalized)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-08-29
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -19,7 +19,7 @@ docs gate fails:
 - docs embedding model `Snowflake/snowflake-arctic-embed-s`
 - code embedding model `Snowflake/snowflake-arctic-embed-s`
 - reranker model `cross-encoder/ms-marco-MiniLM-L-6-v2`
-- chunker version `37`
+- chunker version `39`
 
 Both embedding selectors currently reuse one Arctic S instance. Embedding
 inference is FP16 on supported GPU providers and INT8 on CPU at static forward

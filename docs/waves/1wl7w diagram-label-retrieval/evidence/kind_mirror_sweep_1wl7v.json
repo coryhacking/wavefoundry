@@ -1,0 +1,31 @@
+{
+  "indexer._is_docs_kind('doc-code')": true,
+  "harness._DOCS_KINDS": [
+    "doc",
+    "doc-code",
+    "doc-summary",
+    "prompt",
+    "seed"
+  ],
+  "server_impl.DOCS_SEARCH_KINDS": [
+    "architecture",
+    "doc",
+    "doc-code",
+    "doc-summary",
+    "prompt",
+    "seed"
+  ],
+  "_doc_matches_kind doc-code": true,
+  "code_ask partition tuples": 0,
+  "validation_required tuple": false,
+  "chunker._DOCS_BREADCRUMB_KINDS": [
+    "doc",
+    "seed",
+    "prompt",
+    "doc-code"
+  ],
+  "new chunkers emit kind": [
+    "doc-code"
+  ],
+  "conclusion": "both new chunkers reuse the landed doc-code kind; every mirror keys on the KIND string, so no new mirror site is needed (verified by execution, not assumed)"
+}

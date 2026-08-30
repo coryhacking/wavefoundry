@@ -1,0 +1,124 @@
+{
+  "differential": "1wl7v authored-label coverage over docs-eligible chunks",
+  "old_chunker_version": "37",
+  "new_chunker_version": "39",
+  "forward": {
+    "files": {
+      "drawio/platform-architecture.drawio": {
+        "labels": 7,
+        "covered": 7,
+        "missing": [],
+        "ghost_leak": false,
+        "chunk_ids": [
+          "drawio/platform-architecture.drawio#diagram",
+          "drawio/platform-architecture.drawio#diagram~2"
+        ]
+      },
+      "drawio/deploy-flow.drawio": {
+        "labels": 3,
+        "covered": 3,
+        "missing": [],
+        "ghost_leak": false,
+        "chunk_ids": [
+          "drawio/deploy-flow.drawio#diagram"
+        ]
+      },
+      "excalidraw/incident-runbook.excalidraw": {
+        "labels": 4,
+        "covered": 4,
+        "missing": [],
+        "ghost_leak": false,
+        "chunk_ids": [
+          "excalidraw/incident-runbook.excalidraw#diagram"
+        ]
+      }
+    },
+    "violations": [],
+    "pass": true
+  },
+  "revert_simulation": {
+    "pass": false,
+    "violations": [
+      "drawio/platform-architecture.drawio: 7 labels missing",
+      "drawio/deploy-flow.drawio: 3 labels missing",
+      "excalidraw/incident-runbook.excalidraw: 4 labels missing",
+      "excalidraw/incident-runbook.excalidraw: ghost sentinel leaked"
+    ],
+    "formats_failing": [
+      "drawio",
+      "excalidraw"
+    ],
+    "non_vacuous": true
+  },
+  "compressed_plain_equivalence": {
+    "identical": true,
+    "pages": 2
+  },
+  "anchor_uniqueness": {
+    "drawio-q01": {
+      "anchor": "Ingress gateway terminates mutual TLS",
+      "chunks": [
+        "drawio/platform-architecture.drawio#diagram"
+      ],
+      "unique": true
+    },
+    "drawio-q02": {
+      "anchor": "Fraud scoring engine",
+      "chunks": [
+        "drawio/platform-architecture.drawio#diagram"
+      ],
+      "unique": true
+    },
+    "drawio-q03": {
+      "anchor": "Ledger reconciliation worker",
+      "chunks": [
+        "drawio/platform-architecture.drawio#diagram"
+      ],
+      "unique": true
+    },
+    "drawio-q04": {
+      "anchor": "replicates snapshots to the cold region",
+      "chunks": [
+        "drawio/platform-architecture.drawio#diagram~2"
+      ],
+      "unique": true
+    },
+    "drawio-q05": {
+      "anchor": "canary rollout gate checks error budget",
+      "chunks": [
+        "drawio/deploy-flow.drawio#diagram"
+      ],
+      "unique": true
+    },
+    "excalidraw-q01": {
+      "anchor": "page the on-call resolver first",
+      "chunks": [
+        "excalidraw/incident-runbook.excalidraw#diagram"
+      ],
+      "unique": true
+    },
+    "excalidraw-q02": {
+      "anchor": "escalate to the database owner after two failed probes",
+      "chunks": [
+        "excalidraw/incident-runbook.excalidraw#diagram"
+      ],
+      "unique": true
+    },
+    "excalidraw-q03": {
+      "anchor": "Sev1 containment steps",
+      "chunks": [
+        "excalidraw/incident-runbook.excalidraw#diagram"
+      ],
+      "unique": true
+    },
+    "excalidraw-q04": {
+      "anchor": "rotate the incident commander every four hours",
+      "chunks": [
+        "excalidraw/incident-runbook.excalidraw#diagram"
+      ],
+      "unique": true
+    },
+    "all_unique": true
+  },
+  "result": "PASS"
+}

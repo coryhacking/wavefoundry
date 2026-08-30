@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-08-29
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -299,10 +299,10 @@ recorded in the persisted store log.
 Version differences trigger convergence, but they do not all require new embeddings:
 
 - An embedding-model name/version mismatch forces a full rebuild and re-embed.
-- A `WALKER_VERSION` mismatch (currently `"13"`) forces a full rebuild because the eligible file
+- A `WALKER_VERSION` mismatch (currently `"15"`) forces a full rebuild because the eligible file
   set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
   12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
-- A `CHUNKER_VERSION` mismatch (currently `"34"`) selects `rechunk_all`: every eligible file is
+- A `CHUNKER_VERSION` mismatch (currently `"39"`) selects `rechunk_all`: every eligible file is
   reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
 
 Both full rebuild and `rechunk_all` bypass ordinary per-file change detection; only the former
@@ -340,7 +340,7 @@ Every chunk includes:
 |--------|-------------|----------------|
 | `doc` | `docs` | Markdown, reStructuredText, and AsciiDoc prose sections (rst/adoc since wave `1wfsl`, `1wfsm`), docstrings, HTML/XML element text |
 | `doc-summary` | `docs` | One file-level summary per markdown doc |
-| `doc-code` | `docs` | Fenced code blocks, rst code-directive bodies, and adoc listing blocks extracted from documentation files (wave `1wik9`, `1whup`; file-pass-scoped ordinal ids), plus standalone Mermaid/PlantUML/Graphviz-DOT diagram files as one title-or-stem-breadcrumbed unit each (`1whuq`); breadcrumbed text, code size cap |
+| `doc-code` | `docs` | Fenced code blocks, rst code-directive bodies, and adoc listing blocks extracted from documentation files (wave `1wik9`, `1whup`; file-pass-scoped ordinal ids), standalone Mermaid/PlantUML/Graphviz-DOT diagram files as one title-or-stem-breadcrumbed unit each (`1whuq`), notebook code cells (wave `1wl7u`, `1wh1b`; `#cell-N` ids, outputs unindexed), plus drawio/excalidraw extracted-label units (wave `1wl7w`, `1wl7v`; per-page/per-board, raw serializations never indexed); breadcrumbed text, code size cap |
 | `seed` / `prompt` | `docs` | Framework seeds and `docs/prompts/` (special markdown rules) |
 | `code` | `code` | Source declarations, config blocks, Makefile rules |
 | `code-summary` | `code` | File-level symbol list + module comment (many languages) |
@@ -383,9 +383,18 @@ every label, so there is no diagram parsing. Registration is chunker-only: the e
 never join `_KNOWN_TEXT_EXTENSIONS` (that registration bypasses the content sniff, and
 `.dot` has a binary Word-template namesake the sniff excludes), so walk behavior is
 unchanged. Oversized sources split through the universal guard; empty files emit nothing;
-unrecognized structure degrades to stem-breadcrumbed text. Tool-generated formats
-(`.drawio`, `.excalidraw`) and ambiguous extensions (`.d2`, Structurizr `.dsl`) are out by
-decision.
+unrecognized structure degrades to stem-breadcrumbed text. Tool-generated formats get
+LABEL EXTRACTION (wave `1wl7w`, `1wl7v`, superseding both walk exclusions at
+`WALKER_VERSION` 15): `chunk_drawio` emits one `doc-code` unit per `<diagram>` page
+(breadcrumb from the page name, or the file stem for auto `Page-N` names; labels from
+`mxCell` `value` and `object`/`UserObject` wrapper `label` attributes with a two-layer
+HTML decode; the canonical compressed save inflates through a bounded `decompressobj`
+seam capped at `DRAWIO_MAX_INFLATED_BYTES` per page, so a decompression bomb degrades
+to zero chunks) and `chunk_excalidraw` one text-and-frame unit per board
+(`originalText` preferred, `isDeleted` ghosts and empty strings skipped, the `files`
+blob never read). Degenerate inputs emit ZERO chunks — a recorded departure from the
+hand-authored family's raw-source degrade, because these serializations are machine
+noise; ambiguous extensions (`.d2`, Structurizr `.dsl`) are out by decision.
 
 ### Markdown chunking (`chunk_markdown`)
 
@@ -396,7 +405,18 @@ Markdown files are split at heading boundaries, not at a fixed character count.
 
 2. **Section splitting** — each top-level section becomes one chunk. The document's H1 title
    is injected into every chunk's text so that embeddings carry document-level context even
-   when the chunk comes from the middle of the file.
+   when the chunk comes from the middle of the file. Section ids are slug-based
+   (`{path}#{slug}`); duplicate-titled sections gain repeat-only file-pass ordinals (wave
+   `1wl7u`, `1wh1b`): the first occurrence keeps its bare id, the k-th repeat gets `~k`
+   via `_dedupe_id_base` — `~` is outside the `_slugify` alphabet, so no literal heading
+   can forge the shape (a bare `-N` tail is a legal slug: a `Setup 2` title emits
+   `#setup-2`). This covers the section, H3-split, and line-window id bases in markdown,
+   the shared rst/adoc `_emit_prose_sections` ids, the HTML/XML regex-fallback ids, and
+   the tree-sitter markup path's `{slug}-L{start}` ids (same-line sibling elements in
+   compact/minified HTML share a start line — the CODE-DEL-1 delivery repair);
+   previously duplicate ids collapsed silently (last-writer-wins) in the id-keyed delta
+   planner and the sqlite chunk registry. Fence ids keep their raw slug base (already
+   unique via the file-pass fence counter).
 
 3. **Sub-section splitting** — long sections that contain `###` sub-headings are split
    further, subject to a length threshold. This prevents very long sections from producing
@@ -415,7 +435,10 @@ Markdown files are split at heading boundaries, not at a fixed character count.
 Other text formats use dedicated chunkers:
 - **Plain text** — `chunk_plain_text` applies a simpler line-based strategy.
 - **Secrets/env files** — `chunk_secrets_file` handles `KEY=VALUE` formats.
-- **Jupyter notebooks** — each cell is treated as its own chunk.
+- **Jupyter notebooks** — each cell is treated as its own chunk (`#cell-N` ids):
+  markdown cells emit `doc`, code cells emit `doc-code` (wave `1wl7u`, `1wh1b` —
+  docs-routed with the code cap and injected breadcrumb; the notebook-level kernel
+  language is used, and cell outputs are never read).
 
 ### Code chunking
 
@@ -777,8 +800,8 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"34"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
-| `WALKER_VERSION`          | `"13"` | Forces a full rebuild (re-walk the include set)  |
+| `CHUNKER_VERSION`         | `"39"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
+| `WALKER_VERSION`          | `"15"` | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
 | `MAX_CODE_CHUNK_CHARS`    | 1500   | Triggers sub-split of oversized `kind="code"` chunks (matches the BGE code token budget) |
