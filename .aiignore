@@ -5,3 +5,7 @@
 # Wavefoundry runtime lock files (host-local process/test locks — not project source)
 .wavefoundry/*.lock
 .wavefoundry/framework/*.lock
+
+# Retrieval-eval inputs/outputs must never become their own search answers.
+docs/evals/retrieval-quality-golden.json
+docs/reports/retrieval-quality-*.json

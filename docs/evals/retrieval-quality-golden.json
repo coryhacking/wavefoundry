@@ -1,0 +1,1573 @@
+{
+  "fixtures": [
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "architecture_review_intent",
+      "excluded_tools": {
+        "code_lexical": "Broad assessment language is not an exact-token lookup contract.",
+        "code_search": "Raw code search does not expose the public question-classification contract.",
+        "docs_search": "Raw docs search does not expose classifier routing and has no synthesis contract."
+      },
+      "expected_question_type": "assessment",
+      "id": "architecture-review-calibration-gaps",
+      "provenance": {
+        "change_id": "1seas",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
+      },
+      "query": "where are the biggest gaps in the code MCP implementation?",
+      "query_form": "ordinary",
+      "rationale": "Verbatim review-session failure shape: a broad quality assessment must retrieve substantive audit evidence rather than ignore-file comments.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_classify_question"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Needs Fixed Now"
+          },
+          "grade": 1,
+          "path": "docs/reports/index-quality-audit-dispositions.md",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Should Fix Now"
+          },
+          "grade": 1,
+          "path": "docs/reports/index-quality-audit-dispositions.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "architecture_review_intent",
+      "excluded_tools": {
+        "code_lexical": "The paraphrase asks for synthesis and has no stable exact identifier.",
+        "code_search": "Raw code search does not expose the public question-classification contract.",
+        "docs_search": "Raw docs search does not expose classifier routing and the held-out query has no exact-doc lookup contract."
+      },
+      "expected_question_type": "assessment",
+      "id": "architecture-review-holdout-remediation",
+      "provenance": {
+        "change_id": "1seas",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
+      },
+      "query": "Which search-index weaknesses in this repository should be prioritized for remediation?",
+      "query_form": "ordinary",
+      "rationale": "A novel held-out assessment should surface prioritized, repository-specific index-quality evidence.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_classify_question"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Planning Decisions"
+          },
+          "grade": 1,
+          "path": "docs/reports/index-quality-audit-dispositions.md",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Framework Interpretation"
+          },
+          "grade": 1,
+          "path": "docs/reports/index-quality-audit-dispositions.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_lexical",
+        "code_search"
+      ],
+      "class": "known_symbol_navigational",
+      "excluded_tools": {
+        "docs_search": "The query asks for the implementation definition of a code symbol."
+      },
+      "expected_question_type": "navigational",
+      "id": "known-symbol-calibration-classifier",
+      "provenance": {
+        "change_id": "1seas",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
+      },
+      "query": "Where is _classify_question defined?",
+      "query_form": "named_artifact",
+      "rationale": "A direct symbol-location query should resolve the canonical definition in the monolithic server implementation.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_classify_question"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_lexical",
+        "code_search"
+      ],
+      "class": "known_symbol_navigational",
+      "excluded_tools": {
+        "docs_search": "The requested artifact is a Python function definition, not documentation."
+      },
+      "expected_question_type": "navigational",
+      "id": "known-symbol-holdout-build-state",
+      "provenance": {
+        "change_id": "1sed6",
+        "commit": "6bcac5f1",
+        "source": "docs/waves/1sed7 sqlite-only-index-state/1sed6-enh retire-meta-json-single-sqlite-index-state.md"
+      },
+      "query": "Find the implementation of read_build_state.",
+      "query_form": "named_artifact",
+      "rationale": "The held-out symbol lookup tests direct navigation into the index-state control plane.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "read_build_state"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_lexical",
+        "code_search"
+      ],
+      "class": "constant_value_lookup",
+      "excluded_tools": {
+        "docs_search": "The current value is authoritative at the code declaration."
+      },
+      "expected_question_type": "navigational",
+      "id": "constant-value-calibration-reranker",
+      "provenance": {
+        "change_id": "1p4mf",
+        "commit": "81bae0c1",
+        "source": "docs/waves/1p4hi code-ask-agent-rerank/1p4mf-enh chunk-constant-declarations.md"
+      },
+      "query": "what value is RERANKER_MODEL",
+      "query_form": "named_artifact",
+      "rationale": "This is the verbatim motivating constant-ranking query recorded by the earlier AC-10 evaluation.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "RERANKER_MODEL"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_lexical",
+        "code_search"
+      ],
+      "class": "constant_value_lookup",
+      "excluded_tools": {
+        "docs_search": "The value is a current implementation constant and docs may lag it."
+      },
+      "expected_question_type": "navigational",
+      "id": "constant-value-holdout-int8-revision",
+      "provenance": {
+        "change_id": "1v453",
+        "commit": "7c226333",
+        "source": "docs/waves/1v454 int8-embedding-determinism/1v453-bug int8-vectors-depend-on-batch-composition.md"
+      },
+      "query": "What is the current value of INT8_ENCODING_REVISION?",
+      "query_form": "named_artifact",
+      "rationale": "A novel value lookup checks that a short module-level declaration is retrievable without tuning to RERANKER_MODEL.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "INT8_ENCODING_REVISION"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_lexical"
+      ],
+      "class": "exact_identifier_lexical",
+      "excluded_tools": {
+        "code_ask": "This fixture isolates the public exact-token retrieval contract rather than synthesis.",
+        "code_search": "Semantic retrieval is unnecessary for a complete private constant identifier.",
+        "docs_search": "The identifier belongs to code."
+      },
+      "expected_question_type": "navigational",
+      "id": "exact-identifier-calibration-query-cache-env",
+      "provenance": {
+        "change_id": "live-repository-evidence",
+        "source": ".wavefoundry/framework/scripts/graph_query.py"
+      },
+      "query": "_QUERY_CACHE_DISABLE_ENV",
+      "query_form": "named_artifact",
+      "rationale": "The identifier is indivisible and should rank its declaration first under BM25 exact-token retrieval.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_QUERY_CACHE_DISABLE_ENV"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "tools": [
+            "code_lexical"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_lexical"
+      ],
+      "class": "exact_identifier_lexical",
+      "excluded_tools": {
+        "code_ask": "This case measures exact-token ranking directly, without the code_ask fusion layer.",
+        "code_search": "The complete identifier already supplies the deterministic lexical key.",
+        "docs_search": "The identifier is an internal code declaration."
+      },
+      "expected_question_type": "navigational",
+      "id": "exact-identifier-holdout-const-suffix",
+      "provenance": {
+        "change_id": "1p4mf",
+        "commit": "81bae0c1",
+        "source": "docs/waves/1p4hi code-ask-agent-rerank/1p4mf-enh chunk-constant-declarations.md"
+      },
+      "query": "_CONST_SECTION_SUFFIX",
+      "query_form": "named_artifact",
+      "rationale": "A held-out private identifier checks lexical ranking in a different large implementation file.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_CONST_SECTION_SUFFIX"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "tools": [
+            "code_lexical"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_lexical"
+      ],
+      "class": "error_string_lookup",
+      "excluded_tools": {
+        "code_ask": "The diagnostic is quoted verbatim, so the exact lexical surface is the contract under test.",
+        "code_search": "Semantic similarity is not required for an exact diagnostic literal.",
+        "docs_search": "The emitting branch is implementation code."
+      },
+      "expected_question_type": "navigational",
+      "id": "error-string-calibration-build-lock",
+      "provenance": {
+        "change_id": "live-repository-evidence",
+        "source": ".wavefoundry/framework/scripts/server_impl.py"
+      },
+      "query": "Another build holds the index lock — retry when it finishes.",
+      "query_form": "named_artifact",
+      "rationale": "A copied runtime diagnostic should locate the precise FTS rebuild branch in the shared server file.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "content",
+            "value": "Another build holds the index lock — retry when it finishes."
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_lexical"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_lexical"
+      ],
+      "class": "error_string_lookup",
+      "excluded_tools": {
+        "code_ask": "The case intentionally evaluates direct lookup of a copied error prefix.",
+        "code_search": "Exact-token retrieval is the narrowest compatible public contract.",
+        "docs_search": "The source of truth is the implementation diagnostic."
+      },
+      "expected_question_type": "navigational",
+      "id": "error-string-holdout-index-not-ready",
+      "provenance": {
+        "change_id": "live-repository-evidence",
+        "source": ".wavefoundry/framework/scripts/server_impl.py"
+      },
+      "query": "Semantic index is not ready",
+      "query_form": "named_artifact",
+      "rationale": "A second real error prefix must locate the readiness diagnostic rather than an unrelated mention of index readiness.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "content",
+            "value": "Semantic index is not ready (readiness_overview:"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_lexical"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "docs_search"
+      ],
+      "class": "enumeration",
+      "excluded_tools": {
+        "code_lexical": "The answer requires collecting a documented vocabulary rather than finding one exact token.",
+        "code_search": "The public compatibility vocabulary is authoritative in the MCP tool specification."
+      },
+      "expected_question_type": "explanatory",
+      "id": "enumeration-calibration-fallback-reasons",
+      "provenance": {
+        "change_id": "1seaq",
+        "commit": "805ad8c8",
+        "source": "docs/waves/1seav search-freshness-degraded-retrieval/1seaq-enh fts-first-degraded-search-fallback.md"
+      },
+      "query": "Which fallback_reason values can retrieval responses report?",
+      "query_form": "ordinary",
+      "rationale": "The answer is a finite public vocabulary documented together in the search-and-retrieval contract.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Search And Retrieval"
+          },
+          "grade": 3,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "tools": [
+            "code_ask",
+            "docs_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "docs_search"
+      ],
+      "class": "enumeration",
+      "excluded_tools": {
+        "code_lexical": "The question asks for a set of lifecycle review lanes, not an identifier occurrence.",
+        "code_search": "The required lane policy lives in contributor documentation."
+      },
+      "expected_question_type": "explanatory",
+      "id": "enumeration-holdout-review-lanes",
+      "provenance": {
+        "change_id": "review-policy-live-contract",
+        "source": "docs/contributing/review-and-evals.md"
+      },
+      "query": "Which review lanes can be required before a wave is closed?",
+      "query_form": "ordinary",
+      "rationale": "A held-out enumeration must retrieve the review policy rather than one reviewer role in isolation.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Readiness Checklist (Prepare Wave)"
+          },
+          "grade": 3,
+          "path": "docs/contributing/review-and-evals.md",
+          "tools": [
+            "code_ask",
+            "docs_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "content",
+            "value": "Required review lanes identified for each admitted change"
+          },
+          "grade": 2,
+          "path": "docs/contributing/review-and-evals.md",
+          "tools": [
+            "code_ask",
+            "docs_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_lexical",
+        "code_search",
+        "docs_search"
+      ],
+      "class": "direct_ignore_manifest",
+      "excluded_tools": {},
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-ignore-calibration-aiignore",
+      "provenance": {
+        "change_id": "1seas",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
+      },
+      "query": "what does .aiignore exclude?",
+      "query_form": "named_artifact",
+      "rationale": "This is the direct-artifact exemption boundary: ignore-file evidence is relevant because the query explicitly names .aiignore.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 3,
+          "path": ".aiignore",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_aiignore"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_load_ignore_patterns"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "tools": [
+            "code_ask",
+            "code_lexical",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Index Scope"
+          },
+          "grade": 1,
+          "path": "docs/agents/guru.md",
+          "tools": [
+            "code_ask",
+            "docs_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "direct_ignore_manifest",
+      "excluded_tools": {
+        "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval for a manifest question.",
+        "docs_search": "pyproject.toml is indexed as a code/config artifact and is itself the requested target."
+      },
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-manifest-holdout-project-metadata",
+      "provenance": {
+        "change_id": "live-repository-evidence",
+        "source": "pyproject.toml"
+      },
+      "query": "How does pyproject.toml define this repository's package and tooling metadata?",
+      "query_form": "named_artifact",
+      "rationale": "A novel direct-manifest question must rank the explicitly named root artifact first for code_ask.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 3,
+          "path": "pyproject.toml",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "abstention_expected": true,
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "abstention",
+      "excluded_tools": {
+        "code_lexical": "Raw lexical search has no confidence or abstention contract.",
+        "code_search": "Raw code search returns ranked candidates and does not synthesize an abstention confidence.",
+        "docs_search": "Raw docs search returns ranked candidates and does not synthesize an abstention confidence."
+      },
+      "expected_question_type": "explanatory",
+      "id": "abstention-calibration-nonexistent-scheduler",
+      "provenance": {
+        "change_id": "1sear",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1sear-enh golden-query-retrieval-eval-suite.md"
+      },
+      "query": "How does Wavefoundry's lunar regolith job scheduler allocate helium-three harvest windows?",
+      "query_form": "ordinary",
+      "rationale": "No such scheduler or domain exists in the repository; code_ask must remain low-confidence rather than fabricate a mechanism.",
+      "relevance": [],
+      "split": "calibration"
+    },
+    {
+      "abstention_expected": true,
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "abstention",
+      "excluded_tools": {
+        "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
+        "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
+        "docs_search": "Raw semantic docs retrieval has no answer-confidence contract."
+      },
+      "expected_question_type": "explanatory",
+      "id": "abstention-holdout-nonexistent-payroll",
+      "provenance": {
+        "change_id": "1sear",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/1sear-enh golden-query-retrieval-eval-suite.md"
+      },
+      "query": "Explain the framework's Martian payroll tax withholding and interplanetary benefits reconciliation pipeline.",
+      "query_form": "ordinary",
+      "rationale": "The repository contains no payroll product; this novel negative control should produce low retrieval confidence.",
+      "relevance": [],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The symptom deliberately omits the implementation identifiers needed by exact-token search.",
+        "code_search": "code_ask is the agentic cross-source localization surface scored by this fixture.",
+        "docs_search": "Documentation alone cannot identify the primary implementation fix."
+      },
+      "id": "agentic-calibration-aiignore-blank-growth",
+      "provenance": {
+        "change_id": "1u725",
+        "commit": "e21ceb11",
+        "source": "docs/waves/1u8o2 downstream-field-report-fixes/1u725-bug aiignore-render-accumulates-blank-lines.md"
+      },
+      "query": "Repeatedly regenerating host configuration adds more blank lines to an ignore file on every pass.",
+      "query_form": "symptom_only",
+      "rationale": "Human verification identifies the idempotent .aiignore renderer as the primary fix; the change record supplies the field reproduction and boundary rationale.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_aiignore"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1u8o2 downstream-field-report-fixes/1u725-bug aiignore-render-accumulates-blank-lines.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The problem statement describes behavior rather than quoting an exact implementation token.",
+        "code_search": "The intended benchmark is cross-source issue-to-fix localization through code_ask.",
+        "docs_search": "The primary expected hit is implementation code."
+      },
+      "id": "agentic-calibration-lexical-backfill",
+      "provenance": {
+        "change_id": "1seiz",
+        "commit": "5313af5b",
+        "source": "docs/waves/1sbfk chunk-index-backfill-repair/1seiz-enh code-lexical-fts-search-tool.md"
+      },
+      "query": "Agents need a deterministic exact-token fallback when semantic code retrieval is unavailable or an identifier must match precisely.",
+      "query_form": "symptom_only",
+      "rationale": "The public lexical response implementation is primary; its shipped tool specification is supporting contract evidence.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "code_lexical_response"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "content",
+            "value": "code_lexical"
+          },
+          "grade": 1,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The migration symptom is conceptual and spans multiple state fields.",
+        "code_search": "The benchmark intentionally uses the cross-source agentic retrieval surface.",
+        "docs_search": "The control-plane implementation is the primary answer."
+      },
+      "id": "agentic-calibration-sqlite-generation",
+      "provenance": {
+        "change_id": "1sed6",
+        "commit": "6bcac5f1",
+        "source": "docs/waves/1sed7 sqlite-only-index-state/1sed6-enh retire-meta-json-single-sqlite-index-state.md"
+      },
+      "query": "Index readiness can disagree across duplicated metadata stores, leaving callers unable to tell which completed build is authoritative.",
+      "query_form": "symptom_only",
+      "rationale": "The durable build-epoch reader is the primary current implementation; the search architecture documents the SQLite generation contract.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "read_build_state"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "content",
+            "value": "advances the build `generation`"
+          },
+          "grade": 1,
+          "path": "docs/architecture/search-architecture.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The symptom contains no exact function or constant identifier.",
+        "code_search": "The fixture scores the agentic code_ask localization path.",
+        "docs_search": "The implementation behavior is primary and cannot be proven by prose alone."
+      },
+      "id": "agentic-calibration-int8-composition",
+      "provenance": {
+        "change_id": "1v453",
+        "commit": "7c226333",
+        "source": "docs/waves/1v454 int8-embedding-determinism/1v453-bug int8-vectors-depend-on-batch-composition.md"
+      },
+      "query": "The same text produces different CPU embeddings depending on which neighboring texts share its batch, so rebuild order changes retrieval ranking.",
+      "query_form": "symptom_only",
+      "rationale": "The CPU embedder's single-row branch is the direct repair; the ADR is graded supporting evidence for the determinism decision.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "content",
+            "value": "single_row = self.provider == \"CPUExecutionProvider\""
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/accel_embedder.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Decision"
+          },
+          "grade": 1,
+          "path": "docs/architecture/decisions/1v22e-adr int8-encoding-is-batch-composition-sensitive.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The security symptom is phrased without the owning renderer symbol.",
+        "code_search": "The fixture evaluates issue-to-fix fusion rather than a raw candidate list.",
+        "docs_search": "The generated-config writer is the primary fix location."
+      },
+      "id": "agentic-calibration-mcp-inline-exec",
+      "provenance": {
+        "change_id": "1v7a2",
+        "commit": "7fe939bc",
+        "source": "docs/waves/1v7a3 mcp-stanza-without-inline-exec/1v7a2-bug claude-mcp-stanza-embeds-inline-python-exec.md"
+      },
+      "query": "A committed MCP configuration embeds an inline interpreter program and is flagged as a code-execution surface by enterprise security tooling.",
+      "query_form": "symptom_only",
+      "rationale": "The MCP JSON renderer owns the corrected command/argument shape; the change record captures the security boundary.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_mcp_json"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1v7a3 mcp-stanza-without-inline-exec/1v7a2-bug claude-mcp-stanza-embeds-inline-python-exec.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The query is natural-language behavior, not an exact-token lookup.",
+        "code_search": "The benchmark scores cross-source agentic localization through code_ask.",
+        "docs_search": "The label extractor implementation is the primary answer."
+      },
+      "id": "agentic-holdout-diagram-labels",
+      "provenance": {
+        "change_id": "1wl7v",
+        "commit": "a584e873",
+        "source": "docs/waves/1wl7w diagram-label-retrieval/1wl7v-enh drawio-excalidraw-label-retrieval.md"
+      },
+      "query": "Architecture terms visible inside diagrams.net and Excalidraw drawings cannot be found because indexing captures machine serialization instead of human labels.",
+      "query_form": "symptom_only",
+      "rationale": "The two format-specific chunkers are primary implementation paths; the landed change record documents the measured retrieval gap.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "chunk_drawio"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "chunk_excalidraw"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1wl7w diagram-label-retrieval/1wl7v-enh drawio-excalidraw-label-retrieval.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The symptom omits the helper name and requires causal localization.",
+        "code_search": "The benchmark uses code_ask to combine implementation and provenance.",
+        "docs_search": "The file-descriptor isolation code is the primary fix."
+      },
+      "id": "agentic-holdout-native-stdout",
+      "provenance": {
+        "change_id": "1p9io",
+        "commit": "0e19c6f4",
+        "source": "docs/waves/1p9hn windows-portability-round-2/1p9io-bug windows-stdout-purity.md"
+      },
+      "query": "Native extension output emitted during an in-process graph rebuild corrupts the stdio JSON-RPC stream even though Python stdout is redirected.",
+      "query_form": "symptom_only",
+      "rationale": "OS-level descriptor isolation is the root fix; the graph rebuild call site is a secondary application of that boundary.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "isolated_stdout_fd"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/cli_stdio.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "content",
+            "value": "cli_stdio.isolated_stdout_fd()"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1p9hn windows-portability-round-2/1p9io-bug windows-stdout-purity.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The symptom does not quote the managed-block identifiers.",
+        "code_search": "The fixture evaluates issue-to-fix reasoning through code_ask.",
+        "docs_search": "The renderer implementation is the primary fix."
+      },
+      "id": "agentic-holdout-gitignore-self-heal",
+      "provenance": {
+        "change_id": "1p8vj",
+        "commit": "a6905778",
+        "source": "docs/waves/1p8vd gpu-doctor-mcp-stdout-fd-hang/1p8vj-bug gitignore-runtime-block-not-enforced.md"
+      },
+      "query": "A user can delete the framework runtime exclusions and later render or upgrade operations never restore them.",
+      "query_form": "symptom_only",
+      "rationale": "The marker-delimited .gitignore reconciler is the current repair; the change record supplies the self-healing requirement.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_gitignore_block"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1p8vd gpu-doctor-mcp-stdout-fd-hang/1p8vj-bug gitignore-runtime-block-not-enforced.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The change description is semantic and does not require exact-token matching.",
+        "code_search": "The fixture intentionally measures the cross-source agentic surface.",
+        "docs_search": "The primary evidence is the source chunking implementation."
+      },
+      "id": "agentic-holdout-constant-chunks",
+      "provenance": {
+        "change_id": "1p4mf",
+        "commit": "81bae0c1",
+        "source": "docs/waves/1p4hi code-ask-agent-rerank/1p4mf-enh chunk-constant-declarations.md"
+      },
+      "query": "Short module and class constants disappear inside neighboring chunks, so questions asking for their values cannot retrieve the declarations.",
+      "query_form": "symptom_only",
+      "rationale": "The constant-emission seam and its merge-exclusion suffix are primary; the committed change record documents the cross-language contract.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "content",
+            "value": "Append one constant chunk"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_CONST_SECTION_SUFFIX"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4mf-enh chunk-constant-declarations.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "agentic_fix_localization",
+      "excluded_tools": {
+        "code_lexical": "The failure-mode description is semantic and spans multiple fallback branches.",
+        "code_search": "The cross-index code_ask response is the public behavior under evaluation.",
+        "docs_search": "The public response implementations are primary."
+      },
+      "id": "agentic-holdout-semantic-degradation",
+      "provenance": {
+        "change_id": "1seaq",
+        "commit": "805ad8c8",
+        "source": "docs/waves/1seav search-freshness-degraded-retrieval/1seaq-enh fts-first-degraded-search-fallback.md"
+      },
+      "query": "When the local embedding model cannot load, retrieval returns an infrastructure error even though a complete published lexical index is available.",
+      "query_form": "symptom_only",
+      "rationale": "The code and docs public response functions own the FTS-first degradation behavior; the search architecture is supporting contract evidence.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "code_search_response"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "docs_search_response"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "content",
+            "value": "lexical_fallback"
+          },
+          "grade": 1,
+          "path": "docs/architecture/search-architecture.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "assessment_boundary_control",
+      "excluded_tools": {
+        "code_lexical": "A natural-language mechanism question is not an exact-token lookup contract.",
+        "docs_search": "The mechanism lives in code; raw docs search has no synthesis contract."
+      },
+      "expected_question_type": "explanatory",
+      "id": "assessment-boundary-calibration-negative-explanatory-gap",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "How does the retrieval posture sensor decide whether a gap fired?",
+      "query_form": "ordinary",
+      "rationale": "Negative control from the cycle-2 review: an explanatory question that happens to contain an assessment noun must stay explanatory and retrieve the mechanism it names.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_retrieval_posture_gap"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_wave_has_gapfill_note"
+          },
+          "grade": 1,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "assessment_boundary_control",
+      "excluded_tools": {
+        "code_lexical": "A natural-language mechanism question is not an exact-token lookup contract.",
+        "docs_search": "The mechanism lives in code; raw docs search has no synthesis contract."
+      },
+      "expected_question_type": "explanatory",
+      "id": "assessment-boundary-holdout-negative-explanatory-gapfill",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "Explain how a Gapfill note clears the retrieval posture gap.",
+      "query_form": "ordinary",
+      "rationale": "Held-out negative control: an explanatory lead with an assessment noun stays explanatory and retrieves the Gapfill mechanism.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_wave_has_gapfill_note"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_retrieval_posture_gap"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "architecture_review_intent",
+      "excluded_tools": {
+        "code_lexical": "Broad assessment language is not an exact-token lookup contract.",
+        "code_search": "Raw code search does not expose the public question-classification contract.",
+        "docs_search": "Raw docs search does not expose classifier routing and has no synthesis contract."
+      },
+      "expected_question_type": "assessment",
+      "id": "architecture-review-holdout-offsubject-dashboard",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "where are the biggest gaps in the dashboard lifecycle handling?",
+      "query_form": "ordinary",
+      "rationale": "Off-register assessment from the cycle-2 review: the subject has no docs/reports coverage, so any report-class injection is noise and the labels are the dashboard lifecycle code and its two defect records.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_reap_dashboard_child_pids"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_pid_is_running"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1rtnn dashboard-lifecycle-reliability/1rswx-bug dashboard-zombie-child-reaping.md",
+          "tools": [
+            "code_ask"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "section",
+            "value": "Rationale"
+          },
+          "grade": 1,
+          "path": "docs/waves/1p61u graph-layer-map-quality/1p654-bug dashboard-lifecycle-reconciliation.md",
+          "tools": [
+            "code_ask"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "abstention_expected": true,
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "abstention",
+      "excluded_tools": {
+        "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
+        "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
+        "docs_search": "Raw semantic docs retrieval has no answer-confidence contract."
+      },
+      "expected_question_type": "assessment",
+      "id": "abstention-calibration-assessment-phrased",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "where are the biggest gaps in the lunar regolith helium-three harvest scheduler?",
+      "query_form": "ordinary",
+      "rationale": "Assessment-phrased absent topic from the cycle-2 review: the abstention contract must hold on the assessment path, not only on explanatory phrasing.",
+      "relevance": [],
+      "split": "calibration"
+    },
+    {
+      "abstention_expected": true,
+      "applicable_tools": [
+        "code_ask"
+      ],
+      "class": "abstention",
+      "excluded_tools": {
+        "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
+        "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
+        "docs_search": "Raw semantic docs retrieval has no answer-confidence contract."
+      },
+      "expected_question_type": "assessment",
+      "id": "abstention-holdout-assessment-phrased",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "Review the lunar regolith job scheduler for weaknesses.",
+      "query_form": "ordinary",
+      "rationale": "Held-out assessment-phrased absent topic: a review request about a nonexistent subsystem must abstain.",
+      "relevance": [],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "direct_ignore_manifest",
+      "excluded_tools": {
+        "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
+        "docs_search": "The renderer and the file are code artifacts; raw docs search has no synthesis contract."
+      },
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-named-file-calibration-aiignore-writer",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "Which function writes the .aiignore file?",
+      "query_form": "named_artifact",
+      "rationale": "Mechanism-framed named-file question from the cycle-2 review: the file is the object, the renderer is the answer, so the declaration must lead and the file may follow.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_aiignore"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 1,
+          "path": ".aiignore",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "direct_ignore_manifest",
+      "excluded_tools": {
+        "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
+        "docs_search": "The renderer and the file are code artifacts; raw docs search has no synthesis contract."
+      },
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-named-file-holdout-gitignore-renderer",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "Which function renders the managed block in .gitignore?",
+      "query_form": "named_artifact",
+      "rationale": "Held-out mechanism-framed named-file question: the renderer declaration must lead over the named low-information file.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "render_gitignore_block"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/render_platform_surfaces.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 1,
+          "path": ".gitignore",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "direct_path_anchored",
+      "excluded_tools": {
+        "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
+        "docs_search": "The named file is a code artifact and is itself the requested target."
+      },
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-path-calibration-retrieval-eval",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "what does .wavefoundry/framework/scripts/retrieval_eval.py validate before scoring?",
+      "query_form": "named_artifact",
+      "rationale": "Dot-directory path cue from the cycle-2 review: the whole path must anchor and pin, not its leading segment.",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/retrieval_eval.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "load_fixture_corpus"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/retrieval_eval.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "calibration"
+    },
+    {
+      "applicable_tools": [
+        "code_ask",
+        "code_search"
+      ],
+      "class": "direct_path_anchored",
+      "excluded_tools": {
+        "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
+        "docs_search": "The named file is a code artifact and is itself the requested target."
+      },
+      "expected_question_type": "artifact_anchored",
+      "id": "direct-path-holdout-docs-lint",
+      "provenance": {
+        "change_id": "1seaw-cycle-2",
+        "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
+      },
+      "query": "What does .wavefoundry/framework/scripts/docs_lint.py check in a change doc?",
+      "query_form": "named_artifact",
+      "rationale": "Held-out dot-directory path cue: the named file itself must rank first for code_ask. The file is a launcher shim, so the change-doc checkbox validator it delegates to is labelled as supporting evidence and recall measures more than the pin (cycle-2 reverification, RED-RV-2).",
+      "relevance": [
+        {
+          "anchor": {
+            "type": "path"
+          },
+          "grade": 3,
+          "path": ".wavefoundry/framework/scripts/docs_lint.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        },
+        {
+          "anchor": {
+            "type": "symbol",
+            "value": "_check_checkbox_ac_syntax"
+          },
+          "grade": 2,
+          "path": ".wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py",
+          "tools": [
+            "code_ask",
+            "code_search"
+          ]
+        }
+      ],
+      "split": "holdout"
+    }
+  ],
+  "quality_gate": {
+    "critical_floors": [
+      {
+        "floor": 1.0,
+        "metric": "question_type_accuracy",
+        "scope": "class",
+        "target": "architecture_review_intent",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 1.0,
+        "metric": "question_type_accuracy",
+        "scope": "fixture",
+        "target": "direct-manifest-holdout-project-metadata",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 1.0,
+        "metric": "mrr_at_10",
+        "scope": "fixture",
+        "target": "direct-manifest-holdout-project-metadata",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 1.0,
+        "metric": "abstention_accuracy",
+        "scope": "class",
+        "target": "abstention",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 0.9,
+        "metric": "ndcg_at_10",
+        "scope": "fixture",
+        "target": "direct-named-file-holdout-gitignore-renderer",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 1.0,
+        "metric": "mrr_at_10",
+        "scope": "fixture",
+        "target": "direct-path-holdout-docs-lint",
+        "tool": "code_ask"
+      },
+      {
+        "floor": 1.0,
+        "metric": "question_type_accuracy",
+        "scope": "fixture",
+        "target": "direct-path-holdout-docs-lint",
+        "tool": "code_ask"
+      }
+    ]
+  },
+  "schema": "wavefoundry.retrieval-eval-fixtures/v1"
+}

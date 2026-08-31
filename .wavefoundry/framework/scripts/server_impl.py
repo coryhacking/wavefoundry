@@ -291,6 +291,26 @@ _DEMOTION_JRNLS = 0.50  # journals/reports/feedback — observational notes
 # context for a code question but must not OUTRANK the implementing source — a gentler
 # down-weight than the narrative/historical tiers above (which are weaker evidence).
 _DEMOTION_REFDOCS = 0.80  # docs/architecture/, docs/specs/, ADRs
+# Assessment synthesis prefers report-class records over historical delivery
+# records as a path-class prior (no currentness predicate is evaluated). The
+# report multiplier exactly recovers the generic reports demotion above; the
+# wave multiplier compounds its historical down-weight.
+_ASSESSMENT_REPORT_RECOVERY_WEIGHT = 2.0
+_ASSESSMENT_HISTORICAL_WAVE_WEIGHT = 0.50
+_ASSESSMENT_EVIDENCE_SUFFIX = (
+    "audit findings gaps weaknesses opportunities current implementation"
+)
+# The report-class path prefix the assessment score-only prior recovers from the
+# generic report down-weight. Wave 1seaw's cycle-2 council removed the
+# report-class evidence injector that once shared this prefix: a path-class
+# prior with a synthetic score is not retrieval, and citations stay
+# reranker-ordered (the same invariant the graph signal honors by living in its
+# own labeled section). No currentness predicate is evaluated here.
+_ASSESSMENT_EVIDENCE_PATH_PREFIX = "docs/reports/"
+# Direct artifact owner injection (1seas): a directly named file/path's
+# published rows join the pool before reranking so the rank-one owner pin never
+# depends on the vector pass happening to recall a tiny ignore file or manifest.
+DIRECT_ARTIFACT_OWNER_ROWS = 8
 # Post-normalization nudge reserved for structurally confirmed declarations.
 _SYMBOL_DEFINITION_BOOST = 0.40
 # Definition-file boosting: vocabulary-triggered keyword augmentation for schema languages.
@@ -1430,6 +1450,74 @@ class WaveIndex:
             "_graph_kind": node.get("kind"),
         }
 
+    def _direct_artifact_owner_rows(self, cue: str) -> list[dict]:
+        """Return the published rows owned by a directly named path/basename.
+
+        Reads the published Lance tables only (no vector pass, no rebuild) so the
+        artifact-anchored rank-one pin never depends on semantic recall of a tiny
+        ignore file or manifest. Bare-extension cues name a class, not an owner,
+        and inject nothing. Bounded by ``DIRECT_ARTIFACT_OWNER_ROWS`` per table.
+        """
+        normalized = (cue or "").strip().replace("\\", "/")
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        if not normalized:
+            return []
+        basename = Path(normalized).name
+        if not basename or ("/" not in normalized and basename in {
+            ".py", ".toml", ".json", ".md", ".yaml", ".yml", ".js", ".ts",
+            ".tsx", ".jsx", ".lock", ".xml", ".cfg", ".ini",
+        }):
+            return []
+
+        def _quote(value: str) -> str:
+            return value.replace("'", "''")
+
+        # The LIKE clause is the candidate fetch only (`_` and `%` are LIKE
+        # wildcards); ownership is decided by the exact comparison below, the same
+        # rule `_direct_artifact_owner_candidate` applies when it pins. Both sides
+        # of that comparison are casefolded: a cue with an uppercase letter such as
+        # `AGENTS.md` or `CLAUDE.md` is fetched as typed and must not be dropped by
+        # a case-sensitive compare (cycle-2 reverification, RV-1).
+        where = f"path = '{_quote(normalized)}' OR path LIKE '%/{_quote(normalized)}'"
+        owned_path = normalized.casefold()
+        owned_name = basename.casefold()
+
+        def _owns(path: str) -> bool:
+            lowered = path.casefold()
+            if lowered == owned_path:
+                return True
+            if "/" in owned_path:
+                return lowered.endswith("/" + owned_path)
+            return Path(lowered).name == owned_name
+
+        rows: list[dict] = []
+        for table in (getattr(self, "_proj_docs_lance_table", None),
+                      getattr(self, "_proj_code_lance_table", None)):
+            if table is None:
+                continue
+            try:
+                found = table.search().where(where, prefilter=True).limit(
+                    DIRECT_ARTIFACT_OWNER_ROWS
+                ).to_list()
+            except Exception:
+                continue
+            kept = 0
+            for raw in found:
+                if kept >= DIRECT_ARTIFACT_OWNER_ROWS:
+                    break
+                row = dict(raw)
+                path = self._qualify_index_path(row.get("path", ""), "project")
+                if not _owns(path):
+                    continue
+                row.pop("vector", None)
+                row.pop("_distance", None)
+                row["path"] = path
+                row["score"] = 0.0
+                rows.append(row)
+                kept += 1
+        return rows
+
     def _published_exact_definition_candidate(self, symbol: str) -> Optional[dict]:
         """Return one exact declaration from the current published graph only.
 
@@ -2030,10 +2118,11 @@ class WaveIndex:
         - ``question_type`` influences retrieval weighting and post-rerank ordering:
           - ``"navigational"``: code-index candidates receive a ``RRF_NAVIGATIONAL_CODE_WEIGHT``
             multiplier in RRF scoring; docs-index receives ``RRF_NAVIGATIONAL_DOCS_WEIGHT``.
-          - ``"explanatory"``: after reranking, citations from ``INFRASTRUCTURE_PATH_SEGMENTS``
-            (scaffolding/wiring layers) are stable-partitioned to the end of the result list.
-            A second retrieval hop extracts symbol names from the top reranked citations and
-            injects their definition files as additional candidates before a second rerank.
+          - ``"explanatory"`` and ``"assessment"``: after reranking, citations from
+            ``INFRASTRUCTURE_PATH_SEGMENTS`` (scaffolding/wiring layers) are stable-partitioned
+            to the end of the result list and use the wider explanatory candidate window.
+          - Agent graph expansion is query/symbol driven for every question type; it follows
+            published structural edges and does not run the removed keyword second-rerank path.
           - All other values (including ``""``) leave weighting and ordering unchanged.
         - ``vector_ms``: wall time for the vector fetch phase (both indexes), in milliseconds.
         - ``rerank_ms``: wall time for reranker inference or RRF merge, in milliseconds.
@@ -2064,56 +2153,97 @@ class WaveIndex:
         DOCS_MODEL = self._indexer_constant("DOCS_MODEL")
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
 
-        # --- Artifact-anchored exact-first pass ---
-        # For questions classified as artifact_anchored, try a keyword lookup on the
-        # concrete artifact token before the broad semantic pass. If the exact pass
-        # returns at least one code result, rerank and return immediately. If it finds
-        # nothing, fall through to the broad semantic pass as explanatory.
+        # --- Artifact-anchored routing ---
+        # Direct file/path artifacts need broad explanatory-like retrieval: an exact
+        # filename hit alone is often a low-information ignore/manifest line rather
+        # than the implementation evidence the question asks about. Keep the public
+        # artifact_anchored classification, but normalize this internal path to
+        # explanatory so it gets the wider pool and explanatory priors. Its exact
+        # indexed path/basename owner is pinned after broad selection. Weak generated
+        # symbol/config/tool cues retain the legacy exact-first behavior.
+        direct_artifact_cue = ""
         if question_type == "artifact_anchored":
-            artifact_token = _extract_artifact_cue(query)
-            if artifact_token:
-                try:
-                    kw_resp = code_keyword_response(self.root, artifact_token)
-                    if kw_resp.get("status") == "ok":
-                        kw_candidates = [
-                            {
-                                "path": r.get("path", ""),
-                                "text": r.get("snippet", ""),
-                                "score": 0.0,
-                                "kind": "code",
-                                "lines": [r.get("line", 1), r.get("line", 1)],
-                            }
-                            for r in kw_resp["data"]["results"]
-                            if r.get("path")
-                        ]
-                        if kw_candidates:
-                            # Wave 1p52p: agent-mode exact-first artifact pass, rerank-FIRST. Label by
-                            # source, then score the keyword candidates (was score=0.0) with the
-                            # cross-encoder for a unified relevance order. If the reranker is explicitly
-                            # disabled or unbuildable, keep keyword order.
-                            for _c in kw_candidates:
-                                _p = _c.get("path", "")
-                                _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
-                                _c["sources"] = [_c["source"]]
-                            t_exact = time.monotonic()
-                            anchored_reranked = self._agent_rerank(query, kw_candidates)
-                            if anchored_reranked:
-                                kw_candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-                            results = _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)])
-                            return results, anchored_reranked, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none", None
-                except Exception:
-                    pass
-            # Exact pass found no code results — treat remainder as explanatory
-            question_type = "explanatory"
+            direct_artifact_cue = _extract_direct_artifact_cue(query)
+            if direct_artifact_cue:
+                question_type = "explanatory"
+            else:
+                artifact_token = _extract_artifact_cue(query)
+                if artifact_token:
+                    try:
+                        kw_resp = code_keyword_response(self.root, artifact_token)
+                        if kw_resp.get("status") == "ok":
+                            kw_candidates = [
+                                {
+                                    "path": r.get("path", ""),
+                                    "text": r.get("snippet", ""),
+                                    "score": 0.0,
+                                    "kind": "code",
+                                    "lines": [r.get("line", 1), r.get("line", 1)],
+                                }
+                                for r in kw_resp["data"]["results"]
+                                if r.get("path")
+                            ]
+                            if kw_candidates:
+                                # Wave 1p52p: agent-mode exact-first artifact pass, rerank-FIRST. Label by
+                                # source, then score the keyword candidates (was score=0.0) with the
+                                # cross-encoder for a unified relevance order. If the reranker is explicitly
+                                # disabled or unbuildable, keep keyword order.
+                                for _c in kw_candidates:
+                                    _p = _c.get("path", "")
+                                    _c["source"] = "docs" if (_p.startswith("docs/") or "/docs/" in _p or _p.endswith(".md")) else "code"
+                                    _c["sources"] = [_c["source"]]
+                                t_exact = time.monotonic()
+                                anchored_reranked = self._agent_rerank(query, kw_candidates)
+                                if anchored_reranked:
+                                    kw_candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
+                                results = _partition_tests(kw_candidates[:max(top_n, AGENT_CANDIDATE_MAX)])
+                                return results, anchored_reranked, 0, round((time.monotonic() - t_exact) * 1000), ["artifact_anchored"], [], "none", None
+                    except Exception:
+                        pass
+                # Exact pass found no code results — treat remainder as explanatory.
+                question_type = "explanatory"
 
         # --- Vector fetch phase (timed) ---
         t_vector = time.monotonic()
-        top_k = VECTOR_TOP_K_EXPLANATORY if question_type == "explanatory" else VECTOR_TOP_K
+        top_k = VECTOR_TOP_K_EXPLANATORY if question_type in _EXPLANATORY_LIKE_QUESTION_TYPES else VECTOR_TOP_K
         docs_qvec = self._embed_query(query, DOCS_MODEL)
         code_qvec = self._embed_query(query, CODE_MODEL)
         docs_candidates = []
         if getattr(self, "_proj_docs_lance_table", None) is not None:
             docs_candidates.extend(self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project"))
+        assessment_evidence_query = ""
+        if question_type == "assessment":
+            # One bounded recall expansion for audit/findings evidence. It uses the
+            # existing docs vector/lexical helpers and their fixed caps, then rejoins the
+            # normal unified reranker and selector with true reranker scores. No path is
+            # privileged at generation time (the cycle-2 council removed the report-class
+            # injector that once followed this block).
+            assessment_evidence_query = (
+                f"{query.strip()} {_ASSESSMENT_EVIDENCE_SUFFIX}"
+            ).strip()
+            if getattr(self, "_proj_docs_lance_table", None) is not None:
+                evidence_qvec = self._embed_query(assessment_evidence_query, DOCS_MODEL)
+                evidence_hits = self._lance_search(
+                    self._proj_docs_lance_table,
+                    evidence_qvec,
+                    top_k,
+                    layer="project",
+                )
+                by_key = {
+                    (candidate.get("path", ""), tuple(candidate.get("lines") or [])): candidate
+                    for candidate in docs_candidates
+                }
+                for candidate in evidence_hits:
+                    key = (
+                        candidate.get("path", ""),
+                        tuple(candidate.get("lines") or []),
+                    )
+                    existing = by_key.get(key)
+                    if existing is None:
+                        docs_candidates.append(candidate)
+                        by_key[key] = candidate
+                    elif (candidate.get("score") or 0.0) > (existing.get("score") or 0.0):
+                        existing["score"] = candidate.get("score")
         docs_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         code_candidates = []
         if getattr(self, "_proj_code_lance_table", None) is not None:
@@ -2133,6 +2263,14 @@ class WaveIndex:
         if not os.environ.get(LEXICAL_FUSION_DISABLE_ENV):
             try:
                 _lex_hits = self._lexical_candidates(query)
+                if assessment_evidence_query:
+                    _lex_hits.extend(
+                        hit
+                        for hit in self._lexical_candidates(assessment_evidence_query)
+                        if str(hit.get("kind") or "") in (
+                            "doc", "doc-summary", "doc-code", "seed"
+                        )
+                    )
             except Exception:  # noqa: BLE001 - lexical is additive only
                 _lex_hits = []
             if _lex_hits:
@@ -2151,6 +2289,23 @@ class WaveIndex:
                         _lex_src.append(_h)
                         all_candidates.append(_h)
                         _by_key[_k] = _h
+
+        # --- Direct artifact owner injection (1seas) ---
+        # A directly named file/path's published rows join the pool before the
+        # rerank so the rank-one owner pin below never depends on the vector or
+        # lexical pass recalling a tiny ignore file or manifest. Injected rows
+        # start at score 0.0 and are scored on content merit like every other
+        # candidate; duplicates of pool members are dropped, not double-counted.
+        if direct_artifact_cue:
+            _owner_keys = {
+                (c.get("path", ""), tuple(c.get("lines") or [])) for c in all_candidates
+            }
+            for _row in self._direct_artifact_owner_rows(direct_artifact_cue):
+                _k = (_row.get("path", ""), tuple(_row.get("lines") or []))
+                if _k in _owner_keys or not _row.get("path"):
+                    continue
+                _owner_keys.add(_k)
+                all_candidates.append(_row)
 
         # --- Definition-file boosting: vocabulary-triggered keyword augmentation ---
         q_lower = query.lower()
@@ -2184,13 +2339,13 @@ class WaveIndex:
             if injected > 0:
                 definition_boosted.append(rule["label"])
 
-        # --- Exact symbol declaration injection (explanatory + navigational) ---
+        # --- Exact symbol declaration injection (explanatory-like + navigational) ---
         # Read only the already-published graph snapshot.  Never call the public
         # definition resolver or a graph accessor that can rebuild/refresh on a
         # miss.  Generic keyword usages stay in the normal hybrid pool and get no
         # declaration marker or forced preference.
         exact_definition_candidate: Optional[dict] = None
-        if question_type in ("explanatory", "navigational"):
+        if question_type in (*_EXPLANATORY_LIKE_QUESTION_TYPES, "navigational"):
             sym = _extract_question_symbol(query)
             if sym:
                 exact_definition_candidate = self._published_exact_definition_candidate(sym)
@@ -2251,6 +2406,18 @@ class WaveIndex:
         # architecture/spec/ADR paths, so a spec no longer outranks the implementing source.
         if question_type in _DOC_DEMOTION_INTENTS:
             all_candidates, _ = _demote_doc_results(all_candidates, question_type)
+        # Assessment questions prefer report-class records over old delivery narratives. Apply a
+        # bounded score-only prior after reranking/doc demotion and before the source floors:
+        # docs/reports/ records recover their generic observational-doc down-weight as a path
+        # class (no currentness predicate), while archived wave records receive an additional
+        # historical down-weight. No candidate is excluded.
+        all_candidates, _ = _apply_assessment_evidence_prior(
+            all_candidates, query, question_type
+        )
+        # Low-information repository artifacts can win on shared vocabulary while carrying little
+        # implementation evidence. Keep them available, but apply a bounded prior before the source
+        # floor/drop-off selection. Direct questions about the artifact are explicitly exempt.
+        all_candidates, _ = _demote_low_information_results(all_candidates, query)
         # Wave 1p4lr: candidate-side definition-match boost. A DEFINITION chunk whose declared-name
         # tokens ALL appear in the query gets a bounded multiplier on the fill ORDER (cutoff uses
         # un-boosted scores so it never re-trims others).
@@ -2316,8 +2483,46 @@ class WaveIndex:
             second_hop_symbols = [c.get("_symbol") or str(c.get("text", "")).split("\n", 1)[0].strip()
                                   for c in _graph_src]
             symbol_extraction_method = "graph"
-        if question_type == "explanatory":
+        if question_type in _EXPLANATORY_LIKE_QUESTION_TYPES:
             results = _partition_infra(results)
+        if direct_artifact_cue and not _mechanism_framed_question(query):
+            # Direct named artifacts need broad context, but the named file is still
+            # the primary citation (unless the question asks about the mechanism
+            # around the file, when reranked evidence keeps the lead). Prefer the post-selection copy (it may carry merged
+            # vector+lexical provenance); if selection dropped it, reinsert the strongest
+            # eligible indexed chunk from the broad pool. This is an order correction,
+            # not the weak-artifact exact-first short circuit above.
+            direct_artifact_candidate = _direct_artifact_owner_candidate(
+                direct_artifact_cue, results
+            ) or _direct_artifact_owner_candidate(direct_artifact_cue, all_candidates)
+            if direct_artifact_candidate is not None:
+                result_count = len(results)
+                direct_key = (
+                    direct_artifact_candidate.get("path", ""),
+                    tuple(direct_artifact_candidate.get("lines") or []),
+                )
+                _direct_path = direct_artifact_candidate.get("path", "")
+                direct_artifact_candidate.setdefault(
+                    "source",
+                    "docs" if (
+                        _direct_path.startswith("docs/")
+                        or "/docs/" in _direct_path
+                        or _direct_path.endswith(".md")
+                    ) else "code",
+                )
+                direct_artifact_candidate.setdefault(
+                    "sources", [direct_artifact_candidate["source"]]
+                )
+                results = [direct_artifact_candidate] + [
+                    result
+                    for result in results
+                    if (
+                        result.get("path", ""),
+                        tuple(result.get("lines") or []),
+                    ) != direct_key
+                ]
+                if result_count:
+                    results = results[:result_count]
         if exact_definition_candidate is not None:
             # A finite score bonus cannot guarantee ownership against an
             # adversarial reranker.  Stable-pin the one structurally confirmed
@@ -25177,7 +25382,7 @@ def _is_test_path(path: str) -> bool:
 def _partition_tests(results: list[dict]) -> list[dict]:
     """Stable index-based partition: move test-file citations to the end.
 
-    Applied after reranking in the artifact-anchored exact-first path so
+    Applied after reranking in the weak-artifact exact-first path so
     implementation owner files rank ahead of test fixtures.
     Uses enumerate to avoid false drops from dict equality comparison when two
     results share identical content.
@@ -25209,9 +25414,14 @@ def _doc_demotion_weight(path: str, kind: str) -> float:
     return 1.0
 
 
+# Public question types that share broad synthesis retrieval behavior. Keep every
+# explanatory-like gate keyed to this tuple so a new assessment cannot silently miss
+# the wider pool, source priors, infrastructure partition, or validation signal.
+_EXPLANATORY_LIKE_QUESTION_TYPES = ("explanatory", "assessment")
+
 # Wave 1p66s: code-implementation intents whose answer should lead with implementing
 # source, so reference prose (specs/ADRs/architecture/narrative) is demoted below code.
-_DOC_DEMOTION_INTENTS = ("explanatory", "navigational")
+_DOC_DEMOTION_INTENTS = (*_EXPLANATORY_LIKE_QUESTION_TYPES, "navigational")
 
 
 def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[dict], int]:
@@ -25232,6 +25442,137 @@ def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[d
     if demotion_count:
         results.sort(key=lambda x: x.get("score") or 0.0, reverse=True)
 
+    return results, demotion_count
+
+
+def _query_names_result_path(query: str, path: str) -> bool:
+    """Whether the query explicitly names a result's repository path or basename."""
+    q = (query or "").casefold()
+    normalized = (path or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.casefold()
+    name = Path(normalized).name
+    return bool((normalized and normalized in q) or (name and name in q))
+
+
+def _assessment_evidence_weight(path: str, query: str) -> float:
+    """Return the assessment-only report-class versus wave-history score prior.
+
+    The report recovery applies to every ``docs/reports/`` path; no currentness or
+    freshness predicate is evaluated here."""
+    normalized = (path or "").replace("\\", "/").casefold()
+    if _query_names_result_path(query, normalized):
+        return 1.0
+    if normalized.startswith(_ASSESSMENT_EVIDENCE_PATH_PREFIX):
+        return _ASSESSMENT_REPORT_RECOVERY_WEIGHT
+    if normalized.startswith("docs/waves/"):
+        return _ASSESSMENT_HISTORICAL_WAVE_WEIGHT
+    return 1.0
+
+
+def _apply_assessment_evidence_prior(
+    results: list[dict], query: str, question_type: str
+) -> tuple[list[dict], int]:
+    """Prefer report-class records over historical wave records by score only.
+
+    A path-class prior with no currentness predicate: every ``docs/reports/``
+    record recovers the generic report down-weight, every ``docs/waves/`` record
+    receives the historical down-weight, and a query that names the path is
+    exempt. Never an exclusion."""
+    if question_type != "assessment":
+        return results, 0
+
+    adjusted_count = 0
+    for result in results:
+        weight = _assessment_evidence_weight(result.get("path", ""), query)
+        if weight != 1.0:
+            result["score"] = (result.get("score") or 0.0) * weight
+            adjusted_count += 1
+    if adjusted_count:
+        results.sort(key=lambda item: item.get("score") or 0.0, reverse=True)
+    return results, adjusted_count
+
+
+# Low-information repository artifacts are useful when directly requested, but otherwise
+# tend to win on literal vocabulary without answering implementation questions. This prior
+# mirrors doc demotion: one bounded multiplier, never exclusion, applied before selection.
+_LOW_INFORMATION_PATH_WEIGHT = 0.50
+_LOW_INFORMATION_IGNORE_NAMES = frozenset({
+    ".aiignore", ".dockerignore", ".eslintignore", ".gitignore", ".ignore",
+    ".npmignore", ".prettierignore",
+})
+_LOW_INFORMATION_LOCKFILE_NAMES = frozenset({
+    "cargo.lock", "composer.lock", "gemfile.lock", "go.sum", "package-lock.json",
+    "pipfile.lock", "pnpm-lock.yaml", "poetry.lock", "yarn.lock",
+})
+_LOW_INFORMATION_MANIFEST_NAMES = frozenset({
+    "build.gradle", "build.gradle.kts", "cargo.toml", "composer.json", "gemfile",
+    "go.mod", "package.json", "pipfile", "pom.xml", "pyproject.toml",
+    "requirements-dev.txt", "requirements.txt", "setup.cfg", "setup.py",
+})
+# Keep this exact set aligned with indexer.GENERATED_CODE_PREFIXES. These are rendered host
+# integration surfaces, not a broad heuristic for every directory named "generated".
+_LOW_INFORMATION_GENERATED_PREFIXES = (
+    ".claude/hooks/", ".cursor/hooks/", ".github/hooks/", ".windsurf/",
+)
+_LOW_INFORMATION_CATEGORY_QUERY_TERMS = {
+    "ignore_file": ("ignore file", "ignore rules", "ignore patterns"),
+    "lockfile": ("lockfile", "lock file"),
+    "dependency_manifest": ("dependency manifest", "package manifest"),
+    "generated_surface": ("generated surface", "generated hook"),
+}
+
+
+def _low_information_path_category(path: str) -> str:
+    """Return the bounded-prior category for *path*, or an empty string."""
+    normalized = (path or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    lowered = normalized.casefold()
+    name = Path(lowered).name
+    if any(lowered.startswith(prefix) for prefix in _LOW_INFORMATION_GENERATED_PREFIXES):
+        return "generated_surface"
+    if name in _LOW_INFORMATION_IGNORE_NAMES:
+        return "ignore_file"
+    if name in _LOW_INFORMATION_LOCKFILE_NAMES or name.endswith(".lock"):
+        return "lockfile"
+    if name in _LOW_INFORMATION_MANIFEST_NAMES:
+        return "dependency_manifest"
+    return ""
+
+
+def _query_names_low_information_artifact(query: str, path: str, category: str) -> bool:
+    """Whether *query* directly asks about this low-information artifact or category."""
+    q = (query or "").casefold()
+    normalized = (path or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.casefold()
+    name = Path(normalized).name
+    if (normalized and normalized in q) or (name and name in q):
+        return True
+    return any(term in q for term in _LOW_INFORMATION_CATEGORY_QUERY_TERMS.get(category, ()))
+
+
+def _low_information_path_weight(path: str, query: str) -> float:
+    """Return a query-aware path prior; direct artifact questions are never penalized."""
+    category = _low_information_path_category(path)
+    if not category or _query_names_low_information_artifact(query, path, category):
+        return 1.0
+    return _LOW_INFORMATION_PATH_WEIGHT
+
+
+def _demote_low_information_results(results: list[dict], query: str) -> tuple[list[dict], int]:
+    """Down-weight low-information paths without removing them from the candidate pool."""
+    demotion_count = 0
+    for result in results:
+        weight = _low_information_path_weight(result.get("path", ""), query)
+        if weight < 1.0:
+            result["score"] = (result.get("score") or 0.0) * weight
+            demotion_count += 1
+    if demotion_count:
+        results.sort(key=lambda item: item.get("score") or 0.0, reverse=True)
     return results, demotion_count
 
 
@@ -25290,10 +25631,9 @@ def _extract_question_symbol(question: str) -> Optional[str]:
     return None
 
 
-# Artifact-anchored question detection: implementation verbs + concrete artifact cue.
-# A question qualifies as artifact_anchored when it contains both a verb from
-# _ARTIFACT_VERBS and a token matched by _ARTIFACT_CUE_RE. Detection uses named
-# constants so the scope is auditable and extensible without reimplementing the classifier.
+# Artifact-anchored question detection. Concrete file/path cues are strong enough to
+# anchor directly; symbol-like cues remain weak and require either an implementation
+# verb or explicit config/tool context so "where is <symbol>" stays navigational.
 _ARTIFACT_VERBS = frozenset([
     "generated", "generate", "generates",
     "derived", "derive", "derives",
@@ -25302,18 +25642,138 @@ _ARTIFACT_VERBS = frozenset([
     "encoded", "encode", "encodes",
     "written", "writes", "write",
 ])
-_ARTIFACT_CUE_RE = re.compile(
+_ARTIFACT_CONTEXT_SIGNALS = (
+    "config key", "configuration key", "mcp tool", "cli tool",
+)
+_ARTIFACT_PATH_CUE_RE = re.compile(
+    # The concrete-path alternative is tried FIRST: a dot-directory path such as
+    # `.wavefoundry/framework/scripts/indexer.py` must yield the whole path, not
+    # its leading segment (cycle-2 review, CODE-DEL-1). Its final segment must
+    # carry a dotted, lettered suffix, so prose slash pairs (`input/output`,
+    # `and/or`) and numeric ratios (`3/4.5`) are not cues (reverification, RV-2).
+    r"(?:[\w.-]+[/\\])+[\w-]+\.(?=[\w.-]*[a-z])[\w.-]+"   # concrete relative path
+    # Dotfile or named extension (`.aiignore`, `.py`): case-sensitive lowercase
+    # letter after the dot, so `.NET` and decimals such as `.5` are not cues.
+    r"|(?<![\w.])(?-i:\.[a-z][a-z0-9][\w.-]*)"
+    r"|\b[\w-]+\.(?:py|toml|json|md|yaml|yml|js|ts|tsx|jsx|lock|xml|cfg|ini)\b",
+    re.IGNORECASE,
+)
+# A question that names a file as its OBJECT rather than as the answer ("how does
+# the framework restore the .gitignore block", "which function renders .aiignore",
+# "which tests cover chunker.py") keeps owner-row injection and the artifact type
+# but does not pin the file at rank one over reranked evidence (cycle-2 review,
+# ARCH-SEAT-5 / RED-DEL-2). "How does pyproject.toml define X" keeps the pin: the
+# named artifact is the subject, with or without a leading article ("how does the
+# .aiignore file exclude paths"; reverification, RED-RV-3), a single noun between
+# article and name ("the file .aiignore"; RV3-3), or a multi-segment path as the
+# subject ("how does docs/agents/guru.md describe retrieval"; RV3-1).
+_MECHANISM_FRAME_RE = re.compile(
+    r"^\s*(?:how\s+(?:does|do|is|are|did|was|were)\s+"
+    r"(?!(?:(?:the|this|that|our|a|an)\s+)?(?:[\w-]+\s+)?[`'\"]?[\w./\\-]*\.[a-z])"
+    r"|why\b"
+    r"|which\s+(?:function|method|class|module|test|tests|code|component|helper)s?\b"
+    r"|who\b"
+    r"|what\s+(?:calls|uses|reads|writes|renders|generates|restores|produces|consumes|creates|updates)\b)",
+    re.IGNORECASE,
+)
+
+
+def _mechanism_framed_question(question: str) -> bool:
+    """Whether a direct-artifact question asks about the mechanism around the file."""
+    return _MECHANISM_FRAME_RE.search(question or "") is not None
+_ARTIFACT_SYMBOL_CUE_RE = re.compile(
     r"\+[a-z0-9]{4,5}"                             # version suffix like +2vr8
-    r"|\w+\.(?:py|toml|json|md|yaml|yml|js|ts)\b"  # dotted filename like lifecycle_id.py
     r"|[A-Z][a-z]+[A-Z]\w+"                        # CamelCase identifier like BuildPrefix
     r"|[a-z]{3,}_[a-z]{2,}\w*"                     # snake_case identifier like build_prefix
 )
+# Assessment intent needs a review FRAME, not a bare noun: "how does the chunker
+# handle a gap between sections?" is explanatory (cycle-2 review, RC-SEAT-2).
+_ASSESSMENT_SIGNAL_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:review|assess|audit|evaluate)\b"
+    r"|^\s*(?:where|what)\s+are\s+(?:the\s+)?(?:[\w-]+\s+){0,3}"
+    r"(?:gaps?|weaknesses|opportunities|shortcomings|concerns|issues)\b"
+    r"|\b(?:gaps?|weaknesses|opportunities|shortcomings)\s+"
+    r"(?:in|of|with|around|across|to\s+improve)\b"
+    r"|\b(?:biggest|main|major|key|remaining|current|potential|possible)\s+"
+    r"(?:concerns|issues)\b"
+    r"|\b(?:concerns|issues)\s+(?:exist\s+)?(?:with|in|about|around)\b",
+    re.IGNORECASE,
+)
+# An explanatory lead ("how does X handle a gap in Y", "why does Z fail") keeps a
+# mechanism question explanatory even when an assessment noun appears later.
+_EXPLANATORY_LEAD_RE = re.compile(
+    r"^\s*(?:how\s+(?:does|do|is|are|did|was|were)\b|why\b|explain\b|describe\b|what\s+happens\b)",
+    re.IGNORECASE,
+)
+
+
+def _extract_direct_artifact_cue(question: str) -> str:
+    """Return an unambiguous file/path artifact cue, or an empty string."""
+    for match in _ARTIFACT_PATH_CUE_RE.finditer(question):
+        # A match that stops at a path separator is a truncated prefix of a longer
+        # path (a dot-directory before an extensionless segment such as
+        # `.wavefoundry/bin/wf`, or `src/dir.v2/file`): a directory is not a file
+        # cue (reverification, RV3-2).
+        end = match.end()
+        if end < len(question) and question[end] in "/\\":
+            continue
+        return match.group(0).rstrip(".,;:!?")
+    return ""
 
 
 def _extract_artifact_cue(question: str) -> str:
     """Return the first concrete artifact cue token in question, or empty string."""
-    m = _ARTIFACT_CUE_RE.search(question)
+    direct = _extract_direct_artifact_cue(question)
+    if direct:
+        return direct
+    m = _ARTIFACT_SYMBOL_CUE_RE.search(question)
     return m.group(0) if m else ""
+
+
+def _direct_artifact_owner_candidate(cue: str, candidates: list[dict]) -> Optional[dict]:
+    """Return the strongest indexed chunk owned by a directly named path/basename.
+
+    A path cue may be repository-relative or a distinctive suffix. A filename cue
+    matches only a basename; extension-only cues such as ``.py`` therefore never pin.
+    The caller preserves broad hybrid retrieval and uses this only as a final stable
+    ordering correction.
+    """
+    normalized_cue = (cue or "").strip().replace("\\", "/")
+    while normalized_cue.startswith("./"):
+        normalized_cue = normalized_cue[2:]
+    normalized_cue = normalized_cue.casefold()
+    if not normalized_cue:
+        return None
+
+    cue_has_path = "/" in normalized_cue
+    cue_name = Path(normalized_cue).name
+    if not cue_has_path and cue_name in {
+        ".py", ".toml", ".json", ".md", ".yaml", ".yml", ".js", ".ts",
+        ".tsx", ".jsx", ".lock", ".xml", ".cfg", ".ini",
+    }:
+        # A bare extension names a class of artifacts, not one owner.
+        return None
+
+    exact_matches: list[dict] = []
+    suffix_matches: list[dict] = []
+    for candidate in candidates:
+        path = str(candidate.get("path") or "").replace("\\", "/")
+        while path.startswith("./"):
+            path = path[2:]
+        lowered = path.casefold()
+        if not lowered:
+            continue
+        if lowered == normalized_cue:
+            exact_matches.append(candidate)
+        elif cue_has_path and lowered.endswith("/" + normalized_cue):
+            suffix_matches.append(candidate)
+        elif not cue_has_path and Path(lowered).name == cue_name:
+            suffix_matches.append(candidate)
+
+    eligible = exact_matches or suffix_matches
+    if not eligible:
+        return None
+    return max(eligible, key=lambda item: float(item.get("score") or 0.0))
 
 
 _ENUMERATION_RE = re.compile(
@@ -25342,18 +25802,26 @@ def _is_enumeration_query(question: str) -> bool:
 
 
 def _classify_question(question: str) -> str:
-    """Heuristic question classifier: navigational | explanatory | instructional | artifact_anchored."""
+    """Return the public five-value heuristic question type."""
     q = question.lower()
     navigational_signals = ["where is", "where are", "where can i find", "which file", "what file", "find the", "find where", "locate the", "path to"]
     instructional_signals = ["how do i", "how to", "steps to", "how can i", "how should i", "how would i"]
+    artifact_cue = _extract_artifact_cue(question)
+    if _extract_direct_artifact_cue(question):
+        return "artifact_anchored"
+    if artifact_cue and (
+        any(verb in q for verb in _ARTIFACT_VERBS)
+        or any(signal in q for signal in _ARTIFACT_CONTEXT_SIGNALS)
+    ):
+        return "artifact_anchored"
     for sig in instructional_signals:
         if sig in q:
             return "instructional"
+    if _ASSESSMENT_SIGNAL_RE.search(question) and not _EXPLANATORY_LEAD_RE.search(question):
+        return "assessment"
     for sig in navigational_signals:
         if sig in q:
             return "navigational"
-    if any(verb in q for verb in _ARTIFACT_VERBS) and _extract_artifact_cue(question):
-        return "artifact_anchored"
     return "explanatory"
 
 
@@ -25571,8 +26039,8 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         # semantic results as exact).
         if definition_boosted == ["artifact_anchored"]:
             search_mode = _MODE_EXACT
-        # Detect whether the scaffolding-layer partition fired (explanatory questions only)
-        if question_type == "explanatory" and combined_reranked and combined_results:
+        # Detect whether the scaffolding-layer partition fired (explanatory-like questions only)
+        if question_type in _EXPLANATORY_LIKE_QUESTION_TYPES and combined_reranked and combined_results:
             infra_paths = {
                 r.get("path", "") for r in combined_results
                 if any(seg in Path(r.get("path", "")).parts for seg in INFRASTRUCTURE_PATH_SEGMENTS)
@@ -25605,6 +26073,11 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
             "score": r.get("score"),
             "kind": r.get("kind"),
         }
+        # Wave 1seaw (1seas): expose the chunk's section path so a docs citation
+        # names its heading structurally (the same value docs_search returns),
+        # not only through the breadcrumb baked into the excerpt.
+        if isinstance(r.get("section"), str) and r.get("section"):
+            cit["section"] = r.get("section")
         # Release-review fix: "local" is a documented alias of "agent" — the
         # source metadata is part of the citation contract in both.
         if r.get("source") is not None:
@@ -25815,7 +26288,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     # doc-code joins the prose-docs kinds here (1whup): a fenced example in a
     # guide goes stale exactly like the prose around it, so an explanatory
     # answer led by one carries the same code-validation duty.
-    if question_type == "explanatory" and citations and citations[0].get("kind") in ("doc", "doc-summary", "doc-code"):
+    if question_type in _EXPLANATORY_LIKE_QUESTION_TYPES and citations and citations[0].get("kind") in ("doc", "doc-summary", "doc-code"):
         data["validation_required"] = True
 
     next_tools = ["code_read", "docs_search"]
@@ -29095,7 +29568,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - answer: Navigation pointer ("Based on indexed sources: see X") — ignore this field; synthesize
           directly from citations.
-        - citations: List of {ref, path, lines, excerpt, score, kind}. kind="keyword" means the semantic
+        - citations: List of {ref, path, lines, excerpt, score, kind, section?}. Any citation whose
+          chunk metadata carries a section path exposes it in ``section``: a docs heading path (the
+          same value docs_search returns) or a code symbol breadcrumb such as
+          ``server_impl > _classify_question``; rows produced only by the BM25 pass omit the field
+          (their excerpt's first line is the same breadcrumb). kind="keyword" means the semantic
           pass was thin and keyword fallback fired — results are still relevant but ranked by term overlap,
           not vector similarity. In the default `rerank="agent"` mode each citation also carries `source`
           (the index it came from: "docs"/"code") and, when it surfaced from more than one index, `sources`
@@ -29120,35 +29597,44 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           answer-quality signal. Evaluate citations by path and content; high confidence with wrong-layer
           citations (e.g. infrastructure scaffolding for an explanatory question) still requires follow-up.
         - gaps: Retrieval gaps or index unavailability notices
-        - question_type: "navigational" | "explanatory" | "instructional". Influences retrieval pool
-          weighting and candidate window size. "explanatory" triggers two enhancements when the
-          cross-encoder reranker is available: (1) a wider candidate window (VECTOR_TOP_K_EXPLANATORY=60
-          per index vs 30 for other types), and (2) two-hop symbol expansion — symbol names are extracted
-          from the top reranked citations and a second keyword retrieval pass fetches their definitions,
-          reaching call-chain layers the original query vocabulary cannot reach. Navigational questions
-          bias toward code results via RRF weight adjustment.
-        - second_hop_symbols: list of symbol names that triggered second-hop retrieval for explanatory
-          questions. Only present when non-empty. When present: the citations already include candidates
-          surfaced by following these symbols one layer deeper; use this list to understand which call
-          chain references were automatically expanded rather than re-chasing them manually. Absent when
-          question_type != "explanatory", reranked=false, or no extractable symbols were found in the
-          top citations.
-        - symbol_extraction_method: extraction method used for the two-hop symbol pass. Present when
-          the second-hop gate fired and at least one citation survived the infra filter. Values: "ast"
-          — Python stdlib AST or tree-sitter produced at least one symbol; "regex" — AST was
-          unavailable or produced no symbols (regex was the effective extractor). Use this field to
-          detect silent grammar degradation: "regex" on a TypeScript-heavy codebase indicates the
-          tree-sitter grammar failed to load or produced no symbols.
-        - validation_required: present and true when question_type=="explanatory" and the top
+        - question_type: "navigational" | "explanatory" | "instructional" | "artifact_anchored" |
+          "assessment". Assessment routes through the explanatory-like wider candidate window
+          (VECTOR_TOP_K_EXPLANATORY=50), doc demotion, infrastructure partition, and validation signal.
+          For assessment, every docs/reports record recovers the generic report down-weight as a path
+          class (no currentness predicate is evaluated), while historical docs/waves records receive an
+          additional bounded down-weight unless named;
+          this score-only prior preserves every source floor and never excludes a candidate.
+          Assessment alone also runs one bounded derived docs semantic/lexical evidence query using
+          generic audit/findings/gaps/weaknesses/opportunities/current-implementation vocabulary;
+          deduplicated hits rejoin the same reranker and selection caps with true reranker scores;
+          no path class is injected or given a synthetic score.
+          Direct file/path artifacts keep that public type, use the broad explanatory-like hybrid path,
+          and stable-pin an eligible exact path/basename owner at rank one after selection; the named
+          path's published owner rows are injected into the pool before reranking so the pin never
+          depends on vector recall of a small file (ignore files are indexed since walker 16). A
+          question that asks about the mechanism around the named file ("how does the framework
+          restore the .gitignore block", "which function renders .aiignore") keeps the injection and
+          the artifact type but does not pin the file over reranked evidence; a named file that is the
+          question's subject, with or without a leading article, still pins. Weak
+          generated-symbol/config/tool artifacts try an exact lookup first. Navigational questions retain
+          their code tilt and known-symbol owner correction.
+        - second_hop_symbols: graph-signal seeds whose structural neighbors were followed in agent mode.
+          Graph expansion is query/symbol driven rather than question-type gated, so assessment and
+          existing navigational/explanatory queries preserve the same bounded structural path. Only
+          present when non-empty.
+        - symbol_extraction_method: "graph" when agent mode followed published graph edges; otherwise
+          omitted with an empty second_hop_symbols list.
+        - validation_required: present and true when question_type is explanatory or assessment and the top
           citation is a doc or doc-summary (spec, architecture, or reference doc). When present,
           code_read in next_tools is a REQUIRED continuation — not optional. A spec citation is
           the starting point, not the answer; read the implementation file named in the spec's
           source metadata before synthesizing.
         - index_freshness: "current" | "stale" | "unknown" (unknown = the check could not
           determine freshness — treat results as potentially stale, verify with index_health)
-        - search_mode: "hybrid" (normal), "exact" (the artifact-anchored exact-first pass answered
-          before semantic retrieval — a healthy mode), or "lexical_fallback" (semantic retrieval
-          unavailable; citations are BM25 exact-token matches, confidence capped)
+        - search_mode: "hybrid" (normal, including direct file/path artifact questions), "exact" (a weak
+          generated-symbol/config/tool artifact's exact-first pass answered before semantic retrieval —
+          a healthy mode), or "lexical_fallback" (semantic retrieval unavailable; citations are BM25
+          exact-token matches, confidence capped)
         - fallback_reason: null when healthy; else model_unavailable | index_missing |
           store_absent | index_not_ready | query_failed (infrastructure failure, not zero hits)
         - coverage: per-table lexical coverage (present on every degraded/failed envelope; {} = collection unavailable)

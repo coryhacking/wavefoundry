@@ -6,6 +6,46 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A standing retrieval-quality gate.** `retrieval_eval.py` evaluates the public `code_ask`,
+  `code_search`, `docs_search`, and `code_lexical` response paths over a versioned
+  calibration/holdout golden corpus (`docs/evals/retrieval-quality-golden.json`, eleven query
+  classes including a verbatim misranked review query, abstention controls, and provenance-backed
+  agentic fix-localization cases) on a generation-frozen, monitor-free, cached-model run. Reports
+  are `wavefoundry.retrieval-eval/v1` receipts bound to the evaluator, the production retrieval
+  modules (re-hashed at the end of the run and disclosed against the repository HEAD in a `git`
+  block), the index generation, the run time, and the effective state of every retrieval kill
+  switch (`environment.retrieval_toggles`; an active switch forces operator review and a pair
+  whose switches differ is invalid); symbol anchors score only a result whose line span
+  intersects the resolved declaration. Ranking, classification, and chunking-relevance changes
+  now cite a before/after comparison from this suite instead of a bespoke harness.
+- **Assessment questions get their own routing.** `code_ask` classifies review-shaped questions
+  ("where are the biggest gaps in X", "which weaknesses in Y should be prioritized") as the public
+  `assessment` question type: artifact anchoring is evaluated before phrase signals, an
+  explanatory lead ("how does", "why", "explain") keeps a mechanism question explanatory even
+  when an assessment noun appears later, assessment routes like explanatory retrieval with one
+  bounded derived docs query, and historical wave records are down-weighted behind the
+  `docs/reports/` path class by score only (no currentness predicate, no injected rows, no
+  synthetic scores). Citations carry the chunk's section path in `section` when the metadata
+  supplies one. The standing gate reports assessment retrieval per class as a measured
+  baseline weakness of the local model stack (the classification is delivered; retrieving a
+  findings register for a broad "biggest gaps" question is not), and a typed findings-register
+  surface is a recorded follow-up plan.
+- **Direct ignore-file questions pin the file.** The seven ignore-file names are indexed as
+  line-window code units (`WALKER_VERSION` moves to 16) and a directly named path's published
+  rows are injected before reranking, so a question asking what `.aiignore` excludes cites the
+  file at rank one (mixed-case names such as `AGENTS.md` included); dot-directory paths such as
+  `.wavefoundry/framework/scripts/indexer.py` anchor as a whole path, while prose slash pairs
+  such as "input/output" do not. A question that asks about the mechanism around the named file
+  ("which function renders `.aiignore`") keeps the injection but lets reranked evidence lead; a
+  named file that is the question's subject, with or without a leading article, still pins.
+  Unnamed ignore files,
+  lockfiles, dependency manifests, and generated agent surfaces carry a bounded low-information
+  down-weight (never an exclusion).
+
 ## [1.21.0] - 2026-08-29
 
 ### Added

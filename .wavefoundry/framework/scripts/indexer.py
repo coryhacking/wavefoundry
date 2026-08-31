@@ -474,9 +474,14 @@ DOCS_EXTENSIONLESS_NAMES = {"README", "LICENSE", "CHANGELOG", "CONTRIBUTING", "N
 
 # Extensionless filenames treated as code (routed to chunk_line_window in chunker).
 # Keep in sync with chunker.py:CODE_EXTENSIONLESS_NAMES.
+# Ignore files (wave 1seaw, 1seas): the direct-artifact exemption pins the named
+# file at rank one, which is hollow unless the file is indexed; the same seven
+# names carry the low-information prior when a query does not name them.
 CODE_EXTENSIONLESS_NAMES = {
     "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
     "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+    ".aiignore", ".dockerignore", ".eslintignore", ".gitignore", ".ignore",
+    ".npmignore", ".prettierignore",
 }
 
 # Plain-text extensions indexed as documentation (not code).
@@ -731,7 +736,14 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # node/edge/frame labels into docs-routed doc-code units, so the files return
 # WITH retrieval value (paired with the CHUNKER_VERSION 39 bump). Existing
 # indexes must re-walk to pick both extensions up.
-WALKER_VERSION = "15"
+# 15 -> 16 (1seas, wave 1seaw): the seven ignore-file names join
+# CODE_EXTENSIONLESS_NAMES / CODE_EXTENSIONLESS_SOURCE_NAMES. A direct question
+# that names an ignore file pins that file at rank one only when the file is
+# indexed; before this bump `.aiignore` was walked but never eligible, so the
+# documented exemption had nothing to pin. Existing indexes must re-walk to
+# admit the files; the low-information prior keeps them down-weighted unless
+# the query names them.
+WALKER_VERSION = "16"
 _MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
 _MEMORY_LEGACY_POINTER_PREFIX = "docs/agents/memory/pointers/"
 
@@ -1394,6 +1406,8 @@ def _is_framework_test_path(rel_path: str) -> bool:
 CODE_EXTENSIONLESS_SOURCE_NAMES = {
     "Jenkinsfile", "Makefile", "GNUmakefile", "Dockerfile", "Vagrantfile",
     "Brewfile", "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+    ".aiignore", ".dockerignore", ".eslintignore", ".gitignore", ".ignore",
+    ".npmignore", ".prettierignore",
 }
 
 

@@ -374,5 +374,147 @@ class GuruIndexScopeParityTests(unittest.TestCase):
                              f"'{self.HEADING}' heading, found {count}")
 
 
+class GuruQuestionTypeContractParityTests(unittest.TestCase):
+    """Wave 1seaw (1seas): pin the public code_ask intent contract across its
+    canonical seed, rendered Guru mirror, live MCP description, and reference
+    documentation. This deliberately guards the enum, assessment's wider
+    candidate window, and the type-agnostic agent graph semantics together."""
+
+    SEED = REPO_ROOT / ".wavefoundry/framework/seeds/211-guru.prompt.md"
+    GURU = REPO_ROOT / "docs/agents/guru.md"
+    RUNTIME = REPO_ROOT / ".wavefoundry/framework/scripts/server_impl.py"
+    SPEC = REPO_ROOT / "docs/specs/mcp-tool-surface.md"
+    ARCHITECTURE = REPO_ROOT / "docs/architecture/search-architecture.md"
+    HEADING = "## Question Classification"
+    QUESTION_TYPES = (
+        "navigational",
+        "explanatory",
+        "instructional",
+        "artifact_anchored",
+        "assessment",
+    )
+
+    @staticmethod
+    def _squash(text: str) -> str:
+        return " ".join(text.split())
+
+    def _runtime_question_type_block(self) -> str:
+        text = self.RUNTIME.read_text(encoding="utf-8")
+        function_start = text.index("    def code_ask(question:")
+        field_start = text.index("- question_type:", function_start)
+        field_end = text.index("- second_hop_symbols:", field_start)
+        return text[field_start:field_end]
+
+    def test_question_classification_sections_are_byte_identical(self) -> None:
+        seed_section = _extract_h2_section(self.SEED, self.HEADING)
+        guru_section = _extract_h2_section(self.GURU, self.HEADING)
+        self.assertTrue(seed_section.strip(), "seed 211 must carry Question Classification")
+        self.assertEqual(
+            seed_section,
+            guru_section,
+            "seed-211 Question Classification and guru.md have drifted — edit the canonical "
+            "seed and its hand-maintained mirror together",
+        )
+
+    def test_runtime_description_exposes_exact_five_value_enum(self) -> None:
+        block = self._runtime_question_type_block()
+        actual = tuple(re.findall(r'"([a-z][a-z_]*)"', block))
+        self.assertEqual(actual, self.QUESTION_TYPES)
+
+    def test_assessment_routing_and_graph_contract_match_all_carriers(self) -> None:
+        carriers = {
+            "seed-211": _extract_h2_section(self.SEED, self.HEADING),
+            "guru": _extract_h2_section(self.GURU, self.HEADING),
+            "MCP spec": self.SPEC.read_text(encoding="utf-8"),
+            "search architecture": self.ARCHITECTURE.read_text(encoding="utf-8"),
+        }
+        for label, text in carriers.items():
+            with self.subTest(carrier=label):
+                normalized = self._squash(text)
+                positions = [normalized.index(f"`{value}`") for value in self.QUESTION_TYPES]
+                self.assertEqual(positions, sorted(positions),
+                                 f"{label}: public question types are not in canonical order")
+                self.assertIn("VECTOR_TOP_K_EXPLANATORY", normalized)
+                self.assertIn("50", normalized)
+                self.assertIn("documentation", normalized.lower())
+                self.assertIn("infrastructure", normalized.lower())
+                self.assertIn("validation_required", normalized)
+                self.assertIn("question-type agnostic", normalized.lower())
+                self.assertIn("docs/reports/", normalized)
+                self.assertIn("docs/waves/", normalized)
+                self.assertIn("score-only", normalized.lower())
+                self.assertIn("per-source floor", normalized.lower())
+                self.assertIn("bounded derived", normalized.lower())
+                self.assertIn("semantic/lexical", normalized.lower())
+                self.assertIn("same reranker", normalized.lower())
+
+    def test_runtime_description_matches_assessment_routing_contract(self) -> None:
+        runtime = self.RUNTIME.read_text(encoding="utf-8")
+        description_start = runtime.index("    def code_ask(question:")
+        description_end = runtime.index('        bad = _ensure_no_extra_args("code_ask"', description_start)
+        description = self._squash(runtime[description_start:description_end])
+        self.assertIn("VECTOR_TOP_K_EXPLANATORY=50", description)
+        self.assertIn("doc demotion", description)
+        self.assertIn("infrastructure partition", description)
+        self.assertIn("validation signal", description)
+        self.assertIn("rather than question-type gated", description)
+        # Cycle-2 reverification (DOCS-RV-1): the runtime description carries the same
+        # `section` and pin-exception contract as the spec, not an older shape.
+        self.assertIn("code symbol breadcrumb", description)
+        self.assertIn("rows produced only by the BM25 pass omit the field", description)
+        self.assertNotIn("code citations and lexical-only rows omit", description)
+        self.assertIn("does not pin the file over reranked evidence", description)
+        self.assertIn("with or without a leading article, still pins", description)
+        spec = self._squash(self.SPEC.read_text(encoding="utf-8"))
+        self.assertIn("does not pin the file over reranked evidence", spec)
+        self.assertIn("with or without a leading article", spec)
+        self.assertIn("still pins", spec)
+
+    def test_low_information_prior_and_direct_artifact_exemption_are_documented(self) -> None:
+        for path in (self.SEED, self.GURU, self.SPEC, self.ARCHITECTURE):
+            with self.subTest(path=path.name):
+                normalized = self._squash(path.read_text(encoding="utf-8")).lower()
+                for artifact_class in ("ignore files", "lockfiles", "dependency manifests", "generated"):
+                    self.assertIn(artifact_class, normalized)
+                self.assertIn("never an exclusion", normalized)
+                self.assertTrue(
+                    "query names the artifact" in normalized
+                    or "query directly names the artifact" in normalized,
+                    f"{path.name}: direct-artifact exemption is not documented",
+                )
+
+    def test_direct_and_weak_artifact_routes_are_distinguished_everywhere(self) -> None:
+        runtime = self.RUNTIME.read_text(encoding="utf-8")
+        carriers = {
+            "runtime": runtime[runtime.index("    def code_ask(question:"):],
+            "seed-211": self.SEED.read_text(encoding="utf-8"),
+            "guru": self.GURU.read_text(encoding="utf-8"),
+            "MCP spec": self.SPEC.read_text(encoding="utf-8"),
+            "search architecture": self.ARCHITECTURE.read_text(encoding="utf-8"),
+        }
+        for label, text in carriers.items():
+            with self.subTest(carrier=label):
+                normalized = self._squash(text).lower()
+                self.assertIn("direct file/path", normalized)
+                self.assertIn("hybrid", normalized)
+                self.assertIn("exact path/basename owner", normalized)
+                self.assertIn("rank one", normalized)
+                self.assertIn("weak generated-symbol/config/tool", normalized)
+                self.assertIn("exact-first", normalized)
+
+    def test_instructional_precedence_is_documented_across_contract_carriers(self) -> None:
+        carriers = {
+            "seed-211": _extract_h2_section(self.SEED, self.HEADING),
+            "guru": _extract_h2_section(self.GURU, self.HEADING),
+            "MCP spec": self.SPEC.read_text(encoding="utf-8"),
+            "search architecture": self.ARCHITECTURE.read_text(encoding="utf-8"),
+        }
+        for label, text in carriers.items():
+            with self.subTest(carrier=label):
+                normalized = self._squash(text).lower()
+                self.assertIn("instructional phrases", normalized)
+                self.assertIn("precedence over assessment nouns", normalized)
+
+
 if __name__ == "__main__":
     unittest.main()

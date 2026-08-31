@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-08-31
 
 ## Trust Boundaries
 
@@ -58,6 +58,7 @@ Any one of these flips the posture and re-scopes the actor classes above; when a
 | Dashboard accidental non-loopback exposure | Local operational data could be exposed on the network if bound too broadly | Default host is `127.0.0.1`; config-driven host is explicit; security review lane required for trust-boundary changes to dashboard server |
 | Dashboard state drift via persisted snapshots | Operator could see stale fabricated state if the dashboard relied on generated JSON files | Browser state stays in memory; the server reads live repo state; `.wavefoundry/dashboard-server.json` is endpoint metadata only |
 | Sensitive data in journals | Journal entries must not contain secrets, credentials, PII | Memory governance rules in seed-130; `.gitignore` covers guard-overrides only |
+| Indexed ignore files name excluded paths (wave 1seaw, walker 16) | `.aiignore`/`.gitignore` content (path names and patterns, never file contents) is retrievable and can be cited onward by an agent host | Same-user threat model; the index stays local and gitignored; the secrets scan covers the walked file list; the low-information prior keeps unnamed ignore files below implementation evidence |
 
 ## Security Sensitivity
 

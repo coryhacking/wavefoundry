@@ -267,6 +267,8 @@ HELM_EXTENSIONS = {".tpl"}  # Helm/Go template files; .tpl is also used by non-H
 CODE_EXTENSIONLESS_NAMES = {
     "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
     "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+    ".aiignore", ".dockerignore", ".eslintignore", ".gitignore", ".ignore",
+    ".npmignore", ".prettierignore",
 }
 SQL_EXTENSIONS = {".sql", ".psql", ".pgsql", ".ddl", ".dml", ".tsql", ".hql"}
 XML_EXTENSIONS = {".xml", ".jsp", ".xsd", ".xsl", ".xslt", ".svg"}

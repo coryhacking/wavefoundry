@@ -421,6 +421,45 @@ class TimestampedLogTests(unittest.TestCase):
         rels = [str(f.relative_to(self.root)).replace("\\", "/") for f in files]
         self.assertEqual(rels, sorted(rels))
 
+    def test_walk_admits_ignore_files_as_code_sources(self):
+        """1seas (wave 1seaw): the direct-artifact rank-one pin needs the named ignore
+        file indexed; the seven low-information ignore names are walked, kept by the
+        source filter, and chunked as one line-window code unit (WALKER 16)."""
+        _make_repo(self.root, {
+            "src/foo.py": "x = 1\n",
+            ".aiignore": "# runtime\n.wavefoundry/*.lock\n",
+            ".gitignore": "dist/\n",
+            "pkg/.dockerignore": "node_modules/\n",
+            "notes": "extensionless prose\n",
+        })
+        files = self.bi.walk_repo(self.root)
+        rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in files}
+        self.assertTrue({".aiignore", ".gitignore", "pkg/.dockerignore"} <= rels, rels)
+        # The walk's text sniff admits any extensionless text file; the SOURCE filter is
+        # the layer that dropped ignore files before WALKER 16 and still drops arbitrary
+        # extensionless prose.
+        kept = self.bi._filter_code_files(
+            files, self.root, include_tests=False, include_generated=False,
+        )
+        kept_rels = {str(f.relative_to(self.root)).replace("\\", "/") for f in kept}
+        self.assertTrue({".aiignore", ".gitignore", "pkg/.dockerignore", "src/foo.py"} <= kept_rels)
+        self.assertNotIn("notes", kept_rels, "arbitrary extensionless files stay out of the code index")
+        self.assertEqual(
+            {".aiignore", ".dockerignore", ".eslintignore", ".gitignore", ".ignore",
+             ".npmignore", ".prettierignore"},
+            set(self.bi.CODE_EXTENSIONLESS_NAMES) - {
+                "Jenkinsfile", "Makefile", "Dockerfile", "Vagrantfile", "Brewfile",
+                "Fastfile", "Appfile", "Podfile", "Gemfile", "Procfile",
+            },
+        )
+        self.assertGreaterEqual(int(self.bi.WALKER_VERSION), 16)
+        import importlib
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        ch = importlib.import_module("chunker")
+        chunks = ch.chunk_file("# runtime\n.wavefoundry/*.lock\n", ".aiignore")
+        self.assertEqual([(".aiignore:L1-L2", "code")], [(c.id, c.kind) for c in chunks])
+
     def test_excludes_pycache(self):
         _make_repo(self.root, {"src/foo.py": "x = 1\n"})
         cache = self.root / "src" / "__pycache__" / "foo.cpython-312.pyc"

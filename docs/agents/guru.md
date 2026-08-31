@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-08-29
+Last verified: 2026-08-31
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -35,17 +35,67 @@ Guru is the right first stop before writing a plan, starting an implementation, 
 
 ## Question Classification
 
-Before choosing a retrieval strategy, classify the question:
+Before choosing a retrieval strategy, classify the question. The exact public `code_ask`
+question-type values, in order, are: `navigational`, `explanatory`, `instructional`,
+`artifact_anchored`, and `assessment`.
 
 | Type | Signal words | Retrieval strategy |
 |---|---|---|
-| **navigational** | "where", "which file", "find", "locate" | orientation pass first (`code_search kind="code-summary"`, `docs_search kind="doc-summary"`), then keyword confirmation |
+| **navigational** | "where is this symbol", "which file", "find", "locate" | orientation pass first (`code_search kind="code-summary"`, `docs_search kind="doc-summary"`), then keyword confirmation |
 | **explanatory** | "what does", "how does", "explain", "describe" | broad semantic pass (`code_search` + `docs_search`), then structural targeted pass |
-| **instructional** | "how do I", "how to", "steps to" | docs-first (`docs_search`), then code examples (`code_search`) |
+| **instructional** | "how do I", "how should I", "how to", "steps to" | docs-first (`docs_search`), then code examples (`code_search`) |
+| **artifact_anchored** | names a concrete file/path, extension, config key, or tool | direct file/path: broad hybrid retrieval plus exact owner pin; weak generated symbol/config/tool: exact-first, then broad retrieval only if thin |
+| **assessment** | "gaps", "weaknesses", "opportunities", "review", "assess" | broad synthesis like explanatory retrieval, while preserving `question_type="assessment"` in the response |
+
+Artifact anchoring is evaluated before phrase signals, so a direct question about `.aiignore`
+or `pyproject.toml` remains artifact-anchored even if it also contains words such as "where"
+or "review". A direct file/path query keeps the broad explanatory-like hybrid path and stable-pins
+the strongest eligible exact path/basename owner at rank one after selection, so supporting
+citations remain available. Weak generated-symbol/config/tool artifacts retain the exact-first
+short circuit and fall through to broad retrieval only when that pass is thin. The named path's
+published owner rows are injected into the candidate pool before reranking, so the pin never
+depends on vector recall of a small file, and ignore files themselves are indexed (walker 16) so
+a direct ignore-file question pins the file. A question that asks about the mechanism around a
+named file ("how does the framework restore the `.gitignore` block", "which function renders
+`.aiignore`") keeps the injection and the artifact type but does not pin the file over reranked
+evidence; a named file or path that is the question's subject, with or without a leading
+article ("how does the `.aiignore` file exclude paths"), still pins. Any `code_ask` citation
+whose chunk metadata carries a section path exposes it in `section` (a docs heading path or a
+code symbol breadcrumb); rows produced only by the BM25 pass omit it. An explanatory lead
+("how does", "why", "explain") keeps a question explanatory even
+when an assessment noun such as "gap" appears later.
+
+Instructional phrases such as "how do I" and "how should I" take precedence over assessment
+nouns, so a request for steps is not reclassified merely because it mentions a review, issue, or
+concern. Contextual gap, weakness, opportunity, review, assess, issue, and concern questions remain
+`assessment`. Assessment follows the explanatory-like retrieval gates: 50 vector candidates per
+index (`VECTOR_TOP_K_EXPLANATORY`), documentation-result demotion, infrastructure-path partitioning,
+and `validation_required` when the top citation is documentation. Its distinct public value makes
+the classifier outcome observable without sacrificing explanatory recall.
+
+Within `assessment` retrieval, every `docs/reports/` record recovers the generic report down-weight
+as a path class (no currentness or freshness predicate is evaluated), while historical `docs/waves/`
+records receive an additional bounded down-weight unless the query names that path. This is
+score-only, never exclusion, and preserves the per-source floors.
+Assessment candidate generation also runs one bounded derived docs semantic/lexical query using
+generic audit, findings, gaps, weaknesses, opportunities, and current-implementation vocabulary;
+deduplicated hits rejoin the same reranker and selection caps with their true reranker scores; no
+path class is injected and no synthetic score is written. No other question type takes this path.
+
+The current single agent ranking path's graph-signal expansion is question-type agnostic: any
+of the five types may return `symbol_extraction_method: "graph"`, `second_hop_symbols`, and
+relationship-grouped `graph_related` evidence when the query resolves to graph symbols. This
+is separate from the exact known-symbol owner correction, which applies to navigational and
+explanatory-like (`explanatory` or `assessment`) questions.
+
+Low-information repository paths — ignore files, lockfiles, dependency manifests, and generated
+agent surfaces — receive a bounded score down-weight before candidate selection. The prior is never
+an exclusion, and the down-weight is suppressed when the query names the artifact path, filename, or
+artifact class (for example, "lockfile" or "dependency manifest").
 
 ### Question Decomposition
 
-*Applies to `explanatory` and `navigational` questions only. Skip for `instructional` questions (docs-first path is already well-scoped) and for single-symbol quick lookups where the answer angle is unambiguous (e.g. "where is `X` defined?" → `code_definition` directly).*
+*Applies to `explanatory`, `assessment`, and `navigational` questions. Skip for `instructional` questions (the docs-first path is already well-scoped), direct `artifact_anchored` lookups, and single-symbol quick lookups where the answer angle is unambiguous (e.g. "where is `X` defined?" → `code_definition` directly).*
 
 Before issuing the first tool call, emit a one-line note and enumerate 2–3 independent angles the answer could come from:
 
@@ -442,7 +492,7 @@ For questions about sequences, flows, or provisioning ("how does X work", "what 
 3. Stop when hitting a leaf: a DB call, an external SDK call, or a third-party service boundary.
 4. Synthesize only after tracing to a leaf or exhausting the index. Do not synthesize from the entry point alone.
 
-**Two-hop awareness:** When `code_ask` already expanded one symbol layer, `second_hop_symbols` lists which symbols were chased — start manual call-chain work from the layer they represent, not from scratch. In `"local"` mode (explanatory) this is keyword second-hop expansion; in **agent mode** it is the graph-signal expansion (`symbol_extraction_method == "graph"`), and the relationship-resolved neighbors are in `graph_related` (`callers`/`readers`/`importers`). Inspect `second_hop_symbols` + `graph_related` before deciding how many manual passes remain.
+**Two-hop awareness:** In the current single agent path, graph-signal expansion is question-type agnostic. When `code_ask` returns `symbol_extraction_method: "graph"`, `second_hop_symbols` lists the graph seeds that were followed and `graph_related` groups their structural neighbors by relationship. These fields may be populated for any of the five question types; there is no separate explanatory-only or `"local"` keyword-expansion mode. Start manual call-chain work from the layer those symbols represent, not from scratch, and inspect both fields before deciding how many manual passes remain.
 
 ### Definition File Follow-Up
 
@@ -482,12 +532,13 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 **`code_ask` response fields to check on every call:**
 - `rerank_mode` (wave `1p52p`) — always `"agent"`; `rerank="local"` is a deprecated alias for the same single path. Use `reranked` to tell whether the cross-encoder actually ran. `reranked=true` means citations were scored on the unified cross-encoder scale (FP16 on GPU, INT8 on CPU); `reranked=false` means the reranker was disabled or unbuildable and ordering fell back to vector/coverage order over raw shared-embedder cosine (uncalibrated). (In `lexical_fallback` mode ordering is BM25 and `reranked` is `false` by design.)
 - `graph_related` (wave `1p4hi`) — present in agent mode when the query resolved a symbol: structural matches grouped by relationship (`callers` / `readers` / `importers` / `related`), each with `symbol` / `path` / `lines` / `confidence`, **separate from the textual `citations`**. This is the structural answer to "what calls/reads X" — read it before chasing call chains manually. A match that is also a citation is flagged `also_cited` (its excerpt dropped, never duplicated).
-- `question_type` — confirms how the question was classified; if the classification looks wrong, rephrase the question to match the intended type.
+- `question_type` — one of exactly `navigational`, `explanatory`, `instructional`, `artifact_anchored`, or `assessment`. If the classification looks wrong, rephrase the question to match the intended type.
 - `partition_applied` / `demotion_count` — when present, some citations were intentionally reordered (pre-selection in agent mode) so code evidence stays ahead of feedback/journal/seed artifacts.
 - `drift_partition_applied` / `drift_demoted_count` — present only when the (default-off) doc-code-drift partition fired; distinct from `partition_applied`, which reports the doc-type score demotion above.
-- `second_hop_symbols` / `symbol_extraction_method` — the symbol expansion behind the answer. In `"local"` mode (explanatory) these are keyword second-hop symbols; in agent mode with `symbol_extraction_method == "graph"` they are the graph-signal seeds whose neighbors `graph_related` surfaced. When present, the citation/structural set already followed those one layer deeper — don't re-chase them manually.
+- `second_hop_symbols` / `symbol_extraction_method` — type-agnostic graph expansion metadata from the single agent path. When `symbol_extraction_method == "graph"`, `second_hop_symbols` names the graph seeds and `graph_related` carries relationship-grouped structural neighbors. Do not re-chase those symbols manually — start the next retrieval pass from the layer they represent.
+- `validation_required` — present and true when an `explanatory` or `assessment` question's top citation is documentation. Treat the required `code_read` continuation as mandatory before synthesis.
 - `index_freshness` — three states: `"current"`, `"stale"` (the index may not reflect recent edits; recommend `index_build(content="all", mode="update")` before answering questions about recently changed code), and `"unknown"` (the freshness check could not determine state — treat results as potentially stale and verify with `index_health` when currency matters; never assume current).
-- `search_mode` — how the results were retrieved: `"hybrid"`/`"semantic"` (normal), `"exact"` (an artifact-anchored exact-first pass answered before semantic retrieval — healthy), `"lexical_fallback"` (semantic retrieval unavailable; results are BM25 exact-token matches — compound identifiers are indivisible tokens, substrings do not match, and recall is narrower than semantic; confidence is capped), or `"live_fallback"` (docs only: no published index at all; a live filesystem walk served). Interpret degraded modes accordingly — a zero-hit in lexical fallback does NOT mean the concept is absent, only that the exact tokens did not match.
+- `search_mode` — how the results were retrieved: `"hybrid"`/`"semantic"` (normal, including direct file/path artifact questions), `"exact"` (a weak generated-symbol/config/tool artifact exact-first pass answered before semantic retrieval — healthy), `"lexical_fallback"` (semantic retrieval unavailable; results are BM25 exact-token matches — compound identifiers are indivisible tokens, substrings do not match, and recall is narrower than semantic; confidence is capped), or `"live_fallback"` (docs only: no published index at all; a live filesystem walk served). Interpret degraded modes accordingly — a zero-hit in lexical fallback does NOT mean the concept is absent, only that the exact tokens did not match.
 - `fallback_reason` — always present: `null` when healthy; else why the degraded path served (`model_unavailable`, `index_missing`, `store_absent`, `index_not_ready`, `query_failed`). `query_failed` means infrastructure failure, NOT an empty corpus — do not conclude "not found" from it.
 
 **Citation interpretation:** when `reranked=true`, `score` is the unified cross-encoder relevance (`sigmoid(logit)`) before any soft demotion. Two `reranked=false` cases: on the healthy path it is vector/coverage order over raw shared-embedder cosine (uncalibrated and weaker; confidence capped at medium), and in `search_mode: lexical_fallback` it is BM25 exact-token score/order (confidence low). `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional — `partition_reason: "doc_code_drift"` marks a drift-flagged doc moved behind a comparably-relevant current alternative (order-only; the partition ships default-off). Prefer `final_rank` over `score` when deciding which citation is primary. Structural matches live in `graph_related`, NOT in `citations` (citations are semantic-only).
@@ -622,7 +673,9 @@ Citation fields in `code_ask` response:
 - Binary files, generated artifacts, `.wavefoundry/index/` directory itself
 - `.env` values (variable names indexed, values redacted)
 - Lock files, build outputs, compiled binaries
-- Files matching `.gitignore` / `.aiignore` patterns
+- Files matching `.gitignore` / `.aiignore` patterns (the ignore files themselves ARE indexed as
+  line-window code units since walker 16, so a direct question naming one pins it; unnamed, the
+  low-information prior keeps them below implementation evidence)
 - The entire `.wavefoundry/` directory (wave 1p2q3 1p2qd) — framework infrastructure (`.wavefoundry/framework/`, `.wavefoundry/bin/`, `.wavefoundry/CHANGELOG.md`, `.wavefoundry/dist/`, etc.) does not appear in the consumer project's graph or semantic index by default. The one exception: the framework's **seeds and top-level README fold into the project docs index** at setup/upgrade, so the framework methodology is searchable via the normal `docs_search` / `seed_get` (there is a single project index — no separate framework index and no `layer="framework"`). The rest of `.wavefoundry/framework/` (scripts, operational docs) stays framework-internal. Self-hosting projects (e.g. the wavefoundry repository itself) opt specific framework subpaths back into the project index via `indexing.project_include_prefixes.code` in `docs/workflow-config.json` (listing the subpaths they actually want, e.g. `.wavefoundry/framework/scripts`)
 
 **Structured-format directories and the code index:** the CODE index covers every

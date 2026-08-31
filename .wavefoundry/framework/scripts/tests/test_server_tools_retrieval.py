@@ -4284,6 +4284,67 @@ class CodeAskTests(unittest.TestCase):
         """Implementation verb alone without a concrete artifact cue stays explanatory."""
         self.assertEqual(self.srv._classify_question("how is the build number generated?"), "explanatory")
 
+    def test_classify_question_assessment_precedes_navigational_phrase(self):
+        cases = (
+            "where are the biggest gaps in the code MCP implementation?",
+            "where are the biggest opportunities to improve the code MCP implementation?",
+            "what are the weaknesses in graph retrieval?",
+            "review the semantic index",
+            "assess retrieval quality",
+        )
+        for question in cases:
+            with self.subTest(question=question):
+                self.assertEqual(self.srv._classify_question(question), "assessment")
+
+    def test_classify_question_instructional_precedes_assessment_nouns(self):
+        cases = (
+            "How should I investigate concerns with shard routing?",
+            "How do I resolve issues in cache invalidation?",
+            "How can I review the search adapter safely?",
+        )
+        for question in cases:
+            with self.subTest(question=question):
+                self.assertEqual(self.srv._classify_question(question), "instructional")
+
+    def test_classify_question_contextual_assessment_and_issue_navigation(self):
+        assessment_cases = (
+            "What issues exist in graph traversal?",
+            "Which current concerns affect semantic ranking?",
+            "Evaluate the retrieval adapter for failure modes.",
+        )
+        for question in assessment_cases:
+            with self.subTest(question=question):
+                self.assertEqual(self.srv._classify_question(question), "assessment")
+        self.assertEqual(
+            self.srv._classify_question("Where is the issue tracker configured?"),
+            "navigational",
+        )
+
+    def test_classify_question_direct_file_artifacts_precede_phrase_signals(self):
+        cases = (
+            "what does .aiignore exclude?",
+            "What Python version does pyproject.toml require?",
+            "where is lifecycle_id.py generated?",
+        )
+        for question in cases:
+            with self.subTest(question=question):
+                self.assertEqual(self.srv._classify_question(question), "artifact_anchored")
+
+        self.assertEqual(
+            self.srv._classify_question("How should I review pyproject.toml constraints?"),
+            "artifact_anchored",
+        )
+
+    def test_classify_question_preserves_symbol_navigation_and_review_noun(self):
+        self.assertEqual(
+            self.srv._classify_question("Where is _classify_question defined?"),
+            "navigational",
+        )
+        self.assertEqual(
+            self.srv._classify_question("Which review lanes can be required before close?"),
+            "explanatory",
+        )
+
     def test_extract_artifact_cue_snake_case(self):
         """_extract_artifact_cue returns snake_case identifier."""
         self.assertEqual(self.srv._extract_artifact_cue("how does build_prefix work?"), "build_prefix")
@@ -4598,6 +4659,93 @@ class CodeAskTests(unittest.TestCase):
         _, count = srv._demote_doc_results(results, "explanatory")
         self.assertEqual(count, 2)
 
+    def test_demote_doc_results_applies_to_assessment(self):
+        results = [{"path": "docs/specs/retrieval.md", "kind": "doc", "score": 1.0}]
+        demoted, count = self.srv._demote_doc_results(results, "assessment")
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(demoted[0]["score"], self.srv._DEMOTION_REFDOCS)
+
+    def test_assessment_evidence_prior_prefers_current_report_and_code_over_wave_history(self):
+        results = [
+            {"path": "docs/waves/old-delivery/change.md", "kind": "doc", "score": 0.99},
+            {"path": "docs/reports/search-audit.md", "kind": "doc", "score": 0.90},
+            {"path": "src/search_adapter.py", "kind": "code", "score": 0.82},
+        ]
+        demoted, _ = self.srv._demote_doc_results(results, "assessment")
+        adjusted, count = self.srv._apply_assessment_evidence_prior(
+            demoted, "Assess cache-routing weaknesses.", "assessment"
+        )
+        paths = [item["path"] for item in adjusted]
+        self.assertLess(paths.index("docs/reports/search-audit.md"), paths.index("docs/waves/old-delivery/change.md"))
+        self.assertLess(paths.index("src/search_adapter.py"), paths.index("docs/waves/old-delivery/change.md"))
+        self.assertEqual(count, 2)
+        self.assertEqual(len(adjusted), 3, "the assessment prior is score-only, never exclusion")
+
+    def test_assessment_evidence_prior_preserves_named_path_and_other_question_types(self):
+        named = "docs/waves/old-delivery/change.md"
+        self.assertEqual(
+            self.srv._assessment_evidence_weight(named, f"Assess {named}."),
+            1.0,
+        )
+        for question_type in ("explanatory", "navigational"):
+            with self.subTest(question_type=question_type):
+                results = [
+                    {"path": "docs/reports/search-audit.md", "score": 0.60},
+                    {"path": "docs/waves/old-delivery/change.md", "score": 0.50},
+                ]
+                unchanged, count = self.srv._apply_assessment_evidence_prior(
+                    results, "Explain cache routing.", question_type
+                )
+                self.assertEqual(count, 0)
+                self.assertEqual([item["score"] for item in unchanged], [0.60, 0.50])
+
+    def test_low_information_path_categories_use_one_bounded_weight(self):
+        cases = (
+            (".aiignore", "ignore_file"),
+            ("package-lock.json", "lockfile"),
+            ("pyproject.toml", "dependency_manifest"),
+            (".cursor/hooks/post-edit.py", "generated_surface"),
+        )
+        for path, category in cases:
+            with self.subTest(path=path):
+                self.assertEqual(self.srv._low_information_path_category(path), category)
+                self.assertEqual(
+                    self.srv._low_information_path_weight(path, "where are the retrieval gaps?"),
+                    self.srv._LOW_INFORMATION_PATH_WEIGHT,
+                )
+        self.assertGreater(self.srv._LOW_INFORMATION_PATH_WEIGHT, 0.0)
+        self.assertLess(self.srv._LOW_INFORMATION_PATH_WEIGHT, 1.0)
+        self.assertEqual(
+            self.srv._low_information_path_weight("src/retrieval.py", "retrieval gaps"),
+            1.0,
+        )
+
+    def test_low_information_path_named_artifact_and_category_are_exempt(self):
+        cases = (
+            (".aiignore", "what does .aiignore exclude?"),
+            ("pyproject.toml", "What Python version does pyproject.toml require?"),
+            ("package-lock.json", "inspect the lockfile"),
+            (".cursor/hooks/post-edit.py", "review the generated surface"),
+        )
+        for path, query in cases:
+            with self.subTest(path=path, query=query):
+                self.assertEqual(self.srv._low_information_path_weight(path, query), 1.0)
+
+    def test_low_information_demotion_reorders_but_never_excludes(self):
+        results = [
+            {"path": ".aiignore", "kind": "code", "score": 0.90},
+            {"path": "src/retrieval.py", "kind": "code", "score": 0.60},
+        ]
+        demoted, count = self.srv._demote_low_information_results(
+            results, "where are the biggest gaps in retrieval?",
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual([item["path"] for item in demoted], ["src/retrieval.py", ".aiignore"])
+        self.assertEqual(len(demoted), 2)
+        self.assertAlmostEqual(
+            demoted[1]["score"], 0.90 * self.srv._LOW_INFORMATION_PATH_WEIGHT,
+        )
+
     # --- _extract_question_symbol unit tests (12q63) ---
 
     def test_extract_question_symbol_private(self):
@@ -4702,6 +4850,12 @@ class CodeAskTests(unittest.TestCase):
         result = self.srv.code_ask_response(index, self.root, "how does span attribute masking work?")
         self.assertEqual(result["data"]["question_type"], "explanatory")
         self.assertTrue(result["data"].get("validation_required"), "validation_required should be True when top citation is doc")
+
+    def test_validation_required_assessment_doc_top(self):
+        index = self._make_index(code_results=[self._fake_doc_chunk()])
+        result = self.srv.code_ask_response(index, self.root, "where are the biggest retrieval gaps?")
+        self.assertEqual(result["data"]["question_type"], "assessment")
+        self.assertTrue(result["data"].get("validation_required"))
 
     def test_validation_required_not_emitted_navigational(self):
         """validation_required not emitted for navigational questions."""
@@ -5616,8 +5770,8 @@ class RerankerTests(unittest.TestCase):
 
     # --- search_combined: artifact_anchored exact-first routing ---
 
-    def test_search_combined_artifact_anchored_uses_exact_first_when_code_hits(self):
-        """artifact_anchored question uses keyword exact pass and returns code hits directly."""
+    def test_search_combined_weak_generated_symbol_uses_exact_first_when_code_hits(self):
+        """Weak generated-symbol artifacts retain the keyword exact-first path."""
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("src/a.py")])
         fake_kw_resp = {
             "status": "ok",
@@ -5630,16 +5784,115 @@ class RerankerTests(unittest.TestCase):
         # available, agent_reranked is True; the exact-first code hits are still returned.
         mock_reranker = self._make_mock_reranker(1)
         with patch.object(idx, "_get_reranker", return_value=mock_reranker):
-            with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp):
+            with patch(f"{self.srv.__name__}.code_keyword_response", return_value=fake_kw_resp) as keyword:
                 results, reranked, vector_ms, _, definition_boosted, _, _, _ = idx.search_combined(
                     "how does build_prefix generate the +2vr8 format?",
                     top_n=5,
                     question_type="artifact_anchored",
                 )
+        keyword.assert_called_once_with(idx.root, "build_prefix")
         self.assertTrue(reranked, "exact pass with reranker should return reranked=True")
         self.assertEqual(vector_ms, 0, "exact pass skips vector fetch; vector_ms must be 0")
         self.assertIn("artifact_anchored", definition_boosted)
         self.assertTrue(any("lifecycle_id.py" in r.get("path", "") for r in results))
+
+    def test_search_combined_direct_file_artifact_uses_broad_hybrid_path(self):
+        """Direct files stay publicly artifact-anchored but skip the exact keyword short-circuit."""
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("src/retrieval.py")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        observed_top_k = []
+        original_lance = idx._lance_search
+
+        def capture_lance(table, qvec, top_n, where=None, layer="project"):
+            observed_top_k.append(top_n)
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+                with patch(f"{self.srv.__name__}.code_keyword_response") as keyword:
+                    _, _, _, _, definition_boosted, _, _, _ = idx.search_combined(
+                        "what does .aiignore exclude?",
+                        top_n=5,
+                        question_type="artifact_anchored",
+                    )
+        keyword.assert_not_called()
+        self.assertTrue(observed_top_k, "direct artifact must execute vector retrieval")
+        self.assertEqual(
+            {self.srv.VECTOR_TOP_K_EXPLANATORY}, set(observed_top_k),
+            "direct artifact must use the explanatory-like wider candidate pool",
+        )
+        self.assertNotIn("artifact_anchored", definition_boosted)
+        self.assertEqual(
+            1.0,
+            self.srv._low_information_path_weight(".aiignore", "what does .aiignore exclude?"),
+        )
+
+    def test_code_ask_direct_dotfile_pins_owner_and_keeps_supporting_context(self):
+        """The public path keeps broad synthesis while making the named dotfile rank one."""
+        code = [
+            {
+                "id": "ignore-owner", "path": ".aiignore", "kind": "code",
+                "language": "text", "text": "tmp/\n.cache/\n", "lines": [1, 2],
+            },
+            self._fake_code_chunk("ignore_loader", text="def load_ignore_patterns(): pass"),
+            self._fake_code_chunk("path_filter", text="def should_index_path(): pass"),
+        ]
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("indexing-guide", text="Ignore patterns shape index scope.")],
+            code_chunks=code,
+        )
+        with patch.object(idx, "_get_reranker", return_value=None):
+            response = self.srv.code_ask_response(
+                idx, idx.root, "Explain the exclusions declared in .aiignore."
+            )
+        data = response["data"]
+        self.assertEqual(data["question_type"], "artifact_anchored")
+        self.assertEqual(data["search_mode"], "hybrid")
+        self.assertEqual(data["citations"][0]["path"], ".aiignore")
+        self.assertTrue(
+            any(citation["path"] != ".aiignore" for citation in data["citations"]),
+            "the exact-owner pin must not discard broad supporting results",
+        )
+        self.assertEqual(
+            self.srv._low_information_path_weight(
+                ".aiignore", "Explain the exclusions declared in .aiignore."
+            ),
+            1.0,
+        )
+
+    def test_code_ask_direct_manifest_pins_owner_and_keeps_supporting_context(self):
+        """A root manifest owner ranks first without using the weak-artifact exact mode."""
+        code = [
+            {
+                "id": "manifest-owner", "path": "pyproject.toml", "kind": "code",
+                "language": "toml", "text": "requires-python = '>=3.11'", "lines": [1, 1],
+            },
+            self._fake_code_chunk("runtime_check", text="def require_supported_python(): pass"),
+            self._fake_code_chunk("setup_flow", text="def setup_environment(): pass"),
+        ]
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("setup-guide", text="Runtime setup prerequisites.")],
+            code_chunks=code,
+        )
+        with patch.object(idx, "_get_reranker", return_value=None):
+            response = self.srv.code_ask_response(
+                idx, idx.root, "Describe the runtime constraint in pyproject.toml."
+            )
+        data = response["data"]
+        self.assertEqual(data["question_type"], "artifact_anchored")
+        self.assertEqual(data["search_mode"], "hybrid")
+        self.assertEqual(data["citations"][0]["path"], "pyproject.toml")
+        self.assertTrue(
+            any(citation["path"] != "pyproject.toml" for citation in data["citations"]),
+            "the exact-owner pin must preserve supporting hybrid citations",
+        )
+        self.assertEqual(
+            self.srv._low_information_path_weight(
+                "pyproject.toml", "Describe the runtime constraint in pyproject.toml."
+            ),
+            1.0,
+        )
 
     def test_search_combined_artifact_anchored_falls_back_when_no_code_hits(self):
         """artifact_anchored with empty keyword result falls through to broad semantic pass."""
@@ -5748,6 +6001,470 @@ class RerankerTests(unittest.TestCase):
                 idx.search_combined("how does billing work", top_n=5, question_type="explanatory")
         self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K_EXPLANATORY)
 
+    def test_search_combined_assessment_uses_top_k_explanatory(self):
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("c0")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        captured = {}
+        original_lance = idx._lance_search
+
+        def capture_top_k(table, qvec, top_n, where=None, layer="project"):
+            captured["top_k"] = top_n
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+                idx.search_combined(
+                    "where are the retrieval gaps?", top_n=5, question_type="assessment",
+                )
+        self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K_EXPLANATORY)
+
+    def test_search_combined_derived_evidence_query_runs_only_for_assessment(self):
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("d0")],
+            code_chunks=[self._fake_code_chunk("c0")],
+        )
+        embedded_queries = []
+        lexical_queries = []
+        original_embed = idx._embed_query
+
+        def capture_embed(query, model):
+            embedded_queries.append(query)
+            return original_embed(query, model)
+
+        def capture_lexical(query):
+            lexical_queries.append(query)
+            return []
+
+        with patch.object(idx, "_embed_query", side_effect=capture_embed):
+            with patch.object(idx, "_lexical_candidates", side_effect=capture_lexical):
+                with patch.object(idx, "_get_reranker", return_value=None):
+                    idx.search_combined(
+                        "assess cache routing weaknesses",
+                        top_n=5,
+                        question_type="assessment",
+                    )
+        derived = [
+            query for query in embedded_queries
+            if self.srv._ASSESSMENT_EVIDENCE_SUFFIX in query
+        ]
+        self.assertEqual(len(derived), 1)
+        self.assertEqual(lexical_queries, [
+            "assess cache routing weaknesses",
+            derived[0],
+        ])
+
+        embedded_queries.clear()
+        lexical_queries.clear()
+        with patch.object(idx, "_embed_query", side_effect=capture_embed):
+            with patch.object(idx, "_lexical_candidates", side_effect=capture_lexical):
+                with patch.object(idx, "_get_reranker", return_value=None):
+                    idx.search_combined(
+                        "explain cache routing",
+                        top_n=5,
+                        question_type="explanatory",
+                    )
+        self.assertFalse(any(self.srv._ASSESSMENT_EVIDENCE_SUFFIX in q for q in embedded_queries))
+        self.assertEqual(lexical_queries, ["explain cache routing"])
+
+    def _low_relevance_reranker(self):
+        reranker = MagicMock()
+        reranker.rerank.side_effect = lambda query, docs: [-6.0 for _ in docs]
+        return reranker
+
+    def _report_class_index(self):
+        docs = [
+            {"id": "report-a", "path": "docs/reports/audit-dispositions.md", "kind": "doc",
+             "section": "Audit > Needs Fixed Now", "text": "finding one", "lines": [10, 20]},
+            {"id": "report-b", "path": "docs/reports/audit-dispositions.md", "kind": "doc",
+             "section": "Audit > Should Fix Now", "text": "finding two", "lines": [21, 30]},
+            {"id": "wave-a", "path": "docs/waves/old wave/change.md", "kind": "doc",
+             "text": "historical narrative", "lines": [1, 5]},
+            self._fake_doc_chunk("d0"), self._fake_doc_chunk("d1"), self._fake_doc_chunk("d2"),
+        ]
+        return self._make_index_with_docs(docs, code_chunks=[self._fake_code_chunk("c0")])
+
+    def test_search_combined_assessment_injects_no_report_class_rows(self):
+        """Cycle-2 council (RED-DEL-1 / ARCH-SEAT-1 / QA-SEAT-1): assessment runs its
+        derived docs expansion and nothing else; no path class is injected, no
+        synthetic score is written, and citations stay reranker-ordered."""
+        idx = self._report_class_index()
+        observed = []
+        original_lance = idx._lance_search
+
+        def capture_lance(table, qvec, top_n, where=None, layer="project"):
+            observed.append((top_n, where))
+            return original_lance(table, qvec, top_n, where=where, layer=layer)
+
+        with patch.object(idx, "_get_reranker", return_value=self._low_relevance_reranker()):
+            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+                results, reranked, *_ = idx.search_combined(
+                    "where are the biggest gaps in the audit tooling?",
+                    top_n=5,
+                    question_type="assessment",
+                )
+        self.assertTrue(reranked)
+        self.assertEqual({None}, {row[1] for row in observed},
+                         "no path-filtered retrieval pass runs for assessment")
+        self.assertEqual(3, len(observed), "original docs, derived docs, and code passes only")
+        self.assertFalse(any("evidence" in (r.get("sources") or []) for r in results))
+        self.assertTrue(all(r["score"] < self.srv.CONF_AGENT_RERANK_LOW for r in results),
+                        "every score is the reranker's own, never a floor")
+        self.assertFalse(any("_relevance_score" in r or "_evidence_rank" in r for r in results))
+
+    def test_code_ask_assessment_abstains_on_absent_topic(self):
+        """An assessment-phrased absent topic returns a low band, weak citations, and the
+        explicit no-confident-match gap (cycle-2 review, RED-DEL-4 / QA-SEAT-2)."""
+        idx = self._report_class_index()
+        with patch.object(idx, "_get_reranker", return_value=self._low_relevance_reranker()):
+            response = self.srv.code_ask_response(
+                idx, idx.root, "Review the lunar regolith job scheduler for weaknesses."
+            )
+        data = response["data"]
+        self.assertEqual("assessment", data["question_type"])
+        self.assertEqual("low", data["confidence"])
+        self.assertTrue(all(c.get("weak") for c in data["citations"]))
+        self.assertTrue(any("no confident match" in gap for gap in data["gaps"]))
+
+    def test_code_ask_citations_expose_section_path_when_chunk_metadata_has_one(self):
+        """`section` follows the chunk metadata: docs heading paths AND code symbol
+        breadcrumbs (the indexer writes one on every row); a row without one omits the
+        field (cycle-2 review, DOCS-DEL-1 / CODE-DEL-5)."""
+        docs = [
+            {"id": "report-a", "path": "docs/reports/audit-dispositions.md", "kind": "doc",
+             "section": "Audit > Needs Fixed Now", "text": "finding one", "lines": [10, 20]},
+            self._fake_doc_chunk("d0"),
+        ]
+        code = [
+            {"id": "c-sec", "path": "src/billing.py", "kind": "code", "language": "python",
+             "section": "billing > charge", "text": "def charge(): pass", "lines": [1, 4]},
+            self._fake_code_chunk("c-nosec", text="def refund(): pass"),
+        ]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        with patch.object(idx, "_get_reranker", return_value=self._low_relevance_reranker()):
+            response = self.srv.code_ask_response(
+                idx, idx.root, "where are the biggest gaps in the audit tooling?"
+            )
+        by_path = {c["path"]: c for c in response["data"]["citations"]}
+        self.assertEqual("Audit > Needs Fixed Now",
+                         by_path["docs/reports/audit-dispositions.md"].get("section"))
+        self.assertEqual("billing > charge", by_path["src/billing.py"].get("section"))
+        self.assertNotIn("section", by_path["src/c-nosec.py"])
+
+    def test_classify_question_explanatory_lead_keeps_mechanism_questions_explanatory(self):
+        """Cycle-2 review (RC-SEAT-2): a bare assessment noun inside a how/why question
+        is not a review request; the pinned assessment forms still classify."""
+        explanatory = (
+            "How does the chunker handle a gap between sections?",
+            "How does the chunker handle a gap in the heading tree?",
+            "How does the retrieval posture sensor decide whether a gap fired?",
+            "Explain how a Gapfill note clears the retrieval posture gap.",
+            "Why does the .NET build fail?",
+            "Describe the weaknesses section of the audit report format.",
+        )
+        for question in explanatory:
+            with self.subTest(question=question):
+                self.assertEqual("explanatory", self.srv._classify_question(question))
+        assessment = (
+            "where are the biggest gaps in the code MCP implementation?",
+            "Which search-index weaknesses in this repository should be prioritized for remediation?",
+            "what are the weaknesses in graph retrieval?",
+            "Review the lunar regolith job scheduler for weaknesses.",
+            "where are the biggest gaps in the lunar regolith helium-three harvest scheduler?",
+        )
+        for question in assessment:
+            with self.subTest(question=question):
+                self.assertEqual("assessment", self.srv._classify_question(question))
+
+    def test_direct_artifact_cue_keeps_dot_directory_paths_and_rejects_non_files(self):
+        """Cycle-2 review (CODE-DEL-1 / QA-SEAT-4 / RED-DEL-9)."""
+        cue = self.srv._extract_direct_artifact_cue
+        self.assertEqual(".wavefoundry/framework/scripts/indexer.py",
+                         cue("what does .wavefoundry/framework/scripts/indexer.py walk?"))
+        self.assertEqual(".claude/hooks/post-edit.py",
+                         cue("What does .claude/hooks/post-edit.py run after an edit?"))
+        self.assertEqual(".aiignore", cue("what does .aiignore exclude?"))
+        self.assertEqual("pyproject.toml", cue("How does pyproject.toml define the metadata?"))
+        self.assertEqual("", cue("Why does the .NET build fail?"))
+        self.assertEqual("", cue("Retry at most .5 seconds later."))
+        self.assertEqual("explanatory", self.srv._classify_question("Why does the .NET build fail?"))
+        # Reverification RV-2: prose slash pairs, numeric ratios, and bare directories
+        # are not file cues; a dotted, lettered final segment is.
+        self.assertEqual("", cue("input/output handling in the walker"))
+        self.assertEqual("", cue("and/or the reranker"))
+        self.assertEqual("", cue("a ratio of 3/4.5 in the walk"))
+        self.assertEqual("", cue("what is under docs/waves/ now?"))
+        self.assertEqual("docs/agents/guru.md", cue("where is docs/agents/guru.md rendered from?"))
+        self.assertEqual("explanatory",
+                         self.srv._classify_question("how does the walker handle input/output?"))
+        # Reverification RV3-2: a dot-directory prefix of a longer path never leaks
+        # as the cue; extensionless finals and dot-rooted directories are not cues.
+        self.assertEqual("", cue("what does .wavefoundry/bin/wf do?"))
+        self.assertEqual("", cue("what is in .github/CODEOWNERS?"))
+        self.assertEqual("", cue("what is under .wavefoundry/framework/scripts/ now?"))
+        self.assertEqual("explanatory",
+                         self.srv._classify_question("what is under .wavefoundry/framework/scripts/ now?"))
+        self.assertEqual("pyproject.toml",
+                         cue("under .wavefoundry/bin/wf the pyproject.toml drives setup"))
+
+    def test_mechanism_framed_direct_artifact_questions_do_not_pin_the_file(self):
+        """Cycle-2 review (ARCH-SEAT-5 / RED-DEL-2 / QA-SEAT-3): a question that names a
+        file as its object keeps injection and the artifact type, but reranked evidence
+        keeps the lead; a content-framed question still pins."""
+        framed = self.srv._mechanism_framed_question
+        self.assertTrue(framed("How does the framework restore the .gitignore runtime block?"))
+        self.assertTrue(framed("Which function renders the managed block in .gitignore?"))
+        self.assertTrue(framed("which tests cover chunker.py?"))
+        self.assertFalse(framed("what does .aiignore exclude?"))
+        self.assertFalse(framed("How does pyproject.toml define this repository's package and tooling metadata?"))
+        self.assertFalse(framed("Explain the exclusions declared in .aiignore."))
+        # Reverification RED-RV-3: a leading article does not turn the named subject
+        # into a mechanism question.
+        self.assertFalse(framed("How does the .aiignore file exclude paths?"))
+        self.assertFalse(framed("How does this pyproject.toml declare the venv?"))
+        self.assertTrue(framed("How does the renderer rewrite the managed block inside .gitignore?"))
+        # Reverification RV3-1/RV3-3: a path-named subject and a single noun between
+        # article and name keep the pin; a file in object position stays framed.
+        self.assertFalse(framed("How does docs/agents/guru.md describe retrieval?"))
+        self.assertFalse(framed("How does src/config.yaml set the model?"))
+        self.assertFalse(framed("How does the file .aiignore exclude paths?"))
+        self.assertTrue(framed("How does the walker index .aiignore?"))
+        self.assertTrue(framed("How does the installer restore .aiignore?"))
+        code = [
+            {"id": "ignore-owner", "path": ".gitignore", "kind": "code", "language": "text",
+             "text": "dist/\n", "lines": [1, 1]},
+            self._fake_code_chunk("renderer", text="def render_gitignore_block(): pass"),
+            self._fake_code_chunk("other", text="def unrelated(): pass"),
+        ]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=code)
+        reranker = MagicMock()
+
+        def score(query, texts):
+            return [6.0 if "render_gitignore_block" in t else -6.0 for t in texts]
+
+        reranker.rerank.side_effect = score
+        with patch.object(idx, "_get_reranker", return_value=reranker):
+            with patch.object(idx, "_lexical_candidates", return_value=[]):
+                framed_response = self.srv.code_ask_response(
+                    idx, idx.root, "Which function renders the managed block in .gitignore?"
+                )
+                content_response = self.srv.code_ask_response(
+                    idx, idx.root, "what does .gitignore exclude?"
+                )
+        self.assertEqual("artifact_anchored", framed_response["data"]["question_type"])
+        self.assertEqual("src/renderer.py", framed_response["data"]["citations"][0]["path"])
+        self.assertIn(".gitignore", [c["path"] for c in framed_response["data"]["citations"]],
+                      "owner rows are still injected for the mechanism-framed question")
+        self.assertEqual(".gitignore", content_response["data"]["citations"][0]["path"])
+
+    def test_direct_artifact_owner_rows_read_published_tables_only(self):
+        code = [
+            {"id": "ignore-owner", "path": ".aiignore", "kind": "code", "language": "text",
+             "text": "tmp/\n.cache/\n", "lines": [1, 2]},
+            {"id": "nested-owner", "path": "pkg/.aiignore", "kind": "code", "language": "text",
+             "text": "build/\n", "lines": [1, 1]},
+            self._fake_code_chunk("loader", text="def load(): pass"),
+        ]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=code)
+        rows = idx._direct_artifact_owner_rows(".aiignore")
+        self.assertEqual({".aiignore", "pkg/.aiignore"}, {r["path"] for r in rows})
+        self.assertTrue(all(r["score"] == 0.0 and "vector" not in r for r in rows))
+        self.assertEqual(
+            {".aiignore", "pkg/.aiignore"},
+            {r["path"] for r in idx._direct_artifact_owner_rows("./.aiignore")},
+            "a basename cue owns every file with that basename, like the pin itself",
+        )
+        self.assertEqual(
+            ["pkg/.aiignore"], [r["path"] for r in idx._direct_artifact_owner_rows("pkg/.aiignore")],
+        )
+        self.assertEqual([], idx._direct_artifact_owner_rows(".py"))
+        self.assertEqual([], idx._direct_artifact_owner_rows(""))
+        self.assertEqual([], idx._direct_artifact_owner_rows("missing.toml"))
+
+    def test_direct_artifact_owner_rows_use_exact_ownership_not_like_wildcards(self):
+        """Cycle-2 review (CODE-DEL-3 / SEC-SEAT-3): `_` is a LIKE wildcard; ownership is
+        decided by exact path or basename equality after the fetch."""
+        code = [
+            {"id": "want", "path": "docs/a_b.md", "kind": "code", "language": "text",
+             "text": "a_b", "lines": [1, 1]},
+            {"id": "sibling", "path": "docs/axb.md", "kind": "code", "language": "text",
+             "text": "axb", "lines": [1, 1]},
+            {"id": "nested", "path": "sub/dir/a_b.md", "kind": "code", "language": "text",
+             "text": "nested", "lines": [1, 1]},
+            {"id": "upper", "path": "AGENTS.md", "kind": "code", "language": "text",
+             "text": "# Agent Guide", "lines": [1, 1]},
+            {"id": "upper-nested", "path": "pkg/AGENTS.md", "kind": "code", "language": "text",
+             "text": "# Area guide", "lines": [1, 1]},
+            {"id": "mixed", "path": "src/MixedCase.py", "kind": "code", "language": "python",
+             "text": "X = 1", "lines": [1, 1]},
+        ]
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=code)
+        self.assertEqual({"docs/a_b.md", "sub/dir/a_b.md"},
+                         {r["path"] for r in idx._direct_artifact_owner_rows("a_b.md")})
+        self.assertEqual(["docs/a_b.md"],
+                         [r["path"] for r in idx._direct_artifact_owner_rows("docs/a_b.md")])
+        self.assertEqual([], idx._direct_artifact_owner_rows("axb.mx"))
+        # Reverification RV-1: ownership compares casefolded paths on both sides, so a
+        # cue with an uppercase letter is not fetched and then dropped.
+        self.assertEqual({"AGENTS.md", "pkg/AGENTS.md"},
+                         {r["path"] for r in idx._direct_artifact_owner_rows("AGENTS.md")})
+        self.assertEqual(["pkg/AGENTS.md"],
+                         [r["path"] for r in idx._direct_artifact_owner_rows("pkg/AGENTS.md")])
+        self.assertEqual(["src/MixedCase.py"],
+                         [r["path"] for r in idx._direct_artifact_owner_rows("MixedCase.py")])
+
+    def test_code_ask_pins_mixed_case_owner_when_vector_recall_misses_it(self):
+        """Reverification RV-1 end to end: the guarantee that the pin never depends on
+        vector recall holds for `AGENTS.md`, not only for lowercase names."""
+        code = [
+            {"id": "agents-owner", "path": "AGENTS.md", "kind": "code", "language": "text",
+             "text": "## Git Commits\nAgents must not run git commit.\n", "lines": [1, 2]},
+            self._fake_code_chunk("policy_loader", text="def load_commit_policy(): pass"),
+            self._fake_code_chunk("other", text="def unrelated(): pass"),
+        ]
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("commit-guide", text="Commit policy lives in the agent guide.")],
+            code_chunks=code,
+        )
+        original_lance = idx._lance_search
+
+        def recall_without_owner(table, qvec, top_n, where=None, layer="project"):
+            return [
+                row for row in original_lance(table, qvec, top_n, where=where, layer=layer)
+                if row.get("path") != "AGENTS.md"
+            ]
+
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=recall_without_owner):
+                with patch.object(idx, "_lexical_candidates", return_value=[]):
+                    response = self.srv.code_ask_response(
+                        idx, idx.root, "what does AGENTS.md say about git commits?"
+                    )
+        data = response["data"]
+        self.assertEqual("artifact_anchored", data["question_type"])
+        self.assertEqual("AGENTS.md", data["citations"][0]["path"])
+        self.assertEqual(1, sum(1 for c in data["citations"] if c["path"] == "AGENTS.md"))
+
+    def test_code_ask_direct_artifact_pins_owner_even_when_vector_recall_misses_it(self):
+        code = [
+            {"id": "ignore-owner", "path": ".aiignore", "kind": "code", "language": "text",
+             "text": "tmp/\n.cache/\n", "lines": [1, 2]},
+            self._fake_code_chunk("ignore_loader", text="def load_ignore_patterns(): pass"),
+            self._fake_code_chunk("path_filter", text="def should_index_path(): pass"),
+        ]
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("indexing-guide", text="Ignore patterns shape index scope.")],
+            code_chunks=code,
+        )
+        original_lance = idx._lance_search
+
+        def recall_without_owner(table, qvec, top_n, where=None, layer="project"):
+            return [
+                row for row in original_lance(table, qvec, top_n, where=where, layer=layer)
+                if row.get("path") != ".aiignore"
+            ]
+
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_lance_search", side_effect=recall_without_owner):
+                with patch.object(idx, "_lexical_candidates", return_value=[]):
+                    response = self.srv.code_ask_response(
+                        idx, idx.root, "what does .aiignore exclude?"
+                    )
+        data = response["data"]
+        self.assertEqual("artifact_anchored", data["question_type"])
+        self.assertEqual(".aiignore", data["citations"][0]["path"])
+        self.assertEqual(1, sum(1 for c in data["citations"] if c["path"] == ".aiignore"))
+        self.assertTrue(any(c["path"] != ".aiignore" for c in data["citations"]))
+
+    def test_search_combined_assessment_injects_published_symbol_owner(self):
+        idx = self._make_index_with_docs([], code_chunks=[self._fake_code_chunk("other")])
+        owner = {
+            "path": "src/index.py", "text": "class WaveIndex:", "score": 0.8,
+            "kind": "code", "lines": [10, 10], "source": "code", "sources": ["code"],
+        }
+        with patch.object(idx, "_published_exact_definition_candidate", return_value=owner) as resolve:
+            with patch.object(idx, "_get_reranker", return_value=None):
+                results, *_ = idx.search_combined(
+                    "assess WaveIndex weaknesses", top_n=5, question_type="assessment",
+                )
+        resolve.assert_called_once_with("WaveIndex")
+        self.assertIn("src/index.py", [item.get("path") for item in results])
+
+    def test_search_combined_assessment_ranks_report_and_code_ahead_of_wave_history(self):
+        docs = [
+            {
+                "id": "current-audit", "path": "docs/reports/cache-audit.md", "kind": "doc",
+                "text": "Current cache-routing assessment evidence.", "lines": [1, 5],
+            },
+            {
+                "id": "historical-wave", "path": "docs/waves/old-delivery/change.md", "kind": "doc",
+                "text": "Historical cache-routing delivery discussion.", "lines": [1, 5],
+            },
+        ]
+        code = [
+            {
+                "id": "current-code", "path": "src/cache_router.py", "kind": "code",
+                "language": "python", "text": "def route_cached_item(): pass", "lines": [1, 2],
+            }
+        ]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        with patch.object(idx, "_get_reranker", return_value=None):
+            results, *_ = idx.search_combined(
+                "Assess cache-routing weaknesses.", top_n=5, question_type="assessment"
+            )
+        paths = [item.get("path") for item in results]
+        historical_rank = paths.index("docs/waves/old-delivery/change.md")
+        self.assertLess(paths.index("docs/reports/cache-audit.md"), historical_rank)
+        self.assertLess(paths.index("src/cache_router.py"), historical_rank)
+
+    def test_search_combined_derived_report_survives_rerank_and_selection(self):
+        idx = self._make_index_with_docs(
+            [self._fake_doc_chunk("placeholder")],
+            code_chunks=[self._fake_code_chunk("placeholder")],
+        )
+        historical = {
+            "id": "historical", "path": "docs/waves/old-delivery/change.md", "kind": "doc",
+            "text": "Historical cache routing discussion.", "lines": [1, 5], "score": 0.99,
+        }
+        current_report = {
+            "id": "current-report", "path": "docs/reports/cache-audit.md", "kind": "doc",
+            "text": "Current audit findings for cache routing.", "lines": [1, 5], "score": 0.90,
+        }
+        implementation = {
+            "id": "implementation", "path": "src/cache_router.py", "kind": "code",
+            "text": "def route_cached_item(): pass", "lines": [1, 2], "score": 0.82,
+        }
+
+        def rerank(_query, candidates):
+            scores = {
+                historical["path"]: 0.99,
+                current_report["path"]: 0.90,
+                implementation["path"]: 0.82,
+            }
+            for candidate in candidates:
+                candidate["score"] = scores[candidate["path"]]
+            return True
+
+        with patch.object(
+            idx, "_lance_search", side_effect=[[historical], [current_report], [implementation]]
+        ) as lance:
+            with patch.object(idx, "_lexical_candidates", return_value=[]):
+                with patch.object(idx, "_agent_rerank", side_effect=rerank):
+                    with patch.object(idx, "_graph_signal_candidates", return_value=[]):
+                        results, reranked, *_ = idx.search_combined(
+                            "assess cache routing weaknesses",
+                            top_n=5,
+                            question_type="assessment",
+                        )
+        self.assertTrue(reranked)
+        self.assertEqual(lance.call_count, 3, "one original docs, one derived docs, one code search")
+        self.assertTrue(all(call.kwargs.get("where") is None for call in lance.call_args_list),
+                        "no path-filtered pass exists (cycle-2 council removal)")
+        paths = [item["path"] for item in results]
+        historical_rank = paths.index(historical["path"])
+        self.assertLess(paths.index(current_report["path"]), historical_rank)
+        self.assertLess(paths.index(implementation["path"]), historical_rank)
+
     def test_search_combined_navigational_uses_default_top_k(self):
         """search_combined uses VECTOR_TOP_K (30) for navigational questions."""
         docs = [self._fake_doc_chunk(f"d{i}") for i in range(3)]
@@ -5840,6 +6557,26 @@ class RerankerTests(unittest.TestCase):
         self.assertIn(biz_path, paths)
         self.assertLess(paths.index(biz_path), paths.index(infra_path))
 
+    def test_search_combined_assessment_partitions_infra_paths_after_rerank(self):
+        docs = [self._fake_doc_chunk("d0")]
+        code = [
+            self._fake_code_chunk("src/constructs/MyStack.ts"),
+            self._fake_code_chunk("src/services/billing.ts"),
+        ]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        mock_reranker = MagicMock()
+        infra_chunk = {**code[0], "score": 0.9}
+        biz_chunk = {**code[1], "score": 0.8}
+        mock_reranker.rerank.return_value = [0.9, 0.8, 0.5]
+        with patch.object(idx, "_get_reranker", return_value=mock_reranker):
+            with patch.object(idx, "_rerank", return_value=[infra_chunk, biz_chunk]):
+                results, *_ = idx.search_combined(
+                    "where are the billing weaknesses?", top_n=5,
+                    question_type="assessment", rerank="local",
+                )
+        paths = [result.get("path", "") for result in results]
+        self.assertLess(paths.index(biz_chunk["path"]), paths.index(infra_chunk["path"]))
+
     def test_search_combined_non_explanatory_no_partition(self):
         """For navigational/instructional questions, infra paths are not partitioned."""
         docs = [self._fake_doc_chunk("d0")]
@@ -5864,6 +6601,19 @@ class RerankerTests(unittest.TestCase):
             result = self.srv.code_ask_response(index, root, "how does billing work")
         data = result.get("data", {})
         self.assertTrue(data.get("infrastructure_demoted", False))
+
+    def test_search_combined_infrastructure_demoted_flag_for_assessment(self):
+        index = MagicMock()
+        infra_result = {"path": "src/constructs/MyStack.ts", "score": 0.9, "lines": [1, 10], "text": "...", "kind": "code"}
+        biz_result = {"path": "src/services/billing.ts", "score": 0.8, "lines": [1, 10], "text": "...", "kind": "code"}
+        index.search_combined.return_value = ([infra_result, biz_result], True, 10, 20, [], [], "none", None)
+        index._layer_health.return_value = {"indexed_chunker_versions": {}, "current_chunker_version": "17"}
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            result = self.srv.code_ask_response(index, root, "where are the billing weaknesses?")
+        self.assertEqual(result["data"]["question_type"], "assessment")
+        self.assertTrue(result["data"].get("infrastructure_demoted"))
 
     def test_search_combined_no_infrastructure_demoted_for_navigational(self):
         """code_ask_response does not set infrastructure_demoted for navigational questions."""
@@ -6523,6 +7273,27 @@ class RerankerTests(unittest.TestCase):
     # agent mode's graph-based `graph_related` expansion (1p4hu) follows real call/import/reads edges
     # instead. The `second_hop_symbols`/`symbol_extraction_method` return fields remain (always
     # []/"none") and are covered by the search_combined tests below.
+
+    def test_search_combined_assessment_preserves_type_agnostic_graph_signal(self):
+        docs = [self._fake_doc_chunk("d0")]
+        code = [self._fake_code_chunk("billing")]
+        idx = self._make_index_with_docs(docs, code_chunks=code)
+        graph_candidate = {
+            "path": "src/retrieval.py", "text": "def evaluate_retrieval(): ...",
+            "score": 0.8, "kind": "code", "lines": [4, 8],
+            "_symbol": "evaluate_retrieval", "_relationship": "related",
+        }
+        graph_related = {"related": [{"symbol": "evaluate_retrieval"}]}
+        with patch.object(idx, "_get_reranker", return_value=None):
+            with patch.object(idx, "_graph_signal_candidates", return_value=[graph_candidate]):
+                with patch.object(idx, "_merge_graph_into_citations"):
+                    with patch.object(idx, "_build_graph_related", return_value=graph_related):
+                        result = idx.search_combined(
+                            "assess retrieval weaknesses", top_n=5, question_type="assessment",
+                        )
+        self.assertEqual(result[5], ["evaluate_retrieval"])
+        self.assertEqual(result[6], "graph")
+        self.assertEqual(result[7], graph_related)
 
     def test_search_combined_second_hop_skipped_for_navigational(self):
         """Second hop is not triggered for navigational questions."""

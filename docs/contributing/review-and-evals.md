@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-15
+Last verified: 2026-08-31
 
 ## Review Lane Summary
 
@@ -128,6 +128,66 @@ When a change modifies any implementation — a feature, an API or tool-surface 
 For deterministic transformations, parsers, serializers, migrations, normalizers, compatibility adapters, and fallbacks the sharpest reference is a differential or a specification-derived/metamorphic invariant, spent as one highest-risk, reproducible probe. For example, a hand-written fallback parser can be compared with a grammar-backed parser over valid generated declarations, with the assertion limited to initializer ownership identity. Named regressions remain useful for diagnosed failures; the differential probe adds an assumption-independent reference for the broader property. Agreement does not prove either parser universally correct, so specification-derived identifier and token-boundary invariants still guard plausible shared defects.
 
 Reference independence improves evidence quality; it does not confer reviewer independence. Implementer-authored probes remain `independent: false` and cannot restore a withdrawn approval. Tests that assert this paragraph or its generated carrier is present prove framework propagation only—not that a reviewer followed it on a particular wave. When no credible reference exists or the faithful probe would exceed current authorization, record that limitation and use the closest safe evidence rather than inventing a reference or starting open-ended fuzzing.
+
+## Standing Retrieval-Quality Gate
+
+Any change to retrieval ranking, question classification, chunking relevance,
+hybrid candidate selection, or retrieval-result demotion must run the standing
+production retrieval evaluation before and after the change. The canonical
+baseline command is:
+
+```bash
+python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-baseline.json
+```
+
+A comparison adds `--baseline <report.json>`. Each constituent run must remain
+on one published build generation; a controlled rebuild may produce a second
+explicitly recorded generation. Evidence is invalid if the generation changes
+mid-run, models are not already cached for offline use, the corpus is empty or
+stale, a call or total-run timeout fires, or a degraded-mode fixture mutates the
+published store. The holdout split controls the pass/fail verdict. Report the
+metric deltas, warm latency and serialized-envelope thresholds, any absolute
+operator-review trigger, and the exact `wavefoundry.retrieval-eval/v1` artifact.
+
+Every report is a receipt bound to what produced it: `evaluator_identity` (the
+runner's own bytes), `production_identity` (a digest over the production
+retrieval modules that served the queries, with the chunker, walker, and graph
+builder versions, re-hashed at the end of the run so a mid-run edit invalidates
+it as `production_drift` and a clean receipt records `end_digest_verified`,
+plus a `git` block disclosing the repository HEAD, whether each served module
+matches HEAD byte-for-byte, and whether the module tree is dirty),
+`environment.retrieval_toggles` (the effective state of every retrieval kill
+switch, recorded as active whenever the variable is set and non-empty, which is
+a superset of what each production parser accepts, so a `=0` value forces
+review rather than passing silently; an active switch makes the verdict
+`operator_review_required` unless a floor violation makes it `fail`, and a pair
+whose switches differ is invalid), `run_time` (UTC start and finish), and
+`anchor_resolution` (the declaration span each symbol anchor resolved to through
+the public `code_outline` and `code_constants` paths). A symbol anchor matches
+only a result whose own line span intersects that declaration; a same-file call
+site, a comment mention, or a whole-file summary never counts, and an unresolved
+or ambiguous symbol invalidates the run rather than scoring a miss. A section
+anchor matches the chunk's section path or, when a row carries none, the
+breadcrumb the chunker bakes as the first line of every docs section chunk. A
+`code_ask` abstention is correct only when the band is low, no label matched,
+and the response either declares the no-confident-match gap or flags every
+citation weak. A comparison records its `comparison_kind`: a
+`same_generation_pair` (identical production identity on one frozen generation)
+is the only pair that measures jitter; a `production_change_same_generation`
+receipt is the before/after evidence for a ranking change and inherits the
+baseline pair's recorded jitter; a `cross_generation` comparison covers a
+controlled rebuild.
+
+Precondition after a full index rebuild: run the maintenance verb
+(`index_optimize`, or the equivalent end-of-setup pass) before recording
+evidence. A fresh rebuild leaves the FTS5 tables unmerged and the per-call
+store integrity probe then pushes `code_lexical` past its absolute ceiling for
+a reason unrelated to the change under review.
+
+The similarly named fixture-tree harness under
+`.wavefoundry/framework/scripts/tests/fixtures/retrieval_golden/` is a
+component-only chunk/embedder benchmark. It does not substitute for the public
+Lance/FTS hybrid response-path gate.
 
 ## Docs-Contract Review
 

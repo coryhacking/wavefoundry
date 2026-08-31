@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-29
+Last verified: 2026-08-31
 
 ## The Problem
 
@@ -161,10 +161,10 @@ Both kinds are prepended to their file's chunk list so they appear first in retr
 
 `code_ask` is a structured routing tool, not an LLM-in-the-loop summarizer. Given a question, it:
 
-1. Classifies the question type (`navigational` / `explanatory` / `instructional`) using the `_classify_question` keyword heuristic
-2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because raw bi-encoder cosines are uncalibrated similarity, not calibrated relevance: docs and code cosines now come from one shared Arctic S embedder, and the cross-encoder still supplies the calibrated relevance scale the selection thresholds are tuned against (the historical `1p4wx` docs/code model split was the original motivation). For explanatory or navigational questions naming one symbol, an exact published-graph payload bound to its read-only SQLite state receipt may contribute one unambiguous declaration-capable node whose recorded source hash matches the single buffer used to render the citation; that candidate alone receives the owner marker and is stable-pinned after selection/infra partition, while ordinary semantic and lexical context remains. Missing, stale, ambiguous, source-mismatched, or unbound graph data adds nothing and triggers no refresh, scan, or second model path.
+1. Classifies the question into the exact public five-value set: `navigational`, `explanatory`, `instructional`, `artifact_anchored`, or `assessment`. Direct artifact/path cues take precedence over phrase signals. Instructional phrases take precedence over assessment nouns, and assessment remains observable as its own value while routing through explanatory-like retrieval.
+2. Runs a broad semantic pass via `search_combined()` — fetches from both docs and code indexes, then (wave `1p52p`, ADR `1p52q`) applies a **rerank-FIRST** cross-encoder that scores the whole pool on one unified `sigmoid(logit)` relevance scale BEFORE the agent selection (per-index floor / relevance drop-off / text budget). This is `code_ask`'s single ranking path — the former `rerank="local"` and `rrf_fallback` paths were removed. The cross-encoder runs on whatever hardware is present (FP16 on GPU, INT8 on CPU); ordering falls back to vector/coverage order (`reranked=false`) only when reranking is explicitly disabled or unbuildable. The unified scale matters because raw bi-encoder cosines are uncalibrated similarity, not calibrated relevance: docs and code cosines now come from one shared Arctic S embedder, and the cross-encoder still supplies the calibrated relevance scale the selection thresholds are tuned against (the historical `1p4wx` docs/code model split was the original motivation). For navigational or explanatory-like (`explanatory` or `assessment`) questions naming one symbol, an exact published-graph payload bound to its read-only SQLite state receipt may contribute one unambiguous declaration-capable node whose recorded source hash matches the single buffer used to render the citation; that candidate alone receives the owner marker and is stable-pinned after selection/infra partition, while ordinary semantic and lexical context remains. Missing, stale, ambiguous, source-mismatched, or unbound graph data adds nothing and triggers no refresh, scan, or second model path.
 3. If fewer than 2 citations, runs a targeted keyword fallback pass (`code_keyword`) — SUPPRESSED in `lexical_fallback` mode and on infrastructure failure (wave 1seav: live keyword hits must not mix into a lexical envelope or mask an outage as indexed evidence)
-4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, search_mode, fallback_reason, rerank_mode, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` — plus `drift_partition_applied`/`drift_demoted_count` when the (default-off) doc-code-drift partition fired (plus `coverage` on every degraded/failed envelope — `{}` when collection was unavailable) and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
+4. Returns `{answer, citations, confidence, gaps, question_type, index_freshness, search_mode, fallback_reason, rerank_mode, reranked, partition_applied, demotion_count, total_ms, vector_ms, rerank_ms, definition_boosted, second_hop_symbols}` (each citation carries `section` when its chunk metadata supplies a section path, wave `1seaw`) — plus `drift_partition_applied`/`drift_demoted_count` when the (default-off) doc-code-drift partition fired (plus `coverage` on every degraded/failed envelope — `{}` when collection was unavailable) and per-citation metadata including `score`, `final_rank`, `demoted`, and `partition_reason`
 
 The `answer` field is mechanically assembled from the top citation — it names the file and line range, not a synthesized prose response. This is intentional: the tool is designed to be called by an agent that will read the cited sources and reason over them, not to replace that reasoning. Synthesis is the caller's job; retrieval and citation is `code_ask`'s job.
 
@@ -185,14 +185,24 @@ is `low`. `index_freshness` is the cached three-state verdict (`current`/`stale`
 
 **Question-type-aware retrieval in `search_combined`:**
 
-- `navigational`: code-index candidates receive a `RRF_NAVIGATIONAL_CODE_WEIGHT` (1.5×) multiplier in RRF scoring to bias toward code results
-- `explanatory`: after reranking, results whose path contains any segment from `INFRASTRUCTURE_PATH_SEGMENTS` (scaffolding-layer paths: CDK constructs/stacks, Terraform modules/resources, Spring config/beans, Express/NestJS routes/wiring, generic infra/infrastructure) are stable-partitioned to the end of the result list. This prevents CDK scaffolding and wiring files from displacing business-logic files for multi-hop explanatory questions.
-- `instructional` and default: no weight bias; no partition
+- `navigational`: when the cross-encoder ran, code-index candidates receive the legacy-named `RRF_NAVIGATIONAL_CODE_WEIGHT` (1.5×) multiplier during agent candidate selection to bias toward code results
+- `explanatory` and `assessment`: use the 50-candidate-per-index explanatory window, documentation demotion, and a stable infrastructure-path partition after selection. When the top citation is documentation, the response sets `validation_required: true` and requires a `code_read` continuation. Assessment alone also runs one bounded derived docs semantic/lexical query using generic audit/findings/gaps/weaknesses/opportunities/current-implementation vocabulary; deduplicated hits rejoin the same reranker and selection caps with their true reranker scores; no path class is injected and no synthetic score is written (wave `1seaw`'s cycle-2 council removed a report-class injector because a path-class prior with a synthetic score is not retrieval and broke the citations-are-reranker-ordered invariant that the graph signal honors by living in its own labeled section). Within assessment, every `docs/reports/` record recovers the generic report down-weight as a path class (no currentness or freshness predicate is evaluated), while historical `docs/waves/` records receive an additional bounded down-weight unless the query names that path; this score-only prior never excludes a candidate and preserves the per-source floors. No other question type takes the derived-query path.
+- `artifact_anchored`: direct file/path questions use the broad explanatory-like hybrid pool and stable-pin the strongest eligible exact path/basename owner at rank one after selection; the named path's published owner rows (`DIRECT_ARTIFACT_OWNER_ROWS` per table, read from the published Lance tables with no vector pass) are injected into the pool before reranking so the pin never depends on vector recall of a small file, and the seven ignore-file names are indexed as line-window code units (walker 16) so a direct ignore-file question can pin the file itself. A question that asks about the mechanism around the named file (`_MECHANISM_FRAME_RE`: "how does the framework restore the `.gitignore` block", "which function renders `.aiignore`", "which tests cover `chunker.py`") keeps the injection and the artifact type but does not pin the file over reranked evidence, while a named file or path that is the question's subject, with or without a leading article or one noun before the name ("how does the `.aiignore` file exclude paths", "how does `docs/agents/guru.md` describe retrieval"), still pins; the cue regex accepts a concrete path only when its final segment carries a dotted, lettered suffix and never stops at a path separator, so prose slash pairs ("input/output"), bare directories, and dot-directory prefixes of longer paths are not cues, and owner-row ownership compares casefolded paths on both sides (the candidate fetch itself is exact-case: the cue as typed must match the stored path's case) so mixed-case names such as `AGENTS.md` inject like lowercase ones; an explanatory lead (`_EXPLANATORY_LEAD_RE`: "how does", "why", "explain") keeps a question explanatory even when an assessment noun appears later. Weak generated-symbol/config/tool questions use the exact-first short circuit and fall through to broad retrieval only when thin. Direct path, filename, and artifact-class queries are exempt from the low-information-path prior.
+- `instructional`: no code tilt or infrastructure partition.
+
+Independently of question type, the single agent path may expand graph-resolvable symbols into
+relationship-grouped `graph_related` evidence and report the seeds in `second_hop_symbols`. This
+type-agnostic graph signal is distinct from the narrower exact known-symbol owner correction above.
+
+Before source-floor/drop-off selection, ignore files, lockfiles, dependency manifests, and generated
+agent surfaces receive `_LOW_INFORMATION_PATH_WEIGHT = 0.50`. The prior is a bounded score
+down-weight, never an exclusion, and is suppressed when the query names the artifact path, filename,
+or artifact class.
 
 **Dynamic `VECTOR_TOP_K`:**
 
 The candidate pool size scales with question type:
-- `explanatory`: `VECTOR_TOP_K_EXPLANATORY = 50` candidates per index (100 total) — larger pool improves recall for multi-hop call chains where the correct answer spans multiple layers
+- `explanatory` and `assessment`: `VECTOR_TOP_K_EXPLANATORY = 50` candidates per index (100 total) — the larger pool improves recall for multi-hop explanation and broad assessment where the correct evidence spans multiple layers
 - All other types: `VECTOR_TOP_K = 30` candidates per index (60 total)
 
 The tradeoff: the cross-encoder reranker scales approximately linearly with candidate count, so smaller pools should reduce rerank cost. On GPU-enabled hardware the ceiling is 500ms; on CPU this is infeasible regardless of TOP_K (see `12mns-enh dynamic-vector-top-k` for the benchmark).
@@ -207,27 +217,42 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 1. Vector fetch (timed as vector_ms)
  ├─ Embed query with DOCS_MODEL → cosine search over docs index → top_k candidates
  ├─ Embed query with CODE_MODEL → cosine search over code index → top_k candidates
- └─ top_k = VECTOR_TOP_K_EXPLANATORY (50) if explanatory; VECTOR_TOP_K (30) otherwise
+ └─ top_k = VECTOR_TOP_K_EXPLANATORY (50) for explanatory or assessment; VECTOR_TOP_K (30) otherwise
 
-2. Definition-file boosting
+2. Lexical fusion + definition/artifact augmentation
+ ├─ Assessment only: embed and search the derived docs query (query + audit/findings vocabulary),
+ dedupe its hits into the docs pool at their own cosine; no path class is injected
+ ├─ Merge published BM25 candidates into the vector pool and preserve multi-source agreement
+ (assessment also merges the derived query's docs-kind BM25 hits)
+ ├─ Direct file/path artifact: inject the named path's published owner rows (score=0.0) so the
+ rank-one pin never depends on vector recall of a small file
  └─ For each DEFINITION_BOOST_RULES entry whose vocabulary matches the query:
  keyword-search on the most specific matching term, inject ≤ DEFINITION_BOOST_CANDIDATES (5)
  hits with score=0.0 into the combined pool; record rule label in definition_boosted
 
-3. First rerank (rerank_ms starts here)
- └─ _rerank(query, all_candidates, top_n) — cross-encoder scores each [query, text] pair
+3. Rerank + bounded priors
+ ├─ _agent_rerank(query, all_candidates) — cross-encoder scores each [query, text] pair
+ ├─ _demote_doc_results() for navigational and explanatory-like questions
+ ├─ _apply_assessment_evidence_prior() for assessment: docs/reports/ recovers the report
+ down-weight as a path class, docs/waves/ receives the historical down-weight (score-only)
+ └─ _demote_low_information_results() for every question, with direct-artifact exemption
 
-4. Two-hop symbol expansion (explanatory only — see Decision 11)
- └─ Extract symbols from top-3 non-infra citations → keyword-search each →
- inject ≤ MAX_SECOND_HOP_CANDIDATES (10) new candidates with score=0.0
+4. Agent candidate selection
+ └─ Apply per-index floor, relevance drop-off, text budget, and navigational code tilt
 
-5. Second rerank (if second-hop produced candidates)
- └─ _rerank(query, results + second_hop_candidates, top_n)
+5. Type-agnostic graph signal (see Decision 11)
+ ├─ Resolve query symbols and selected semantic context against the published graph
+ ├─ Return relationship-grouped graph_related and second_hop_symbols
+ └─ When reranked, merge the strongest cross-file graph neighbors into citations
 
-6. Infrastructure partition (explanatory only)
+6. Infrastructure partition (explanatory or assessment)
  └─ _partition_infra(): stable-push INFRASTRUCTURE_PATH_SEGMENTS citations to end
 
-7. Return (results, True, vector_ms, rerank_ms, definition_boosted, second_hop_symbols)
+7. Stable pins: the strongest eligible exact path/basename owner of a directly named file at
+ rank one (skipped when the question is mechanism-framed), then a verified exact symbol owner
+ when the narrower owner-correction gate applies
+
+8. Return results and retrieval/graph metadata
 ```
 
 **`search_combined` no-reranker degradation (reranker disabled/unbuildable):**
@@ -235,8 +260,9 @@ The tradeoff: the cross-encoder reranker scales approximately linearly with cand
 The former `_rrf_merge` fallback path was removed with the rerank-first unification (`1p52p`) — there is no
 separate RRF pipeline anymore. When the cross-encoder cannot run, the single pipeline degrades in place:
 ordering falls back to vector/coverage order over uncalibrated raw shared-embedder cosines (`reranked=false`, confidence capped at
-`medium`), lexical candidates join with rank-derived fallback scores, and two-hop symbol expansion is skipped
-because cross-encoder scoring is required to evaluate injected candidates on content merit.
+`medium`) and lexical candidates join with rank-derived fallback scores. The structural `graph_related`
+signal remains available when graph symbols resolve, but graph neighbors are merged into semantic citations
+only when the cross-encoder ran.
 
 ### Decision 9: `max_per_file` cap in `code_search` for result diversity
 
@@ -260,35 +286,34 @@ When any vocabulary term appears in the lowercased query, the rule fires: `code_
 
 The rule fires only when injection produces at least one candidate; the `definition_boosted` response field is non-empty only when files were actually injected. Adding a new schema language (GraphQL, protobuf, OpenAPI) requires appending one entry to `DEFINITION_BOOST_RULES` — no logic changes.
 
-**Note:** In the RRF fallback path (reranker unavailable), injected definition candidates are currently dropped because `_rrf_merge` operates on `docs_candidates` and `code_candidates` separately. Definition-boost candidates only appear in results when the cross-encoder reranker is available.
+**Note:** The former RRF fallback path no longer exists. With the reranker unavailable, the one agent
+pipeline degrades in place to vector/coverage ordering; injected candidates remain in the combined pool
+and compete on the available fallback scores.
 
-### Decision 11: Two-hop symbol expansion follows call chains across vocabulary gaps
+### Decision 11: Agent graph expansion is structural and question-type agnostic
 
-Vector search retrieves what the original query vocabulary can reach. For explanatory questions tracing a multi-layer call chain ("how does a new tenant get created?"), the API handler and service layer typically surface in the top-5 results, but the repository layer and SQL schema do not — they share less lexical overlap with the query than the shallower layers. Two-hop expansion follows the symbol references found in the first hop to reach layers the query could not name.
+Vector and lexical retrieval answer from text similarity. The current single agent path also asks
+the already-published graph for structural neighbors when a query symbol or selected semantic
+context resolves. This graph pass is not gated on `question_type`: navigational, explanatory,
+instructional, artifact-anchored, and assessment questions can all receive it.
 
-**Gate condition**: fires only when `question_type == "explanatory"` and the cross-encoder reranker is available. The second hop is skipped entirely in the RRF fallback path (see Decision 8 pipeline above) and when no symbols can be extracted from the top citations.
+Direction follows query intent. Caller/reader/usage questions expand inbound relations from the
+named symbol; behavioral questions can expand the named symbol and semantic context in both
+directions. Results are grouped in `graph_related` by relationship (`callers`, `readers`,
+`importers`, inheritance relationships, SQL writers/mappings, or generic `related`) rather than
+being presented as zero-score semantic citations. `symbol_extraction_method: "graph"` identifies
+the path, and `second_hop_symbols` lists the graph seeds followed.
 
-**Extraction scope**: top-3 results after first rerank, filtered to non-infra citations only (INFRASTRUCTURE_PATH_SEGMENTS). Infrastructure-layer files (CDK constructs, Terraform modules, Spring config, NestJS routes) import many application symbols and would bias expansion toward wiring files rather than business logic.
+The structural section is available independently of cross-encoder success. When reranking did
+run, a bounded set of strong cross-file graph neighbors may also be merged into `citations` with
+`from_graph: true`; the merge is additive and does not reorder semantic citations. A structural
+match already present as a citation is marked `also_cited` and its duplicate excerpt is omitted.
+Generic-word seeds, test-file neighbors, and whole-file module nodes are suppressed, and
+`AGENT_GRAPH_SIGNAL_CAP` / `AGENT_GRAPH_CITATION_CAP` bound response and query work.
 
-**Symbol extraction** — tiered by language support:
-
-| Strategy | Languages | How |
-|---|---|---|
-| AST | Python | `ast.parse()` → walk `Call` / `Attribute` nodes for callee names; `Import` / `ImportFrom` for imported names |
-| Tree-sitter | JS, TS, Java, C#, Go, Rust, C, C++, Kotlin, Bash, SQL | `_ts_parse(lang, text)` + `_extract_symbols_ts()` — walks call/invocation node types, extracts callee identifier; lazy-loaded via `_get_chunker_module()` at first use |
-| Regex fallback | All others, or when parse fails | `r'\b([A-Za-z_][A-Za-z0-9_]{3,})\s*\('` (calls), `r'\b(?:EXEC\|EXECUTE\|CALL)\s+([A-Za-z_][A-Za-z0-9_.]{3,})\b'` (SQL), `r'\bimport\s+([A-Za-z_][A-Za-z0-9_]{3,})'` (imports) |
-
-**Post-filter** (all paths): deduplicate, require length ≥ 4, remove `_SYMBOL_BLOCKLIST` entries (common built-ins: `get`, `set`, `run`, `init`, `main`, `self`, `this`, `true`, `false`, `null`, `new`, `return`, `create`, `update`, `delete`, `list`, `find`, etc.), cap at `MAX_SYMBOLS_EXTRACTED = 5`.
-
-**Second hop**: for each extracted symbol, call `code_keyword_response(root, symbol)`. Skip any result whose `(path, start_line)` is already in `first_hop_keys` (built from the full first-hop pool, not just top-N). Inject new candidates with `score=0.0`. Stop when `MAX_SECOND_HOP_CANDIDATES = 10` total is reached across all symbols.
-
-**Second rerank**: re-run `_rerank(query, results + second_hop_candidates, top_n)`. The cross-encoder evaluates second-hop candidates against the original query on content merit. `score=0.0` injection ensures injected candidates are promoted only if their content is genuinely relevant to the question.
-
-**Output**: `second_hop_symbols` in the `code_ask` response lists the symbol names that triggered retrieval. Present and non-empty only when the second hop produced at least one candidate that survived deduplication. When non-empty, the citation set already includes results from the second hop — callers should not re-chase those symbols manually.
-
-**Cap constants** (module-level in `server.py`): `MAX_SYMBOLS_EXTRACTED = 5`, `MAX_SECOND_HOP_CANDIDATES = 10`. These are security-relevant: they bound the server work a crafted repository file can trigger. See `docs/agents/security-reviewer.md` for the security reviewer's check procedure.
-
-**Tree-sitter coupling**: the chunker's tree-sitter parser stack is a runtime dependency of this path, loaded lazily at query time. This coupling is documented in `docs/architecture/domain-map.md` under MCP Server "Inbound Deps." Any change to `_TS_SYMBOL_LANG_MAP` (the set of languages routed through tree-sitter for extraction) must update that entry.
+This type-agnostic graph expansion is separate from defensive known-symbol owner correction. The
+latter is deliberately narrower: only navigational and explanatory-like (`explanatory` or
+`assessment`) questions can stable-pin one hash-verified exact declaration ahead of usages.
 
 ---
 
@@ -311,7 +336,7 @@ The search fallback chain (wave `1seav` — driven by the CAPTURED `1sed7` epoch
    + a token-semantics note on WORKING-lexical zero-hits + recovery diagnostics
 ```
 
-`code_search`/`code_ask`/`code_lexical` have NO degraded path on a not-ready index — they refuse (`index_not_ready`, the 1sed7 lockout). `code_ask` additionally classifies its artifact-anchored exact-first pass as `search_mode: "exact"` (healthy) and caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
+`code_search`/`code_ask`/`code_lexical` have NO degraded path on a not-ready index — they refuse (`index_not_ready`, the 1sed7 lockout). `code_ask` classifies the weak generated-symbol/config/tool artifact exact-first short circuit as `search_mode: "exact"` (healthy); direct file/path artifact questions remain `hybrid`. It caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
 
 For code navigation (Layer 2 and 3), there is no fallback: the tools either return results or return a clear empty/unsupported response. This is intentional — exact and symbol navigation are not degraded by missing infrastructure, only by missing language support.
 

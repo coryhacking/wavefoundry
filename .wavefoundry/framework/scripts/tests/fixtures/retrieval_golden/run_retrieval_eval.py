@@ -1,4 +1,11 @@
-"""Golden-set retrieval evaluation harness (wave 1wfsl, owned by 1wfr8-enh).
+"""Component-only chunk/embedder retrieval benchmark (wave 1wfsl, 1wfr8-enh).
+
+This is not the production retrieval-quality gate. It deliberately isolates
+chunk shape, embedding, and dense cosine ranking over committed fixtures; it
+does not exercise the current Lance/FTS hybrid public response paths,
+reranking, partitioning, confidence, or degraded modes. Use
+``.wavefoundry/framework/scripts/retrieval_eval.py`` for standing production
+retrieval evidence.
 
 Measures natural-language retrieval quality over committed fixture corpora by
 running the REAL shipped pipeline stages: `chunker.chunk_file` chunks each
@@ -192,6 +199,11 @@ def main() -> int:
     if args.set == "specs":
         queries = _load_spec_queries(HERE / "golden_queries_specs.json")
         rows = _chunk_corpus(corpus_dir, _CODE_KINDS)
+        if not queries or not rows:
+            parser.error(
+                "component benchmark corpus is empty or absent; no production "
+                "retrieval score was produced"
+            )
         # Per-format grouping (1wfso Requirement 1): ids with a format prefix
         # (`asyncapi-q01`) group under that format so each format's bar reads
         # directly off the committed result JSON; unprefixed ids (the original
@@ -219,6 +231,11 @@ def main() -> int:
         # groups as `core` and `metrics` keeps its frozen 1whuq meaning.
         queries = _load_spec_queries(HERE / "golden_queries_diagrams.json")
         rows = _chunk_corpus(corpus_dir, _DOCS_KINDS)
+        if not queries or not rows:
+            parser.error(
+                "component benchmark corpus is empty or absent; no production "
+                "retrieval score was produced"
+            )
         def _fmt(qid: str) -> str:
             head = qid.split("-", 1)[0]
             return head if "-" in qid and not head.startswith("q") else "core"
@@ -235,6 +252,11 @@ def main() -> int:
     else:
         by_format = _load_prose_queries(HERE / "golden_queries_prose.json")
         rows = _chunk_corpus(corpus_dir, _DOCS_KINDS)
+        if not by_format or not rows or any(not queries for queries in by_format.values()):
+            parser.error(
+                "component benchmark corpus is empty or absent; no production "
+                "retrieval score was produced"
+            )
         result["metrics_by_format"] = {
             fmt: _evaluate(qs, rows, model_name, args.depth)
             for fmt, qs in sorted(by_format.items())
