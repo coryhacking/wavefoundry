@@ -4812,8 +4812,13 @@ class CodeAskTests(unittest.TestCase):
         call (the O(corpus) walk its own docstring forbids on the hot path)."""
         src_path = Path(load_server().__file__)
         src = src_path.read_text(encoding="utf-8")
+        # 1wpah delivery repair: the public entry is a thin accounting-ledger
+        # scope wrapper and the hot path lives in `_code_ask_response_body`,
+        # so the pin reads BOTH (the wrapper alone would make it vacuous).
         start = src.index("def code_ask_response(")
-        end = src.index("\ndef ", start + 10)
+        body_start = src.index("def _code_ask_response_body(")
+        self.assertGreater(body_start, start)
+        end = src.index("\ndef ", body_start + 10)
         body = src[start:end]
         self.assertNotIn("._layer_health(", body,
                          "no _layer_health CALL on the hot path (comments may mention it)")
@@ -5196,6 +5201,8 @@ class RerankerTests(unittest.TestCase):
         "question", "question_type", "answer", "citations", "confidence", "gaps",
         "index_freshness", "search_mode", "fallback_reason", "reranked", "rerank_mode",
         "partition_applied", "demotion_count", "total_ms", "vector_ms", "rerank_ms",
+        # Wave 1wpif (1wpah): per-source substrate accounting rides every envelope.
+        "retrieval_accounting",
     }
 
     """12mha-enh: cross-encoder reranker integration tests."""
@@ -5677,6 +5684,76 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
         results = idx._agent_candidate_select({"code": [a, b]}, top_n=5, floor_k=2)
         self.assertEqual(len(results), 2, "distinct line ranges must both survive")
+
+    def test_agent_mode_same_path_lines_distinct_hash_both_survive(self):
+        """1wngv AC-3/AC-8 (wave 1wpif): legacy metadata sharing (path, lines)
+        no longer collapses DISTINCT chunks — the dedupe key includes
+        chunk_hash, so both rows survive selection."""
+        a = {"path": "conf/x.toml", "kind": "code", "lines": [1, 5],
+             "text": "alpha body", "score": 0.9, "chunk_hash": "h-alpha"}
+        b = {"path": "conf/x.toml", "kind": "code", "lines": [1, 5],
+             "text": "beta body", "score": 0.8, "chunk_hash": "h-beta"}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
+        results = idx._agent_candidate_select({"code": [a, b]}, top_n=5, floor_k=2)
+        self.assertEqual(len(results), 2, "distinct content must both survive")
+        self.assertEqual({r["text"] for r in results}, {"alpha body", "beta body"})
+
+    def test_agent_mode_exact_clone_collapses_once_with_all_provenance(self):
+        """1wngv AC-8: an exact cross-source clone (same normalized path,
+        lines, and chunk_hash) collapses to ONE representative that keeps
+        every source in ``sources``."""
+        shared = {"path": "src/s.py", "kind": "code", "lines": [1, 5],
+                  "text": "shared", "score": 0.8, "chunk_hash": "h1"}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
+        results = idx._agent_candidate_select(
+            {"docs": [dict(shared)], "code": [dict(shared)], "lexical": [dict(shared)]},
+            top_n=5, floor_k=1,
+        )
+        matches = [r for r in results if r["path"] == "src/s.py"]
+        self.assertEqual(len(matches), 1, "exact clone must collapse exactly once")
+        self.assertEqual(set(matches[0].get("sources", [])), {"docs", "code", "lexical"})
+
+    def test_agent_mode_hashless_clone_uses_canonical_digest(self):
+        """1wngv AC-8: without chunk_hash the key falls back to a
+        deterministic digest of the canonical returned evidence fields —
+        identical evidence merges, different text keeps both rows."""
+        same1 = {"id": "x", "path": "p.md", "kind": "doc", "lines": [1, 4],
+                 "text": "same text", "score": 0.9}
+        same2 = dict(same1)
+        diff = {"id": "x", "path": "p.md", "kind": "doc", "lines": [1, 4],
+                "text": "DIFFERENT", "score": 0.7}
+        idx = self._make_index_with_docs([self._fake_doc_chunk("d0")], code_chunks=[self._fake_code_chunk("c0")])
+        results = idx._agent_candidate_select(
+            {"docs": [same1], "code": [same2, diff]}, top_n=5, floor_k=2,
+        )
+        self.assertEqual(sorted(r["text"] for r in results), ["DIFFERENT", "same text"])
+        merged = next(r for r in results if r["text"] == "same text")
+        self.assertEqual(set(merged.get("sources", [])), {"docs", "code"})
+
+    def test_index_health_reports_chunk_id_collisions(self):
+        """1wngv AC-5: index_health surfaces the recorded same-ID/
+        distinct-content census before derived-state coverage can read as
+        complete."""
+        index = MagicMock()
+        index.docs_health.return_value = {
+            "missing_layers": [], "stale_layers": [], "readiness_overview": "ready",
+        }
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            index.root = Path(tmp)
+            summary = {
+                "present": True, "schema_version": "9", "integrity": "ok",
+                "size_bytes": 1,
+                "chunk_index": {"code": {
+                    "lance_rows": 10, "registry_rows": 9, "covered": True,
+                    "id_collisions": 2, "id_collision_sample": ["conf/x.toml#item"],
+                }},
+            }
+            with patch.object(self.srv, "_state_store_health_summary", return_value=summary):
+                resp = self.srv.index_health_response(index)
+        diag_text = str(resp.get("diagnostics", ""))
+        self.assertIn("chunk_id_collisions", diag_text)
+        self.assertIn("2 colliding id(s)", diag_text)
 
     def test_agent_mode_empty_sources_graceful(self):
         """1p4hj AC-6: agent-mode handles empty/degenerate candidate sets."""
@@ -13361,6 +13438,9 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             "checked_but_missing", "next_step", "phase_complete", "complete",
             "absent on `missing_log` and `unparseable_log`",
             "present on `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, and `complete`",
+            # Wave 1wybs (1wybr; delivery review DOCS-DEL-4): the repo-relative render.
+            "`checked_but_missing` renders the artifact path relative to the repository root",
+            "rendered with leading `..` segments rather than failing the audit",
         ):
             self.assertIn(anchor, detail)
 
@@ -13686,15 +13766,17 @@ class TestLanceDBIndex(unittest.TestCase):
     def setUpClass(cls):
         cls.server = load_server()
 
-    # AC-10: Constants are defined in both server.py and indexer.py
-    def test_lancedb_constants_in_server(self):
-        """AC-10: LanceDB constants are defined in server.py."""
+    # Wave 1wpif (1wpah, AC-5 / QA-RDY-6): the inert ANN tuning constants
+    # (LANCEDB_NPROBES / LANCEDB_REFINE_FACTOR) were retired from BOTH
+    # definition sites; the former value pins retire with them. The
+    # query-builder proof that production runs at the library defaults lives
+    # in test_retrieval_candidate_generation.LanceQueryBuilderDefaultsTests.
+    def test_inert_ann_constants_are_retired_from_server(self):
         srv = self.server
-        self.assertEqual(srv.LANCEDB_NPROBES, 20)
-        self.assertEqual(srv.LANCEDB_REFINE_FACTOR, 10)
+        self.assertFalse(hasattr(srv, "LANCEDB_NPROBES"))
+        self.assertFalse(hasattr(srv, "LANCEDB_REFINE_FACTOR"))
 
-    def test_lancedb_constants_in_indexer(self):
-        """AC-10: LanceDB constants are defined in indexer.py."""
+    def test_inert_ann_constants_are_retired_from_indexer(self):
         import importlib.util as ilu
         scripts_root = Path(__file__).resolve().parents[1]
         spec = ilu.spec_from_file_location("indexer_for_lancedb_test", scripts_root / "indexer.py")
@@ -13702,8 +13784,8 @@ class TestLanceDBIndex(unittest.TestCase):
         spec.loader.exec_module(mod)
         self.assertEqual(mod.LANCEDB_INDEX_THRESHOLD, 1000)
         self.assertEqual(mod.LANCEDB_COMPACT_THRESHOLD, 20)
-        self.assertEqual(mod.LANCEDB_NPROBES, 20)
-        self.assertEqual(mod.LANCEDB_REFINE_FACTOR, 10)
+        self.assertFalse(hasattr(mod, "LANCEDB_NPROBES"))
+        self.assertFalse(hasattr(mod, "LANCEDB_REFINE_FACTOR"))
 
     @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
     def test_streaming_writer_row_counts(self):
@@ -14339,13 +14421,13 @@ class DegradedFtsFallbackTests(unittest.TestCase):
     def test_code_ask_fallback_never_mixes_live_keyword_citations(self):
         """Review fix: the thin-citation keyword targeted pass is suppressed
         in lexical fallback — every citation must be FTS-published data."""
-        import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
-        with conn:
-            conn.execute("DELETE FROM fts_code")
-            conn.execute("DELETE FROM fts_docs")
-            conn.execute("DELETE FROM chunk_registry")
-        conn.close()
+        # 1wpag: a LEGITIMATELY empty published layer comes from the canonical
+        # producer (a reconcile against an empty Lance id set), not from raw
+        # DELETEs, which the keyed payload digest now correctly reads as damage.
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", set(), lambda: [])
+            self.iss.reconcile_chunk_index(self.index_dir, "docs", set(), lambda: [])
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         index._layer_health = MagicMock()
         with patch.object(self.srv, "code_keyword_response") as kw:
@@ -14580,13 +14662,12 @@ class DegradedFtsFallbackTests(unittest.TestCase):
     def test_code_ask_working_lexical_zero_hit_answer_is_honest(self):
         """Release review: a working-lexical zero-hit answer must carry the
         exact-token guidance, never 'may not be covered'."""
-        import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
-        with conn:
-            conn.execute("DELETE FROM fts_code")
-            conn.execute("DELETE FROM fts_docs")
-            conn.execute("DELETE FROM chunk_registry")
-        conn.close()
+        # 1wpag: publish the empty layer through the canonical producer (see
+        # test_code_ask_fallback_never_mixes_live_keyword_citations).
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", set(), lambda: [])
+            self.iss.reconcile_chunk_index(self.index_dir, "docs", set(), lambda: [])
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         index._layer_health = MagicMock()
         result = self.srv.code_ask_response(index, self.root, "zz_nothing_zz?",

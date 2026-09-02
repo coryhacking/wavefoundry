@@ -75,6 +75,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - For each finding: file, line range, which rule or decision record was violated, and recommended fix.
 - **Missing Architecture Docs**: if any of the files listed under *What to Read First* are absent, list them here as advisory findings. Do not block on absent docs — assign `low` severity unless their absence leaves the reviewer unable to assess a specific risk.
 - For approvals: a one-line confirmation of which architecture docs were consulted and that no boundary, layer, or decision violations were found.
+- A **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
 
 ## Guru architecture write-up packages
 

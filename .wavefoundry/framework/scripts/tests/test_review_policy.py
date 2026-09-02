@@ -1937,6 +1937,82 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "server_impl must not retain a second inline template authority",
         )
 
+    def test_the_documented_token_grammar_matches_both_declaration_forms(self):
+        """Wave 1wybs (1wxe6 AC-3): the scaffold sentence must stay true for both forms.
+
+        Bullet form: a root-level file or a glob token makes the whole bullet prose
+        (the same bullet without it declares the rest). Explicit block: a root-level
+        span declares nothing while sibling bullets still declare, and a ``*.ext``
+        span is accepted as a phantom that recruits a lane only through a trigger token it carries. The pin moves when
+        either grammar moves, so the guidance cannot drift from the parser.
+        """
+
+        def doc(section_body):
+            return (
+                "# T\n\n## Serialization Points\n\n" + section_body
+                + "\n## Affected Architecture Docs\n\nN/A\n"
+            )
+
+        def lanes(text):
+            selected, _ = review_policy.select_required_review_lanes(
+                requested_lanes=(), project_lanes=(), change_texts=(text,),
+            )
+            return tuple(selected)
+
+        paths = review_policy.serialization_point_paths
+        clean = doc("- `src/app/handler.py`, `docs/specs/`\n")
+        self.assertEqual(paths(clean), ("src/app/handler.py", "docs/specs/"))
+        for token in ("CHANGELOG.md", "docs/reports/retrieval-quality-*.json"):
+            with self.subTest(form="bullet", token=token):
+                mixed = doc(f"- `src/app/handler.py`, `docs/specs/`, `{token}`\n")
+                self.assertEqual(paths(mixed), (), "one bad token makes the bullet prose")
+        block = doc(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `CHANGELOG.md`\n- `src/app/handler.py`\n"
+        )
+        self.assertEqual(paths(block), ("src/app/handler.py",))
+        phantom = doc(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `docs/reports/retrieval-quality-*.json`\n"
+        )
+        self.assertEqual(paths(phantom), ("docs/reports/retrieval-quality-*.json",))
+        self.assertEqual(lanes(phantom), (), "an out-of-trigger phantom recruits no lane and suppresses fallback")
+        # Delivery review CODE-DEL-1: the explicit block's predicate is
+        # `_is_declared_target` (extension on the last segment, or a trailing
+        # `/`), not the presence of `*`; and all-or-nothing applies per bullet
+        # inside the block too.
+        dir_phantom = doc("**Review targets (repo-relative paths):**\n\n- `docs/*/`\n")
+        self.assertEqual(paths(dir_phantom), ("docs/*/",))
+        self.assertEqual(lanes(dir_phantom), ())
+        # Delivery review CODE-RV1-1: a phantom recruits a lane only through a
+        # trigger token it happens to carry; the sentence says so.
+        for span, lane in (("docs/specs/*.md", "docs-contract-reviewer"), ("src/*/", "code-reviewer")):
+            with self.subTest(form="block", phantom=span):
+                trigger_phantom = doc(f"**Review targets (repo-relative paths):**\n\n- `{span}`\n")
+                self.assertEqual(paths(trigger_phantom), (span,))
+                self.assertEqual(lanes(trigger_phantom), (lane,))
+        bare = doc(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `docs/reports/*`\n- `src/app/handler.py`\n"
+        )
+        self.assertEqual(
+            paths(bare), ("src/app/handler.py",),
+            "a bare glob span is prose; its sibling bullet still declares",
+        )
+        shared = doc(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `docs/reports/*`, `src/app/handler.py`\n- `docs/specs/x.md`\n"
+        )
+        self.assertEqual(
+            paths(shared), ("docs/specs/x.md",),
+            "a bare glob sharing a bullet drops the sibling path while another bullet keeps the document declared",
+        )
+        mixed = doc(
+            "**Review targets (repo-relative paths):**\n\n"
+            "- `CHANGELOG.md`, `src/app/handler.py`\n"
+        )
+        self.assertEqual(paths(mixed), (), "a root-level span makes its block bullet prose too")
+
     def test_body_prose_status_line_is_never_normalized(self):
         """Readiness finding: the carrier boundary was a line SHAPE, not a key.
 

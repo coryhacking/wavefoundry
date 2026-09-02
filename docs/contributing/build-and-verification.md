@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-29
+Last verified: 2026-09-02
 
 ## Verification Commands
 
@@ -220,6 +220,46 @@ Or use the run_tests.py wrapper which already sets `-B`. If `__pycache__` direct
 ```bash
 find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
 ```
+
+## Close gate: the framework test receipt
+
+`run_tests.py` records every successful WHOLE-suite run in
+`.wavefoundry/framework/test-cache.json` with an `inputs_hash` covering every
+file under `.wavefoundry/framework/` except `VERSION`, `MANIFEST`, the cache
+itself, `test-run.lock`, and the `index` / `__pycache__` / `.pytest_cache`
+directories, so the receipt self-invalidates the moment any framework file
+changes.
+
+`wf_close_wave` VERIFIES that receipt (wave `1wur7`). It requires
+`result == "ok"` with an `inputs_hash` matching the current framework tree, and
+reports a missing, red, stale, or unreadable receipt as `framework_test_receipt_not_proven`
+rather than assuming green — `_write_cache` only ever records successful runs, so
+"no receipt" means "not proven", never "passed". The gate runs no suite and
+spawns no subprocess: record a fresh receipt yourself with
+`python3 -B .wavefoundry/framework/scripts/run_tests.py`.
+
+**Scope, stated exactly.** The hash covers `.wavefoundry/framework/`, so only
+receipt STALENESS is framework-scoped: a docs edit does not invalidate a receipt.
+But the receipt is written only on a whole-suite pass, so a suite failure
+triggered by content under `docs/` prevents a NEW receipt from being written.
+When the framework tree also changed, the standing receipt is stale and close is
+blocked; in a documentation-only wave a current green receipt persists and close
+is not blocked despite a red suite.
+A green receipt therefore attests the framework code, not the tree. Describe it
+as neither a whole-repository guarantee nor a whole-repository exemption.
+
+**Run the suite last.** Any edit under `.wavefoundry/framework/` invalidates the
+receipt, a seed edit made during closure included. The check itself costs
+milliseconds; the remediation is a full suite run, so sequence the suite as the
+final step before close rather than the first. Where
+`.wavefoundry/framework/scripts/run_tests.py` is absent (every repository that
+consumes the packaged framework — `build_pack.py` excludes the runner,
+`scripts/tests`, and the receipt) the check is a documented no-op that neither
+blocks close nor claims proof.
+
+This is what keeps the whole-suite requirement machine-visible now that it no
+longer belongs in per-change acceptance criteria; see **Writing Acceptance
+Criteria** in `change-workflow.md`.
 
 ## Wave Framework Pack Upgrade Verification
 

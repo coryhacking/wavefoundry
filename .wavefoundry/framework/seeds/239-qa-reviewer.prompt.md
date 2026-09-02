@@ -119,7 +119,8 @@ Return `approved`, `approved-with-notes`, or `needs-revision` with:
 - Executable Evidence Records for every material approval claim and blocking finding;
 - selected probe-budget cells and their results;
 - evidence-integrity failures, limitations, and residual uncertainty; and
-- findings in seed 209's Finding Record Schema for coordinator synthesis.
+- findings in seed 209's Finding Record Schema for coordinator synthesis;
+- a **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
 
 An approval states which public paths and required ACs were executed. Never summarize the basis as only “tests pass”.
 

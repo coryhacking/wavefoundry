@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import statistics
 import sys
 import tempfile
 import time
@@ -433,8 +434,21 @@ class TimeoutTests(unittest.TestCase):
         self.assertEqual("call_timeout", caught.exception.code)
 
 
+WARM_SAMPLE_PAIRS = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "retrieval_eval"
+     / "warm_sample_pairs.json").read_text(encoding="utf-8")
+)["pairs"]
+
+
 class BaselineComparisonTests(unittest.TestCase):
-    def _report(self, generation: int, p95: float, response_bytes: int) -> dict:
+    def _report(self, generation: int, p95: float, response_bytes: int,
+                *, floor: float | None = None, median: float | None = None,
+                sample_count: int = 36) -> dict:
+        # Wave 1wur7 (1wuuh): the comparison now reads the whole warm
+        # distribution.  The defaults keep the floor and median proportional to
+        # the p95 so a pair built with only ``p95`` still has one jitter value.
+        floor_ms = p95 * 0.5 if floor is None else floor
+        median_ms = p95 * 0.75 if median is None else median
         aggregate = {
             "case_count": 1, "recall_at_10": 1.0, "ndcg_at_10": 1.0,
             "agentic_mrr_at_10": 1.0, "abstention_accuracy": 1.0,
@@ -474,7 +488,9 @@ class BaselineComparisonTests(unittest.TestCase):
             }
                                      for tool in subject.TOOLS}},
             "performance": {"tools": {tool: {
-                "warm_p95_ms": p95, "max_response_bytes": response_bytes,
+                "warm_p95_ms": p95, "warm_floor_ms": floor_ms,
+                "warm_median_ms": median_ms, "sample_count": sample_count,
+                "max_response_bytes": response_bytes,
             } for tool in subject.TOOLS}},
             "cases": [{
                 "fixture_id": "fixture-a", "class": "class-a", "split": "holdout",
@@ -501,10 +517,19 @@ class BaselineComparisonTests(unittest.TestCase):
         current = self._report(8, 110.0, 1200)
         current["production_identity"]["digest"] = "repaired-production"
         current["production_identity"]["modules"]["server_impl.py"] = "b"
-        with self.assertRaises(subject.EvaluationInvalid) as caught:
-            subject.apply_baseline_comparison(current, baseline)
-        self.assertEqual("invalid_baseline", caught.exception.code)
-        self.assertIn("jitter", caught.exception.message)
+        # Wave 1wuju (1wujt): a baseline without pair-derived jitter used to be
+        # refused here; it is now accepted at the 25% floor, and the receipt says
+        # so rather than pretending a jitter pair was measured.
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual([], violations)
+        perf = current["performance"]["tools"]["code_ask"]
+        self.assertEqual("single_run_floor", perf["jitter_source"])
+        self.assertIsNone(perf["jitter_ratio"])
+        self.assertEqual(0.25, perf["permitted_relative_regression"])
+        self.assertNotIn("jitter_components", perf)
+        current = self._report(8, 110.0, 1200)
+        current["production_identity"]["digest"] = "repaired-production"
+        current["production_identity"]["modules"]["server_impl.py"] = "b"
         for tool in subject.TOOLS:
             baseline["performance"]["tools"][tool]["jitter_ratio"] = 0.02
         baseline["run_id"] = subject._compute_run_id(baseline)
@@ -520,16 +545,220 @@ class BaselineComparisonTests(unittest.TestCase):
         self.assertEqual("production", comparison["baseline_production_digest"])
         self.assertEqual("repaired-production", comparison["current_production_digest"])
 
-    def test_cross_generation_requires_prior_jitter_and_detects_regression(self):
+    def test_cross_generation_reports_latency_to_operator_review_and_keeps_size_hard(self):
+        # Wave 1wur7 (1wuuh Requirement 4, AC-4): a cross-generation comparison
+        # inherits the BASELINE pair's jitter, so the latency clause cannot police
+        # the current machine as a hard violation.  It is reported and routed to
+        # operator review; asserted POSITIVELY rather than by deleting the old
+        # hard-violation assertion.
         baseline = self._report(8, 100.0, 1000)
         for tool in subject.TOOLS:
             baseline["performance"]["tools"][tool]["jitter_ratio"] = 0.01
         baseline["run_id"] = subject._compute_run_id(baseline)
         current = self._report(9, 140.0, 10000)
-        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        current["operator_review_reasons"] = []
+        reasons = current["operator_review_reasons"]
+        violations, operator_reviews = subject.apply_baseline_comparison(current, baseline)
         kinds = {row["kind"] for row in violations}
-        self.assertIn("latency_regression", kinds)
+        self.assertNotIn("latency_regression", kinds)
         self.assertIn("response_size_regression", kinds)
+        latency = [row for row in operator_reviews if row["kind"] == "latency_regression"]
+        self.assertEqual(sorted(subject.TOOLS), sorted(row["tool"] for row in latency))
+        for row in latency:
+            self.assertEqual("operator_review", row["enforcement"])
+            self.assertEqual(140.0, row["current_ms"])
+            self.assertEqual(125.0, row["threshold_ms"])
+        self.assertEqual("operator_review",
+                         current["performance"]["tools"]["code_ask"]["latency_enforcement"])
+        self.assertEqual(
+            [row["kind"] for row in latency],
+            [row["kind"] for row in current["comparison"]["operator_review_reasons"]
+             if row["kind"] == "latency_regression"])
+        # The reasons must reach the SAME list object the verdict reads.
+        self.assertIs(reasons, current["operator_review_reasons"])
+        self.assertIn("latency_regression",
+                      {row["kind"] for row in current["operator_review_reasons"]})
+
+    def test_same_generation_latency_routes_to_operator_review_not_a_hard_fail(self):
+        # Wave 1wur7, delivery review CODE-DEL-3: both arms share one production
+        # identity on one frozen generation, so a p95 difference is jitter by
+        # construction -- there is no change to attribute a regression to. The
+        # clause is reported and routed, never raised as a hard violation and
+        # never dropped. The floor and median are held equal so the pair is quiet
+        # by the promotability rule and only the tail moved.
+        baseline = self._report(8, 100.0, 1000, floor=50.0, median=75.0)
+        current = self._report(8, 140.0, 1000, floor=50.0, median=75.0)
+        current["operator_review_reasons"] = []
+        violations, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("same_generation_pair", current["comparison"]["comparison_kind"])
+        self.assertNotIn("latency_regression", {row["kind"] for row in violations})
+        latency = [row for row in operator_reviews if row["kind"] == "latency_regression"]
+        self.assertEqual(sorted(subject.TOOLS), sorted(row["tool"] for row in latency))
+        for row in latency:
+            self.assertEqual("operator_review", row["enforcement"])
+            self.assertIn("jitter rather than a regression", row["reason"])
+        self.assertIn("latency_regression",
+                      {row["kind"] for row in current["operator_review_reasons"]})
+        self.assertEqual("operator_review",
+                         current["performance"]["tools"]["code_ask"]["latency_enforcement"])
+
+    def test_contended_baseline_is_reported_as_an_inherited_jitter_source(self):
+        # Wave 1wur7, delivery review ARCH-DEL-6 made `pair_contended` READ at the
+        # one seam where a contended pair becomes the band. The operator decision
+        # at close made latency advisory for every kind, so a contended baseline is
+        # now REPORTED per tool on both inheriting kinds rather than refused.
+        baseline = self._report(8, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool]["jitter_ratio"] = 0.30
+            baseline["performance"]["tools"][tool]["pair_contended"] = True
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        current = self._report(9, 100.0, 1000)
+        _, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("cross_generation", current["comparison"]["comparison_kind"])
+        reported = [row for row in operator_reviews
+                    if row["kind"] == "inherited_contended_baseline"]
+        self.assertEqual(sorted(subject.TOOLS), sorted(row["tool"] for row in reported))
+        for row in reported:
+            self.assertEqual(0.30, row["baseline_jitter_ratio"])
+            self.assertIn("quiet same-generation pair", row["recovery"])
+        for tool in subject.TOOLS:
+            self.assertTrue(current["performance"]["tools"][tool]["baseline_pair_contended"])
+        production_change = self._report(8, 100.0, 1000)
+        production_change["production_identity"]["digest"] = "repaired-production"
+        production_change["production_identity"]["modules"]["server_impl.py"] = "b"
+        _, operator_reviews = subject.apply_baseline_comparison(production_change, baseline)
+        self.assertEqual("production_change_same_generation",
+                         production_change["comparison"]["comparison_kind"])
+        self.assertEqual(sorted(subject.TOOLS),
+                         sorted(row["tool"] for row in operator_reviews
+                                if row["kind"] == "inherited_contended_baseline"))
+        # A quiet baseline on the same shape reports nothing, on both kinds.
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool]["pair_contended"] = False
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        quiet = self._report(9, 100.0, 1000)
+        _, quiet_reviews = subject.apply_baseline_comparison(quiet, baseline)
+        self.assertEqual([], [row for row in quiet_reviews
+                              if row["kind"] == "inherited_contended_baseline"])
+        self.assertNotIn("baseline_pair_contended",
+                         quiet["performance"]["tools"][subject.TOOLS[0]])
+        accepted_change = self._report(8, 100.0, 1000)
+        accepted_change["production_identity"]["digest"] = "repaired-production"
+        accepted_change["production_identity"]["modules"]["server_impl.py"] = "b"
+        _, quiet_reviews = subject.apply_baseline_comparison(accepted_change, baseline)
+        self.assertEqual([], [row for row in quiet_reviews
+                              if row["kind"] == "inherited_contended_baseline"])
+
+    def test_baseline_predating_the_full_distribution_fields_is_refused_with_recovery(self):
+        # Wave 1wur7, delivery review QA-DEL-5: the migration case Requirement 1
+        # names had no test, and without the typed guard an untyped TypeError
+        # escaped instead of the operator-facing recovery message.
+        baseline = self._report(8, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool].pop("warm_floor_ms")
+            baseline["performance"]["tools"][tool].pop("warm_median_ms")
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.apply_baseline_comparison(self._report(8, 100.0, 1000), baseline)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+        self.assertIn("warm_floor_ms/warm_median_ms", caught.exception.message)
+        self.assertIn("re-baseline with the current evaluator", caught.exception.message)
+
+    def test_production_change_same_generation_latency_is_advisory(self):
+        # Operator decision at wave 1wur7 close: latency is advisory for EVERY
+        # comparison kind, including the one where a production change is the sole
+        # difference between the arms. The clause is still computed and reported.
+        baseline = self._report(8, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool]["jitter_ratio"] = 0.01
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        current = self._report(8, 140.0, 1000, floor=50.0, median=75.0)
+        current["production_identity"]["digest"] = "repaired-production"
+        current["production_identity"]["modules"]["server_impl.py"] = "b"
+        violations, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("production_change_same_generation",
+                         current["comparison"]["comparison_kind"])
+        self.assertNotIn("latency_regression", {row["kind"] for row in violations})
+        latency = [row for row in operator_reviews if row["kind"] == "latency_regression"]
+        self.assertEqual(sorted(subject.TOOLS), sorted(row["tool"] for row in latency))
+        for row in latency:
+            self.assertEqual("operator_review", row["enforcement"])
+            self.assertIn("advisory", row["reason"])
+        for tool in subject.TOOLS:
+            self.assertEqual("operator_review",
+                             current["performance"]["tools"][tool]["latency_enforcement"])
+
+    def test_single_run_baseline_is_accepted_at_the_floor(self):
+        # Wave 1wuju (1wujt AC-1, AC-2): a receipt with no pair-derived jitter is
+        # a baseline at the existing 25% floor on both inheriting kinds; contention
+        # is recorded as not judged, and no within-run ratio is computed.
+        baseline = self._report(8, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool].pop("jitter_ratio", None)
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        for kind in ("cross_generation", "production_change_same_generation"):
+            with self.subTest(kind=kind):
+                generation = 9 if kind == "cross_generation" else 8
+                current = self._report(generation, 140.0, 1000, floor=50.0, median=75.0)
+                if kind == "production_change_same_generation":
+                    current["production_identity"]["digest"] = "repaired-production"
+                    current["production_identity"]["modules"]["server_impl.py"] = "b"
+                violations, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+                self.assertEqual(kind, current["comparison"]["comparison_kind"])
+                self.assertNotIn("latency_regression", {row["kind"] for row in violations})
+                for tool in subject.TOOLS:
+                    perf = current["performance"]["tools"][tool]
+                    self.assertEqual(0.25, perf["permitted_relative_regression"])
+                    self.assertEqual("single_run_floor", perf["jitter_source"])
+                    self.assertIsNone(perf["jitter_ratio"])
+                    self.assertIsNone(perf["pair_contended"])
+                    self.assertIs(False, perf["contention_judged"])
+                    self.assertIn("no reference level", perf["contention_reason"])
+                    self.assertNotIn("within_run_jitter_ratio", perf)
+                # 40% over the 25% floor: computed and reported, advisory.
+                self.assertEqual(sorted(subject.TOOLS),
+                                 sorted(row["tool"] for row in operator_reviews
+                                        if row["kind"] == "latency_regression"))
+
+    def test_a_boolean_jitter_ratio_is_not_a_reference_level(self):
+        # Delivery review CODE-DEL-2 / QA-DEL-1: the pair branch takes numeric
+        # jitter only; a boolean `true` would otherwise read as 1.0 and widen the
+        # band to 300%. It falls to the single-run floor instead.
+        baseline = self._report(8, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool]["jitter_ratio"] = True
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        current = self._report(9, 140.0, 1000, floor=50.0, median=75.0)
+        subject.apply_baseline_comparison(current, baseline)
+        for tool in subject.TOOLS:
+            perf = current["performance"]["tools"][tool]
+            self.assertEqual("single_run_floor", perf["jitter_source"])
+            self.assertEqual(0.25, perf["permitted_relative_regression"])
+            self.assertIsNone(perf["jitter_ratio"])
+
+    def test_the_disclosure_tool_mirrors_the_single_run_floor(self):
+        # Delivery review ARCH-DEL-2: the data-level comparison tool reproduces
+        # the signed evaluator's arithmetic, so a single-run baseline (the default
+        # since 1wuju) takes the 0.25 floor there too instead of a skipped entry.
+        import importlib.util
+        path = Path(subject.__file__).resolve().parent / "benchmarks" / "compare_retrieval_receipts.py"
+        spec = importlib.util.spec_from_file_location("compare_retrieval_receipts_under_test", path)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        baseline = self._report(8, 100.0, 1000)
+        current = self._report(8, 110.0, 1000)
+        for report in (baseline, current):
+            for name in subject.TOOLS:
+                by_split = report["metrics"]["by_tool"][name]["by_split"]
+                by_split["calibration"] = dict(by_split["holdout"])
+                report["performance"]["tools"][name].pop("jitter_ratio", None)
+        violations, _floors, performance, _deltas = tool.compare(baseline, current)
+        self.assertEqual([], [row for row in violations if row["kind"] == "latency_regression"], violations)
+        for name in subject.TOOLS:
+            self.assertEqual("single_run_floor", performance[name]["jitter_source"], performance[name])
+            self.assertEqual(0.25, performance[name]["permitted_relative_regression"])
+            self.assertIsNone(performance[name]["baseline_jitter_ratio"])
+            self.assertEqual(125.0, performance[name]["warm_p95_threshold_ms"])
 
     def test_incompatible_store_attempt_or_runtime_invalidates_baseline(self):
         mutations = (
@@ -873,6 +1102,134 @@ class FullRunnerTests(unittest.TestCase):
         self.assertEqual(1.0, report["run_time"]["duration_seconds"])
         self.assertEqual({}, report["anchor_resolution"])
 
+    def _run(self, payload=None):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixtures = self._tree(root)
+            if payload is not None:
+                fixtures.write_text(json.dumps(payload), encoding="utf-8")
+            modules = self._modules(self.FakeStateStore(), root)
+            return subject.run_evaluation(root, fixtures, server=modules[0],
+                                          state_store=modules[1], indexer=modules[2])
+
+    def test_receipt_carries_the_warm_distribution_beside_the_p95(self):
+        # Wave 1wur7 (1wuuh Requirement 1): the comparison reads the floor and
+        # median off the performance block, so they travel in the receipt and the
+        # comparison never has to reach back into ``cases[].repetitions[]``.
+        report = self._run()
+        protocol = report["performance"]["protocol"]
+        self.assertEqual(subject.PAIR_JITTER_THRESHOLD, protocol["pair_jitter_threshold"])
+        self.assertEqual(subject.MIN_WARM_SAMPLES, protocol["minimum_warm_samples"])
+        # QA-DEL-3: an ordering assertion alone let `warm_floor_ms` be recorded as
+        # the median. The oracle is the run's own recorded samples.
+        samples: dict[str, list[float]] = {}
+        for case in report["cases"]:
+            for repetition in case.get("repetitions") or []:
+                samples.setdefault(case["tool"], []).append(float(repetition["elapsed_ms"]))
+        for tool in subject.TOOLS:
+            with self.subTest(tool=tool):
+                perf = report["performance"]["tools"][tool]
+                recorded = samples[tool]
+                self.assertEqual(len(recorded), perf["sample_count"])
+                self.assertAlmostEqual(min(recorded), perf["warm_floor_ms"], places=5)
+                self.assertAlmostEqual(statistics.median(recorded), perf["warm_median_ms"],
+                                       places=5)
+                self.assertLess(perf["warm_floor_ms"], perf["warm_median_ms"],
+                                "a real floor is strictly below the median on this corpus")
+                self.assertLessEqual(perf["warm_median_ms"], perf["warm_p95_ms"])
+                self.assertEqual(subject.MIN_WARM_SAMPLES, perf["minimum_warm_samples"])
+                self.assertFalse(perf["small_sample_estimate"])
+        self.assertEqual("baseline", report["verdict"])
+        self.assertEqual([], report["operator_review_reasons"])
+
+    def test_small_sample_p95_is_labelled_and_routed_but_nine_samples_are_not(self):
+        # Wave 1wur7 (1wuuh AC-3).  ``docs_search`` carries exactly three
+        # applicable fixtures against the frozen corpus, so it sits permanently at
+        # 3 * MEASURED_REPETITIONS = 9 warm samples.  The declared minimum is
+        # pinned AT that standing count: nine is labelled as a maximum-not-tail
+        # estimate but is NOT escalated, because escalating a value the corpus
+        # makes permanent would put a clean ``pass`` out of reach forever.  A tool
+        # BELOW the minimum is labelled and routed to operator review.
+        payload = _valid_payload()
+        quota, used = {"code_lexical": 2, "docs_search": 3}, {"code_lexical": 0, "docs_search": 0}
+        for row in payload["fixtures"]:
+            tool = row["applicable_tools"][0]
+            if tool in quota and used[tool] < quota[tool]:
+                used[tool] += 1
+                continue
+            if tool in quota:
+                row["applicable_tools"] = ["code_ask"]
+                row["excluded_tools"] = {name: "outside this tool's public contract"
+                                         for name in subject.TOOLS if name != "code_ask"}
+        report = self._run(payload)
+        tools = report["performance"]["tools"]
+        self.assertEqual(9, tools["docs_search"]["sample_count"])
+        # QA-DEL-12: the Decision Log's contract is "pinned AT the standing count,
+        # not above it", so the derivation is asserted, not just the interval.
+        self.assertEqual(3 * subject.MEASURED_REPETITIONS, subject.MIN_WARM_SAMPLES)
+        self.assertEqual(tools["docs_search"]["sample_count"], subject.MIN_WARM_SAMPLES)
+        self.assertFalse(tools["docs_search"]["small_sample_estimate"])
+        self.assertTrue(tools["docs_search"]["p95_is_maximum"],
+                        "nine samples make nearest-rank p95 the maximum; the receipt says so")
+        self.assertEqual(6, tools["code_lexical"]["sample_count"])
+        self.assertTrue(tools["code_lexical"]["small_sample_estimate"])
+        self.assertEqual([{"kind": "small_sample_warm_p95", "tool": "code_lexical",
+                           "sample_count": 6,
+                           "minimum_warm_samples": subject.MIN_WARM_SAMPLES}],
+                         report["operator_review_reasons"])
+        self.assertEqual("operator_review_required", report["verdict"])
+
+    def test_comparison_runs_end_to_end_and_a_contended_baseline_is_reported(self):
+        # QA-DEL-13: the comparison path was only ever exercised by calling
+        # `apply_baseline_comparison` directly; nothing drove `run_evaluation`
+        # with a baseline and read the resulting verdict off a real receipt.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixtures = self._tree(root)
+            modules = self._modules(self.FakeStateStore(), root)
+            baseline_path = root / "baseline.json"
+            first = subject.run_evaluation(root, fixtures, server=modules[0],
+                                           state_store=modules[1], indexer=modules[2])
+            self.assertEqual("baseline", first["verdict"])
+            subject.write_report(baseline_path, first)
+            second = subject.run_evaluation(root, fixtures, baseline_path=baseline_path,
+                                            server=modules[0], state_store=modules[1],
+                                            indexer=modules[2])
+            self.assertEqual("same_generation_pair", second["comparison"]["comparison_kind"])
+            self.assertIn(second["verdict"], {"pass", "operator_review_required"})
+            # A later generation inherits the recorded pair's jitter, and a pair
+            # recorded under load is REPORTED as that band (operator decision at the
+            # wave 1wur7 close; ARCH-DEL-6 made the flag read), end to end.
+            pair_path = root / "pair.json"
+            # The fake corpus runs in microseconds, so its own floor/median jitter
+            # is genuinely contended. Normalise the flag to False for the accepted
+            # arm so the two arms differ only in the property under test.
+            quiet_pair = json.loads(json.dumps(second))
+            for tool in subject.TOOLS:
+                quiet_pair["performance"]["tools"][tool]["pair_contended"] = False
+            quiet_pair["run_id"] = subject._compute_run_id(quiet_pair)
+            subject.write_report(pair_path, quiet_pair)
+            next_generation = self.FakeStateStore()
+            next_generation.read_build_state = lambda _dir: {  # type: ignore[method-assign]
+                "attempt_id": "attempt-2", "status": "complete", "generation": 2,
+                "started_at": None, "completed_at": None}
+            third = subject.run_evaluation(root, fixtures, baseline_path=pair_path,
+                                           server=modules[0], state_store=next_generation,
+                                           indexer=modules[2])
+            self.assertEqual("cross_generation", third["comparison"]["comparison_kind"])
+            contended = json.loads(pair_path.read_text(encoding="utf-8"))
+            for tool in subject.TOOLS:
+                contended["performance"]["tools"][tool]["pair_contended"] = True
+            contended["run_id"] = subject._compute_run_id(contended)
+            subject.write_report(pair_path, contended)
+            fourth = subject.run_evaluation(root, fixtures, baseline_path=pair_path,
+                                            server=modules[0], state_store=next_generation,
+                                            indexer=modules[2])
+            self.assertEqual("operator_review_required", fourth["verdict"])
+            self.assertEqual(sorted(subject.TOOLS),
+                             sorted(row["tool"] for row in fourth["operator_review_reasons"]
+                                    if row["kind"] == "inherited_contended_baseline"))
+
     def test_active_retrieval_toggle_requires_operator_review_and_is_recorded(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -999,6 +1356,235 @@ class FullRunnerTests(unittest.TestCase):
                 subject.run_evaluation(root, fixtures, server=modules[0],
                                        state_store=modules[1], indexer=modules[2])
         self.assertEqual("generation_drift", caught.exception.code)
+
+
+class RecordedWarmSamplePairTests(unittest.TestCase):
+    """Wave 1wur7 (1wuuh AC-1, AC-2): the jitter estimator judged against DATA.
+
+    The oracle is the raw warm-sample arrays recorded by the real producer and
+    committed under ``fixtures/retrieval_eval/warm_sample_pairs.json``, never a
+    hand-written percentage chosen to match an answer.  Replay is legitimate
+    after this change because the comparator compares report to report and never
+    checks either side against the running module's identity.
+    """
+
+    def _pair(self, pair_name: str):
+        arms = WARM_SAMPLE_PAIRS[pair_name]
+        builder = BaselineComparisonTests()
+        baseline = builder._report(8, 100.0, 1000)
+        current = builder._report(8, 100.0, 1000)
+        for report, arm in ((baseline, "arm_a"), (current, "arm_b")):
+            for tool in subject.TOOLS:
+                samples = arms[arm][tool]
+                report["performance"]["tools"][tool].update({
+                    "sample_count": len(samples),
+                    "warm_p95_ms": subject._nearest_rank_p95(samples),
+                    "warm_floor_ms": subject._sample_floor(samples),
+                    "warm_median_ms": subject._sample_median(samples),
+                })
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        current["operator_review_reasons"] = []
+        return baseline, current
+
+    @staticmethod
+    def _nearest_rank(ordered):
+        """Nearest-rank p95, restated here so the oracle is independent."""
+        import math as _math
+        return ordered[max(1, _math.ceil(0.95 * len(ordered))) - 1]
+
+    @classmethod
+    def _independent_jitter(cls, arm_a, arm_b, statistic):
+        """Recompute one paired statistic without reusing the evaluator's helpers."""
+        left, right = statistic(sorted(arm_a)), statistic(sorted(arm_b))
+        return abs(left - right) / min(left, right)
+
+    def test_contended_pair_is_refused_and_names_every_over_threshold_tool(self):
+        baseline, current = self._pair("contended_1wpif")
+        _, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+        contended = [row for row in operator_reviews
+                     if row["kind"] == "contended_baseline_pair"]
+        self.assertEqual(sorted(subject.TOOLS), sorted(row["tool"] for row in contended),
+                         "every over-threshold tool is named, not one")
+        for row in contended:
+            self.assertEqual(subject.PAIR_JITTER_THRESHOLD, row["threshold_ratio"])
+            self.assertGreater(max(row["floor_jitter_ratio"], row["median_jitter_ratio"]),
+                               subject.PAIR_JITTER_THRESHOLD)
+        for tool in subject.TOOLS:
+            self.assertTrue(current["performance"]["tools"][tool]["pair_contended"])
+        # The reasons reach the same list object the verdict reads.
+        self.assertEqual({"contended_baseline_pair"},
+                         {row["kind"] for row in current["operator_review_reasons"]
+                          if row["kind"] == "contended_baseline_pair"})
+
+    def test_a_recorded_pair_is_preferred_over_the_single_run_floor(self):
+        # Wave 1wuju (1wujt AC-2): when the baseline carries pair-derived jitter
+        # the band comes from it, not from the floor; pinned on the recorded
+        # quiet pair rather than on a hand-written ratio.
+        baseline, current = self._pair("quiet_1seaw_baseline")
+        subject.apply_baseline_comparison(current, baseline)
+        current["run_id"] = subject._compute_run_id(current)
+        later = BaselineComparisonTests()._report(9, 100.0, 1000)
+        subject.apply_baseline_comparison(later, current)
+        for tool in subject.TOOLS:
+            perf = later["performance"]["tools"][tool]
+            recorded = current["performance"]["tools"][tool]["jitter_ratio"]
+            self.assertEqual("baseline_same_generation_pair", perf["jitter_source"])
+            self.assertEqual(recorded, perf["jitter_ratio"])
+            self.assertEqual(round(max(0.25, 3.0 * recorded), 8),
+                             perf["permitted_relative_regression"])
+            self.assertNotIn("contention_judged", perf)
+
+    def test_quiet_pairs_of_the_same_fixtures_are_promotable(self):
+        for pair_name in ("quiet_1seaw_baseline", "quiet_before_1seas"):
+            with self.subTest(pair=pair_name):
+                baseline, current = self._pair(pair_name)
+                _, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+                self.assertEqual([], [row for row in operator_reviews
+                                      if row["kind"] == "contended_baseline_pair"])
+                for tool in subject.TOOLS:
+                    self.assertFalse(current["performance"]["tools"][tool]["pair_contended"])
+
+    def test_tail_noise_alone_does_not_make_a_quiet_pair_contended(self):
+        # ``before-1seas`` code_lexical carries 10.70% p95 jitter against a 0.74%
+        # floor.  That is why the promotability rule reads the floor and median.
+        arms = WARM_SAMPLE_PAIRS["quiet_before_1seas"]
+        a, b = arms["arm_a"]["code_lexical"], arms["arm_b"]["code_lexical"]
+        p95_jitter = self._independent_jitter(a, b, self._nearest_rank)
+        floor_jitter = self._independent_jitter(a, b, lambda v: v[0])
+        self.assertGreater(p95_jitter, subject.PAIR_JITTER_THRESHOLD)
+        self.assertLess(floor_jitter, subject.PAIR_JITTER_THRESHOLD)
+        baseline, current = self._pair("quiet_before_1seas")
+        subject.apply_baseline_comparison(current, baseline)
+        perf = current["performance"]["tools"]["code_lexical"]
+        self.assertFalse(perf["pair_contended"])
+        self.assertAlmostEqual(p95_jitter, perf["jitter_components"]["p95"], places=6)
+
+    def test_full_distribution_jitter_reproduces_the_understated_p95_estimate(self):
+        import statistics as _statistics
+
+        arms = WARM_SAMPLE_PAIRS["contended_1wpif"]
+        a, b = arms["arm_a"]["code_search"], arms["arm_b"]["code_search"]
+        expected_floor = self._independent_jitter(a, b, lambda v: v[0])
+        expected_median = self._independent_jitter(a, b, _statistics.median)
+        expected_p95 = self._independent_jitter(a, b, self._nearest_rank)
+        baseline, current = self._pair("contended_1wpif")
+        subject.apply_baseline_comparison(current, baseline)
+        components = current["performance"]["tools"]["code_search"]["jitter_components"]
+        self.assertAlmostEqual(expected_floor, components["floor"], places=6)
+        self.assertAlmostEqual(expected_median, components["median"], places=6)
+        self.assertAlmostEqual(expected_p95, components["p95"], places=6)
+        # The reported pair jitter is the stable-statistic maximum, and the
+        # p95-only estimator this change replaces understated it several-fold.
+        self.assertAlmostEqual(max(expected_floor, expected_median),
+                               current["performance"]["tools"]["code_search"]["jitter_ratio"],
+                               places=6)
+        self.assertGreater(max(expected_floor, expected_median), 4.0 * expected_p95)
+        # QA-DEL-4: AC-2 names these magnitudes, so they are asserted rather than
+        # left to move with the fixture. A synthetic replacement of the arrays
+        # now fails here instead of passing silently.
+        self.assertAlmostEqual(0.1179, expected_floor, places=3)
+        self.assertAlmostEqual(0.1810, expected_median, places=3)
+        self.assertAlmostEqual(0.0256, expected_p95, places=3)
+
+    def test_pair_jitter_takes_the_floor_when_the_floor_dominates(self):
+        # QA-DEL-6: `code_search`'s median exceeds its floor, so asserting only
+        # that tool left a median-only estimator alive. Contended `code_ask` is
+        # the tool where the FLOOR dominates (25.03% vs 11.27%), which is the
+        # half of Requirement 1 the change exists to introduce.
+        import statistics as _statistics
+
+        arms = WARM_SAMPLE_PAIRS["contended_1wpif"]
+        a, b = arms["arm_a"]["code_ask"], arms["arm_b"]["code_ask"]
+        expected_floor = self._independent_jitter(a, b, lambda v: v[0])
+        expected_median = self._independent_jitter(a, b, _statistics.median)
+        self.assertGreater(expected_floor, expected_median,
+                           "code_ask is the floor-dominant tool in this pair")
+        baseline, current = self._pair("contended_1wpif")
+        subject.apply_baseline_comparison(current, baseline)
+        perf = current["performance"]["tools"]["code_ask"]
+        self.assertAlmostEqual(expected_floor, perf["jitter_ratio"], places=6)
+        self.assertAlmostEqual(0.2503, expected_floor, places=3)
+
+
+class IndexIdentityBindingTests(unittest.TestCase):
+    """Wave 1wur7 (1wtpl): index identity is compared per comparison kind."""
+
+    def _reports(self, baseline_generation: int, current_generation: int):
+        builder = BaselineComparisonTests()
+        baseline = builder._report(baseline_generation, 100.0, 1000)
+        for tool in subject.TOOLS:
+            baseline["performance"]["tools"][tool]["jitter_ratio"] = 0.01
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        return baseline, builder._report(current_generation, 100.0, 1000)
+
+    def test_cross_generation_pair_differing_only_in_store_inode_is_not_refused(self):
+        # AC-1.  The identity shape is the one wave 1wpif recorded: the state
+        # store file was recreated by a controlled rebuild (inode 634552732 ->
+        # 635682939) while every other binding matched.  Those values are the
+        # fixture's provenance, not a machine-specific contract.
+        baseline, current = self._reports(8, 9)
+        baseline["index_identity"]["state_store_inode"] = 634552732
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        current["index_identity"]["state_store_inode"] = 635682939
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("cross_generation", current["comparison"]["comparison_kind"])
+        self.assertEqual([], violations)
+
+    def test_cross_generation_still_refuses_a_different_repository_or_index(self):
+        for key, value in (("repository_root", "/other"), ("repository_inode", 999),
+                           ("repository_device", 999), ("index_directory", "/other/index"),
+                           ("state_store", "/other/index/index-state.sqlite")):
+            with self.subTest(key=key):
+                baseline, current = self._reports(8, 9)
+                current["index_identity"][key] = value
+                with self.assertRaises(subject.EvaluationInvalid) as caught:
+                    subject.apply_baseline_comparison(current, baseline)
+                self.assertEqual("invalid_baseline", caught.exception.code)
+                self.assertIn(key, caught.exception.message)
+
+    def test_same_generation_pair_still_requires_one_physical_store(self):
+        # AC-2, the built-in known-bad: the loosening must not reach the kind
+        # where "one frozen physical store" is what makes jitter meaningful.
+        for key in ("state_store_inode", "state_store_device"):
+            with self.subTest(key=key):
+                baseline, current = self._reports(8, 8)
+                current["index_identity"][key] = 99
+                with self.assertRaises(subject.EvaluationInvalid) as caught:
+                    subject.apply_baseline_comparison(current, baseline)
+                self.assertEqual("invalid_baseline", caught.exception.code)
+                self.assertIn(key, caught.exception.message)
+
+    def test_identity_contract_covers_every_field_the_recorder_emits(self):
+        # Splitting the comparison into named keys would let a field added to
+        # `_index_identity` later go silently uncompared. The contract tuple is
+        # the single source of truth, so a new field must join it or fail here.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            index_dir = root / ".wavefoundry" / "index"
+            index_dir.mkdir(parents=True)
+            store = index_dir / "index-state.sqlite"
+            store.write_bytes(b"")
+            state_store = SimpleNamespace(state_store_path=lambda _dir: store)
+            emitted = subject._index_identity(root, index_dir, state_store)
+        self.assertEqual(set(subject.SAME_GENERATION_INDEX_IDENTITY_KEYS), set(emitted))
+        self.assertTrue(
+            set(subject.CROSS_GENERATION_INDEX_IDENTITY_KEYS)
+            < set(subject.SAME_GENERATION_INDEX_IDENTITY_KEYS))
+        self.assertEqual(
+            {"state_store_device", "state_store_inode"},
+            set(subject.SAME_GENERATION_INDEX_IDENTITY_KEYS)
+            - set(subject.CROSS_GENERATION_INDEX_IDENTITY_KEYS))
+
+    def test_epoch_is_validated_before_the_index_identity_comparison(self):
+        # Requirement 5: the reordering changes which invalid_baseline message a
+        # doubly incompatible report returns first.  Pinned, not discovered.
+        baseline, current = self._reports(8, 8)
+        current["index_identity"]["state_store_inode"] = 99
+        current["generation"].update(start_status="running")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.apply_baseline_comparison(current, baseline)
+        self.assertIn("build status is not complete", caught.exception.message)
+        self.assertNotIn("state_store_inode", caught.exception.message)
 
 
 if __name__ == "__main__":

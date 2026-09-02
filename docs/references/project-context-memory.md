@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-09-02
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -54,3 +54,14 @@ Three rules that came out of the 2026-08-17 fresh-install field report and its d
 ## Canonical Suite Scheduling and True Counts (wave 1tmtx)
 
 Three durable facts from the 2026-08-27 test-suite-performance wave. (1) The canonical runner's alphabetical file order is the MEASURED schedule winner: a counterbalanced A-T-T-A comparison against timing-guided longest-first, on a byte-identical digest-bound manifest and unchanged source, measured alphabetical faster (means 130.5 s vs 136.8 s) because starting all heavy files together saturates the host; do not re-propose longest-first without a new measurement through `run_tests.py --schedule-control`. (2) Suite totals printed before this wave carried +5 contamination (the per-file count parse took the FIRST "Ran N tests" match, which a mock main() print satisfied); post-wave totals anchor to unittest's own final summary, so historical counts do not line up with current ones (true pre-wave base 7,494). (3) The `test_server_tools*` shard family (core/infra retains the original basename; retrieval; lifecycle) shares fixtures through non-discovered `server_tools_support.py`; new MCP tool tests go in the shard matching their domain, and the split is regenerable from the pre-split source by the wave's archived `shard_split.py` with preservation proven by `verify_shards.py`.
+
+
+## Retrieval-Receipt Attribution and Production Identity (wave 1wybs)
+
+Three durable facts from the 2026-09-02 review-churn-follow-ups wave, all found by delivery review rather than by planning.
+
+(1) **Any edit to a `retrieval_eval.PRODUCTION_RETRIEVAL_MODULES` member owes a before/after receipt pair**, because production identity is whole-module: `_production_identity` hashes each module's whole bytes, so a lint-parse or install-audit edit to `server_impl.py`, which cannot reach a retrieval tool, still moves the digest and makes the wave the one that "changes production retrieval bytes" under the standing-gate policy. Check the module list before assuming a wave owes no receipt.
+
+(2) **A `cross_generation` comparison attributes corpus drift to the change.** `_quality_comparison` is zero-tolerance (`cur + 1e-12 < base`) over holdout aggregate and per-class metrics, so documents added or changed between the two generations move holdout metrics with no retrieval edit at all; this wave's after-receipt returned `fail` on five `code_ask` regressions of at most 0.055 nDCG@10 across 37 generations. The proof pattern that settles it: reverse-patch the wave's own diff onto a scratch copy of the production modules and re-hash with `_production_identity`; equality with the before-receipt's digest bounds the wave's whole production change byte-exactly, and a call-site census plus an AST reachability closure from `code_ask`, `code_search`, `docs_search`, and `code_lexical` then shows whether any changed symbol is reachable. A drift-free same-generation pair is not available today: `run_evaluation`'s `production_scripts_dir` is identity-only (it hashes that directory but runs the imported modules), so the evaluator cannot measure pre-change bytes on the current generation.
+
+(3) **`wf_prepare_wave(mode='ready')` gardens the canonical copy of a shipped/canonical doc pair but not its shipped twin**, which breaks `test_shipped_templates_are_byte_identical_to_canonical` on the next full suite (here `docs/references/install-log-format.md` was re-stamped and `.wavefoundry/framework/install/install-log-format.md` was not). After any gardening pass, re-sync every shipped/canonical pair before the last suite run, and keep the full suite genuinely last because any edit under `.wavefoundry/framework/` invalidates the close-time test receipt.

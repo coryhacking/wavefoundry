@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-31
+Last verified: 2026-09-02
 
 ## Review Lane Summary
 
@@ -173,10 +173,149 @@ breadcrumb the chunker bakes as the first line of every docs section chunk. A
 and the response either declares the no-confident-match gap or flags every
 citation weak. A comparison records its `comparison_kind`: a
 `same_generation_pair` (identical production identity on one frozen generation)
-is the only pair that measures jitter; a `production_change_same_generation`
+is the only pair that measures run-to-run jitter; a `production_change_same_generation`
 receipt is the before/after evidence for a ranking change and inherits the
-baseline pair's recorded jitter; a `cross_generation` comparison covers a
-controlled rebuild.
+baseline's recorded jitter when it has one, or the 25% floor when the baseline
+is a single run; a `cross_generation` comparison covers a controlled rebuild.
+
+**Index identity is compared per comparison kind** (wave `1wur7`). The
+repository root (path, device, inode), the index directory, and the state-store
+path bind every kind, so two unrelated indexes can never be compared. The state
+store file's own device and inode bind only a `same_generation_pair`, where "one
+frozen physical store" is what makes a jitter measurement mean anything. A
+controlled rebuild legitimately recreates that file, and binding its inode
+across generations refused the exact case `cross_generation` exists to cover.
+The epoch is therefore validated before the identity comparison, so a doubly
+incompatible report reports its generation problem first.
+
+**Pair jitter is derived from the warm-sample floor and median**, not from
+`warm_p95_ms` alone (wave `1wur7`). Every receipt records `warm_floor_ms` and
+`warm_median_ms` beside `warm_p95_ms`, and a `same_generation_pair` records the
+per-statistic `jitter_components`. The reported `jitter_ratio` is the larger of
+the floor and median shifts; the p95 shift is recorded for the reader but is
+deliberately kept out of the band, because the band is `max(25%, 3 x jitter)`
+applied to the p95 itself and feeding the p95 shift back in would make the
+latency clause unreachable. A pair whose floor or median moved past
+`PAIR_JITTER_THRESHOLD` (5%) was measured under external load, is marked
+`pair_contended`, and every offending tool is named in
+`operator_review_reasons`. A later comparison that inherits a `pair_contended` baseline's jitter
+reports `inherited_contended_baseline` for every affected tool, with the
+recovery (record a quiet same-generation pair first), and marks
+`baseline_pair_contended` on the receipt; it is not refused, because latency is
+advisory for every kind (below) and a contended band only widens an advisory
+allowance.
+
+**A single receipt is a baseline** (wave `1wuju`). A baseline that carries no
+pair-derived `jitter_ratio` is accepted: the comparison records
+`jitter_source: single_run_floor`, uses the 25% floor as the band, and records
+`pair_contended: null` with `contention_judged: false`, because a single run has
+no reference level. The within-run repetition spread was tested as a substitute
+estimator against the recorded fixture pairs at readiness and refuted: robust
+floor and median statistics cannot see contention from inside one run, and
+`code_ask` carries 12% to 27% intrinsic per-call spread on a quiet machine, so it
+is deliberately not computed. Record a baseline when nothing else is running;
+a single run cannot detect its own contention.
+The threshold is read off recorded evidence rather than fitted: the quiet pairs
+on file top out at 1.72% floor and 1.64% median jitter, while the contended
+wave-`1wpif` pair runs 11.27% to 36.71%.
+
+`warm_p95_ms` is nearest-rank over the pooled warm samples, so `ceil(0.95 * n)`
+equals `n` for every n below 20 and the p95 is then literally the maximum. That
+is a PER-TOOL property and the receipt records it per tool as `p95_is_maximum`:
+on the current corpus it is true for `docs_search` (n=9) and false for
+`code_ask` (93), `code_search` (36), and `code_lexical` (27). A tool
+below `MIN_WARM_SAMPLES` (9, the standing count `docs_search` reaches with three
+applicable fixtures at three repetitions) is labelled `small_sample_estimate`
+and routed to operator review. Nine is the declared minimum rather than a value
+above it, because the frozen corpus makes `docs_search` permanently nine and
+escalating it would put a clean `pass` permanently out of reach.
+
+**Latency is advisory for every comparison kind** (operator decision at the
+wave `1wur7` close). The retrieval-quality floors are deterministic on a frozen
+index; the latency clause depends on machine noise, and on a shared machine a
+hard violation cannot be told from contention. The clause is therefore computed
+and recorded for all three kinds, each with a reason, and routes to
+`operator_review_required`; it is never a hard violation and never silently
+dropped. `production_change_same_generation` (same frozen index, different
+production bytes, jitter inherited from a pair recorded on that generation) is
+the one kind where a regression is attributable to the change, and its reason
+says so; a reviewer reads it as the strongest latency signal the gate produces.
+
+- `same_generation_pair` — identical production bytes on one frozen index. There
+  is no change to attribute a regression to, so a p95 difference is jitter by
+  construction. Enforcing here failed clean runs on tail noise: quiet-machine p95
+  swings of 1.79%, 10.70% and 22.90% are on record against a 25% floor allowance.
+  The pair's usability is judged by the floor/median contention rule instead.
+- `cross_generation` — jitter inherited from an earlier measurement session, so
+  the band describes the baseline machine rather than the current one.
+
+Changing any of these rules changes `evaluator_identity`, which the
+compatibility rule binds, so no receipt recorded before such a change can be
+compared against one recorded after it. That discontinuity is deliberate, and
+it places no obligation on the wave that made the edit (wave `1wybq`).
+**An evaluator-only edit records no close-time baseline.** An edit that moves
+`evaluator_identity` without moving `production_identity` cannot have changed
+retrieval quality, so the standing baseline simply becomes incomparable and
+stays so. The obligation belongs to the next wave that changes production
+retrieval bytes: it records a before-receipt on its pre-change tree with the
+current evaluator (before its first production edit, or on a checkout of the
+pre-change tree with the index rebuilt), records an after-receipt on its
+delivered tree, and compares the two.
+In this repository that pair is a `cross_generation` comparison: every
+production retrieval module is indexed (`.wavefoundry/framework/scripts` is
+under `project_include_prefixes.code`), the evaluator's preflight refuses a
+stale index, and every completed build advances the generation, so
+`production_change_same_generation` is reachable only when production bytes
+change with no indexed file changing. Record each receipt with the index
+brought current first, the `.wavefoundry/index/reindex-pending` marker kept
+fresh so the staleness monitor defers, a foreground run, and no other session
+mutating the tree; a build that lands mid-run invalidates the receipt.
+**A `cross_generation` comparison attributes corpus drift to the change.** The
+regression rule (`_quality_comparison`) has no tolerance: any holdout metric
+below the baseline is a violation, so documents added or changed between the
+two generations can move holdout metrics in either direction with no retrieval
+edit at all. The first application of this policy, wave `1wybs`, recorded a
+`fail` on five `code_ask` holdout regressions of at most 0.055 nDCG@10 across
+37 generations of corpus change, with a production diff (reconstructed
+byte-exactly against the before-receipt's identity block) that touched only
+lint-parse and install-audit functions no retrieval tool calls. Read a
+cross-generation `fail` together with that production diff: when the diff
+reaches no retrieval tool, the receipt records drift, not a regression, and
+routes to operator review; when it does, the regression is the change's. A
+drift-free pair needs the before-receipt recorded on the SAME generation with
+the pre-change bytes, which the evaluator cannot do today because its
+`production_scripts_dir` is identity-only (it hashes that directory but runs
+the imported modules); loading the modules it hashes is a recorded follow-up.
+One run per side on a quiet machine is enough (`single_run_floor`); a
+`same_generation_pair` is optional and preferred when present, because it
+measures run-to-run jitter.
+
+**Standing artifact.** `docs/reports/retrieval-quality-baseline.json` predates
+wave `1wur7` and is permanently incomparable: it carries the pre-change
+`evaluator_identity` and no `warm_floor_ms` / `warm_median_ms`. The `1wur7`
+pair (`docs/reports/retrieval-quality-post-1wur7-run1.json` and
+`docs/reports/retrieval-quality-post-1wur7.json`) binds the evaluator identity
+that wave shipped and is likewise incomparable after `1wuju`. The `1wuju`
+receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
+`1wuju` close) served as the before-receipt for wave `1wybs`. The current
+reference receipt is `docs/reports/retrieval-quality-post-1wybs.json`: it
+binds the current evaluator and the delivered production bytes at generation
+211, its verdict is `fail` under the drift disposition recorded in the `1wybs`
+wave record (five zero-tolerance `code_ask` holdout regressions with a
+production diff that reaches no retrieval tool; the operator decision on that
+disposition is recorded there), and it is valid as `--baseline` because the
+compatibility rule checks identities, not verdicts; pass it as `--baseline`
+while the evaluator is unchanged. After the next evaluator edit there is no
+reference receipt until the next ranking wave records its before-receipt, and
+an `invalid_baseline` refusal in that window, typically "baseline evaluator
+identity differs", is the expected signal, not a defect. The canonical command
+above names an output path, not a comparison source.
+
+When a signed comparison is structurally unavailable, the data-level tool at
+`.wavefoundry/framework/scripts/benchmarks/compare_retrieval_receipts.py`
+reproduces the comparison arithmetic over two recorded receipts and labels its
+output `computed`. A computed comparison is disclosure, never a signed receipt,
+and it satisfies no gate.
 
 Precondition after a full index rebuild: run the maintenance verb
 (`index_optimize`, or the equivalent end-of-setup pass) before recording

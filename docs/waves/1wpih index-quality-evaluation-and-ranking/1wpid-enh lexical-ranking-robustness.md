@@ -4,7 +4,7 @@ Change ID: `1wpid-enh lexical-ranking-robustness`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-08-31
+Last verified: 2026-09-02
 Wave: 1wpih index-quality-evaluation-and-ranking
 
 ## Rationale
@@ -18,9 +18,9 @@ The safe twelve-token FTS cap currently keeps the first twelve whitespace tokens
 3. Docs and code lexical rankings SHALL combine through rank-based or empirically normalized fusion rather than direct comparison of incomparable raw BM25 values.
 4. Per-table BM25 values SHALL remain observable for diagnostics.
 5. The selected behavior SHALL be gated by long-query and mixed-table relevance measurements.
-6. QA SHALL freeze `docs/evals/lexical-ranking-calibration.json` and `docs/evals/lexical-ranking-holdout.json` plus their digests before production edits, capture `docs/reports/lexical-ranking-baseline.json` through `.wavefoundry/framework/scripts/lexical_ranking_eval.py`, permit mechanism selection against calibration only, and reserve the untouched holdout for `docs/reports/lexical-ranking-post.json` delivery evidence. The standing `.wavefoundry/framework/scripts/retrieval_eval.py` gate SHALL also run before and after. Reports SHALL bind fixture, evaluator, production, index-generation, and environment identities.
+6. QA SHALL freeze `docs/evals/lexical-ranking-calibration.json` and `docs/evals/lexical-ranking-holdout.json` plus their digests before production edits, capture `docs/reports/lexical-ranking-baseline.json` through `.wavefoundry/framework/scripts/lexical_ranking_eval.py`, permit mechanism selection against `evidence_role="calibration"` only, and reserve the QA-authored/protected local holdout as `evidence_role="regression_only"` for `docs/reports/lexical-ranking-post.json` delivery non-regression evidence. Only separately supplied, mechanism-independent, unconsulted out-of-sample fixtures may use `evidence_role="independent_holdout"` and support an improvement claim. The standing `.wavefoundry/framework/scripts/retrieval_eval.py` gate SHALL also run before and after. Reports SHALL bind fixture, evaluator, production, index-generation, and environment identities and expose evidence role, evidence tier, authorship/exposure, and consultation status.
 7. `_fts_match_expression` SHALL remain the single bounded literal-query constructor, and the selected mixed-table fusion semantics SHALL apply consistently to `WaveIndex._lexical_candidates`, `_fts_degraded_serve` whenever it serves more than one table (including model-disabled `code_ask`), and public `code_lexical(table="both")` behavior. Single-table docs/code fallbacks SHALL remain unchanged.
-8. Before ranking code changes, QA SHALL freeze a bounded disposable-store lexical evaluation runner and corpus that can score degraded Recall/MRR/nDCG and perform controlled one-table corpus-growth probes. The corpus SHALL contain at most 256 rows per table, keep calibration and holdout in separate artifacts, record both digests before implementation, permit only QA to execute holdout for delivery, and fail a leak scan when an exact holdout query appears in implementation tests, prompts, or calibration data.
+8. Before ranking code changes, QA SHALL freeze a bounded disposable-store lexical evaluation runner and corpus that can score degraded Recall/MRR/nDCG and perform controlled one-table corpus-growth probes. The corpus SHALL contain at most 256 rows per table, keep calibration and protected local regression artifacts separate, record both digests before implementation, permit only QA to execute the `regression_only` artifact for delivery, and fail a leak scan when an exact regression query appears in implementation tests, prompts, or calibration data. Separation and leak scanning do not upgrade QA-authored local evidence to `independent_holdout`.
 9. Performance evidence SHALL use one untimed warm-up plus exactly three measured repetitions and nearest-rank p95. Hostile lexical p95 SHALL remain at or below 1,000 ms and shall not regress more than `max(25%, 3 * baseline jitter ratio)`; any timeout fails. Response envelopes remain subject to the standing 256 KiB ceiling, and the disposable component runner SHALL finish within 30 seconds.
 
 ## Scope
@@ -36,9 +36,9 @@ The safe twelve-token FTS cap currently keeps the first twelve whitespace tokens
 - [ ] AC-1: A fixed known-bad query containing exactly twelve ordinary terms followed by one unique indexed identifier currently misses and then achieves Recall@5 after repair, without increasing the twelve-term MATCH limit.
 - [ ] AC-2: Malformed syntax and operator-like input remain literal and parameterized, MATCH expressions stay at or below twelve terms, and the fixed three-repetition p95 contract in Requirement 9 passes.
 - [ ] AC-3: Adding a fixed unrelated-row batch to one FTS table does not reverse the relative fused order of unchanged equally relevant docs/code fixtures through `_lexical_candidates`, mixed-table `_fts_degraded_serve`, or `code_lexical(table="both")`.
-- [ ] AC-4: Representative Recall@k, MRR, and nDCG hold or improve for direct lexical and model-disabled `code_search`/`code_ask` degraded retrieval; per-table BM25 diagnostics remain observable.
+- [ ] AC-4: Representative Recall@k, MRR, and nDCG hold for every calibration/regression-only direct lexical and model-disabled `code_search`/`code_ask` degraded slice; an improvement claim is accepted only from a separately declared `independent_holdout`; per-table BM25 diagnostics remain observable.
 - [ ] AC-5: Existing short-query, compound-identifier, Unicode-normalization, kind, and table filters remain compatible; tie ordering is deterministic and per-table BM25 diagnostics remain present; full tests pass.
-- [ ] AC-6: Versioned baseline and post-change reports prove separate calibration/holdout artifacts were frozen before implementation, the exact-query leak scan is clean, calibration alone selected the mechanism, QA alone ran untouched holdout for delivery, and standing latency/payload gates pass.
+- [ ] AC-6: Versioned baseline and post-change reports prove separate calibration/regression artifacts were frozen before implementation, the exact-query leak scan is clean, calibration alone selected the mechanism, QA alone ran protected regression evidence for delivery, every fixture exposes canonical role/tier/authorship/exposure/consultation fields, and standing latency/payload gates pass.
 - [ ] AC-7: The disposable-store runner detects the current tail-token miss and raw-BM25 corpus-growth reversal, scores degraded public paths, rejects a deliberately leaked holdout query, and completes within the fixed corpus/runtime bounds.
 
 ## Tasks
@@ -50,13 +50,15 @@ The safe twelve-token FTS cap currently keeps the first twelve whitespace tokens
 - [ ] Apply fusion consistently to direct and degraded mixed-table search.
 - [ ] Record before/after relevance and latency evidence.
 - [ ] Freeze corpus/report digests and production identity before editing the ranking path.
+- [ ] Enforce canonical evidence roles and reject gain claims sourced from QA-authored, consulted, protected-local, or standing-regression fixtures.
 
 ## Agent Execution Graph
 
 | Workstream | Owner | Depends On | Notes |
 | --- | --- | --- | --- |
-| Evaluation fixtures | qa-reviewer | — | Establish failure and baseline |
-| Ranking implementation | implementer | Evaluation fixtures | Token selection and table fusion |
+| Evaluation runner and fixture schema | implementer | Wave readied/activated | Disposable-store evaluator only |
+| Corpus approval and baseline | qa-reviewer | Evaluation runner | Freeze roles/digests and establish failure independently |
+| Ranking implementation | implementer | Frozen baseline | Token selection and table fusion |
 | Verification | qa-reviewer | Ranking implementation | Relevance and hostile-input latency |
 
 ## Serialization Points
@@ -86,6 +88,7 @@ The safe twelve-token FTS cap currently keeps the first twelve whitespace tokens
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-08-30 | Planned as later relevance work from the FTS audit. | Tail-identifier and independent-table corpus-growth probes. |
+| 2026-08-31 | Aligned lexical evidence with the closed-wave authority contract. | QA-authored local holdouts remain protected regression evidence; only mechanism-independent unconsulted out-of-sample fixtures may prove improvement. |
 
 ## Decision Log
 

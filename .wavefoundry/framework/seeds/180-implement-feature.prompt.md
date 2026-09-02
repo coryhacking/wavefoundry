@@ -98,6 +98,8 @@ MCP-first code exploration:
 
 Reading code is not executing it: this exploration order locates and explains code, but a load-bearing claim about behavior (a mechanism repairs its defect, a dispatch path validates an object, a census is complete) is verified by executing it (a test, a probe, a real invocation), and following this order perfectly is not, by itself, verification (seed-209, "Code-Grounded Verification").
 
+Landing rule for guards (seed-209, wave 1wuju): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened; record the mutant and the failing test in the change document's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.
+
 When MCP is attached, any code investigation at any lifecycle stage follows this order: exploration before a code edit, review-claim verification against the tree, and repair/reverification work inside review cycles (censuses, region reads, claim checks) alike; the run contract's Retrieval Rules (`seed-020`) carry this scope for every lane and briefed subagent. Agents must not default to shell search or broad file reads for questions these tools are designed to answer:
 
 1. `code_ask` — cross-cutting "what does this currently do?" questions
@@ -151,7 +153,7 @@ Wave orchestration contract:
 - **Admission:** the coordinator confirms which changes, feature slices, review lanes, and integration lanes are admitted into the current wave
 - **Allocation:** the coordinator assigns ownership, start order, dependency constraints, and parallel lanes for the admitted changes or tasks. Implementation lanes are allocated from repository evidence and admitted scope — not by habit. When the admitted change primarily involves backend/API/service code, allocate `software-engineer`; for UI/interaction/accessibility surfaces, allocate `frontend-developer`; for SQL/schema/migration/ETL/data-contract work, allocate `data-engineer`. Use the generic `implementer` when the change is cross-cutting, narrow in scope, or when domain depth is not required. Record the selected lanes in the wave record or Review checkpoints so readiness and review passes have explicit inputs.
 - **Synchronization:** participants report outputs, blockers, invalidated assumptions, and review findings often enough for the coordinator to keep the wave coherent
-- **Escalation:** the coordinator pauses, replans, adds reviewers, reassigns changes or tasks, splits work, or supersedes the wave when assumptions fail or dependencies shift materially
+- **Escalation:** the coordinator pauses, replans, adds reviewers, reassigns changes or tasks, splits work, or supersedes the wave when assumptions fail or dependencies shift materially; when a gate is blocked by an artifact the wave does not own, the coordinator presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)
 - **Closure readiness:** the coordinator decides when scoped work and required reviews are satisfied; **terminal closure** (e.g. `Completed at`, `Status: completed`, closure reconciliation) runs only after **explicit operator confirmation** (`Close wave` / `Finalize feature` or confirmed yes), not automatically at the end of `Implement wave`
 
 Coordinator decision rights:

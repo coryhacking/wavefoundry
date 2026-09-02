@@ -126,6 +126,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - `severity`: `critical`, `high`, `medium`, `low`, or `none` based on worst finding.
 - For each finding: use the finding record schema from `209-agent-harness-core.prompt.md`.
 - For approvals: a one-line confirmation of AC coverage, branch completeness, and test coverage for all changed paths.
+- A **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
 
 ## What This Lane Does Not Cover
 

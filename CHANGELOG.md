@@ -10,6 +10,127 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Acceptance criteria must assert what the change controls.** An acceptance criterion asserting
+  repository-wide or environment state — most commonly "the full framework test suite passes" —
+  measures the tree at a moment in time rather than the change, so whether it can be marked
+  depends on timing and on work owned by other people. Seed `170-plan-feature.prompt.md` now
+  teaches the locality rule with the replacement shape ("the change's own suites and every test it
+  adds pass; the documents this change authors or edits validate; and no failure elsewhere is
+  attributable to this change"), and `docs-lint` runs it as an **advisory sensor**: findings are `WARNING:` lines that never fail
+  validation (registered `advisory` in the new sensor polarity registry with its introducing wave;
+  a flip to blocking is a later recorded change made on field data). The rule keys
+  on the assertion shape, reads each AC bullet whole (wrapped continuation lines and loose-list
+  continuation paragraphs included), and
+  exempts a bullet that quotes or specifies the clause rather than asserting it. **Scoping:** it
+  reaches change documents only in a wave that is `ready`, `active`, or `implementing` (or carries
+  an explicit `Activated at:` line), so closed wave records and parked `docs/plans/` drafts are
+  never retroactively failed — but a carrier enters scope the moment its wave is readied or
+  activated. **Upgrading with an open wave:** if an in-flight change document carries such a
+  criterion, the upgrade completes and `wf_validate_docs`, `wf_audit`, `wf_prepare_wave`,
+  `wf_review_wave`, and `wf_close_wave` report it as a `docs_lint_warning` diagnostic with
+  `advisory: true`; nothing halts and nothing blocks. The diagnostic names the offending phrase and
+  supplies the replacement sentence; the fix is a one-line rewrite per criterion, made by the wave
+  that owns the document.
+- **Review-cycle churn controls in the seeds.** Seed 209 carries a landing rule for guards (a guard,
+  validator member, carve-out, or tuning constant is landed only when a named test fails with it
+  deleted or loosened, with the mutant recorded in the Progress Log before review), a frozen-tree
+  round protocol with `tree_fingerprint`, `time_budget`, and `sweep_rule` briefing fields and the
+  `tree_moved_under_review` process finding, a once-per-round repair rule, an external-blocker
+  escalation rule, and a census re-derivation sentence; seeds 180 and 190 carry the implementer
+  and close-side hooks; the code, qa, and architecture lane seeds require a mutation table in every
+  delivery report as the prose projection of `known_bad_detection_method: focused-mutation`.
+  Prompt surfaces and lane role docs are hand-reconciled. (Wave `1wuju`, from the `1wur7`
+  retrospective: five repair rounds on one finding.)
+- **Docs-lint sensor polarity registry; new sensors ship advisory.** `wave_lint_lib/constants.py`
+  `SENSOR_POLARITY_REGISTRY` records each registered sensor's polarity and introducing wave. An
+  `advisory` sensor's findings travel the existing `WARNING:` channel with the same message text
+  plus the sensor name, lint passes, and every lifecycle gate renders them as `docs_lint_warning`
+  diagnostics carrying `advisory: true`. The AC-locality sensor is the first registrant (advisory,
+  introduced by wave `1wur7`), reversing that wave's keep-blocking decision on timing only; the
+  release checklist now lists every advisory entry so each flip is a decided, recorded change.
+  A `docs_lint.py` run that exits non-zero without printing an `ERROR:` line (a crash, such as a
+  misspelled registry entry) now reaches every lifecycle gate as one synthesized
+  `ERROR: docs-lint exited <rc> without a lint verdict; <cause>` entry rendered as
+  `docs_lint_error`; it previously passed the diagnostics-keyed gates with no diagnostic at all.
+  The install audit routes that entry past its expected-absence classifier, so it never defers.
+- **Serialization Points scaffolds state the token grammar of both declaration forms.** A declared
+  path token has at least one `/`, so a root-level file is never a token in either form, and a
+  bullet declares all or nothing in either form, so one such token turns the whole bullet into
+  prose and every other path in it goes undeclared. In a bullet a `*` disqualifies the token;
+  inside the explicit `**Review targets (repo-relative paths):**` block a span is kept only when
+  its last segment carries an extension or the span ends in `/`, so there a `*` span is accepted
+  as a phantom that matches no file and recruits a lane only through a trigger token it happens to carry (a directory prefix, an extension, or a trigger basename),
+  a block holding only phantoms leaves the document declared with whatever roster those triggers
+  recruit (empty when none is a trigger), and any other `*` span turns its bullet into prose.
+  Seeds `170`, `040`, and `160`, both plan templates, and the
+  shipped Prepare lifecycle prompt now say so, with the remedy (a root-level file in its own
+  prose bullet; declare the directory that holds globbed files), pinned against the parser in
+  both forms. The parser is unchanged. (Wave `1wybs`, from three `1wuju` change documents and
+  one `1wpig` document that silently lost review lanes.)
+- **Wave close verifies the framework test receipt** (framework source repositories only).
+  `wf_close_wave` reads the existing `.wavefoundry/framework/test-cache.json` written by
+  `run_tests.py`, requires `result == "ok"` with an `inputs_hash` matching the current framework
+  tree, and reports a missing, red, stale, or unreadable receipt as `framework_test_receipt_not_proven` rather
+  than assuming green. It runs no suite and spawns no subprocess. The response carries a
+  `framework_test_receipt` object on both the blocked and the successful path. Where
+  `.wavefoundry/framework/scripts/run_tests.py` is absent — every repository that consumes the
+  packaged framework, since the distribution excludes the runner, the suite, and the receipt — the
+  check is a documented no-op that neither blocks close nor claims proof.
+
+### Changed
+
+- **The retrieval evaluator compares index identity per comparison kind.** The repository root,
+  index directory, and store path bind every kind; the state-store file's device and inode bind
+  only receipts that share one index generation (`same_generation_pair` and
+  `production_change_same_generation`). Binding the inode across generations refused the controlled
+  rebuild that `cross_generation` exists to cover.
+- **Pair jitter is derived from the warm-sample floor and median**, not from `warm_p95_ms` alone,
+  which is one near-max order statistic per run and blind to a floor shift. Receipts now record
+  `warm_floor_ms`, `warm_median_ms`, `p95_is_maximum`, and `small_sample_estimate` per tool, and a
+  same-generation pair records `jitter_components` and `pair_contended`. A pair whose floor or
+  median moved past 5% was measured under external load, is marked `pair_contended`, and a later
+  comparison that inherits its jitter reports `inherited_contended_baseline` per tool with the
+  recovery (record a quiet pair) rather than being refused. **Latency is advisory for every
+  comparison kind** (operator decision at the wave's close): the clause is computed and recorded
+  for `same_generation_pair`, `production_change_same_generation`, and `cross_generation` alike,
+  each with a reason, and routes to `operator_review_required`; it is never a hard violation and
+  never silently dropped. Retrieval-quality floors (recall, nDCG, MRR, abstention) and the
+  response-size ceiling remain hard.
+- **Receipts recorded before this release are not comparable against ones recorded after it.** The
+  evaluator's own bytes bind every comparison, and the new full-distribution fields are required,
+  so the discontinuity is deliberate; the next wave that changes production retrieval bytes
+  records its own before-receipt and after-receipt (see the evaluator-only-edit bullet below).
+- **A single evaluator receipt is a baseline.** A baseline with no pair-derived `jitter_ratio` is
+  accepted at the existing 25% floor with `jitter_source: single_run_floor`, `pair_contended: null`,
+  and `contention_judged: false` (a single run has no reference level); the old
+  `invalid_baseline` refusal is gone. A `same_generation_pair` stays optional and is preferred when
+  present. No within-run jitter estimator is computed: the recorded fixture pairs refuted every
+  candidate at readiness. Retrieval-quality floors and the response-size ceiling are unchanged.
+- **An evaluator-only edit records no close-time baseline.** An edit that moves
+  `evaluator_identity` without moving `production_identity` cannot change retrieval quality, so
+  the standing receipt becomes incomparable and the wave records nothing at close; the next wave
+  that changes production retrieval bytes records a before-receipt on its pre-change tree with
+  the current evaluator and an after-receipt on its delivered tree, and compares them. In this
+  repository that pair is `cross_generation`, because the production modules are indexed, the
+  evaluator's preflight refuses a stale index, and every completed build advances the
+  generation. An `invalid_baseline` refusal between an evaluator edit and the next
+  before-receipt is the expected signal. A cross-generation comparison attributes corpus drift
+  to the change (the regression rule has no tolerance), so a `fail` is read together with the
+  production diff between the two receipts' identity blocks; the wave that introduced this
+  policy was its first application and recorded exactly that case. (Wave `1wybq`, from the
+  `1wuju` close: three invalidated runs for a receipt whose metrics could not have moved.)
+- **Verdict-gap and install-audit hardening** (wave `1wybs`, from the `1wuju` review notes). The
+  synthesized `docs-lint exited <rc> without a lint verdict` cause is capped at 240 characters,
+  keeping its head and tail around a marker after the repository root is stripped; the
+  sanitizer ignores a filesystem-root or relative root spelling, also strips the repr-doubled
+  spelling a Windows traceback renders (every backslash doubled), and the producer requires the
+  root. `wf_audit_install`'s `checked_but_missing` envelope renders `expected_artifact`,
+  `all_missing[].expected_artifact`, `next_action`, and its diagnostic relative to the
+  repository root, and an artifact that resolves outside the repository is rendered with leading
+  `..` segments rather than failing the audit; `install-log-format.md` names the fields the
+  envelope actually emits. The
+  unreachable passed-false-with-no-errors branch in the install audit is gone: a crashed lint
+  subprocess is proven to block through the real parser end to end.
 - **A standing retrieval-quality gate.** `retrieval_eval.py` evaluates the public `code_ask`,
   `code_search`, `docs_search`, and `code_lexical` response paths over a versioned
   calibration/holdout golden corpus (`docs/evals/retrieval-quality-golden.json`, eleven query

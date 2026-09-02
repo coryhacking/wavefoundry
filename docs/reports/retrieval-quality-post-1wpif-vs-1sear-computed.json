@@ -1,0 +1,296 @@
+{
+  "bindings": {
+    "environment_equal": {
+      "execution_providers": true,
+      "indexed_model_versions": true,
+      "machine": true,
+      "models": true,
+      "offline": true,
+      "packages": true,
+      "platform": true,
+      "processor": true,
+      "python": true,
+      "reranker_provider": true,
+      "retrieval_toggles": true
+    },
+    "evaluator_identity_equal": true,
+    "fixture_digest_equal": true,
+    "generation": {
+      "baseline": 1,
+      "baseline_attempt": "8916932ce45d4cd48e725493bf21eb20",
+      "current": 26,
+      "current_attempt": "1c7bf6e06ea94d138ecce554b7c22d15"
+    },
+    "index_identity_differences": {
+      "state_store_inode": [
+        634552732,
+        635682939
+      ]
+    },
+    "production": {
+      "baseline": "dab71287550d9e541b8f36d734ae34b44df84ef83ad8b5b4139c611409cbbae4",
+      "baseline_versions": {
+        "chunker": "39",
+        "graph_builder": "45",
+        "walker": "16"
+      },
+      "current": "6107c5dac50d601acc2b5d6c5c51d8e643bc2085474a9ccf059b48d192396877",
+      "current_versions": {
+        "chunker": "41",
+        "graph_builder": "45",
+        "walker": "16"
+      }
+    }
+  },
+  "comparison_kind": "cross_generation (computed)",
+  "critical_floors": [
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "question_type_accuracy",
+      "scope": "class",
+      "target": "architecture_review_intent",
+      "tool": "code_ask"
+    },
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "question_type_accuracy",
+      "scope": "fixture",
+      "target": "direct-manifest-holdout-project-metadata",
+      "tool": "code_ask"
+    },
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "mrr_at_10",
+      "scope": "fixture",
+      "target": "direct-manifest-holdout-project-metadata",
+      "tool": "code_ask"
+    },
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "abstention_accuracy",
+      "scope": "class",
+      "target": "abstention",
+      "tool": "code_ask"
+    },
+    {
+      "current": 0.91731941,
+      "floor": 0.9,
+      "metric": "ndcg_at_10",
+      "scope": "fixture",
+      "target": "direct-named-file-holdout-gitignore-renderer",
+      "tool": "code_ask"
+    },
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "mrr_at_10",
+      "scope": "fixture",
+      "target": "direct-path-holdout-docs-lint",
+      "tool": "code_ask"
+    },
+    {
+      "current": 1.0,
+      "floor": 1.0,
+      "metric": "question_type_accuracy",
+      "scope": "fixture",
+      "target": "direct-path-holdout-docs-lint",
+      "tool": "code_ask"
+    }
+  ],
+  "method": {
+    "baseline_content_sha256": "400ecf11831e1e5e9047f8046b71a7a82294f6a8aa27515a31440e7cf606be25",
+    "baseline_file": "docs/reports/retrieval-quality-baseline.json",
+    "baseline_run_id": "4800bbe0f39fddf050fb5579693e2e73487b2795d1c9d1eef628e713360bb0e9",
+    "computed_at": "2026-09-01T02:43:40Z",
+    "current_content_sha256": "2e5ec14f0caf1b29bcb4fc456c0147fef9f9f2241af8e1735cd117627ae15495",
+    "current_file": "docs/reports/retrieval-quality-post-1wpif.json",
+    "current_run_id": "ce01bbaaa101f5c9f63ece4394af87d8cd83e0f5ab583462b006d40879c737b6",
+    "description": "Data-level reproduction of retrieval_eval.apply_baseline_comparison arithmetic over the two receipts' recorded numbers; no evaluator code imported or patched.",
+    "rules": [
+      "quality_regression: holdout aggregate and per-class metric drop below baseline (recall_at_10, ndcg_at_10, agentic_mrr_at_10, question_type_accuracy, abstention_accuracy)",
+      "critical_quality_floor: corpus critical_floors evaluated on the current receipt (class scope from by_split_and_class.holdout, fixture scope from the case row)",
+      "latency_regression: current warm p95 above baseline warm p95 x (1 + max(0.25, 3 x baseline same-generation jitter))",
+      "response_size_regression: current max envelope above baseline + max(15%, 4096 bytes)"
+    ],
+    "script": ".wavefoundry/framework/scripts/benchmarks/compare_retrieval_receipts.py",
+    "why_not_a_signed_receipt": "retrieval_eval._index_identity binds the sqlite state-store file inode for every comparison kind; that file was recreated during an earlier evidence window by the store's corrupt-open recovery branch treating a busy-timeout as corruption (finding ARCH-DEL-2, repaired in wave 1wpif), so the evaluator refuses its own cross_generation kind. Every other binding is equal (repository root and inode, index directory, store path, fixture digest, evaluator identity, environment, models, providers, toggles). This pair was recorded on a quiet machine per PERF-DEL-2. Evaluator follow-up: docs/plans/1wtpl-bug retrieval-eval-store-identity-binding.md"
+  },
+  "metric_deltas": {
+    "code_ask": {
+      "calibration": {
+        "abstention_accuracy": [
+          1.0,
+          1.0
+        ],
+        "agentic_mrr_at_10": [
+          0.12222222,
+          0.12222222
+        ],
+        "ndcg_at_10": [
+          0.52336715,
+          0.52014446
+        ],
+        "question_type_accuracy": [
+          0.9,
+          0.9
+        ],
+        "recall_at_10": [
+          0.56666667,
+          0.55
+        ]
+      },
+      "holdout": {
+        "abstention_accuracy": [
+          1.0,
+          1.0
+        ],
+        "agentic_mrr_at_10": [
+          0.39,
+          0.39357143
+        ],
+        "ndcg_at_10": [
+          0.52662475,
+          0.52698144
+        ],
+        "question_type_accuracy": [
+          0.90909091,
+          0.90909091
+        ],
+        "recall_at_10": [
+          0.59375,
+          0.59375
+        ]
+      }
+    },
+    "code_lexical": {
+      "calibration": {
+        "ndcg_at_10": [
+          0.24739143,
+          0.24739143
+        ],
+        "recall_at_10": [
+          0.3,
+          0.3
+        ]
+      },
+      "holdout": {
+        "ndcg_at_10": [
+          0.60766914,
+          0.60766914
+        ],
+        "recall_at_10": [
+          0.75,
+          0.75
+        ]
+      }
+    },
+    "code_search": {
+      "calibration": {
+        "ndcg_at_10": [
+          0.7640104,
+          0.81529989
+        ],
+        "recall_at_10": [
+          0.91666667,
+          0.91666667
+        ]
+      },
+      "holdout": {
+        "ndcg_at_10": [
+          0.64159289,
+          0.64190816
+        ],
+        "recall_at_10": [
+          0.83333333,
+          0.83333333
+        ]
+      }
+    },
+    "docs_search": {
+      "calibration": {
+        "ndcg_at_10": [
+          0.0,
+          0.0
+        ],
+        "recall_at_10": [
+          0.0,
+          0.0
+        ]
+      },
+      "holdout": {
+        "ndcg_at_10": [
+          0.0,
+          0.0
+        ],
+        "recall_at_10": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "performance": {
+    "code_ask": {
+      "baseline_jitter_ratio": 0.01357568,
+      "baseline_max_response_bytes": 23832,
+      "baseline_warm_p95_ms": 3697.347792,
+      "current_max_response_bytes": 26126,
+      "current_warm_p95_ms": 4423.983792,
+      "permitted_relative_regression": 0.25,
+      "response_bytes_threshold": 27928,
+      "warm_p95_threshold_ms": 4621.68474
+    },
+    "code_lexical": {
+      "baseline_jitter_ratio": 0.00705324,
+      "baseline_max_response_bytes": 10966,
+      "baseline_warm_p95_ms": 672.853041,
+      "current_max_response_bytes": 11003,
+      "current_warm_p95_ms": 28.570417,
+      "permitted_relative_regression": 0.25,
+      "response_bytes_threshold": 15062,
+      "warm_p95_threshold_ms": 841.066301
+    },
+    "code_search": {
+      "baseline_jitter_ratio": 0.01786053,
+      "baseline_max_response_bytes": 10338,
+      "baseline_warm_p95_ms": 635.134167,
+      "current_max_response_bytes": 10704,
+      "current_warm_p95_ms": 807.105334,
+      "permitted_relative_regression": 0.25,
+      "response_bytes_threshold": 14434,
+      "warm_p95_threshold_ms": 793.917709
+    },
+    "docs_search": {
+      "baseline_jitter_ratio": 0.01508932,
+      "baseline_max_response_bytes": 11628,
+      "baseline_warm_p95_ms": 610.536667,
+      "current_max_response_bytes": 11660,
+      "current_warm_p95_ms": 783.335666,
+      "permitted_relative_regression": 0.25,
+      "response_bytes_threshold": 15724,
+      "warm_p95_threshold_ms": 763.170834
+    }
+  },
+  "schema": "wavefoundry.retrieval-eval-computed-comparison/v1",
+  "verdict": "fail",
+  "violations": [
+    {
+      "baseline_ms": 635.134167,
+      "current_ms": 807.105334,
+      "kind": "latency_regression",
+      "threshold_ms": 793.917709,
+      "tool": "code_search"
+    },
+    {
+      "baseline_ms": 610.536667,
+      "current_ms": 783.335666,
+      "kind": "latency_regression",
+      "threshold_ms": 763.170834,
+      "tool": "docs_search"
+    }
+  ]
+}

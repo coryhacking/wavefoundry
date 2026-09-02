@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-29
+Last verified: 2026-09-02
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -19,7 +19,7 @@ docs gate fails:
 - docs embedding model `Snowflake/snowflake-arctic-embed-s`
 - code embedding model `Snowflake/snowflake-arctic-embed-s`
 - reranker model `cross-encoder/ms-marco-MiniLM-L-6-v2`
-- chunker version `39`
+- chunker version `41`
 
 Both embedding selectors currently reuse one Arctic S instance. Embedding
 inference is FP16 on supported GPU providers and INT8 on CPU at static forward
@@ -54,6 +54,11 @@ numbers:
 | True no-op build | Zero epoch writes, generation unchanged (read-only reap/heal preflight only) | — |
 | Dashboard index stats | Cached/event-driven collection; the store read is `read_build_summary` (scalars + one COUNT) and Lance reads are `count_rows` metadata only — no per-file rows and no table materialization. Exception: the daemon's periodic staleness timer reads the full per-file snapshot because it IS the input-hash compare; it never runs on the HTTP request path | — |
 | Whole-store reset convergence | One all-layer re-chunk pass with Lance vector reuse (no re-embedding of unchanged chunks) | minutes-class worst case, same as a `--rechunk` pass |
+| Chunk-id collision census (derived rebuild, wave 1wpif) | One dict pass over the SAME materialized rows the rebuild already consumes: row visits linear in chunk count, zero chunker invocations, zero embedding calls, no second repository pass; wall-clock overhead at most 10% versus the identical rebuild with the census patched out | paired same-process runs on one temp store, 3 interleaved repetitions, median declared before measurement: 53.6 ms vs 52.0 ms on 8,000 synthetic rows (ratio 1.03, M2 Max) |
+| Warmed public lexical read (`code_lexical`, the hybrid FTS half of `code_search` / `code_ask`, the degraded FTS fallbacks; wave 1wpif `1wpag`) | Zero `COUNT(*)`, zero `quick_check` / `integrity_check`, zero corpus-sized FTS or registry scans, zero store writes: one dict lookup of the epoch-keyed verdict cache, the `build_state` row read, and the MATCH query itself (the former per-call `_state_store_health_summary` coverage tie-in is now the same epoch-cached read) | asserted by `test_fts_query_honesty.ProbedServingTests.test_warmed_healthy_read_runs_no_counts_no_health_scan_no_probe` through a sqlite trace hook (`set_trace_callback` on every read-only store connection) plus seam spies on `fts_state_verdict` and `_state_store_health_summary`; `code_lexical` warm p95 stays under its standing relative gate (the `1sear` pair's second run: 673 ms baseline, 841 ms threshold); the chunker-40 pair recorded 25 ms |
+| Bounded candidate refill (`code_search` with `max_per_file` or a non-allowlisted language, and the lexical fallback; wave 1wpif `1wpah`) | Monotonic nested windows 30, 60, 120, 240 per source/table; at most 4 substrate queries and 240 examined rows per source per public call (`code_search`: 8 / 480; `code_ask`: 16 / 960 over its four fused sources, 20 / 1200 when the live keyword pass fires); an exhausted source is not re-queried; the cross-encoder input stays at the pre-refill window `max(4 * limit, 30)`; the accounting ledger adds zero substrate queries | asserted by `test_retrieval_candidate_generation.HostileSkewTests` (exactly four windows on a 250-chunk single-file skew, then a typed ceiling exit) and `CodeAskAggregateAccountingTests` (the aggregate over a full `code_ask` call) |
+| FTS probe boundary (reconcile / open / build-state transition / serving error; wave 1wpif `1wpag`) | Exactly one bounded probe per table per boundary, then cached for the epoch: one MATCH liveness query, four `COUNT(*)` parity reads (FTS, registry, `_docsize`, `_content`), one linear keyed-digest scan of the FTS table; a serving error triggers exactly one re-probe; the query path at most schedules healing (never executes it) and a damaged table heals once per epoch under the build lock | full verdict 28.6 ms median (digest scan 23.1 ms) on 8,000 synthetic rows / 4.6 MB of chunk text, 5 repetitions (M2 Max) |
+| Serving-coverage computation (probe boundary, wave 1wpif `1wpag` delivery repair) | The `chunk_index` compare `index_health` reports, from the shared `_chunk_index_coverage` producer: one Lance metadata row count and one indexed registry `count(*)` per table, cached per table for the epoch. It must NOT route through `_state_store_health_summary`, whose `probe_state_store` structural quick_check re-establishes for the same epoch what `fts_state_verdict` already established. The two hybrid halves that never read coverage (`_fts5_lexical_search`, `_lexical_candidates`) request none at all (`include_coverage=False`), so the first hybrid `code_search` / `code_ask` of an epoch computes zero coverage | `probe_state_store` measured 674 ms on the live store (26,567 docs / 8,269 code rows) against about 2 ms for the Lance and registry counts, M2 Max; asserted by `test_fts_query_honesty.ProbedServingTests.test_coverage_is_computed_without_the_probing_health_summary` and `test_retrieval_candidate_generation.ColdEpochHybridCostTests` |
 
 ## Performance Hotspots and Guards
 

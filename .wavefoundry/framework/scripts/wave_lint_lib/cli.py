@@ -224,7 +224,7 @@ def _run_incremental_checks(root: Path):
         failures.extend(check_journal_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_memory_docs(root, only=changed_docs, skip=oversized))
         failures.extend(check_persona_docs(root, only=changed_docs, skip=oversized))
-        failures.extend(check_wave_docs(root, only=changed_docs, skip=oversized))
+        failures.extend(check_wave_docs(root, only=changed_docs, skip=oversized, warnings=warnings))
         failures.extend(check_plan_filenames(root, only=changed_docs, skip=oversized))
         # Registered on the incremental path too. A corpus-only registration
         # would give the author no signal at the moment they paste a declaring
@@ -242,7 +242,7 @@ def _run_incremental_checks(root: Path):
     if changed_event_wave_docs:
         # Canonical ledger edits have no Markdown body of their own, but they
         # must revalidate the owning wave/adoption proof on the incremental hook.
-        failures.extend(check_wave_docs(root, only=changed_event_wave_docs, skip=set()))
+        failures.extend(check_wave_docs(root, only=changed_event_wave_docs, skip=set(), warnings=warnings))
 
     return (failures, warnings)
 
@@ -282,7 +282,7 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_docs_constants(root))
         failures.extend(check_wave_scaffolding_integrity(root))
         failures.extend(check_prompt_surface_manifest(root))
-        failures.extend(check_wave_docs(root, skip=oversized))
+        failures.extend(check_wave_docs(root, skip=oversized, warnings=warnings))
         failures.extend(check_closed_wave_requirements(root))
         failures.extend(check_plan_filenames(root, skip=oversized))
         failures.extend(_check_agent_role_metadata(root, skip=oversized))

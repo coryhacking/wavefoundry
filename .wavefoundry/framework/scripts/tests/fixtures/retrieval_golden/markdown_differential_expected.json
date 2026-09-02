@@ -9,7 +9,7 @@
       19
     ],
     "section": "doc-summary",
-    "text": "Widget Guide\nIntro under the H1.\nInstall with pip.\nSections: Widget Guide \u00b7 Installation \u00b7 Configuration"
+    "text": "Widget Guide\nIntro under the H1.\nInstall with pip.\nSections: Widget Guide · Installation · Configuration"
   },
   {
     "id": "docs/guide.md#preamble",
@@ -69,7 +69,7 @@
       13
     ],
     "section": "doc-summary",
-    "text": "Example Prompt\nDo the first thing carefully.\nSections: Example Prompt \u00b7 Step One \u00b7 Step Two"
+    "text": "Example Prompt\nDo the first thing carefully.\nSections: Example Prompt · Step One · Step Two"
   },
   {
     "id": "docs/prompts/example.prompt.md#preamble",
@@ -117,7 +117,7 @@
       40
     ],
     "section": "doc-summary",
-    "text": "Big Doc\nParagraph 0 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nSections: Big Doc \u00b7 Deployment \u00b7 Rollback \u00b7 Verification"
+    "text": "Big Doc\nParagraph 0 of the deployment section explains a distinct operational step in enough prose to matter for chunk sizing and retrieval behavior.\nSections: Big Doc · Deployment · Rollback · Verification"
   },
   {
     "id": "docs/oversized.md#preamble",
@@ -173,7 +173,7 @@
     "kind": "doc",
     "language": null,
     "lines": [
-      33,
+      36,
       36
     ],
     "section": "Big Doc > Deployment > Rollback",
@@ -185,8 +185,8 @@
     "kind": "doc",
     "language": null,
     "lines": [
-      37,
-      39
+      40,
+      40
     ],
     "section": "Big Doc > Deployment > Verification",
     "text": "Big Doc > Deployment > Verification\n\nVerification prose paragraph."
@@ -201,7 +201,7 @@
       21
     ],
     "section": "doc-summary",
-    "text": "Team Guide\nFirst onboarding steps.\nSections: Team Guide \u00b7 Setup \u00b7 Setup \u00b7 Setup 2"
+    "text": "Team Guide\nFirst onboarding steps.\nSections: Team Guide · Setup · Setup · Setup 2"
   },
   {
     "id": "docs/team-guide.md#preamble",

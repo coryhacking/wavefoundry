@@ -19,6 +19,7 @@ import queue
 import re
 import shutil
 import sqlite3
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,39 @@ OPERATOR_REVIEW_P95_MS = {
     "code_lexical": 1_000.0,
 }
 OPERATOR_REVIEW_RESPONSE_BYTES = 256 * 1024
+# Wave 1wur7 (1wuuh): a same-generation pair's run-to-run jitter is derived from
+# the warm-sample FLOOR and MEDIAN, not from ``warm_p95_ms`` alone.  A pair
+# whose sample FLOOR or MEDIAN moves by more than this ratio was measured under
+# external load and cannot stand as a promotable baseline.  The value is read
+# off recorded evidence rather than fitted: the quiet pairs on file
+# (``retrieval-quality-baseline``, ``retrieval-quality-before-1seas``) top out at
+# 1.72% floor and 1.64% median jitter across all four tools, while the contended
+# wave-1wpif pair runs 11.27% to 36.71%, so anything in the 3%-10% band separates
+# them with margin on both sides.  The p95 component is deliberately NOT part of
+# this gate: the quiet ``before-1seas`` pair shows 10.70% p95 jitter on
+# ``code_lexical`` with a 0.74% floor, which is tail noise rather than contention.
+PAIR_JITTER_THRESHOLD = 0.05
+# The standing minimum warm-sample count across the applicable-tool matrix.
+# ``docs_search`` has exactly three applicable fixtures, so it contributes
+# 3 * MEASURED_REPETITIONS = 9 warm samples on every run and can never exceed
+# that with the frozen corpus.  The declared minimum is therefore pinned AT that
+# standing count: a tool below it is labelled and routed to operator review, and
+# ``docs_search`` at exactly nine is not escalated, because escalating a value
+# the corpus makes permanent would put a clean ``pass`` permanently out of reach.
+MIN_WARM_SAMPLES = 3 * MEASURED_REPETITIONS
+# Wave 1wur7 (1wtpl): index identity is compared per comparison kind.  The
+# repository, index directory, and store path bind every comparison; the state
+# store's own device/inode binds only a same-generation pair, where "one frozen
+# physical store" is what makes the jitter measurement mean anything.  A
+# controlled rebuild recreates that file, and refusing a cross-generation
+# comparison for it refuses the exact case the kind exists to cover.
+CROSS_GENERATION_INDEX_IDENTITY_KEYS = (
+    "repository_root", "repository_device", "repository_inode",
+    "index_directory", "state_store",
+)
+SAME_GENERATION_INDEX_IDENTITY_KEYS = CROSS_GENERATION_INDEX_IDENTITY_KEYS + (
+    "state_store_device", "state_store_inode",
+)
 RECALL_K = 10
 QUALITY_METRICS = (
     "recall_at_10", "ndcg_at_10", "agentic_mrr_at_10",
@@ -561,6 +595,34 @@ def _nearest_rank_p95(values: Sequence[float]) -> float | None:
     ordered = sorted(float(v) for v in values)
     rank = max(1, math.ceil(0.95 * len(ordered)))
     return ordered[rank - 1]
+
+
+def _p95_is_maximum(sample_count: int) -> bool:
+    """True when nearest-rank p95 over ``sample_count`` samples IS the maximum.
+
+    Wave 1wur7 (1wuuh): ``ceil(0.95 * n) == n`` for every n below 20, so at the
+    frozen corpus's sample counts ``warm_p95_ms`` is literally ``max(samples)``
+    while carrying a name that implies a tail quantile.  The receipt says so.
+    """
+    return sample_count > 0 and max(1, math.ceil(0.95 * sample_count)) == sample_count
+
+
+def _sample_floor(values: Sequence[float]) -> float | None:
+    return min(float(v) for v in values) if values else None
+
+
+def _sample_median(values: Sequence[float]) -> float | None:
+    return float(statistics.median(float(v) for v in values)) if values else None
+
+
+def _relative_jitter(current: float | None, baseline: float | None) -> float | None:
+    """Jitter between one paired statistic, normalised by the smaller value."""
+    if current is None or baseline is None:
+        return None
+    lower = min(float(current), float(baseline))
+    if lower <= 0:
+        return 0.0
+    return abs(float(current) - float(baseline)) / lower
 
 
 def _dcg(grades: Sequence[float]) -> float:
@@ -1124,6 +1186,28 @@ def _validated_epoch(report: Mapping[str, Any], label: str) -> tuple[int, str]:
     return int(start), start_attempt
 
 
+def _compare_index_identity(report: Mapping[str, Any], baseline: Mapping[str, Any],
+                            *, same_generation: bool) -> None:
+    """Compare index identity against the bindings the comparison kind supports.
+
+    Wave 1wur7 (1wtpl): the repository, index directory, and store path bind
+    every kind, so two unrelated indexes still cannot be compared.  The state
+    store file's own device/inode binds only a same-generation pair, because a
+    controlled rebuild legitimately recreates that file and a cross-generation
+    comparison is exactly the kind that covers a controlled rebuild.
+    """
+    current_identity = report.get("index_identity")
+    baseline_identity = baseline.get("index_identity")
+    _require(isinstance(current_identity, Mapping) and isinstance(baseline_identity, Mapping),
+             "invalid_baseline", "baseline repository/index store identity differs")
+    keys = SAME_GENERATION_INDEX_IDENTITY_KEYS if same_generation else CROSS_GENERATION_INDEX_IDENTITY_KEYS
+    for key in keys:
+        _require(key in current_identity and key in baseline_identity and
+                 current_identity[key] == baseline_identity[key],
+                 "invalid_baseline",
+                 f"baseline repository/index store identity differs for {key}")
+
+
 def _validate_baseline_compatibility(report: Mapping[str, Any],
                                      baseline: Mapping[str, Any]) -> tuple[bool, bool]:
     _require(baseline.get("schema") == REPORT_SCHEMA, "invalid_baseline",
@@ -1132,9 +1216,20 @@ def _validate_baseline_compatibility(report: Mapping[str, Any],
              "invalid_baseline", "baseline fixture schema mismatch")
     _require(baseline.get("fixture_digest") == report.get("fixture_digest"), "invalid_baseline",
              "baseline fixture digest differs from the current corpus")
-    _require(baseline.get("index_identity") == report.get("index_identity") and
-             isinstance(report.get("index_identity"), Mapping),
-             "invalid_baseline", "baseline repository/index store identity differs")
+    # Wave 1wur7 (1wtpl Requirement 5): the epoch is validated BEFORE the index
+    # identity comparison, because the identity rule is now evaluated per
+    # comparison kind and the kind is derived from the epoch.  The reordering
+    # changes which ``invalid_baseline`` message a doubly incompatible report
+    # returns first; that ordering is intended and is pinned by a test.
+    baseline_epoch = _validated_epoch(baseline, "baseline")
+    current_epoch = _validated_epoch(report, "current report")
+    _require(current_epoch[0] >= baseline_epoch[0], "invalid_baseline",
+             "current index generation predates the baseline")
+    if current_epoch[0] == baseline_epoch[0]:
+        _require(current_epoch[1] == baseline_epoch[1], "invalid_baseline",
+                 "same generation has a different build attempt identity")
+    same_generation = current_epoch == baseline_epoch
+    _compare_index_identity(report, baseline, same_generation=same_generation)
     _require(baseline.get("evaluator_identity") == report.get("evaluator_identity") and
              isinstance(report.get("evaluator_identity"), Mapping),
              "invalid_baseline", "baseline evaluator identity differs")
@@ -1162,15 +1257,8 @@ def _validate_baseline_compatibility(report: Mapping[str, Any],
         _require(key in baseline_environment and key in current_environment and
                  baseline_environment[key] == current_environment[key],
                  "invalid_baseline", f"baseline runtime environment differs for {key}")
-    baseline_epoch = _validated_epoch(baseline, "baseline")
-    current_epoch = _validated_epoch(report, "current report")
-    _require(current_epoch[0] >= baseline_epoch[0], "invalid_baseline",
-             "current index generation predates the baseline")
-    if current_epoch[0] == baseline_epoch[0]:
-        _require(current_epoch[1] == baseline_epoch[1], "invalid_baseline",
-                 "same generation has a different build attempt identity")
     same_production = baseline_production["digest"] == current_production["digest"]
-    return current_epoch == baseline_epoch, same_production
+    return same_generation, same_production
 
 
 def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1179,6 +1267,12 @@ def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any
     # measures run-to-run jitter; a same-generation production change is a
     # before/after receipt and inherits the baseline pair's recorded jitter.
     same_pair = same_generation and same_production
+    if same_pair:
+        comparison_kind = "same_generation_pair"
+    elif same_generation:
+        comparison_kind = "production_change_same_generation"
+    else:
+        comparison_kind = "cross_generation"
     violations = _quality_comparison(report, baseline)
     violations.extend(_quality_gate_violations(report, baseline))
     operator_reviews: list[dict[str, Any]] = []
@@ -1190,25 +1284,138 @@ def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any
         if cur_p95 is None or base_p95 is None:
             continue
         if same_pair:
-            lower = min(float(cur_p95), float(base_p95))
-            jitter = abs(float(cur_p95) - float(base_p95)) / lower if lower > 0 else 0.0
+            # Wave 1wur7 (1wuuh Requirement 1): jitter comes from the whole warm
+            # distribution.  ``warm_p95_ms`` alone is one near-max order statistic
+            # per run and is blind to a floor shift: the contended wave-1wpif pair
+            # reported 2.56% p95 jitter on ``code_search`` while its floor moved
+            # 11.79% and its median 18.10%.
+            cur_floor = current_perf.get("warm_floor_ms")
+            base_floor = baseline_perf.get("warm_floor_ms")
+            cur_median = current_perf.get("warm_median_ms")
+            base_median = baseline_perf.get("warm_median_ms")
+            _require(all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                         for value in (cur_floor, base_floor, cur_median, base_median)),
+                     "invalid_baseline",
+                     "baseline lacks full-distribution warm statistics "
+                     f"(warm_floor_ms/warm_median_ms) for {tool}; re-baseline with the "
+                     "current evaluator")
+            components = {
+                "floor": _relative_jitter(cur_floor, base_floor),
+                "median": _relative_jitter(cur_median, base_median),
+                "p95": _relative_jitter(cur_p95, base_p95),
+            }
+            # The band is driven by the STABLE statistics only.  Feeding the p95
+            # shift back into the p95 allowance is self-defeating: allowed is
+            # 3x the jitter, so a pure p95 move would always widen its own
+            # threshold past itself and the latency clause could never fire on a
+            # same-generation pair.  The p95 component is recorded for the reader.
+            jitter = max(components["floor"], components["median"])
+            current_perf["jitter_components"] = {
+                name: round(float(value), 8) for name, value in components.items()
+            }
             current_perf["jitter_ratio"] = round(jitter, 8)
             current_perf["jitter_source"] = "same_generation_pair"
-        else:
-            jitter = baseline_perf.get("jitter_ratio")
-            _require(isinstance(jitter, (int, float)), "invalid_baseline",
-                     f"baseline lacks same-generation jitter for {tool}")
+            # Requirement 2: a pair whose FLOOR or MEDIAN moved past the declared
+            # threshold was measured under external load.  It is not promotable as
+            # a standing baseline, and every offending tool is named, not one.
+            current_perf["pair_jitter_threshold"] = PAIR_JITTER_THRESHOLD
+            current_perf["pair_contended"] = jitter > PAIR_JITTER_THRESHOLD
+            if current_perf["pair_contended"]:
+                operator_reviews.append({
+                    "kind": "contended_baseline_pair", "tool": tool,
+                    "floor_jitter_ratio": round(float(components["floor"]), 8),
+                    "median_jitter_ratio": round(float(components["median"]), 8),
+                    "p95_jitter_ratio": round(float(components["p95"]), 8),
+                    "threshold_ratio": PAIR_JITTER_THRESHOLD,
+                })
+        elif (isinstance(baseline_perf.get("jitter_ratio"), (int, float))
+              and not isinstance(baseline_perf.get("jitter_ratio"), bool)):
+            jitter = baseline_perf["jitter_ratio"]
+            # Wave 1wur7 (delivery review ARCH-DEL-6) made `pair_contended` READ
+            # here, at the one seam where a contended pair becomes the band. The
+            # operator decision at the wave's close made latency advisory for
+            # every kind, so a contended baseline widens an advisory band rather
+            # than gating a hard violation: it is REPORTED per tool with its
+            # recovery, and the receipt records that the band was inherited from
+            # a contended pair, instead of the comparison being refused.
+            if baseline_perf.get("pair_contended") is True:
+                current_perf["baseline_pair_contended"] = True
+                operator_reviews.append({
+                    "kind": "inherited_contended_baseline", "tool": tool,
+                    "baseline_jitter_ratio": round(float(jitter), 8),
+                    "threshold_ratio": PAIR_JITTER_THRESHOLD,
+                    "recovery": "record a quiet same-generation pair first",
+                })
             current_perf["jitter_ratio"] = float(jitter)
             current_perf["jitter_source"] = "baseline_same_generation_pair"
+        else:
+            # Wave 1wuju (1wujt): a SINGLE receipt is a baseline. A receipt that
+            # carries no pair-derived jitter used to be refused ("baseline lacks
+            # same-generation jitter"); it is now accepted at the existing 25%
+            # floor, which is the band every quiet pair on file produced anyway
+            # (max(0.25, 3 x jitter) with jitter at or below 1.7%). Contention is
+            # recorded as NOT JUDGED rather than as absent: a single run has no
+            # reference level, and the readiness council's replay of the recorded
+            # fixture showed that no within-run estimator (repetition pseudo-arms,
+            # per-case range, half-corpus split) separates a quiet run from a
+            # contended one, so none is computed here. The quiet-machine
+            # obligation lives in the operator procedure. Latency stays advisory
+            # for every kind, so this loosens baseline VALIDITY and nothing else.
+            jitter = 0.0
+            current_perf["jitter_ratio"] = None
+            current_perf["jitter_source"] = "single_run_floor"
+            current_perf["pair_contended"] = None
+            current_perf["contention_judged"] = False
+            current_perf["contention_reason"] = "a single run has no reference level"
         allowed = max(0.25, 3.0 * float(jitter))
         threshold = float(base_p95) * (1.0 + allowed)
         current_perf["permitted_relative_regression"] = round(allowed, 8)
         current_perf["baseline_warm_p95_ms"] = base_p95
         current_perf["warm_p95_threshold_ms"] = round(threshold, 6)
         if float(cur_p95) > threshold:
-            violations.append({"kind": "latency_regression", "tool": tool,
-                               "baseline_ms": base_p95, "current_ms": cur_p95,
-                               "threshold_ms": round(threshold, 6)})
+            latency = {"kind": "latency_regression", "tool": tool,
+                       "baseline_ms": base_p95, "current_ms": cur_p95,
+                       "threshold_ms": round(threshold, 6)}
+            # Wave 1wur7 (1wuuh Requirement 4, as amended by delivery review
+            # CODE-DEL-3): the latency clause is ENFORCED exactly when a
+            # production change is the only thing that differs between the arms.
+            #
+            #   production_change_same_generation -- same frozen index, different
+            #     production bytes, jitter inherited from a pair recorded on that
+            #     same generation.  A regression is attributable to the change,
+            #     so a regression IS attributable; latency is still advisory for it
+            #     (operator decision at the wave 1wur7 close), reported with a reason.
+            #   same_generation_pair -- identical production bytes on one frozen
+            #     index.  There is no change to attribute anything to, so a p95
+            #     difference IS jitter by construction.  Enforcing here fails a
+            #     clean run on tail noise: quiet-machine p95 swings of 1.79%,
+            #     10.70% and 22.90% are on record against a 25% floor allowance.
+            #     Reported and routed to operator review; the pair's promotability
+            #     is judged by the floor/median contention rule above.
+            #   cross_generation -- jitter inherited from an earlier measurement
+            #     session, so the band describes the baseline machine rather than
+            #     the current one.  Reported and routed to operator review.
+            #
+            # In no mode is the clause silently dropped.
+            # Operator decision at wave 1wur7 close: latency is ADVISORY for every
+            # comparison kind. The retrieval-quality metrics are deterministic on a
+            # frozen index; the latency clause depends on machine noise, and on a
+            # shared machine a hard violation cannot be told from contention. The
+            # clause is still computed and recorded for every kind, and the reason
+            # says why it is advisory; it is never silently dropped.
+            latency["enforcement"] = "operator_review"
+            latency["reason"] = {
+                "same_generation_pair": (
+                    "both arms share one production identity on one frozen generation, "
+                    "so the difference is jitter rather than a regression"),
+                "production_change_same_generation": (
+                    "a production change is the only difference between the arms, but "
+                    "latency is advisory for every comparison kind (operator decision, "
+                    "wave 1wur7): the regression is reported for review, not enforced"),
+            }.get(comparison_kind,
+                  "inherited jitter describes the baseline machine state, not the current one")
+            current_perf["latency_enforcement"] = "operator_review"
+            operator_reviews.append(latency)
         cur_bytes = int(current_perf.get("max_response_bytes") or 0)
         base_bytes = int(baseline_perf.get("max_response_bytes") or 0)
         byte_threshold = base_bytes + max(base_bytes * 0.15, 4096.0)
@@ -1218,12 +1425,6 @@ def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any
             violations.append({"kind": "response_size_regression", "tool": tool,
                                "baseline_bytes": base_bytes, "current_bytes": cur_bytes,
                                "threshold_bytes": math.floor(byte_threshold)})
-    if same_pair:
-        comparison_kind = "same_generation_pair"
-    elif same_generation:
-        comparison_kind = "production_change_same_generation"
-    else:
-        comparison_kind = "cross_generation"
     report["comparison"] = {
         "baseline_generation": baseline.get("generation"),
         "baseline_run_id": baseline.get("run_id"),
@@ -1234,7 +1435,20 @@ def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any
         "same_production_identity": same_production,
         "comparison_kind": comparison_kind,
         "violations": violations,
+        "operator_review_reasons": list(operator_reviews),
     }
+    # Wave 1wur7 (1wuuh Requirement 2): the comparison-derived reasons must reach
+    # the SAME list object the verdict reads, so they are EXTENDED into
+    # ``report["operator_review_reasons"]`` rather than assigned over it.  The
+    # caller binds that key to its own local list and derives the verdict from
+    # the local; reassigning the key would produce a receipt that reports the
+    # regression while the verdict still says ``pass``.
+    if operator_reviews:
+        existing = report.get("operator_review_reasons")
+        if isinstance(existing, list):
+            existing.extend(operator_reviews)
+        else:
+            report["operator_review_reasons"] = list(operator_reviews)
     return violations, operator_reviews
 
 
@@ -1388,6 +1602,9 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
             "warmups_per_tool": 1,
             "measured_repetitions_per_applicable_pair": MEASURED_REPETITIONS,
             "p95_method": "nearest_rank_pooled_warm_samples",
+            "jitter_method": "max_relative_shift_of_warm_floor_and_median",
+            "pair_jitter_threshold": PAIR_JITTER_THRESHOLD,
+            "minimum_warm_samples": MIN_WARM_SAMPLES,
             "total_timeout_seconds": TOTAL_TIMEOUT_SECONDS,
             "per_call_timeout_seconds": CALL_TIMEOUT_SECONDS,
             "fixture_cap": MAX_FIXTURES,
@@ -1398,13 +1615,32 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
     }
     operator_reviews: list[dict[str, Any]] = []
     for tool in TOOLS:
-        p95 = _nearest_rank_p95(performance_samples[tool])
+        samples = performance_samples[tool]
+        p95 = _nearest_rank_p95(samples)
+        floor_ms = _sample_floor(samples)
+        median_ms = _sample_median(samples)
         max_bytes = max(response_sizes[tool], default=0)
+        sample_count = len(samples)
+        # Wave 1wur7 (1wuuh Requirement 1): the floor and the median travel in the
+        # receipt beside the p95 so a comparison can read the whole distribution
+        # without reaching back into ``cases[].repetitions[]``.
         performance["tools"][tool] = {
-            "sample_count": len(performance_samples[tool]),
+            "sample_count": sample_count,
             "warm_p95_ms": round(p95, 6) if p95 is not None else None,
+            "warm_floor_ms": round(floor_ms, 6) if floor_ms is not None else None,
+            "warm_median_ms": round(median_ms, 6) if median_ms is not None else None,
+            # Requirement 3: at these sample counts nearest-rank p95 IS the
+            # maximum, so the receipt says so rather than letting the field name
+            # imply a tail quantile.
+            "p95_is_maximum": _p95_is_maximum(sample_count),
+            "small_sample_estimate": 0 < sample_count < MIN_WARM_SAMPLES,
+            "minimum_warm_samples": MIN_WARM_SAMPLES,
             "max_response_bytes": max_bytes,
         }
+        if 0 < sample_count < MIN_WARM_SAMPLES:
+            operator_reviews.append({"kind": "small_sample_warm_p95", "tool": tool,
+                                     "sample_count": sample_count,
+                                     "minimum_warm_samples": MIN_WARM_SAMPLES})
         if p95 is not None and p95 > OPERATOR_REVIEW_P95_MS[tool]:
             operator_reviews.append({"kind": "absolute_latency", "tool": tool,
                                      "warm_p95_ms": round(p95, 6),

@@ -170,6 +170,35 @@ META_CHUNK_INDEX_COLD = "chunk_index_cold"
 # to the proportional raw-vs-registry threshold.
 META_CHUNK_SYNC_RAW_PREFIX = "chunk_sync_raw_"        # + table_name
 META_CHUNK_SYNC_UNIQUE_PREFIX = "chunk_sync_unique_"  # + table_name
+# 1wngv (wave 1wpif): same-ID/distinct-content collision census, recorded at
+# every derived rebuild from the already-materialized Lance rows (no second
+# chunking or embedding pass). Non-zero means multiple DIFFERENT chunks share
+# one id, so the registry/FTS layer keeps only one of them; index_health
+# surfaces the count before reporting full derived-state coverage.
+META_CHUNK_ID_COLLISIONS_PREFIX = "chunk_id_collisions_"              # + table_name
+META_CHUNK_ID_COLLISION_SAMPLE_PREFIX = "chunk_id_collision_sample_"  # + table_name
+# 1wpag (wave 1wpif): keyed FTS payload integrity digest, one per table. Per
+# row: sha256 over the FTS-served payload fields (id, path, kind, language,
+# tags, start_line, end_line, text); rows are aggregated by XOR so the digest
+# is order-independent and maintainable in O(delta) at the incremental seam
+# (XOR-out the payloads a delta removes, XOR-in the rows it adds; a corrupted
+# pre-state is therefore never re-blessed by a later delta). Computed and
+# written ONLY by the derived-state writers under the build lock, which is the
+# publication boundary; readers recompute and compare, never write. Threat
+# model: corruption / partial-write detection under the local single-writer
+# model. It is NOT tamper evidence: anything that can write the store can
+# rewrite the digest.
+META_FTS_PAYLOAD_DIGEST_PREFIX = "fts_payload_digest_"   # + table_name -> 64 hex chars
+# The once-per-damaged-table-per-epoch heal marker: the build attempt id under
+# which the lock owner last healed FTS damage for a table. Written only by
+# ``reconcile_chunk_index`` (the lock owner, on the ordinary reconcile/build
+# path); the serving side reads it to suppress a second heal request while the
+# published epoch still descends from that attempt.
+META_FTS_HEAL_ATTEMPT_PREFIX = "fts_heal_attempt_"       # + table_name -> attempt_id
+_FTS_DIGEST_EMPTY_HEX = "0" * 64
+# Above this many affected ids+paths, one linear FTS scan filtered in Python
+# beats batched ``IN`` probes (FTS5 evaluates non-MATCH predicates by scan).
+_FTS_DIGEST_SELECT_BATCH = 400
 
 # --- Persisted store log (1sbfj) ---
 # The store's one-time diagnostics (cold-store provisioning, crash-window
@@ -177,6 +206,11 @@ META_CHUNK_SYNC_UNIQUE_PREFIX = "chunk_sync_unique_"  # + table_name
 # stdout/stderr only — unrecoverable once the build process exited, which
 # blinded a field investigation twice. They are now ALSO appended here,
 # best-effort and bounded. Lives beside upgrade.log under .wavefoundry/logs/.
+# Busy timeout applied to every writable open (connect timeout and the
+# ``busy_timeout`` pragma). A lock held past this window surfaces as
+# ``sqlite3.OperationalError``, which is a wait condition and never grounds
+# for resetting the store (wave 1wpif, finding ARCH-DEL-2).
+STORE_OPEN_TIMEOUT_SECONDS = 10.0
 STORE_LOG_FILENAME = "index-state.log"
 STORE_LOG_MAX_BYTES = 512 * 1024
 
@@ -292,7 +326,10 @@ class IndexStateStore:
     last commit — a re-buildable build, never a torn store); a corrupted or
     structurally-damaged database at open time is loudly deleted and
     recreated (derived-only: the next build repopulates); a schema-version
-    mismatch resets the whole store.
+    mismatch resets the whole store. A busy or locked open (another writer
+    holding the lock past ``STORE_OPEN_TIMEOUT_SECONDS``) is a wait
+    condition, never corruption: it propagates and the store file is
+    preserved (wave 1wpif, ARCH-DEL-2).
     """
 
     def __init__(self, index_dir: Path, *, read_only: bool = False) -> None:
@@ -310,22 +347,36 @@ class IndexStateStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._conn = self._open()
-        except sqlite3.Error:
+        except sqlite3.OperationalError as exc:
+            # A busy/locked database, a missing directory, or an I/O error is
+            # NOT corruption: another writer (a long rebuild transaction, a
+            # hook build, the quiet-period monitor) may simply hold the lock
+            # past the open timeout. Deleting the store here destroyed healthy
+            # derived state under ordinary concurrency (wave 1wpif,
+            # ARCH-DEL-2); propagate so the caller retries or reports.
+            store_log(
+                self.index_dir,
+                f"index-state-store: open deferred, store preserved ({exc})",
+            )
+            raise
+        except sqlite3.DatabaseError:
             # Corrupted/unreadable database file (or quick_check structural
             # failure): loudly delete and recreate. Derived-only — the empty
-            # store forces repopulation on this and later builds.
-            print(
+            # store forces repopulation on this and later builds. The reset is
+            # recorded in the durable store log as well as on stderr, so a
+            # reset by a process whose stderr is discarded stays attributable.
+            message = (
                 f"index-state-store: store unreadable or corrupt at {self.path} — "
-                "resetting store (derived-only; tables repopulate on rebuild)",
-                file=sys.stderr,
-                flush=True,
+                "resetting store (derived-only; tables repopulate on rebuild)"
             )
+            print(message, file=sys.stderr, flush=True)
+            store_log(self.index_dir, message)
             _delete_store_files(self.path)
             self._conn = self._open()
 
     def _open(self) -> "sqlite3.Connection":
         creating = not self.path.exists()
-        conn = sqlite3.connect(str(self.path), timeout=10.0)
+        conn = sqlite3.connect(str(self.path), timeout=STORE_OPEN_TIMEOUT_SECONDS)
         try:
             if creating:
                 # Must be set before the first table is created to take
@@ -342,7 +393,7 @@ class IndexStateStore:
                     file=sys.stderr,
                 )
             conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA busy_timeout=10000")
+            conn.execute(f"PRAGMA busy_timeout={int(STORE_OPEN_TIMEOUT_SECONDS * 1000)}")
             if not creating and not _quick_check_ok(conn):
                 # Proactive structural probe at open (1rq4h Req 11): upgrade
                 # from the reactive "reset when a read raises" posture.
@@ -1416,6 +1467,129 @@ def _fts_enabled(store: "IndexStateStore") -> bool:
     return store.get_meta(META_FTS_AVAILABLE) == "1"
 
 
+# --- Keyed FTS payload digest (1wpag, wave 1wpif) --------------------------
+
+def _fts_payload_row_digest(chunk_id, path, kind, language, tags, start, end, text) -> int:
+    """Per-row keyed digest over the FTS-served payload, as a 256-bit int.
+
+    Values are coerced identically whether they come from a chunk dict or a
+    sqlite row (``None`` -> ``""``, line bounds -> ``int`` -> ``str``) so the
+    writer-side and the recompute-side always agree on the same bytes.
+    """
+    def _s(v: Any) -> str:
+        return "" if v is None else str(v)
+
+    def _i(v: Any) -> str:
+        try:
+            return str(int(v or 0))
+        except (TypeError, ValueError):
+            return "0"
+
+    payload = "\x1f".join((
+        _s(chunk_id), _s(path), _s(kind), _s(language), _s(tags), _i(start), _i(end), _s(text),
+    ))
+    return int.from_bytes(hashlib.sha256(payload.encode("utf-8", "surrogatepass")).digest(), "big")
+
+
+def _fts_row_tuple(r: dict[str, Any]) -> tuple:
+    """The exact 8-tuple the two FTS writers bind for a chunk dict."""
+    return (
+        str(r.get("id") or ""), str(r.get("path") or ""),
+        str(r.get("kind") or ""), str(r.get("language") or ""),
+        _row_tags(r), *_row_lines(r),
+        str(r.get("text") or ""),
+    )
+
+
+def _fts_digest_hex(acc: int) -> str:
+    return acc.to_bytes(32, "big").hex()
+
+
+def _fts_digest_of_rows(rows: Iterable[dict[str, Any]]) -> int:
+    """XOR-aggregate of the row digests for materialized chunk dicts (the
+    full-rebuild writer computes the digest from the rows it is inserting)."""
+    acc = 0
+    for r in rows:
+        acc ^= _fts_payload_row_digest(*_fts_row_tuple(r))
+    return acc
+
+
+def _fts_table_digest(conn: "sqlite3.Connection", fts_name: str) -> int:
+    """Full-scan recompute over the live FTS table. Corpus-linear: reserved
+    for probe boundaries (reconcile / open / epoch change / serving error),
+    never a warmed public read."""
+    acc = 0
+    cur = conn.execute(
+        f"SELECT chunk_id, path, kind, language, tags, start_line, end_line, text FROM {fts_name}"
+    )
+    for row in cur:
+        acc ^= _fts_payload_row_digest(*row)
+    return acc
+
+
+def _fts_recorded_digest(conn: "sqlite3.Connection", table_name: str) -> Optional[int]:
+    raw = IndexStateStore._get_meta(conn, META_FTS_PAYLOAD_DIGEST_PREFIX + table_name)
+    if not raw:
+        return None
+    try:
+        return int(str(raw), 16)
+    except ValueError:
+        return None
+
+
+def _fts_affected_rows_digest(
+    conn: "sqlite3.Connection", fts_name: str, ids: Iterable[str], paths: Iterable[str],
+) -> int:
+    """XOR of the CURRENT payloads of every FTS row an incremental delta is
+    about to remove (matched by chunk id or by path), each distinct rowid
+    exactly once, read BEFORE the deletes inside the same transaction."""
+    uniq_ids = [i for i in dict.fromkeys(str(x) for x in ids) if i]
+    uniq_paths = [p for p in dict.fromkeys(str(x) for x in paths) if p]
+    if not uniq_ids and not uniq_paths:
+        return 0
+    cols = "rowid, chunk_id, path, kind, language, tags, start_line, end_line, text"
+    seen: set[int] = set()
+    acc = 0
+
+    def _consume(rows: Iterable[tuple]) -> None:
+        nonlocal acc
+        for rowid, *payload in rows:
+            if rowid in seen:
+                continue
+            seen.add(rowid)
+            acc ^= _fts_payload_row_digest(*payload)
+
+    if len(uniq_ids) + len(uniq_paths) > _FTS_DIGEST_SELECT_BATCH:
+        id_set, path_set = set(uniq_ids), set(uniq_paths)
+        _consume(
+            row for row in conn.execute(f"SELECT {cols} FROM {fts_name}")
+            if row[1] in id_set or row[2] in path_set
+        )
+        return acc
+    for column, values in (("chunk_id", uniq_ids), ("path", uniq_paths)):
+        for start in range(0, len(values), _FTS_DIGEST_SELECT_BATCH):
+            batch = values[start:start + _FTS_DIGEST_SELECT_BATCH]
+            marks = ",".join("?" * len(batch))
+            _consume(conn.execute(
+                f"SELECT {cols} FROM {fts_name} WHERE {column} IN ({marks})", batch
+            ).fetchall())
+    return acc
+
+
+def _write_fts_digest_meta(conn: "sqlite3.Connection", table_name: str, acc: Optional[int]) -> None:
+    """Persist (or clear, when ``acc`` is None) the table's payload digest.
+    Caller owns the transaction."""
+    key = META_FTS_PAYLOAD_DIGEST_PREFIX + table_name
+    if acc is None:
+        conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+        return
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, _fts_digest_hex(acc)),
+    )
+
+
 def _apply_chunk_deltas_locked(
     store: "IndexStateStore",
     table_name: str,
@@ -1432,6 +1606,24 @@ def _apply_chunk_deltas_locked(
     conn = store._conn
     churn = len(delete_ids) + len(delete_paths) + len(rows)
     with conn:
+        # 1wpag: maintain the keyed payload digest in O(delta) INSIDE this
+        # transaction. XOR-out the current payloads of every row the delta
+        # removes (by id, by path, and the replace-by-id deletes for added
+        # rows), read BEFORE the deletes; XOR-in the rows being added. An
+        # unrecorded digest (a store that has not reconciled under this code)
+        # is left unrecorded: the next reconcile records it from a full scan;
+        # guessing here would bless whatever the table currently holds.
+        digest_acc: Optional[int] = None
+        if fts_on:
+            recorded = _fts_recorded_digest(conn, table_name)
+            if recorded is not None:
+                digest_acc = recorded ^ _fts_affected_rows_digest(
+                    conn, fts_name,
+                    ids=delete_ids + [str(r.get("id") or "") for r in rows],
+                    paths=delete_paths,
+                )
+                for r in rows:
+                    digest_acc ^= _fts_payload_row_digest(*_fts_row_tuple(r))
         if delete_ids:
             conn.executemany(
                 "DELETE FROM chunk_registry WHERE table_name = ? AND chunk_id = ?",
@@ -1501,6 +1693,8 @@ def _apply_chunk_deltas_locked(
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, str(current)),
             )
+        if digest_acc is not None:
+            _write_fts_digest_meta(conn, table_name, digest_acc)
 
 
 def apply_chunk_deltas(
@@ -1530,6 +1724,61 @@ def apply_chunk_deltas(
         store.close()
 
 
+def chunk_id_collision_census(rows: "list[dict[str, Any]]") -> dict[str, Any]:
+    """Single-pass same-ID/distinct-content detector over materialized chunk
+    rows (1wngv, wave 1wpif).
+
+    Consumes the SAME rows a derived rebuild already materialized: one visit
+    per row, keyed state per id (ids are path-prefixed, so collision groups
+    are per-file by construction), no second chunking or embedding pass. A
+    row without a usable ``chunk_hash`` cannot prove distinct content and is
+    skipped (same-id rows with EQUAL hashes are ordinary incremental churn,
+    not collisions). Returns ``{"rows_visited", "collision_count",
+    "collision_ids"}`` with the ids sorted for determinism.
+    """
+    first_hash: dict[str, str] = {}
+    colliding: set[str] = set()
+    visits = 0
+    for r in rows:
+        visits += 1
+        cid = str(r.get("id") or "")
+        h = str(r.get("chunk_hash") or "")
+        if not cid or not h:
+            continue
+        prev = first_hash.get(cid)
+        if prev is None:
+            first_hash[cid] = h
+        elif prev != h:
+            colliding.add(cid)
+    return {
+        "rows_visited": visits,
+        "collision_count": len(colliding),
+        "collision_ids": sorted(colliding),
+    }
+
+
+def chunk_id_collision_counts(index_dir: Path, table_name: str) -> "tuple[Optional[int], list[str]]":
+    """Read-only ``(collision_count, sample_ids)`` recorded at the last
+    derived rebuild for one table, or ``(None, [])`` when never recorded
+    under this code (1wngv)."""
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None, []
+    try:
+        raw = IndexStateStore._get_meta(conn, META_CHUNK_ID_COLLISIONS_PREFIX + table_name)
+        sample = IndexStateStore._get_meta(conn, META_CHUNK_ID_COLLISION_SAMPLE_PREFIX + table_name)
+        count = int(raw) if raw is not None else None
+        ids = [s for s in (sample or "").split("\x1f") if s]
+        return count, ids
+    except (sqlite3.Error, ValueError):
+        return None, []
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
 def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[str, Any]]) -> int:
     """Full derived-only rebuild of one table's registry + FTS rows from Lance.
 
@@ -1542,8 +1791,12 @@ def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[st
     +300 on this repo) — while the registry PK and the FTS delete-by-id
     contract both assume one row per id.
     """
+    raw_rows = list(rows)
+    # 1wngv: collision census over the SAME materialized rows this rebuild
+    # already consumes — one extra dict pass, no second chunking/embedding.
+    census = chunk_id_collision_census(raw_rows)
     deduped: dict[str, dict[str, Any]] = {}
-    for r in rows:
+    for r in raw_rows:
         deduped[str(r.get("id") or "")] = r
     rows = list(deduped.values())
 
@@ -1582,6 +1835,26 @@ def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[st
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (f"{META_FTS_CHURN_PREFIX}{table_name}", "0"),
             )
+            # 1wngv: persist the collision census with the rebuild that
+            # measured it (sample capped at 5; \x1f-joined so ids that
+            # contain commas stay parseable).
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (META_CHUNK_ID_COLLISIONS_PREFIX + table_name,
+                 str(census["collision_count"])),
+            )
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (META_CHUNK_ID_COLLISION_SAMPLE_PREFIX + table_name,
+                 "\x1f".join(census["collision_ids"][:5])),
+            )
+            # 1wpag: the keyed payload digest is computed from the SAME rows
+            # this transaction inserted and published with them (the
+            # publication boundary, under the build lock). With FTS off the
+            # table does not exist, so any stale digest is cleared.
+            _write_fts_digest_meta(conn, table_name, _fts_digest_of_rows(rows) if fts_on else None)
         return len(rows)
 
     store = IndexStateStore(index_dir)
@@ -1772,6 +2045,39 @@ def registry_chunk_count(index_dir: Path, table_name: str) -> Optional[int]:
             conn.close()
         except sqlite3.Error:
             pass
+
+
+def stored_language_vocabulary(index_dir: Path, table_name: str) -> Optional[frozenset]:
+    """The DISTINCT non-empty ``language`` values stored for one table, or
+    ``None`` when the store or its FTS table cannot be read (1wpah delivery
+    repair, PERF-DEL-4).
+
+    Read-only and bounded by the stored vocabulary, not the corpus: one
+    ``SELECT DISTINCT`` over the derived FTS content (13 ms / 4 ms for the
+    26.6k docs / 8.2k code rows of this repository), which callers cache per
+    build epoch. It answers the only question a language filter needs before
+    it walks refill windows: can ANY row satisfy this value? ``None`` is
+    "unknown", never "empty" — a caller must not read an unreadable store as
+    proof of absence.
+    """
+    fts_name = FTS_TABLES.get(table_name)
+    if fts_name is None:
+        return None
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        rows = conn.execute(
+            f"SELECT DISTINCT language FROM {fts_name}"  # noqa: S608 - fixed table name
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+    return frozenset(str(r[0]) for r in rows if r and r[0])
 
 
 def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
@@ -1968,6 +2274,7 @@ def reconcile_chunk_index(
                 conn.close()
             except sqlite3.Error:
                 pass
+    fts_damage: Optional[dict[str, Any]] = None
     if force:
         # Operator-requested from-scratch rebuild of the derived state
         # (index_build content='fts', 1sek8): skip the in-sync early
@@ -1980,14 +2287,50 @@ def reconcile_chunk_index(
         print(msg, flush=True)
         store_log(index_dir, msg)
     elif store_ids is not None and store_ids == lance_ids:
-        # In sync — record the sync-time counts (and clear a cold flag left
-        # by e.g. the full-rebuild path having already repopulated everything).
-        _record_chunk_sync_counts(
-            index_dir, table_name, raw_rows, len(store_ids), clear_cold=cold
-        )
-        return {"reconciled": False, "in_sync": True}
+        # 1wpag (wave 1wpif): registry-vs-Lance id parity alone is NOT
+        # synchronization: a dropped, emptied, truncated, shadow-damaged, or
+        # payload-substituted FTS table leaves the id set intact. Verify FTS
+        # liveness, row parity, and the keyed payload digest before taking
+        # the in-sync return; any failure falls through to the ordinary
+        # rebuild (the heal), under the caller's build lock.
+        verdict = fts_state_verdict(index_dir, table_name)
+        if verdict.get("ok"):
+            if verdict.get("digest") == "unrecorded" and verdict.get("live"):
+                # Publication-boundary bootstrap for stores that predate the
+                # digest: recorded here, by the lock owner, from rows the
+                # probe just verified live and parity-consistent.
+                _record_fts_payload_digest(index_dir, table_name)
+            # In sync — record the sync-time counts (and clear a cold flag
+            # left by e.g. the full-rebuild path having already repopulated
+            # everything).
+            _record_chunk_sync_counts(
+                index_dir, table_name, raw_rows, len(store_ids), clear_cold=cold
+            )
+            out: dict[str, Any] = {
+                "reconciled": False, "in_sync": True,
+                "fts_verified": verdict.get("reason") or "ok",
+            }
+            # 1wngv: an in-sync id set does not clear a recorded collision
+            # (the colliding content is exactly what the id set cannot see).
+            coll, sample = chunk_id_collision_counts(index_dir, table_name)
+            if coll:
+                out["id_collisions"] = coll
+                out["id_collision_sample"] = sample
+            return out
+        fts_damage = verdict
     if force:
         pass  # message already printed above
+    elif fts_damage is not None:
+        msg = (
+            f"index-state-store: FTS derived state for '{table_name}' failed its "
+            f"integrity probe ({fts_damage.get('reason')}: "
+            f"fts_rows={fts_damage.get('fts_rows')}, "
+            f"registry_rows={fts_damage.get('registry_rows')}, "
+            f"digest={fts_damage.get('digest')}) with registry ids in sync; "
+            f"rebuilding derived tables from Lance (FTS heal)"
+        )
+        print(msg, file=sys.stderr, flush=True)
+        store_log(index_dir, msg)
     elif cold or not store_ids:
         # Cold start: a just-created or just-reset store (install, upgrade,
         # schema bump) is EXPECTED to need the backfill from Lance — routine
@@ -2024,7 +2367,27 @@ def reconcile_chunk_index(
     # cleared — so every later divergence logged as calm provisioning and the
     # zero-change heal probe re-reconciled a healthy store once per build.
     _record_chunk_sync_counts(index_dir, table_name, raw_rows, written, clear_cold=True)
-    return {"reconciled": True, "in_sync": False, "rows_written": written}
+    result: dict[str, Any] = {"reconciled": True, "in_sync": False, "rows_written": written}
+    if fts_damage is not None:
+        # 1wpag: the once-per-damaged-table-per-epoch heal marker, written by
+        # the lock owner and naming the build attempt it healed under. The
+        # serving side compares it against the published epoch's attempt to
+        # suppress a second heal request until the next epoch.
+        result["fts_repaired"] = fts_damage.get("reason")
+        result["fts_heal_attempt"] = _record_fts_heal_marker(index_dir, table_name)
+    coll, sample = chunk_id_collision_counts(index_dir, table_name)
+    if coll:
+        result["id_collisions"] = coll
+        result["id_collision_sample"] = sample
+        msg = (
+            f"index-state-store: chunk-id collision census for '{table_name}': "
+            f"{coll} id(s) carry distinct content under one id; the registry keeps "
+            f"one row per id, so the colliding content is not all searchable "
+            f"(sample: {', '.join(sample)})"
+        )
+        print(msg, file=sys.stderr, flush=True)
+        store_log(index_dir, msg)
+    return result
 
 
 def _fts_match_expression(query: str) -> str:
@@ -2094,6 +2457,163 @@ def fts_probe(index_dir: Path, table_name: str) -> bool:
             pass
 
 
+def _record_fts_payload_digest(index_dir: Path, table_name: str) -> Optional[str]:
+    """Lock-owner bootstrap of the keyed payload digest from the live FTS
+    table, computed and written in ONE transaction (1wpag). Only the
+    reconcile path calls this, and only after the probe verified the table
+    live and parity-consistent. Returns the hex digest, None on failure."""
+    fts_name = FTS_TABLES.get(table_name)
+    if fts_name is None:
+        return None
+    try:
+        store = IndexStateStore(index_dir)
+        try:
+            conn = store._conn
+            with conn:
+                acc = _fts_table_digest(conn, fts_name)
+                _write_fts_digest_meta(conn, table_name, acc)
+            return _fts_digest_hex(acc)
+        finally:
+            store.close()
+    except Exception:
+        return None
+
+
+def _record_fts_heal_marker(index_dir: Path, table_name: str) -> Optional[str]:
+    """Write the per-epoch heal marker: the build-state attempt id the lock
+    owner healed FTS damage under (1wpag). No epoch (a bare store with no
+    build attempt) means no marker. Returns the recorded attempt id."""
+    state = read_build_state(index_dir)
+    attempt = str((state or {}).get("attempt_id") or "")
+    if not attempt:
+        return None
+    try:
+        store = IndexStateStore(index_dir)
+        try:
+            store.set_meta({META_FTS_HEAL_ATTEMPT_PREFIX + table_name: attempt})
+        finally:
+            store.close()
+    except Exception:
+        return None
+    return attempt
+
+
+def fts_recorded_integrity(index_dir: Path, table_name: str) -> dict[str, Any]:
+    """O(1) meta read of the recorded keyed-integrity state for one table
+    (1wpag): ``{digest_recorded: bool, digest_prefix: str | None,
+    heal_attempt: str | None}``. No table scan, no counts: safe for health
+    and for the serving side's marker compare."""
+    out: dict[str, Any] = {"digest_recorded": False, "digest_prefix": None, "heal_attempt": None}
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return out
+    try:
+        raw = IndexStateStore._get_meta(conn, META_FTS_PAYLOAD_DIGEST_PREFIX + table_name)
+        if raw:
+            out["digest_recorded"] = True
+            out["digest_prefix"] = str(raw)[:12]
+        heal = IndexStateStore._get_meta(conn, META_FTS_HEAL_ATTEMPT_PREFIX + table_name)
+        out["heal_attempt"] = str(heal) if heal else None
+    except sqlite3.Error:
+        pass
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+    return out
+
+
+def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
+    """The full FTS state probe for one table (1wpag, wave 1wpif).
+
+    Liveness + row parity + shadow parity (``fts_probe``: the real MATCH path,
+    FTS-vs-registry counts, ``_docsize``/``_content`` parity) AND the keyed
+    payload digest compare (full-scan recompute vs the digest recorded at
+    the last publication). Corpus-linear: this is a PROBE-BOUNDARY read
+    (reconcile / open / epoch change / serving error), never a warmed
+    public read; callers cache it by the build-state token. Read-only.
+
+    Returns ``{table, ok, reason, live, digest, fts_rows, registry_rows,
+    heal_attempt}``. ``reason``: None (healthy), ``fts_disabled`` (nothing
+    promised: ok), ``store_absent``, ``unknown_table``, ``probe_failed``
+    (dropped / empty-beside-registry / truncated / shadow damage / FTS-ahead
+    orphans), ``digest_mismatch`` (equal-count payload substitution or
+    corruption), ``digest_unavailable``. ``digest``: ``ok`` | ``mismatch`` |
+    ``unrecorded`` (pre-digest store: ok, the next reconcile records it) |
+    ``unavailable`` | ``skipped``.
+    """
+    out: dict[str, Any] = {
+        "table": table_name, "ok": False, "reason": None, "live": False,
+        "digest": "skipped", "fts_rows": None, "registry_rows": None, "heal_attempt": None,
+    }
+    fts_name = FTS_TABLES.get(table_name)
+    if fts_name is None:
+        out["reason"] = "unknown_table"
+        return out
+    conn = open_read_only(index_dir)
+    if conn is None:
+        out["reason"] = "store_absent"
+        return out
+    recorded: Optional[int] = None
+    try:
+        try:
+            heal = IndexStateStore._get_meta(conn, META_FTS_HEAL_ATTEMPT_PREFIX + table_name)
+            out["heal_attempt"] = str(heal) if heal else None
+            if IndexStateStore._get_meta(conn, META_FTS_AVAILABLE) != "1":
+                out["ok"] = True
+                out["reason"] = "fts_disabled"
+                return out
+            recorded = _fts_recorded_digest(conn, table_name)
+        except sqlite3.Error:
+            out["reason"] = "store_absent"
+            return out
+        try:
+            out["registry_rows"] = int(conn.execute(
+                "SELECT count(*) FROM chunk_registry WHERE table_name = ?", (table_name,)
+            ).fetchone()[0])
+            out["fts_rows"] = int(conn.execute(f"SELECT count(*) FROM {fts_name}").fetchone()[0])
+        except sqlite3.Error:
+            pass  # the probe below types the damage
+        live = fts_probe(index_dir, table_name)
+        out["live"] = live
+        if not live:
+            out["reason"] = "probe_failed"
+            return out
+        if recorded is None:
+            out["ok"] = True
+            out["digest"] = "unrecorded"
+            return out
+        try:
+            current = _fts_table_digest(conn, fts_name)
+        except sqlite3.Error:
+            out["reason"] = "digest_unavailable"
+            out["digest"] = "unavailable"
+            return out
+        if current != recorded:
+            out["reason"] = "digest_mismatch"
+            out["digest"] = "mismatch"
+            return out
+        out["ok"] = True
+        out["digest"] = "ok"
+        return out
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def _fts_query_shaped_error(exc: BaseException) -> bool:
+    """True when an FTS5 error is about the QUERY (syntax the safe expression
+    builder could not neutralize), not about the table's state."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in (
+        "syntax error", "parse error", "unknown special query",
+        "unterminated string", "no such column",
+    ))
+
+
 def fts_search(
     index_dir: Path,
     table_name: str,
@@ -2102,17 +2622,28 @@ def fts_search(
     *,
     kind: Optional[str] = None,
     tags_any: Optional[Iterable[str]] = None,
+    strict: bool = False,
+    languages: Optional[Iterable[str]] = None,
 ) -> list[dict[str, Any]]:
     """Top-``limit`` BM25 candidates from one FTS table (read-only).
+
+    ``strict=True`` (1wpag: the server's probed-serving chokepoint) re-raises
+    a sqlite error that is about the TABLE'S STATE (dropped / corrupt) so the
+    caller can type it as a serving error instead of a zero-hit; query-shaped
+    FTS5 errors still degrade to ``[]``. Default behavior is unchanged.
 
     Returns ``[{id, path, kind, language, tags, lines, text, bm25}]``
     best-first. Optional filters mirror the ``search_code`` contract (1sauc):
     ``kind`` is an exact match; ``tags_any`` matches rows whose space-joined
     tags string contains ANY of the given tags (substring semantics, matching
-    the Lance ``tags LIKE`` clause this replaced). All values are bound
-    parameters. Degrades to ``[]`` on: absent store, FTS unavailable,
-    FTS-hostile query (rejected syntax), or any sqlite error — the caller's
-    retrieval stays vector-only with no error (1rrr0 Req 3).
+    the Lance ``tags LIKE`` clause this replaced); ``languages`` (wave 1wpif,
+    1wpah) restricts rows to an exact ``language IN (...)`` set so the
+    bounded ``LIMIT`` window is filled with eligible rows instead of being
+    post-filtered (a selected-language row past the window was a false
+    zero). All values are bound parameters. Degrades to ``[]`` on: absent
+    store, FTS unavailable, FTS-hostile query (rejected syntax), or any
+    sqlite error — the caller's retrieval stays vector-only with no error
+    (1rrr0 Req 3).
     """
     fts_name = FTS_TABLES.get(table_name)
     if fts_name is None:
@@ -2132,6 +2663,10 @@ def fts_search(
     if tag_list:
         where.append("(" + " OR ".join("tags LIKE ?" for _ in tag_list) + ")")
         params.extend(f"%{t}%" for t in tag_list)
+    language_list = sorted({str(name) for name in (languages or []) if name})
+    if language_list:
+        where.append("language IN (" + ", ".join("?" for _ in language_list) + ")")
+        params.extend(language_list)
     params.append(int(limit))
     try:
         rows = conn.execute(
@@ -2140,7 +2675,9 @@ def fts_search(
             f"WHERE {' AND '.join(where)} ORDER BY score LIMIT ?",
             params,
         ).fetchall()
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        if strict and not _fts_query_shaped_error(exc):
+            raise
         return []
     finally:
         try:

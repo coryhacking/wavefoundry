@@ -46,6 +46,17 @@ class ShippedReferenceDocParityTests(unittest.TestCase):
                     f"targets receive the current schema (see docs/references/install-assets.md).",
                 )
 
+    def test_install_log_format_names_the_checked_but_missing_fields_the_audit_emits(self) -> None:
+        """Wave 1wybs (1wybr AC-4; delivery review DOCS-DEL-3): parity between the copies
+        proves nothing about the content, so the field list is pinned against the producer."""
+        shipped = (REPO_ROOT / ".wavefoundry/framework/install/install-log-format.md").read_text(encoding="utf-8")
+        self.assertIn(
+            '`{status: "checked_but_missing", phase, row, expected_artifact, all_missing, next_action, pending_lint}`',
+            shipped,
+        )
+        self.assertIn("paths relative to the repository root", shipped)
+        self.assertNotIn('"checked_but_missing", row, expected,', shipped)
+
     def test_all_provisioned_format_schemas_are_guarded(self) -> None:
         """Every canonical ``*-format.md`` under ``docs/references/`` is a provisioned schema and must
         have a parity pair — a new one without a guard would silently drift from its shipped template."""

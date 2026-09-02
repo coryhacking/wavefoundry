@@ -125,14 +125,20 @@ def _assert_active_models_have_empty_document_prefix() -> None:
 
 _assert_active_models_have_empty_document_prefix()
 
+# ANN query tuning (wave 1wpif, 1wpah): the former LANCEDB_NPROBES / LANCEDB_REFINE_FACTOR
+# constants declared here were never applied to a query (zero call sites at either
+# definition site) and were retired. Production `WaveIndex._lance_search` submits the
+# query with neither `nprobes` nor `refine_factor` set, so an IVF_HNSW_SQ-indexed table
+# runs at the installed Lance engine defaults (verified on lancedb 0.33.0 through
+# `explain_plan`: `minimum_nprobes=20, maximum_nprobes=Some(20)` and no refine stage);
+# a table below LANCEDB_INDEX_THRESHOLD is a flat exact scan. Any measured tuning is
+# owned by wave `1wpih` (exact-search reference and overlap metric), not declared here.
 # LanceDB vector index constants
 # Tables are stored directly inside the index directory (e.g. .wavefoundry/index/docs.lance/).
 LANCEDB_INDEX_THRESHOLD = 1000   # rows; below: flat scan; at/above: IVF_HNSW_SQ index
 LANCEDB_COMPACT_THRESHOLD = 20   # fragment count threshold; triggers optimize() after add/delete
 EMBED_BATCH_SIZE = 256           # chunks per embedding batch
 SORT_WINDOW_SIZE = 2048          # sliding sort buffer size (8× EMBED_BATCH_SIZE)
-LANCEDB_NPROBES = 20             # ANN search probes (recall vs latency)
-LANCEDB_REFINE_FACTOR = 10       # reranking candidates multiplier
 # Wave 1p52p: cross-encoder reranker. ms-marco-MiniLM-L-6-v2 (6-layer, 22M) via its Xenova FP16 export
 # (resolved in accel_embedder.CLEAN_ONNX_SOURCES). Chosen over bge-reranker-base after a head-to-head:
 # better known-answer recall (mean rank 1.07 vs 1.67), ~4-5x faster, ~8x less memory, and the only one
@@ -3237,8 +3243,10 @@ def _chunk_index_needs_heal(index_dir: Path) -> bool:
     early return previously exited before the end-of-build reconcile, so an
     under-covered store (the field defect: reconcile failing silently for
     months) could never heal on an idle repo — exactly the upgrade-then-retest
-    scenario. Cost is bounded to metadata reads: the cold flag, one SQLite
-    ``count(*)`` and one Lance ``count_rows()`` per table. The reconcile
+    scenario. Cost is bounded: the cold flag, one SQLite ``count(*)`` and one
+    Lance ``count_rows()`` per table, plus (1wpag) one FTS liveness/parity
+    probe and one linear keyed-digest scan per table (a probe-boundary read,
+    never on the public query path). The reconcile
     itself only runs when this returns True. Material gap = more than
     ``max(8, lance_rows // 50)`` rows in either direction (proportional, so
     legitimately-small repos still heal and a 1-row crash window can wait for
@@ -3269,11 +3277,22 @@ def _chunk_index_needs_heal(index_dir: Path) -> bool:
             if synced_raw is not None and synced_unique is not None:
                 if lance_rows != synced_raw or registry_rows != synced_unique:
                     return True
-                continue
             # Fallback (store never reconciled under this code): proportional
             # material-gap threshold, dup-margin tolerant by looseness.
-            if abs(lance_rows - registry_rows) > max(8, lance_rows // 50):
+            elif abs(lance_rows - registry_rows) > max(8, lance_rows // 50):
                 return True
+            # 1wpag (wave 1wpif): registry/Lance count parity cannot see
+            # FTS-only damage (a dropped, emptied, or truncated FTS table,
+            # shadow-table loss, FTS-ahead orphan rows, an equal-count payload
+            # substitution). This zero-change branch IS the ordinary reconcile
+            # path for an idle repo, so it is a probe boundary: one bounded
+            # liveness/parity probe plus one linear keyed-digest scan per
+            # table. A damaged verdict routes to the reconcile, which heals
+            # under the build lock and writes the per-epoch heal marker.
+            if hasattr(iss, "fts_state_verdict"):
+                verdict = iss.fts_state_verdict(index_dir, table_name)
+                if not verdict.get("ok") and verdict.get("reason") not in ("store_absent", "fts_disabled"):
+                    return True
     except Exception:  # noqa: BLE001 - probe is advisory
         return False
     return False
@@ -3330,6 +3349,17 @@ def _sync_chunk_derived_state(
                 raw_rows=len(id_rows), force=force,
             )
             stats[table_name] = result
+            if result.get("id_collisions"):
+                # 1wngv: surface the store-recorded same-ID/distinct-content
+                # census in build output — derived coverage is not complete
+                # for the colliding content until a rebuild under the fixed
+                # chunker clears it.
+                print(
+                    f"build_index: chunk-id collision census for '{table_name}': "
+                    f"{result['id_collisions']} colliding id(s) with distinct content "
+                    f"(sample: {', '.join(result.get('id_collision_sample') or [])})",
+                    file=sys.stderr,
+                )
             if verbose and result.get("reconciled"):
                 print(
                     f"build_index: chunk-index for '{table_name}' rebuilt from Lance "

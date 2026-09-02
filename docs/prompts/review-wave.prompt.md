@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-06
+Last verified: 2026-09-02
 
 Shortcut: **`Review wave`**
 
@@ -20,6 +20,8 @@ All review, repair, and reverification investigation follows the run contract's 
   - `qa-reviewer` — AC coverage, multi-step verification for stateful behavior
   - `architecture-reviewer` — boundary and layering impact
   - Other lanes as required per `docs/contributing/review-and-evals.md`
+  - Brief every lane with the seed-209 packet fields `tree_fingerprint` (`git hash-object` over the reviewed paths), `time_budget`, and `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors), and require a mutation table in each report (wave `1wuju`).
+  - **Frozen tree per round:** no edit lands under the reviewed paths while a lane runs; collect every lane's findings, repair once, re-snapshot once, and re-brief with a new fingerprint. A lane that finds the fingerprint changed records `tree_moved_under_review` (seed 209). Neither `frozen_boundary` nor `policy_input_digest` freezes code; a repair landed while a lane is still running invalidates that lane's evidence for the paths it touched. Each lane reports at its `time_budget` with what is in hand and lists what was not run.
 3. When `wave_review.enabled` is true, run the Wave Council delivery pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer and must address it before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `wave-council` synthesizes all outputs; record `wave-council-delivery` (on declared waves as a typed approval event via `wf_review_event`, which projects into `## Review Evidence`; only legacy prose waves record the signoff line directly) and summarize the reasoning in `## Review checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. Delivery review verifies the current typed readiness authority on declared waves; it does not treat a prose `prepare-council` checkpoint as machine evidence. Legacy waves retain their prose compatibility contract.
 4. **AC scope gap check:** after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
 5. **AC priority reconciliation:** reconcile the `## AC priority` table against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker. See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.

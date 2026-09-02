@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-31
+Last verified: 2026-09-02
 
 ## Test Tiers
 
@@ -35,7 +35,7 @@ Last verified: 2026-08-31
 | Diagram-file chunking (wave 1wik9, 1whuq) | per-family fixture shape and breadcrumb tests (mermaid frontmatter title, plantuml title directive, DOT graph identifier incl. quoted names, stem fallback), degenerate inputs (empty, oversized via the universal guard), chunker-only registration pins (extension-set disjointness in the chunker; never `_KNOWN_TEXT_EXTENSIONS`, `SOURCE_CODE_EXTENSIONS`, `BINARY_EXTENSIONS`, or the generated set in the indexer), docs-split membership in and out of docs roots, the binary-impostor OLE `.dot` sniff exclusion, and the frozen 9-query `diagrams` golden set with its executed eligibility census | `test_chunker.py` (`DiagramChunkerTests`), `test_indexer.py` (`DiagramCorpusMembershipTests`), `tests/fixtures/retrieval_golden/diagrams/` | Same runner |
 | Doc-code routing and kind filtering (wave 1wik9, 1whup) | doc-code emission from all three doc-family emitters with file-pass-scoped ordinal identities (duplicate-titled-section collision pins), per-emitter breadcrumb truth (baked markdown, injected rst/adoc, bare preamble), code-cap selection, prompt fence-inline exemption, notebook doc-code routing (the 1wl7u/1wh1b executable supersession of the preserved state), per-emission-site content-coverage invariant, docs-table routing via `_is_docs_kind`, and the server-side kind-filter enforcement including a real-Lance semantic-path raw-SQL filter regression and the `code_ask` partition-tuple complementarity pin; the regenerated markdown differential snapshot with the specs-negatives zero-delta assertion; the extended prose golden set with unique-anchor fence queries and the content-anchored recall supplement | `test_chunker.py` (`DocCodeRoutingTests`, `MarkdownDifferentialTests`), `test_indexer.py` (`DocCodeTableRoutingTests`), `test_server_tools_retrieval.py` (`DocCodeKindFilterTests`), `tests/fixtures/retrieval_golden/` | Same runner |
 | Spec-aware chunking detection and differential (wave 1wfsl, 1wfr8) | Detection positives (OpenAPI 3.x YAML+JSON, Swagger 2.x, JSON Schema dialect-URI and schema-shaped roots) and negatives (kubernetes/CI/compose configs, schemastore `$schema` configs, arbitrary JSON, and the adversarial schema-shaped data file) over the COMMITTED spec fixture corpus; operation/definition chunk shapes with baked breadcrumbs and deterministic identities; kind="code" layer-boundary pin; the `indexing.max_treesitter_parse_bytes` cap boundary on the spec path; the config gate (`WAVEFOUNDRY_SPEC_CHUNKING`); the non-spec byte-identity differential against a pre-change-chunker snapshot; and the golden-set measurement harness (`run_retrieval_eval.py`) whose before/after results are wave evidence | `test_chunker.py` (`SpecChunkingTests`), `tests/fixtures/retrieval_golden/` | Same runner |
-| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; `docs/reports/retrieval-quality-baseline.json` | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-baseline.json` |
+| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; standing baseline `docs/reports/retrieval-quality-post-1wybs.json` (a single run recorded at the `1wybs` delivery review, verdict `fail` under the drift disposition recorded in that wave's record; the reference only until the next evaluator edit, after which the next ranking wave records its own before-receipt; earlier receipts either bind a superseded evaluator identity and are incomparable, or, for the `1wuju` before-receipt, bind superseded production bytes and are no longer the reference) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/<new-receipt>.json --baseline docs/reports/retrieval-quality-post-1wybs.json` |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
@@ -216,6 +216,125 @@ suite follows the policy in
 - never globally serialize the suite, and never inflate a budget without the
   measured basis (a deliberately injected meaningful slowdown must still
   fail — pinned by `test_perf_budget_policy.py`).
+
+## Close-Time Verification: the framework test receipt (wave 1wur7)
+
+The wave close gate gained one verification step. `wf_close_wave` reads the
+existing `.wavefoundry/framework/test-cache.json` receipt written by
+`run_tests.py` and requires `result == "ok"` with an `inputs_hash` matching the
+current framework tree; a missing, red, stale, or unreadable receipt is reported as
+`framework_test_receipt_not_proven`. The gate REUSES `run_tests.py`'s own
+`_hash_inputs` so the gate and the writer cannot drift, and it runs no suite and
+spawns no subprocess. The runner is loaded from the target root's own copy, and
+because a server may be launched against a different `--root` the borrow is
+contained: the runner path must resolve inside the target root, all FIVE of the
+runner's import side effects are undone (`sys.dont_write_bytecode`, the
+dashboard-suppression variable, its `sys.path` insert, the tool-venv activation
+that prepends `site-packages`, and every module the borrow registers in
+`sys.modules`), and any failure to load or to call it
+— `SystemExit` from the venv guard included — degrades to `unreadable` rather
+than raising out of the tool call.
+
+`state` is one of `not_applicable`, `proven`, `missing`, `not_ok`, `stale`, and
+`unreadable`. The receipt's hash covers `.wavefoundry/framework/` only, so only
+receipt STALENESS is framework-scoped; because the receipt is written only on a
+whole-suite pass, a failure triggered by content under `docs/` prevents a NEW
+receipt from being written; when the framework tree also changed the standing
+receipt is stale and close is blocked, while in a documentation-only wave a
+current green receipt persists and close is not blocked despite a red suite. A green receipt attests the framework code, not the tree:
+the check is neither a whole-repository guarantee nor a whole-repository
+exemption. Run the suite last before close — any edit under
+`.wavefoundry/framework/` invalidates the receipt. Where the
+runner is absent — every repository that consumes the packaged framework, since
+`build_pack.py` excludes the runner, `scripts/tests`, and the receipt — the check
+is a documented no-op.
+
+This is the machine-visible half of moving whole-suite assertions out of per-change
+acceptance criteria; the feedforward half is seed `170-plan-feature.prompt.md`
+*"Acceptance criteria assert what the change controls"* and the sensor half is the
+`docs-lint` AC-shape validator.
+
+## Standing Gate Identity and Reproducibility Contract (wave 1wur7)
+
+**Identity is compared per comparison kind.** The repository root (path, device,
+inode), the index directory, and the state-store path bind every kind; the state
+store file's own device and inode bind only a `same_generation_pair`, where "one
+frozen physical store" is what makes a jitter measurement mean anything. Binding
+the inode across generations refused the exact case `cross_generation` exists to
+cover, a controlled rebuild. `SAME_GENERATION_INDEX_IDENTITY_KEYS` is the single
+source of truth and a test pins it equal to what `_index_identity` emits, so a
+field added later cannot go silently uncompared.
+
+**Reproducibility is measured on the stable statistics.** A pair whose warm
+sample FLOOR or MEDIAN moved past `PAIR_JITTER_THRESHOLD` was measured under
+external load, is marked `pair_contended`; a later comparison that inherits its jitter
+reports `inherited_contended_baseline` per tool with the recovery rather than
+refusing, since latency is advisory for every kind. A baseline that is a single
+run (no pair-derived `jitter_ratio`) is accepted at the 25% floor with
+`jitter_source: single_run_floor` and `contention_judged: false` (wave `1wuju`);
+no within-run estimator is computed, because the recorded fixture refuted every
+candidate. The p95 shift
+is recorded but excluded from the band, because the band is `max(25%, 3 x jitter)`
+applied to the p95 and including it would both widen a quiet pair's band on tail
+noise and make the latency clause unreachable.
+
+An evaluator-only edit records no close-time baseline (wave `1wybq`): an edit
+that moves `evaluator_identity` without moving `production_identity` leaves the
+standing receipt incomparable, and the next wave that changes production
+retrieval bytes records a before-receipt with the current evaluator and an
+after-receipt, compared as `cross_generation` in this repository because the
+production modules are indexed and the preflight refuses a stale index; a
+cross-generation comparison attributes corpus drift to the change under the
+zero-tolerance regression rule, so a `fail` is read together with the
+production diff between the two receipts' identity blocks. Full
+contract: `docs/contributing/review-and-evals.md`.
+
+**Latency is advisory for every comparison kind** (operator decision at the
+wave `1wur7` close): the clause is computed and recorded for
+`same_generation_pair`, `production_change_same_generation`, and
+`cross_generation` alike, each with a reason, and routes to
+`operator_review_required`; none is a hard violation and none is dropped. The
+retrieval-quality floors and the response-size ceiling remain hard.
+
+## Landing Rule for Guards (wave 1wuju)
+
+A guard, validator member, carve-out, or tuning constant is landed only when a
+named test fails with it deleted or loosened; a pin that passes for an unrelated
+reason is not a pin. The implementer records the mutant and the failing test in
+the change document's Progress Log before requesting review, and each delivery
+lane reports a mutation table (mechanism, mutation, failing test or NOT CAUGHT)
+as the prose projection of its `known_bad_detection_method: focused-mutation`
+evidence. Review rounds run against a frozen tree: the briefing packet carries a
+`tree_fingerprint`, a `time_budget`, and a `sweep_rule`; repairs are batched once
+per round and the tree is re-snapshotted once. A census is re-derived whenever
+its predicate moves and is quoted only with the predicate that produced it; a
+figure carried forward from an earlier predicate is a stale claim, not evidence.
+Seeds 180, 190, 209, 214, 221, and 239 carry the rules.
+
+## Docs-lint Sensor Polarity (wave 1wuju)
+
+Docs-lint sensors carry a registered polarity (`wave_lint_lib/constants.py`
+`SENSOR_POLARITY_REGISTRY`). An `advisory` sensor's findings travel the same
+validator run as failures but reach the `WARNING:` channel with the sensor named,
+so `docs_lint.py` exits 0 and `run_validate` returns `passed: true` with
+`warnings`; every lifecycle gate, the install audit included, renders them as
+`docs_lint_warning` diagnostics with `advisory: true`. A new sensor ships advisory and flips to `blocking` only in
+a recorded change with field data; the AC-locality sensor is the first
+registrant. Unregistered validators keep their blocking polarity.
+
+## Evaluator Reported Statistics (wave 1wur7)
+
+The standing retrieval gate's per-tool `performance` block now records
+`warm_floor_ms` and `warm_median_ms` beside `warm_p95_ms`, plus
+`p95_is_maximum`, `small_sample_estimate`, and `minimum_warm_samples`. A
+`same_generation_pair` additionally records `jitter_components`
+(floor/median/p95), `pair_jitter_threshold`, and `pair_contended`; a comparison
+whose baseline is a single run records `jitter_source: single_run_floor`,
+`pair_contended: null`, and `contention_judged: false` instead. Pair jitter is
+the larger of the floor and median shifts; the p95 shift is recorded but kept out
+of the band, because the band is `max(25%, 3 x jitter)` applied to the p95 and
+feeding the p95 shift back in would make the latency clause unreachable. Full
+contract: `docs/contributing/review-and-evals.md`.
 
 ## Test File Locations
 

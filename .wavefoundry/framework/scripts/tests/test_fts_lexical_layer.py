@@ -382,6 +382,32 @@ class Fts5CodeSearchLexicalTests(_StoreCase):
                                    tags_any=["framework"])
         self.assertEqual([h["id"] for h in hits], ["py1"])
 
+    def test_languages_filter_is_pushed_into_the_bounded_window(self):
+        """Wave 1wpif (1wpah, AC-1): an allowlisted language set fills the
+        LIMIT window with eligible rows instead of post-filtering it, so a
+        selected-language row ranked past the window is not a false zero."""
+        rows = [
+            {"id": f"py{i}", "path": f"src/p{i}.py", "kind": "code", "language": "python",
+             "tags": [], "lines": [1, 2], "text": "alpha_handler", "chunk_hash": f"p{i}"}
+            for i in range(31)
+        ]
+        rows.append({"id": "ts1", "path": "web/b.ts", "kind": "code", "language": "typescript",
+                     "tags": [], "lines": [1, 2],
+                     "text": "alpha_handler " + "filler " * 24, "chunk_hash": "t1"})
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=rows)
+        window = self.iss.fts_search(self.index_dir, "code", "alpha_handler", limit=31)
+        self.assertEqual(len(window), 31)
+        self.assertEqual({h["language"] for h in window}, {"python"},
+                         "the typescript row ranks past a 31-row window (BM25 length normalization)")
+        pushed = self.iss.fts_search(self.index_dir, "code", "alpha_handler", limit=31,
+                                     languages=["typescript"])
+        self.assertEqual([h["id"] for h in pushed], ["ts1"])
+        both = self.iss.fts_search(self.index_dir, "code", "alpha_handler", limit=40,
+                                   languages=["typescript", "python"])
+        self.assertEqual(len(both), 32)
+        self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha_handler",
+                                             languages=["rust"]), [])
+
     def test_server_lexical_half_shapes_and_degrades(self):
         import server_impl as srv
         self._seed()

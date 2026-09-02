@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: code-reviewer
 Category: review
-Last verified: 2026-07-31
+Last verified: 2026-09-02
 
 ## Operating Identity
 
@@ -27,6 +27,7 @@ Before signing off on any change, ask:
 - What is evidenced by the repository (code, tests, docs) vs. what is claimed?
 - What is still uncertain or unverified?
 - Is this the smallest correct change for the stated problem, or did the implementation introduce scope beyond the AC?
+- For every guard, validator member, carve-out, or tuning constant the change landed: which named test fails with it deleted or loosened? Report it in a mutation table (mechanism, mutation, failing test or NOT CAUGHT), the prose projection of `known_bad_detection_method: focused-mutation`, under the packet's `sweep_rule` and `time_budget`; report at the budget and list what was not run (seed 209, wave `1wuju`).
 
 The change document is the coordination layer, not the authority layer. Treat a checked AC or task as a claim, not proof. If code or tests do not support the completion claim, surface it as a finding regardless of what the document says.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: planned
-Last verified: 2026-08-31
+Last verified: 2026-09-02
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -31,7 +31,7 @@ Change Status: `planned`
 
 ## Wave Summary
 
-The wave pairs extraction-time type/provenance guards with query-time filtering and trust metadata. It repairs false graph facts and the public surfaces agents use to judge those facts, without broadening into clustering or general graph-relevance research.
+The wave pairs extraction-time type/provenance guards with query-time filtering, versioned cluster-artifact support, and trust metadata. It repairs false graph facts and the public surfaces agents use to judge those facts without broadening into general community or graph-relevance research.
 
 ## Watchpoints
 
@@ -39,6 +39,7 @@ The wave pairs extraction-time type/provenance guards with query-time filtering 
 - Watchpoint: unfiltered graph-report rankings must remain stable while filtered rankings refill correctly.
 - Watchpoint: hierarchy metadata additions must remain schema-compatible and payload-bounded.
 - Watchpoint: filtered betweenness refill requires a versioned complete persisted order; preserve the compatibility top-N view and measure compressed artifact/rebuild cost.
+- Watchpoint: the closed `1seaw` standing gate identifies graph extraction/query modules as production retrieval code, but its evaluator does not yet bind cluster code/version or per-fixture regressions. Add/freeze that scaffold first, capture a fresh post-`1wpif` run A/B pair, then require exact-baseline run C with graph-carrier evidence and explicit controlled cross-generation results.
 
 ## Finding Synthesis
 
@@ -68,9 +69,9 @@ The wave pairs extraction-time type/provenance guards with query-time filtering 
 
 ## Dependencies
 
-- No hard external wave dependency; this wave may be readied independently.
-- Recommended implementation order places it after `1wpif` only to respect the single-OPEN-wave rule and the overall index-audit priority sequence.
-- Within the wave, extraction repair (`1wpai`) precedes final public query replay for `1wpaj` so hierarchy evidence is evaluated on corrected edges.
+- Plan readiness may be reviewed independently, but implementation follows completion of `1wpif` so the required immediate-predecessor standing pair isolates graph-wave effects from content/retrieval-correctness changes.
+- The wave remains planned/readied while `1wpif` owns the single OPEN slot; activation occurs only after `1wpif` closes and its final production/index identities are available.
+- Within the wave, ordering is mandatory: evaluator scaffold → freeze/index successor evaluator → exclusive-create run A → run B against caller-declared A → `1wpai` extraction edits → `1wpaj` query/cluster edits → graph/cluster rebuild → run C against caller-declared B. No graph production edit may precede successful A/B.
 
 ## Current Assumptions
 
@@ -83,6 +84,7 @@ The wave pairs extraction-time type/provenance guards with query-time filtering 
 - Relation-compatible call/config edges with bounded before/after fidelity census.
 - Correctly filled filtered graph reports.
 - Call hierarchies exposing stable node and per-edge trust metadata.
+- Frozen-corpus standing retrieval run A/B/C chain bound to graph/query/cluster production identity, builder versions, the exact predecessor receipt, and exercised graph-carrier evidence.
 - Graph architecture updates and full/incremental regression evidence.
 
 ## Review Checkpoints
@@ -90,6 +92,9 @@ The wave pairs extraction-time type/provenance guards with query-time filtering 
 - **Plan review — 2026-08-30: COMPLETE.** Requirements, scope, and acceptance criteria were walked for extraction-time edge fidelity and query-time trust contracts. Resolved branches require relation-compatible code-origin call targets, provenance-backed config reads, a `GRAPH_BUILDER_VERSION` bump with unchanged-corpus re-extraction, pre-truncation filtering for every affected report view, and compact per-node/per-edge hierarchy metadata.
 - **Prepare-phase Wave Council [prepare-council] — 2026-08-30: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer; rotating-seat: architecture-reviewer; strongest-challenge: fixing the extractor without a builder-version bump leaves cached graphs carrying the same phantom edges indefinitely; strongest-alternative: use a broad name-based suppression list, rejected in favor of versioned invalidation and a conservative relation-specific code-origin/provenance matrix)
 - Readiness synthesis: READY. Architecture verdict: approved-with-notes, high confidence; keep unfiltered ranking stable, preserve positive callable/constructor/runtime-config controls, and keep hierarchy metadata payload-bounded.
+- **Closed-wave evidence intake — 2026-08-31: PLAN AMENDED; RE-PREPARE REQUIRED.** Closed `1seaw` proved that graph production modules can alter `code_ask` citations. Fresh code/QA review then found the historical evaluator did not bind cluster identity, could mask a per-fixture regression, and could not by itself prove immediate-predecessor provenance. `1wpaj` now requires a successor evaluator scaffold followed by uniquely named post-`1wpif` run A/B and exact-baseline post-rebuild run C, while retaining the closed evaluator digest as provenance only. The 2026-08-30 readiness receipt predates this gate and is not current authority.
+- **Prepare-phase Wave Council [prepare-council] — 2026-08-31: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, security-reviewer; rotating-seat: security-reviewer; strongest-challenge: a self-selected or replaced predecessor, escaped/aliased report path, aggregate-masked fixture regression, concurrent artifact publication, or unexercised graph carrier could make an internally consistent receipt green without proving the graph change safe; strongest-alternative: hold a run-wide publication lock, rejected in favor of a confined single-handle sequence driver with atomic exclusive writes and bounded around-call lock/token/artifact fences that fail closed without lock inversion)
+- Readiness synthesis: APPROVED. Independent code and QA lanes approved the successor evaluator and exact A/B/C chain after repair; performance approved the bounded evaluator/rebuild sequences; red-team and security seats approved externally declared predecessor identity, confined/exclusive report I/O, per-fixture oracles, persisted builder/artifact evidence, publication-race mutants, and the fixed carrier-loss mutant. A supplemental architecture review approved the graph/cluster version sequence and rejected split sidecar authority. Implementation remains ordered after `1wpif` closure.
 - Prepare: confirm target-kind compatibility rules, provenance boundary, and public response compatibility.
 - Mid-wave: architecture/QA review of negative and adjacent positive edge fixtures.
 - Delivery: replay `os.cpu_count`, schema/config, filtered fan-in, and hierarchy confidence probes through public tools.
@@ -111,12 +116,12 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 
 | Stage | Tool calls | Estimated token savings |
 | --- | ---: | ---: |
-| plan | 190 | 2,556,497 |
+| plan | 216 | 2,611,348 |
 | implement | 1 | 0 |
-| review | 7 | 9,170 |
-| **Total** | **198** | **2,565,667** |
+| review | 11 | 466,326 |
+| **Total** | **228** | **3,077,674** |
 
-<!-- wave:context-efficiency-state {"generation":39,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-407,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19,"response_debit":388,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"plan":{"calls":190,"content_source_credit":2601839,"derived_artifact_credit":2177,"direct_net":2556497,"estimated_tokens_saved":2556497,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10955,"response_debit":502009,"source_credit_count":180,"source_credit_drop_count":0,"structural_source_credit":459749,"workflow_prompt_credit":5696},"review":{"calls":7,"content_source_credit":14537,"derived_artifact_credit":0,"direct_net":9170,"estimated_tokens_saved":9170,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":61,"response_debit":5306,"source_credit_count":5,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":198,"content_source_credit":2616376,"derived_artifact_credit":2177,"direct_net":2565260,"estimated_tokens_saved":2565667,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11035,"response_debit":507703,"source_credit_count":185,"source_credit_drop_count":0,"structural_source_credit":459749,"workflow_prompt_credit":5696},"wave_id":"1wpig graph-correctness-and-trust-contracts"} -->
+<!-- wave:context-efficiency-state {"generation":69,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-407,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19,"response_debit":388,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"plan":{"calls":216,"content_source_credit":2684504,"derived_artifact_credit":4935,"direct_net":2611348,"estimated_tokens_saved":2611348,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":14181,"response_debit":531545,"source_credit_count":198,"source_credit_drop_count":0,"structural_source_credit":459749,"workflow_prompt_credit":7886},"review":{"calls":11,"content_source_credit":474286,"derived_artifact_credit":0,"direct_net":466326,"estimated_tokens_saved":466326,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":211,"response_debit":7749,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":228,"content_source_credit":3158790,"derived_artifact_credit":4935,"direct_net":3077267,"estimated_tokens_saved":3077674,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":14411,"response_debit":539682,"source_credit_count":206,"source_credit_drop_count":0,"structural_source_credit":459749,"workflow_prompt_credit":7886},"wave_id":"1wpig graph-correctness-and-trust-contracts"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

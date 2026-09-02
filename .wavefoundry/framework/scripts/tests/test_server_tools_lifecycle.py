@@ -1036,6 +1036,33 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         self.assertIn("missing_required_lane", [item["code"] for item in response["diagnostics"]])
 
+    def test_advisory_lint_warnings_reach_prepare_review_and_close_as_non_blocking(self):
+        """Wave 1wuju (1wujs AC-1): an advisory sensor's finding is rendered at every
+        lifecycle gate as `docs_lint_warning` with `advisory: true`, never as an error."""
+        advisory = {"passed": True, "errors": [],
+                    "warnings": ["WARNING: docs/waves/1200a test-wave/x.md: AC-1 asserts repository-wide state "
+                                 "('full test suite') [advisory sensor `ac_asserts_repository_state`]"],
+                    "output": ""}
+        calls = {
+            "prepare": lambda: self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", "dry_run"),
+            "review": lambda: self.srv.wf_review_wave_response(self.root, "1200a test-wave"),
+            # Delivery review CODE-DEL-2 / ARCH-DEL-2 / QA-DEL-1: the readiness
+            # phase renders through its own branch, so it is exercised by name.
+            "review_prepare": lambda: self.srv.wf_review_wave_response(self.root, "1200a test-wave", phase="prepare"),
+            "close": lambda: self.srv.wf_close_wave_response(self.root, "1200a test-wave", "dry_run"),
+        }
+        for gate, call in calls.items():
+            with self.subTest(gate=gate):
+                with patch.object(self.srv, "run_validate", return_value=advisory), \
+                     patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]):
+                    response = call()
+                diagnostics = response.get("diagnostics", [])
+                warnings = [d for d in diagnostics if d["code"] == "docs_lint_warning"]
+                self.assertEqual(1, len(warnings), (gate, diagnostics))
+                self.assertIs(True, warnings[0].get("advisory"), (gate, warnings[0]))
+                self.assertIn("asserts repository-wide state", warnings[0]["message"])
+                self.assertNotIn("docs_lint_error", [d["code"] for d in diagnostics], gate)
+
     def test_review_status_fails_when_executable_approval_is_missing(self):
         created = self.srv.wf_create_wave_response(
             self.root, "review-status-approval", mode="create"
@@ -2653,6 +2680,263 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertNotIn("silent_unchecked_items_at_close", codes, msg=f"diagnostics: {result.get('diagnostics')}")
 
 
+class FrameworkTestReceiptGateTests(unittest.TestCase):
+    """Wave 1wur7 (1wuui Requirement 5, AC-3): close VERIFIES the existing receipt.
+
+    It runs no suite and spawns no subprocess. Where ``run_tests.py`` is absent --
+    every pack-vendored target repository, because ``build_pack.py`` excludes the
+    runner, the tests, and the receipt -- the check is a documented no-op that
+    neither blocks nor claims proof.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+        cls.real_runner = (Path(__file__).resolve().parents[1] / "run_tests.py")
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.framework = self.root / ".wavefoundry" / "framework"
+        (self.framework / "scripts").mkdir(parents=True)
+        (self.framework / "scripts" / "sample_module.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.framework / "seeds").mkdir()
+        (self.framework / "seeds" / "000-sample.prompt.md").write_text("# sample\n", encoding="utf-8")
+
+    def _install_runner(self) -> None:
+        # Faithful fixture: the REAL runner, so the gate and the writer share one
+        # hash computation and cannot drift apart in the test either.
+        shutil.copy2(self.real_runner, self.framework / "scripts" / "run_tests.py")
+
+    def _current_hash(self) -> str:
+        module = self.srv._load_framework_test_runner(self.framework / "scripts" / "run_tests.py")
+        self.assertIsNotNone(module)
+        return module._hash_inputs()
+
+    def _write_receipt(self, **fields) -> None:
+        payload = {"inputs_hash": self._current_hash(), "ran_at": "2026-08-31T00:00:00+00:00",
+                   "test_count": 7889, "result": "ok"}
+        payload.update(fields)
+        (self.framework / "test-cache.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    def test_absent_runner_is_a_documented_no_op(self):
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("not_applicable", status["state"])
+        self.assertIsNone(self.srv._framework_test_receipt_diagnostic(status))
+        self.assertIn("distribution excludes it", status["detail"])
+
+    def test_green_receipt_for_the_current_tree_is_proven(self):
+        self._install_runner()
+        self._write_receipt()
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("proven", status["state"])
+        self.assertEqual(7889, status["test_count"])
+        self.assertIsNone(self.srv._framework_test_receipt_diagnostic(status))
+        self.assertIn(".wavefoundry/framework/", status["detail"])
+
+    def test_missing_receipt_is_not_proven_and_blocks(self):
+        self._install_runner()
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("missing", status["state"])
+        diagnostic = self.srv._framework_test_receipt_diagnostic(status)
+        self.assertEqual("framework_test_receipt_not_proven", diagnostic["code"])
+        self.assertIn("never runs a suite", diagnostic["message"])
+
+    def test_receipt_goes_stale_when_a_framework_file_changes(self):
+        self._install_runner()
+        self._write_receipt()
+        self.assertEqual("proven", self.srv._framework_test_receipt_status(self.root)["state"])
+        (self.framework / "scripts" / "sample_module.py").write_text("VALUE = 2\n", encoding="utf-8")
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("stale", status["state"])
+        diagnostic = self.srv._framework_test_receipt_diagnostic(status)
+        self.assertEqual("framework_test_receipt_not_proven", diagnostic["code"])
+        # Reverification A2: this previously asserted a phrase the round-2 rewrite
+        # removed, so the rewrite left the tree red. The assertion now guards the
+        # two mechanical halves the message must always carry, which is the claim
+        # that actually matters rather than one turn of phrase.
+        self.assertIn("hash covers `.wavefoundry/framework/` only", diagnostic["message"])
+        self.assertIn("written only on a whole-suite pass", diagnostic["message"])
+        self.assertIn("attests the framework code, not the tree", diagnostic["message"])
+
+    def test_a_red_receipt_is_not_proven(self):
+        self._install_runner()
+        self._write_receipt(result="failed")
+        self.assertEqual("not_ok", self.srv._framework_test_receipt_status(self.root)["state"])
+
+    def test_loading_the_runner_restores_every_import_side_effect(self):
+        # Delivery review ARCH-DEL-1 / CODE-DEL-2: the first version of this test
+        # asserted a TWO-effect inventory and so institutionalised the wrong one.
+        # Reverification then found the corrected FOUR short as well. run_tests.py
+        # mutates five pieces of interpreter state at import: sys.dont_write_bytecode,
+        # the dashboard-suppression variable, a sys.path insert of its own scripts
+        # dir, activate_tool_venv() prepending the tool venv's site-packages, and
+        # every module the borrow registers in sys.modules.
+        # A long-lived server launched against a different --root must not end up
+        # resolving imports against a foreign scripts directory.
+        self._install_runner()
+        env_name = self.srv._RUN_TESTS_IMPORT_ENV
+        runner = self.framework / "scripts" / "run_tests.py"
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(env_name, None)
+            saved_path = list(sys.path)
+            sys.dont_write_bytecode = False
+            try:
+                self.assertIsNotNone(self.srv._load_framework_test_runner(runner))
+                self.assertFalse(sys.dont_write_bytecode)
+                self.assertNotIn(env_name, os.environ)
+                self.assertEqual(saved_path, sys.path,
+                                 "sys.path must be byte-identical after the borrow")
+                self.assertNotIn(str(self.framework / "scripts"), sys.path)
+            finally:
+                sys.path[:] = saved_path
+                sys.dont_write_bytecode = True
+        self.assertNotIn("wavefoundry_close_gate_run_tests", sys.modules)
+        with patch.dict(os.environ, {env_name: "0"}):
+            self.srv._load_framework_test_runner(runner)
+            self.assertEqual("0", os.environ[env_name])
+
+    def test_the_side_effect_inventory_is_stated_consistently(self):
+        """Reverification N2: the count drifted twice (two, then four) and each
+        wrong value was institutionalised in prose that no test guarded, so a code
+        repair ended up contradicting the documentation of that same repair. The
+        prose is pinned here."""
+        docstring = self.srv._load_framework_test_runner.__doc__ or ""
+        self.assertIn("FIVE pieces of interpreter state", docstring)
+        self.assertIn("sys.modules", docstring)
+        architecture = (Path(__file__).resolve().parents[4] / "docs" / "architecture"
+                        / "testing-architecture.md").read_text(encoding="utf-8")
+        self.assertIn("all FIVE of the", architecture,
+                      "the architecture doc must not institutionalise a stale count")
+        self.assertNotIn("all FOUR of the", architecture)
+
+    def test_the_borrow_registers_no_foreign_module(self):
+        # Reverification of ARCH-DEL-1: sys.modules is a fifth side-effect
+        # channel. It was safe only because server_impl happens to import the
+        # same two scripts-dir modules run_tests.py does, so the foreign copies
+        # were shadowed. A runner with one module-scope import of a name the
+        # server does NOT import leaked that module permanently -- it kept
+        # serving `import` after the foreign repository was deleted from disk.
+        runner = self.framework / "scripts" / "run_tests.py"
+        (self.framework / "scripts" / "wf_close_gate_probe_module.py").write_text(
+            "MARKER = 'foreign'\n", encoding="utf-8")
+        runner.write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parent))\n"
+            "import wf_close_gate_probe_module\n"
+            "\n\ndef _hash_inputs():\n    return 'x'\n"
+            "\n\ndef _read_cache():\n    return None\n",
+            encoding="utf-8")
+        saved_modules = set(sys.modules)
+        saved_path = list(sys.path)
+        try:
+            self.assertIsNotNone(self.srv._load_framework_test_runner(runner))
+            self.assertNotIn("wf_close_gate_probe_module", sys.modules,
+                             "the borrow must not leave a foreign module registered")
+            self.assertEqual(saved_modules, set(sys.modules))
+            self.assertEqual(saved_path, sys.path)
+        finally:
+            for name in set(sys.modules) - saved_modules:
+                sys.modules.pop(name, None)
+            sys.path[:] = saved_path
+
+    def test_a_keyboard_interrupt_during_the_borrow_is_not_swallowed(self):
+        # Reverification of ARCH-DEL-2: `except BaseException` also caught
+        # KeyboardInterrupt, which MCP delivers on the server's main thread
+        # because sync tools are dispatched inline. That cost the operator a
+        # Ctrl-C and mislabelled it as a load failure. Narrowing to
+        # (Exception, SystemExit) catches every escape the wave documents.
+        runner = self.framework / "scripts" / "run_tests.py"
+        runner.write_text("raise KeyboardInterrupt\n", encoding="utf-8")
+        with self.assertRaises(KeyboardInterrupt):
+            self.srv._load_framework_test_runner(runner)
+        runner.write_text(
+            "def _hash_inputs():\n    raise KeyboardInterrupt\n"
+            "\n\ndef _read_cache():\n    return None\n",
+            encoding="utf-8")
+        with self.assertRaises(KeyboardInterrupt):
+            self.srv._framework_test_receipt_status(self.root)
+    def test_a_runner_that_exits_on_import_is_not_proven_rather_than_fatal(self):
+        # ARCH-DEL-2 / CODE-DEL-1 / REL-DEL-1: activate_tool_venv() calls
+        # sys.exit(2) on a venv/interpreter mismatch. SystemExit is a
+        # BaseException, so `except Exception` let it terminate the tool call --
+        # in exactly the case the contract calls "not proven".
+        (self.framework / "scripts" / "run_tests.py").write_text(
+            "import sys\nsys.exit(2)\n", encoding="utf-8")
+        self.assertIsNone(
+            self.srv._load_framework_test_runner(self.framework / "scripts" / "run_tests.py"))
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("unreadable", status["state"])
+        self.assertEqual("framework_test_receipt_not_proven",
+                         self.srv._framework_test_receipt_diagnostic(status)["code"])
+
+    def test_a_runner_with_a_drifted_call_contract_is_not_proven(self):
+        # REL-DEL-1: presence was checked, the call contract was not. An older or
+        # newer runner whose _hash_inputs takes an argument raised TypeError out
+        # of the tool handler instead of degrading.
+        (self.framework / "scripts" / "run_tests.py").write_text(
+            "def _hash_inputs(root):\n    return 'x'\n\n\ndef _read_cache():\n    return {}\n",
+            encoding="utf-8")
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("unreadable", status["state"])
+        self.assertIn("TypeError", status["detail"])
+
+    def test_a_symlinked_runner_cannot_attest_a_foreign_tree(self):
+        # REL-DEL-2: `is_file()` follows symlinks and the runner derives its
+        # framework dir and receipt path from its own RESOLVED location, so a
+        # symlink made the gate read another repository's green receipt -- a
+        # false proof, the one direction a gate must never fail in.
+        foreign = tempfile.TemporaryDirectory()
+        self.addCleanup(foreign.cleanup)
+        target = Path(foreign.name) / "run_tests.py"
+        shutil.copy2(self.real_runner, target)
+        link = self.framework / "scripts" / "run_tests.py"
+        link.symlink_to(target)
+        status = self.srv._framework_test_receipt_status(self.root)
+        self.assertEqual("unreadable", status["state"])
+        self.assertIn("resolves outside this repository", status["detail"])
+        self.assertIsNotNone(self.srv._framework_test_receipt_diagnostic(status))
+
+    def test_the_gate_spawns_no_subprocess(self):
+        # AC-3 states this in words; QA-DEL-11 found it unasserted.
+        self._install_runner()
+        self._write_receipt()
+        with patch("subprocess.run", side_effect=AssertionError("gate spawned a subprocess")):
+            with patch("subprocess.Popen", side_effect=AssertionError("gate spawned a subprocess")):
+                self.assertEqual("proven",
+                                 self.srv._framework_test_receipt_status(self.root)["state"])
+
+    def test_close_response_carries_the_receipt_and_blocks_on_a_stale_one(self):
+        # REL-DEL-8 / QA-DEL-2: every existing test called the helpers directly,
+        # so removing the call site from wf_close_wave_response left the suite
+        # green. This pins the wiring at the tool boundary.
+        self._install_runner()
+        self._write_receipt()
+        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir.mkdir(parents=True)
+        (wave_dir / "wave.md").write_text(
+            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-09-01\n"
+            "wave-id: `1200a test-wave`\nTitle: Test Wave\n\n## Objective\n\nObjective.\n\n"
+            "## Changes\n\n## Wave Summary\n\nSummary.\n",
+            encoding="utf-8")
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                proven = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
+                self.assertEqual("proven", proven["data"]["framework_test_receipt"]["state"])
+                self.assertNotIn("framework_test_receipt_not_proven",
+                                 {d["code"] for d in proven.get("diagnostics", [])})
+                (self.framework / "scripts" / "sample_module.py").write_text(
+                    "VALUE = 2\n", encoding="utf-8")
+                stale = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
+        self.assertEqual("error", stale["status"])
+        self.assertEqual("stale", stale["data"]["framework_test_receipt"]["state"])
+        self.assertIn("framework_test_receipt_not_proven",
+                      {d["code"] for d in stale["diagnostics"]})
+
+
 class WaveReopenTests(unittest.TestCase):
     """12eb0: wf_reopen_wave MCP tool."""
 
@@ -2971,6 +3255,149 @@ class RunValidateTests(unittest.TestCase):
             f"timeout error must name the elapsed timeout: {result['errors']}",
         )
 
+    CRASH_STDERR = (
+        "Traceback (most recent call last):\n"
+        "  File \"docs_lint.py\", line 1, in <module>\n"
+        "ValueError: sensor `ac_asserts_repository_state` is registered with unknown polarity "
+        "'advisry'; expected one of ('advisory', 'blocking')\n"
+    )
+
+    def test_run_validate_synthesizes_an_error_when_lint_exits_without_a_verdict(self):
+        # Wave 1wuju (delivery review QA-DEL-2): a crash (non-zero exit, no ERROR
+        # line) must reach every gate as a named docs_lint_error, mirroring the
+        # timeout branch; a non-zero exit WITH an ERROR line keeps its own errors.
+        crashed = MagicMock(returncode=1, stdout="", stderr=self.CRASH_STDERR)
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+            result = self.srv.run_validate(self.root)
+        self.assertFalse(result["passed"])
+        self.assertEqual(1, len(result["errors"]), result)
+        self.assertTrue(result["errors"][0].startswith(self.srv.DOCS_LINT_VERDICT_GAP_PREFIX), result)
+        self.assertIn("exited 1 without a lint verdict", result["errors"][0])
+        self.assertIn("'advisry'", result["errors"][0])
+        self.assertIn("Traceback", result["output"])
+        verdict = MagicMock(returncode=1, stdout="ERROR: docs/x.md: broken\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=verdict):
+            result = self.srv.run_validate(self.root)
+        self.assertEqual(["ERROR: docs/x.md: broken"], result["errors"])
+        clean = MagicMock(returncode=0, stdout="docs-lint: ok\n", stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=clean):
+            result = self.srv.run_validate(self.root)
+        self.assertTrue(result["passed"])
+        self.assertEqual([], result["errors"])
+
+    def test_the_synthesized_cause_never_leaks_the_absolute_repository_path(self):
+        # Full-suite regression caught after the QA-DEL-2 repair (1uu9z contract):
+        # a crash line such as a PermissionError embeds the absolute repository
+        # path in its given or resolved spelling; the cause is rendered
+        # repo-relative in both.
+        resolved = str(self.root.resolve())
+        # Both runners pass the root through (code lane final pass CODE-RV4-1:
+        # the incremental site was the one pass-through with no failing test).
+        for runner_name in ("run_validate", "run_validate_changed"):
+            for spelled in (str(self.root), resolved):
+                with self.subTest(runner=runner_name, spelling=spelled):
+                    crashed = MagicMock(returncode=1, stdout="", stderr=(
+                        "Traceback (most recent call last):\n"
+                        f"PermissionError: [Errno 13] Permission denied: '{spelled}/docs/waves/w/c.md'\n"))
+                    with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+                        result = getattr(self.srv, runner_name)(self.root)
+                    message = result["errors"][0]
+                    self.assertIn("Permission denied: 'docs/waves/w/c.md'", message)
+                    self.assertNotIn(str(self.root), message)
+                    self.assertNotIn(resolved, message)
+
+    def test_run_validate_changed_synthesizes_the_same_error(self):
+        # The incremental sibling feeds the post-write attachment; a crash there
+        # must count as an error, not as checked-and-clean with zero errors.
+        crashed = MagicMock(returncode=1, stdout="", stderr=self.CRASH_STDERR)
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+            result = self.srv.run_validate_changed(self.root)
+        self.assertFalse(result["passed"])
+        self.assertEqual(1, len(result["errors"]), result)
+        self.assertIn("without a lint verdict", result["errors"][0])
+
+    def test_the_sanitizer_ignores_a_filesystem_root_or_relative_spelling(self):
+        # Wave 1wybs (1wybr AC-1; readiness RT-RDY-4): a root spelling that is its
+        # own parent would rewrite every separator, and a relative spelling would
+        # delete a bare segment wherever it occurs; both leave the line byte-identical.
+        cause = "PermissionError: [Errno 13] Permission denied: '/Users/x/repo/docs/waves/w/c.md'"
+        for spelling in (Path("/"), Path("repo"), Path("."), Path("docs")):
+            with self.subTest(root=str(spelling)):
+                self.assertEqual(cause, self.srv._strip_repository_root(cause, spelling))
+        # A real root is still stripped in its given and resolved spellings.
+        for spelled in (str(self.root), str(self.root.resolve())):
+            with self.subTest(spelling=spelled):
+                line = f"PermissionError: [Errno 13] Permission denied: '{spelled}/docs/w.md'"
+                self.assertEqual(
+                    "PermissionError: [Errno 13] Permission denied: 'docs/w.md'",
+                    self.srv._strip_repository_root(line, self.root),
+                )
+
+    def test_the_gap_producer_requires_the_root(self):
+        # Wave 1wybs (1wybr AC-1): a caller that forgets the root cannot leak the path.
+        with self.assertRaises(TypeError):
+            self.srv._docs_lint_verdict_gap_error(1, "boom")  # type: ignore[call-arg]
+
+    def test_a_long_cause_keeps_its_head_and_tail(self):
+        # Wave 1wybs (1wybr AC-2; readiness RT-RDY-7): the cap retains the exception
+        # class and the quoted detail around a marker, after the root is stripped;
+        # a cause under the cap is unchanged.
+        cap = self.srv.DOCS_LINT_VERDICT_GAP_CAUSE_CAP
+        self.assertGreaterEqual(cap, 240)
+        filler = "x" * (cap * 2)
+        long_line = f"PermissionError: [Errno 13] {filler} Permission denied: '{self.root}/docs/w.md'"
+        crashed = MagicMock(returncode=1, stdout="", stderr="Traceback\n" + long_line + "\n")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+            message = self.srv.run_validate(self.root)["errors"][0]
+        cause = message.split("without a lint verdict; ", 1)[1]
+        self.assertLessEqual(len(cause), cap)
+        self.assertTrue(cause.startswith("PermissionError:"), cause)
+        self.assertTrue(cause.endswith("Permission denied: 'docs/w.md'"), cause)
+        self.assertIn(self.srv.DOCS_LINT_VERDICT_GAP_CAUSE_MARKER, cause)
+        self.assertNotIn(str(self.root), message)
+        self.assertNotIn(str(self.root.resolve()), message)
+        short = MagicMock(returncode=1, stdout="", stderr=self.CRASH_STDERR)
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=short):
+            message = self.srv.run_validate(self.root)["errors"][0]
+        self.assertTrue(message.endswith(self.CRASH_STDERR.strip().splitlines()[-1]), message)
+        # Delivery review CODE-DEL-3: the exact-cap boundary is unchanged and cap+1 is
+        # truncated to exactly the cap.
+        marker = self.srv.DOCS_LINT_VERDICT_GAP_CAUSE_MARKER
+        self.assertEqual("A" * cap, self.srv._cap_cause_line("A" * cap))
+        over = self.srv._cap_cause_line("A" * (cap + 1))
+        self.assertEqual(cap, len(over))
+        self.assertIn(marker, over)
+        # Delivery review ARCH-DEL-2: the root is stripped BEFORE the cap. With the
+        # root straddling the head cut, the reversed order leaves a root fragment
+        # beside the marker that assertNotIn on the whole root cannot see.
+        head = (cap - len(marker)) // 2
+        prefix = "PermissionError: " + "x" * (head - 20 - len("PermissionError: "))
+        straddle = f"{prefix}{self.root}/docs/w.md" + " y" * 200
+        crashed = MagicMock(returncode=1, stdout="", stderr="Traceback\n" + straddle + "\n")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+            message = self.srv.run_validate(self.root)["errors"][0]
+        cause = message.split("without a lint verdict; ", 1)[1]
+        self.assertEqual(
+            self.srv._cap_cause_line(self.srv._strip_repository_root(straddle, self.root)), cause
+        )
+        self.assertIn("docs/w.md", cause)
+        for spelled in (str(self.root), str(self.root.resolve())):
+            self.assertNotIn(spelled[:20], cause, cause)
+
+    def test_the_sanitizer_strips_a_repr_doubled_windows_spelling(self):
+        # Wave 1wybs (1wybr; delivery review DOCS-DEL-5): a Windows traceback
+        # renders the path through %r, doubling every backslash; the forms-level
+        # seam lets the case be pinned at string level on any platform.
+        root = r"C:\Users\x\repo"
+        line = "PermissionError: [Errno 13] Permission denied: %r" % (root + r"\docs\w.md")
+        self.assertIn(r"C:\\Users", line)
+        stripped = self.srv._strip_root_forms(line, [root])
+        self.assertEqual("PermissionError: [Errno 13] Permission denied: 'docs\\\\w.md'", stripped)
+        self.assertNotIn("Users", stripped)
+        plain = "denied: '" + root + r"\docs\w.md'"
+        self.assertEqual("denied: 'docs\\w.md'", self.srv._strip_root_forms(plain, [root]))
+        self.assertEqual("denied: <repo>", self.srv._strip_root_forms("denied: " + root, [root]))
+
 
 class RunGardenTests(unittest.TestCase):
     @classmethod
@@ -3237,6 +3664,37 @@ class WaveAuditTests(unittest.TestCase):
         self.assertIn("wf_validate_docs", result["next_tools"])
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("docs_lint_error", codes)
+
+    def _advisory_validate(self):
+        return {"passed": True, "errors": [],
+                "warnings": ["WARNING: docs/waves/1w test/1w-enh x.md: AC-1 asserts repository-wide state "
+                             "('full framework test suite') [advisory sensor `ac_asserts_repository_state`]"],
+                "output": ""}
+
+    def test_advisory_lint_warning_is_rendered_non_blocking_at_the_audit_gate(self):
+        """Wave 1wuju (1wujs AC-1): an advisory sensor's finding reaches the audit envelope
+        as a `docs_lint_warning` carrying `advisory: true`, with no `docs_lint_error` and
+        the wave still ready."""
+        wave_record = {"id": "w1", "status": "active", "changes": [], "title": "Wave", "path": ""}
+        with patch.object(self.srv, "current_wave", return_value=wave_record), \
+             patch.object(self.srv, "run_validate", return_value=self._advisory_validate()), \
+             patch.object(self.srv, "_audit_index_snapshot", return_value=self._healthy_snapshot()):
+            result = self.srv.wf_audit_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["ready"])
+        warnings = [d for d in result["diagnostics"] if d["code"] == "docs_lint_warning"]
+        self.assertEqual(1, len(warnings), result["diagnostics"])
+        self.assertIs(True, warnings[0].get("advisory"))
+        self.assertIn("asserts repository-wide state", warnings[0]["message"])
+        self.assertNotIn("docs_lint_error", [d["code"] for d in result["diagnostics"]])
+
+    def test_advisory_lint_warning_carries_the_flag_at_validate_docs(self):
+        with patch.object(self.srv, "run_validate", return_value=self._advisory_validate()):
+            result = self.srv.wf_validate_docs_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        warnings = [d for d in result["diagnostics"] if d["code"] == "docs_lint_warning"]
+        self.assertEqual(1, len(warnings))
+        self.assertIs(True, warnings[0].get("advisory"))
 
     def test_index_absent_path(self):
         """AC-4: index not ready adds index_build to next_tools, ready=False."""
@@ -9273,8 +9731,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # AST and falls back to "<helper-call>" for anything computed.
                 ("wf_techdocs_audit_response", "_diagnostic", "techdocs_audit_not_applicable"),
                 ("wf_techdocs_audit_response", "_diagnostic", "techdocs_audit_degraded"),
+                            # Wave 1wuju (1wujs): advisory docs-lint sensors render as
+                # `docs_lint_warning` with `advisory: true` at every gate; the
+                # shared helper is the one emit site, plus wf_validate_docs's own.
+                ("_docs_lint_warning_diagnostics", "_diagnostic", "docs_lint_warning"),
+                ("wf_validate_docs_response", "_diagnostic", "docs_lint_warning"),
             },
-            "exactly these seven sites may be advisory. A tag added, removed, or "
+            "exactly these nine sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
             "does not -- moving it onto missing_wave_council_signoff or "
             "another_wave_active would otherwise open the readiness stage gate "
@@ -12411,6 +12874,76 @@ class LegacyProseGateParityTests(unittest.TestCase):
         self.assertEqual(close["status"], "dry_run", close)
         self.assertEqual(self._codes(close), set())
 
+    def test_advisory_lint_warning_never_blocks_review_or_close(self):
+        """Wave 1wuju (1wujs AC-1; delivery review CODE-DEL-1 / ARCH-DEL-1): on an
+        otherwise closable wave whose only lint output is one advisory line, review is
+        `ok` and the close dry-run is `dry_run`, each carrying exactly one
+        `docs_lint_warning` diagnostic flagged advisory and nothing else. The close
+        predicate keyed on list non-emptiness and returned `error` here."""
+        self._write_wave(
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved",
+            ],
+            prepare_lines=["- code-reviewer: approved"],
+        )
+        advisory = {"passed": True, "errors": [],
+                    "warnings": ["WARNING: docs/waves/1200a legacy-wave/1200a-feat sample.md: AC-1 asserts "
+                                 "repository-wide state ('full test suite') [advisory sensor "
+                                 "`ac_asserts_repository_state`, introduced in wave `1wur7`]"],
+                    "output": ""}
+        with patch.object(self.srv, "run_validate", return_value=advisory), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            review = self.srv.wf_review_wave_response(self.root, "1200a legacy-wave")
+            close = self.srv.wf_close_wave_response(self.root, "1200a legacy-wave", mode="dry_run")
+        for gate, response, status in (("review", review, "ok"), ("close", close, "dry_run")):
+            with self.subTest(gate=gate):
+                self.assertEqual(response["status"], status, response)
+                diagnostics = response.get("diagnostics") or []
+                self.assertEqual(["docs_lint_warning"], [d["code"] for d in diagnostics], diagnostics)
+                self.assertIs(True, diagnostics[0].get("advisory"), diagnostics[0])
+                self.assertIn("asserts repository-wide state", diagnostics[0]["message"])
+
+    def test_a_lint_crash_without_a_verdict_blocks_every_gate(self):
+        """Wave 1wuju (delivery review QA-DEL-2): a docs_lint subprocess that exits
+        non-zero without an ERROR line (a misspelled registry polarity, any crash)
+        reaches prepare, review, close, and wf_validate_docs as `error` with a
+        `docs_lint_error` naming the cause. The gate result is derived from the REAL
+        run_validate parser over the crashed subprocess shape, so the pin fails when
+        the parser stops synthesizing the entry."""
+        self._write_wave(
+            evidence_lines=[
+                "- operator-signoff: approved",
+                "- code-reviewer: approved",
+            ],
+            prepare_lines=["- code-reviewer: approved"],
+        )
+        crashed = MagicMock(returncode=1, stdout="", stderr=(
+            "Traceback (most recent call last):\n"
+            "ValueError: sensor `ac_asserts_repository_state` is registered with unknown "
+            "polarity 'advisry'; expected one of ('advisory', 'blocking')\n"))
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+            parsed = self.srv.run_validate(self.root)
+        self.assertFalse(parsed["passed"], parsed)
+        with patch.object(self.srv, "run_validate", return_value=parsed), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            responses = {
+                "validate_docs": self.srv.wf_validate_docs_response(self.root),
+                "prepare": self.srv.wf_prepare_wave_response(self.root, "1200a legacy-wave", "dry_run"),
+                "review": self.srv.wf_review_wave_response(self.root, "1200a legacy-wave"),
+                "review_prepare": self.srv.wf_review_wave_response(self.root, "1200a legacy-wave", phase="prepare"),
+                "close": self.srv.wf_close_wave_response(self.root, "1200a legacy-wave", mode="dry_run"),
+            }
+        for gate, response in responses.items():
+            with self.subTest(gate=gate):
+                self.assertEqual("error", response["status"], (gate, response))
+                errors = [d for d in response.get("diagnostics") or [] if d["code"] == "docs_lint_error"]
+                self.assertEqual(1, len(errors), (gate, response.get("diagnostics")))
+                self.assertIn("without a lint verdict", errors[0]["message"])
+                self.assertIn("'advisry'", errors[0]["message"])
+
     def test_legacy_prepare_and_activation_keep_the_prose_verdict_gate(self):
         self._write_wave(
             evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
@@ -13379,6 +13912,53 @@ Status: in-progress
         self.assertEqual(result["data"]["status"], "next_step")
         self.assertEqual(result["data"]["pending_lint"]["errors"], [missing])
 
+    def test_advisory_lint_warning_is_rendered_non_blocking_at_the_install_audit(self):
+        """Wave 1wuju (1wujs AC-1; delivery review ARCH-DEL-2): the install audit runs the
+        full-corpus lint, so an advisory sensor's finding reaches its envelope as a flagged
+        `docs_lint_warning` on the success path and beside `docs_lint_error` on the
+        lint-errors path, and it advances the audit either way."""
+        from unittest.mock import patch
+        self._write_log(self._MINIMAL_LOG)
+        warning = ("WARNING: docs/waves/1w test/1w-enh x.md: AC-1 asserts repository-wide state "
+                   "('full test suite') [advisory sensor `ac_asserts_repository_state`]")
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": True, "errors": [], "warnings": [warning], "output": "ok"
+        }):
+            clean = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(clean["data"]["status"], "next_step", clean)
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": False, "errors": ["docs/x.md: broken"], "warnings": [warning], "output": "fail"
+        }):
+            blocked = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(blocked["data"]["status"], "lint_errors", blocked)
+        self.assertIn("docs_lint_error", [d["code"] for d in blocked["diagnostics"]])
+        # Delivery review ARCH-RV2-1: the terminal (complete / phase_complete)
+        # envelope carries the same flagged warning.
+        import install_log_lib  # the response imports it locally; patch the module object
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": True, "errors": [], "warnings": [warning], "output": "ok"
+        }), patch.object(install_log_lib, "checked_rows_missing_artifact", return_value=[]), \
+             patch.object(install_log_lib, "first_unchecked_row", return_value=None):
+            terminal = self.srv.wf_audit_install_response(self.root)
+        self.assertIn(terminal["data"]["status"], {"complete", "phase_complete"}, terminal)
+        # Docs-contract final pass DOCS-FIN-1: the checked_but_missing envelope
+        # (a [x] row whose artifact is absent) carries the same flagged warning
+        # beside its own diagnostics, so no post-parse envelope hides it.
+        self._write_log(self._MINIMAL_LOG.replace("- [ ] 2.2", "- [x] 2.2"))
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": True, "errors": [], "warnings": [warning], "output": "ok"
+        }):
+            missing = self.srv.wf_audit_install_response(self.root)
+        self.assertEqual(missing["data"]["status"], "checked_but_missing", missing)
+        self.assertIn("install_log_checked_but_missing", [d["code"] for d in missing["diagnostics"]])
+        for label, response in (("clean", clean), ("blocked", blocked), ("terminal", terminal),
+                                ("missing", missing)):
+            with self.subTest(path=label):
+                warnings = [d for d in response.get("diagnostics") or [] if d["code"] == "docs_lint_warning"]
+                self.assertEqual(1, len(warnings), response.get("diagnostics"))
+                self.assertIs(True, warnings[0].get("advisory"), warnings[0])
+                self.assertIn("asserts repository-wide state", warnings[0]["message"])
+
     def _build_phase_one_complete_tree(self):
         """Wave 1viyu (CODE-DEL-1): a FAITHFUL Phase-1-complete tree.
 
@@ -13487,32 +14067,6 @@ Status: in-progress
         self.assertEqual(result["data"]["status"], "next_step", result)
         self.assertEqual(result["data"]["row"]["number"], "2.1")
 
-    def test_lint_failure_without_error_lines_fails_closed(self):
-        """Wave 1viyu (CODE-DEL-2): passed=False with zero ERROR lines still blocks."""
-        from unittest.mock import patch
-        self._write_log(self._MINIMAL_LOG.replace("- [ ]", "- [x]"))
-        with patch.object(self.srv, "run_validate", return_value={
-            "passed": False, "errors": [], "warnings": [], "output": "docs/: missing repository docs root"
-        }):
-            result = self.srv.wf_audit_install_response(self.root)
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["data"]["status"], "lint_errors")
-        self.assertEqual(len(result["data"]["errors"]), 1)
-        self.assertIn("missing repository docs root", result["data"]["errors"][0])
-        self.assertEqual(result["data"]["pending_lint"]["count"], 0)
-        # RTD-1 (delivery council): the synthesized entry bypasses the classifier,
-        # so an output tail that quotes an absence-marker phrase while a seed row
-        # is still pending is STILL blocking, never deferred.
-        self._write_log(self._MINIMAL_LOG)
-        with patch.object(self.srv, "run_validate", return_value={
-            "passed": False, "errors": [], "warnings": [],
-            "output": "WARNING: docs/x.md: missing required Wavefoundry file",
-        }):
-            tricky = self.srv.wf_audit_install_response(self.root)
-        self.assertEqual(tricky["data"]["status"], "lint_errors")
-        self.assertEqual(tricky["data"]["pending_lint"]["count"], 0)
-        self.assertIn("missing required Wavefoundry file", tricky["data"]["errors"][0])
-
     def test_blocking_error_is_separated_from_pending_absence(self):
         from unittest.mock import patch
         self._write_log(self._MINIMAL_LOG)
@@ -13559,6 +14113,39 @@ Status: in-progress
         self.assertEqual(result["data"]["errors"], ["ERROR: foo.md missing required Role: field"])
         self.assertIn("docs-lint", result["data"]["next_action"])
 
+    def test_a_lint_crash_reaches_the_install_audit_through_the_real_parser(self):
+        """Wave 1wybs (1wybr AC-3; replaces the 1viyu patched-result pin and the
+        1wuju hand-built gap pin): a crashed docs-lint subprocess (non-zero exit,
+        no ERROR line) is parsed by the real run_validate into the producer's
+        verdict-gap entry, which blocks the audit and is never deferred as
+        pending lint, even when its tail quotes an absence marker while seed
+        rows still pend (RTD-1)."""
+        from unittest.mock import MagicMock, patch
+        cases = {
+            "plain_crash": (
+                self._MINIMAL_LOG.replace("- [ ]", "- [x]"),
+                "docs/: missing repository docs root",
+            ),
+            "absence_marker_tail_with_pending_rows": (
+                self._MINIMAL_LOG,
+                "WARNING: docs/x.md: missing required Wavefoundry file",
+            ),
+        }
+        for label, (log, tail) in cases.items():
+            with self.subTest(case=label):
+                self._write_log(log)
+                output = "Traceback (most recent call last):\n" + tail + "\n"
+                crashed = MagicMock(returncode=1, stdout="", stderr=output)
+                with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
+                    result = self.srv.wf_audit_install_response(self.root)
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["data"]["status"], "lint_errors")
+                expected = self.srv._docs_lint_verdict_gap_error(1, output, self.root)
+                self.assertEqual([expected], result["data"]["errors"])
+                self.assertEqual(0, result["data"]["pending_lint"]["count"])
+                self.assertEqual([], result["data"]["pending_lint"]["errors"])
+                self.assertIn(tail.split(": ", 1)[-1], result["data"]["errors"][0])
+
     def test_checked_but_missing_artifact_returns_diagnostic(self):
         log = self._MINIMAL_LOG.replace(
             "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
@@ -13569,8 +14156,37 @@ Status: in-progress
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["data"]["status"], "checked_but_missing")
         self.assertEqual(result["data"]["row"]["number"], "1.1")
-        self.assertIn("docs/workflow-config.json", result["data"]["expected_artifact"])
+        # Wave 1wybs (1wybr AC-4): every operator-facing path is repo-relative.
+        self.assertEqual("docs/workflow-config.json", result["data"]["expected_artifact"])
+        self.assertEqual(
+            ["docs/workflow-config.json"],
+            [m["expected_artifact"] for m in result["data"]["all_missing"]],
+        )
+        self.assertIn("does not exist at docs/workflow-config.json.", result["data"]["next_action"])
+        messages = [
+            d["message"] for d in result["diagnostics"] if d["code"] == "install_log_checked_but_missing"
+        ]
+        self.assertEqual(1, len(messages), result["diagnostics"])
+        self.assertIn("does not exist at docs/workflow-config.json.", messages[0])
+        for text in (result["data"]["next_action"], messages[0]):
+            self.assertNotIn(str(self.root), text)
+            self.assertNotIn(str(self.root.resolve()), text)
         self.assertIn("pending_lint", result["data"])  # 1viyu matrix
+        # An operator-authored row whose artifact resolves outside the repository
+        # still returns the envelope, carrying a `..`-relative path (readiness RT-RDY-5;
+        # delivery review CODE-DEL-5 replaced the resolved-string fallback).
+        escaping = self._MINIMAL_LOG.replace(
+            "- [ ] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: docs/workflow-config.json",
+            "- [x] 1.1 — Set lifecycle epoch in workflow-config (seed-020) — artifact: ../outside/config.json",
+        )
+        self._write_log(escaping)
+        result = self._call()
+        self.assertEqual(result["data"]["status"], "checked_but_missing")
+        # Delivery review CODE-DEL-5: a `..`-relative path, never an absolute segment.
+        self.assertEqual("../outside/config.json", result["data"]["expected_artifact"])
+        self.assertIn("does not exist at ../outside/config.json.", result["data"]["next_action"])
+        for text in (result["data"]["expected_artifact"], result["data"]["next_action"]):
+            self.assertNotIn(str(self.root.resolve().parent), text)
 
     def test_checked_row_missing_artifact_still_flagged_while_absences_pend(self):
         """Wave 1viyu (1vitr test f): a [x] seed row whose OWN artifact is absent

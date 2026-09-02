@@ -58,6 +58,8 @@ from .constants import (
     PLAN_WAVE_OVERVIEW_PATTERN,
     PREVIOUS_ITEM_STATUS_PATTERN,
     PREVIOUS_CHANGE_STATUS_PATTERN,
+    SENSOR_POLARITIES,
+    SENSOR_POLARITY_REGISTRY,
     PROGRESSABLE_CHANGE_STATUSES,
     PROGRESSABLE_ITEM_STATUSES,
     TERMINAL_CHANGE_STATUSES,
@@ -290,6 +292,248 @@ def _check_checkbox_task_syntax(text: str, rel: str) -> list[str]:
         "use checkbox syntax (`- [ ] step` / `- [x] step` / `- [~] step` for intentionally-deferred) "
         "so task completion can be tracked during implementation"
     ]
+
+
+# Wave 1wur7 (1wuui): an acceptance criterion asserts an outcome the change
+# CONTROLS.  A criterion asserting repository-wide state ("the full framework
+# test suite passes") measures the tree at a moment in time, so whether it can be
+# marked depends on timing and on work owned by other people -- wave 1wpif had
+# three sibling documents carrying one clause reach opposite outcomes, two of them
+# unmarkable because a CONCURRENT wave's uncommitted document tripped a
+# repository-wide test while the wave's own suites were green.
+#
+# The rule keys on the ASSERTION SHAPE, not on a phrase list: a repository-scope
+# quantifier applied to a test-corpus noun (or the runner command itself),
+# followed closely by a health predicate.  It catches the bare suite clause, the
+# runner-command form, and a repo-wide clause compounded into an otherwise
+# change-scoped AC.
+_AC_REPO_SCOPE = r"(?:full|whole|entire|complete|all|every|repo(?:sitory)?[-\s]wide|whole[-\s]repository)"
+# Reverification: the quantifier and the noun are rarely adjacent in real prose
+# ("All 944 tests pass", "All pre-existing framework tests pass", "the full
+# repository test suite passes"). A bounded gap of modifier words recovers 70
+# missed criteria in the live corpus without admitting a different noun, because
+# the corpus noun still has to be the head.
+# Reverification D1: the gap must not swallow a change-local modifier. "All 944
+# tests pass" is a repository-wide total; "All new tests pass" and "All three new
+# tests pass" are assertions about what the change added, and a blocking rule must
+# not reject them.
+# Reverification NEW-1/N4: an ALLOWLIST, not a denylist. The first two attempts
+# enumerated change-local modifiers (`new`, `added`, then thirteen more) and each
+# time a reverification found synonyms the list missed -- `revised`, `reworked`,
+# `amended`, `refactored`, and two dozen others -- every one of which produced a
+# false finding on a criterion that was already change-local. Enumerating what a
+# change might call its own work is open-ended; enumerating what a repository-wide
+# quantifier may say is not.
+#
+# So the gap between the quantifier and the corpus noun may contain only words that
+# are themselves repository-scoped or a bare count. Anything else means the author
+# narrowed the subject, and the rule stays silent. The trade is deliberate and
+# asymmetric: an unlisted repo-wide adjective becomes a MISS, which costs a
+# reviewer's attention, while a false positive would be a hard stop on a
+# compliant criterion once the rule blocks. For a rule meant to block one day,
+# the silent miss is the cheaper failure.
+_AC_SCOPE_GAP_WORD = (
+    # `framework` is deliberately absent: `_AC_TEST_CORPUS_NOUN` already carries an
+    # optional `framework` prefix, so listing it here decides no natural word order
+    # (only inversions such as "All framework existing tests", which become silent
+    # misses) -- an alternative behind an unfalsifiable pin on real prose.
+    r"\d[\d,]*|existing|pre-existing|preexisting|repository|repo|"
+    r"project|codebase|remaining|other|current|known|passing|failing"
+)
+_AC_SCOPE_GAP = rf"(?:(?:{_AC_SCOPE_GAP_WORD})\s+){{0,2}}"
+# `test[-\s]+suites?` used to precede `tests?[-\s]+suites?` and was removed: the
+# second matches everything the first did, so the first could never decide an
+# outcome (round-5 qa reverification).
+_AC_TEST_CORPUS_NOUN = r"(?:framework[-\s]+)?(?:tests?[-\s]+suites?|suites?|tests?)"
+# A quantifier that governs a NARROWER subject is not a repository-wide
+# assertion. Three narrowing shapes, all found by delivery review:
+#   - a change-local possessor ...... "every test it adds"
+#   - a narrower noun ............... "every test class", "all test files"
+#   - a trailing target qualifier ... "all tests in `test_chunker.py` pass",
+#                                     "the full test suite for the new module",
+#                                     "every test we touch"
+# The last one must not swallow a repo-wide referent, so "all tests in the
+# repository" still matches.
+# Reverification D4: `tests/` and `.wavefoundry/` were followed by \b, which can
+# never match after a slash, so both alternatives were dead. They are matched as
+# path prefixes instead.
+_AC_REPO_REFERENT = (
+    r"(?:the\s+)?(?:(?:repository|repo|tree|project|codebase|framework|suite|ci)\b"
+    # "all tests in CI pass" and "every test under .wavefoundry/ passes" are
+    # repository-wide assertions wearing a trailing qualifier.
+    r"|tests/|\.wavefoundry/)"
+)
+_AC_NARROWER_NOUN = (
+    r"class|classes|file|files|module|modules|case|cases|method|methods|"
+    r"function|functions|name|names|id|ids|fixture|fixtures|runner|runners|"
+    r"data|helper|helpers|path|paths|"
+    # `suite`/`suites` blocks the alternation from backtracking to the bare noun:
+    # in "full test suite for the new module", rejecting "full test suite" on the
+    # trailing qualifier must not leave "full test" standing as a match.
+    r"suite|suites"
+)
+_AC_NOT_REPO_WIDE = (
+    r"(?!\s+(?:it|they|this\s+change|the\s+change|the\s+wave|added|introduced|"
+    rf"{_AC_NARROWER_NOUN}|we\s+\w+|"
+    rf"(?:in|for|under|covering|touching|from)\s+(?!{_AC_REPO_REFERENT})\S+)\b)"
+)
+_AC_REPO_STATE_RES = (
+    re.compile(rf"\b{_AC_REPO_SCOPE}\s+{_AC_SCOPE_GAP}{_AC_TEST_CORPUS_NOUN}\b{_AC_NOT_REPO_WIDE}",
+               re.IGNORECASE),
+    # The runner names the WHOLE suite only when it is invoked whole. A focused
+    # invocation (`--file`, or a named test module) is change-local, and a change
+    # whose own subject is the runner must be able to say its name (reverification
+    # found `run_tests.py --file test_chunker.py` passes wrongly flagged).
+    # The first lookahead covers the positional and path forms; `--file` is the
+    # second lookahead's job, and a `--no-cache` alternative that used to sit here
+    # could only decide an outcome with a predicate inside the 24-character
+    # runner window, which no valid focused invocation leaves room for (round-5
+    # qa reverification), so both were removed as undecidable.
+    re.compile(r"run_tests\.py(?!\s*[\w./-]*test_[\w.]+\.py)"
+               r"(?!\s+--file)", re.IGNORECASE),
+)
+_AC_RUNNER_PATTERN_INDEX = 1
+_AC_HEALTH_PREDICATE_RE = re.compile(
+    r"\b(?:pass(?:es|ed|ing)?|green|clean|succeeds?|succeeded|agrees?)\b", re.IGNORECASE)
+# The predicate has to be attached to the phrase, not merely present somewhere in a
+# long status note: "full test suite at 2200 tests still runs in ~65s" is an aside,
+# not an assertion.
+_AC_HEALTH_PREDICATE_WINDOW = 120
+# The runner-command family needs a tighter window than the prose family: a
+# bullet whose subject is the runner itself ("`run_tests.py` gains `--no-cache`,
+# and the focused chunker file passes") mentions it far from any health word,
+# while the assertion form puts the predicate immediately after.
+_AC_RUNNER_PREDICATE_WINDOW = 24
+# Negating or specifying the clause -- talking ABOUT the rule rather than
+# asserting it -- is not a violation. The marker has to sit IMMEDIATELY before
+# the phrase it governs ("rather than the full suite", "must not say all tests
+# pass"); a line-wide test exempted any bullet that happened to contain an
+# ordinary word like "flag" or a "never" clause about something else, which
+# silently disabled the rule on real violations (delivery review CODE-DEL-5,
+# REL-DEL-5, QA-DEL-7). Note that "whole-repository" is deliberately NOT a marker:
+# it is a scope word this rule must catch, not a way to opt out of it.
+_AC_REPO_STATE_CARVE_OUT_RE = re.compile(
+    r"\b(?:must\s+not|may\s+not|never|no\s+longer|rather\s+than|instead\s+of|"
+    r"outlaws?|forbids?|does\s+not|asserting|asserts)\b[^.;]{0,16}$", re.IGNORECASE)
+# The marker governs the phrase only when it is essentially adjacent to it.
+# "rather than the full suite" is a specification; "the sensor never fires on
+# closed waves, and the full suite passes" is an assertion with an unrelated
+# negation 28 characters earlier, and it must still fire.
+# Adjacency is expressed ONCE, by the `[^.;]{0,16}$` tail on the carve-out regex.
+# A separate `_AC_CARVE_OUT_LOOKBEHIND = 40` slice used to precede it and was
+# removed after reverification: with the anchored 16-character tail already
+# binding, any window of 27 or more characters (the longest marker, 11, plus the
+# 16-character tail) is indistinguishable from no window at all, so the delivered
+# 40 could never decide an outcome and no test could have pinned it; smaller
+# values bind only by clipping the tail the regex already bounds.
+# Two bounds where only one can bind is the same unfalsifiable-mechanism shape
+# this wave was convened to remove.
+# Quoting the clause is not asserting it -- but only when the PREDICATE is quoted
+# with it. A backticked command followed by a bare predicate (`run_tests.py`
+# passes) is the assertion itself written in this repository's house style, and
+# exempting it silenced the exact family the rule names (CODE-DEL-7, QA-DEL-7,
+# ARCH-DEL-10). The straight-apostrophe branch is gone: two ordinary possessives
+# formed a span that swallowed everything between them (CODE-DEL-4).
+_AC_CODE_SPAN_RE = re.compile(r"`[^`\n]*`|\"[^\"\n]*\"|\u201c[^\u201d\n]*\u201d")
+
+
+def _ac_bullet_lines(section: str) -> list[str]:
+    """Yield each AC bullet as ONE logical line, continuations folded in.
+
+    Delivery review DOCS-DEL-2: the rule inspected only a bullet's first physical
+    line, so a wrapped bullet evaded it -- and long compound criteria, which is
+    where a repository-wide clause actually hides, are exactly the ones that wrap.
+    """
+    bullets: list[str] = []
+    current: list[str] | None = None
+    for line in section.splitlines():
+        if _CHECKBOX_AC_LINE_RE.match(line) or _PLAIN_AC_LINE_RE.match(line):
+            if current is not None:
+                bullets.append(" ".join(current))
+            current = [line.strip()]
+        elif current is not None:
+            if not line.strip():
+                # A blank line does not end the bullet: markdown reads "- item", a
+                # blank line, then an INDENTED paragraph as one loose list item, and
+                # that paragraph is where a compound criterion's second clause lands
+                # (round-5 architecture reverification). Only an unindented line or
+                # the next bullet ends the fold.
+                continue
+            if not line.startswith((" ", "\t")):
+                bullets.append(" ".join(current))
+                current = None
+            else:
+                current.append(line.strip())
+    if current is not None:
+        bullets.append(" ".join(current))
+    return bullets
+
+
+def _ac_repo_state_match(line: str) -> str | None:
+    """Return the offending phrase when one AC bullet asserts repository-wide state."""
+    quoted = [span.span() for span in _AC_CODE_SPAN_RE.finditer(line)]
+    # The carve-out is searched on a copy with code spans blanked to spaces (same
+    # length, so offsets still line up): a marker such as `must not` inside
+    # backticks is being quoted, not applied (round-5 architecture reverification).
+    unquoted = line
+    for start, end in quoted:
+        unquoted = unquoted[:start] + " " * (end - start) + unquoted[end:]
+    for index, pattern in enumerate(_AC_REPO_STATE_RES):
+        window = (_AC_RUNNER_PREDICATE_WINDOW if index == _AC_RUNNER_PATTERN_INDEX
+                  else _AC_HEALTH_PREDICATE_WINDOW)
+        for match in pattern.finditer(line):
+            # Search the whole tail and bound the predicate's END explicitly: an
+            # `endpos` cut would let a prefix such as `pass` match as a whole word
+            # at the cut, so `passes` ending one character past the window still
+            # fired (round-5 qa reverification, boundary mutants).
+            predicate = _AC_HEALTH_PREDICATE_RE.search(line, match.end())
+            if predicate is None or predicate.end() > match.end() + window:
+                continue
+            # Quoted only counts when the whole clause, predicate included, is
+            # inside one span.
+            if any(start <= match.start() and predicate.end() <= end for start, end in quoted):
+                continue
+            if _AC_REPO_STATE_CARVE_OUT_RE.search(unquoted, 0, match.start()):
+                continue
+            return match.group(0).strip()
+    return None
+
+
+def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
+    """Wave 1wur7 (1wuui): flag an AC that asserts repository-wide state.
+
+    Polarity is registered ``advisory`` in ``SENSOR_POLARITY_REGISTRY`` (wave
+    1wuju): findings travel the ``WARNING:`` channel and never fail lint, and the
+    flip to blocking is a later recorded change.  Guidance alone already failed
+    at scale, so the sensor is the durable half.  Scope comes
+    from the CALL SITE: these AC validators run only inside the wave-owned
+    change-doc loop, which `_wave_requires_wave_owned_change_docs` gates to
+    ready/active/implementing (or explicitly activated) waves.  Closed-wave records
+    and parked `docs/plans/*.md` drafts are therefore never reached; a carrier
+    enters scope when its wave is readied or activated, and the wave that owns it
+    rewrites its own criteria then.
+    """
+    sections = _extract_sections(text)
+    ac_section = sections.get("## Acceptance Criteria", "")
+    if not ac_section:
+        return []
+    failures: list[str] = []
+    for line in _ac_bullet_lines(ac_section):
+        offender = _ac_repo_state_match(line)
+        if offender is None:
+            continue
+        id_match = _AC_ID_RE.search(line)
+        label = id_match.group(1) if id_match else "an acceptance criterion"
+        failures.append(
+            f"{rel}: {label} asserts repository-wide state ({offender!r}); an acceptance "
+            "criterion states an outcome THIS CHANGE controls and that a reviewer can verify "
+            "from this change's own evidence. Whole-suite/tree health is a gate concern, not an acceptance criterion. "
+            "Write instead: \"the change's own suites and every test it adds pass; the documents "
+            "this change authors or edits validate; and no failure elsewhere is attributable to "
+            "this change\". See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` "
+            "\"Acceptance criteria assert what the change controls\""
+        )
+    return failures
 
 
 def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
@@ -1040,7 +1284,38 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
     return failures
 
 
-def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None) -> list[str]:
+def _route_sensor_findings(sensor_id: str, findings: list[str], failures: list[str],
+                           warnings: list[str] | None) -> None:
+    """Wave 1wuju (1wujs): deliver a registered sensor's findings by its polarity.
+
+    A sensor registered ``advisory`` reaches the ``WARNING:`` channel (the
+    ``warnings`` sink the lint CLI threads through) with the same message text
+    plus a suffix naming the sensor, and never fails lint; ``blocking`` (and any
+    unregistered sensor) is a failure as before. A caller that passes no sink
+    receives blocking findings only; the CLI always passes one. An entry whose
+    polarity is outside ``SENSOR_POLARITIES`` raises ``ValueError`` so a misspelled
+    registration is fixed rather than silently read as blocking."""
+    entry = SENSOR_POLARITY_REGISTRY.get(sensor_id)
+    if entry is None:
+        failures.extend(findings)
+        return
+    polarity = entry.get("polarity")
+    if polarity not in SENSOR_POLARITIES:
+        raise ValueError(
+            f"sensor `{sensor_id}` is registered with unknown polarity {polarity!r}; "
+            f"expected one of {SENSOR_POLARITIES}"
+        )
+    if polarity == "advisory":
+        if warnings is not None:
+            wave = entry.get("introduced_wave", "unknown")
+            warnings.extend(f"{finding} [advisory sensor `{sensor_id}`, introduced in wave `{wave}`; "
+                            "a flip to blocking is a recorded change]" for finding in findings)
+        return
+    failures.extend(findings)
+
+
+def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] | None = None,
+                    warnings: list[str] | None = None) -> list[str]:
     """``only`` (wave 1p9c1): when provided, restrict the per-file section/status checks to those
     paths for the incremental lint path. Note the cross-doc duplicate wave-id/item-id detection is
     inherently corpus-wide and only meaningful in the unscoped (full) run — the incremental path
@@ -1266,6 +1541,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     failures.extend(_check_checkbox_ac_syntax(change_text, change_rel))
                     failures.extend(_check_checkbox_task_syntax(change_text, change_rel))
                     failures.extend(_check_tilde_required_ac_has_inline_note(change_text, change_rel))
+                    _route_sensor_findings("ac_asserts_repository_state",
+                                           _check_ac_asserts_repository_state(change_text, change_rel),
+                                           failures, warnings)
                     if not _H1_TITLE_RE.search(change_text):
                         failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:

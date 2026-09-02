@@ -676,6 +676,197 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("uses plain bullet format", result.stderr)
         self.assertIn("checkbox syntax", result.stderr)
 
+    AC_REPO_STATE_DOC = "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+
+    def _replace_acs(self, root, acs: str, priorities: str) -> None:
+        change_doc = root / self.AC_REPO_STATE_DOC
+        text = change_doc.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
+            f"## Acceptance Criteria\n\n{acs}",
+        )
+        text = text.replace("| AC-1 | required |\n", priorities)
+        change_doc.write_text(text, encoding="utf-8")
+
+    def test_ac_asserting_repository_state_warns_across_named_families(self) -> None:
+        # Wave 1wur7 (1wuui AC-2): the three phrasing families named in
+        # Requirement 3 -- the bare suite clause, the runner-command form, and a
+        # repo-wide clause compounded into an otherwise change-scoped AC.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: Fixture criterion satisfied and the full framework test suite passes.\n"
+            "- [x] AC-2: The reproducer lands and python3 .wavefoundry/framework/scripts/run_tests.py passes.\n"
+            "- [x] AC-3: The new validator has fixtures beside the existing AC checks, and all tests are green.\n",
+            "| AC-1 | required |\n| AC-2 | required |\n| AC-3 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        for label in ("AC-1", "AC-2", "AC-3"):
+            self.assertIn(f"{label} asserts repository-wide state", result.stderr)
+            self.assertRegex(result.stderr, r"(?m)^WARNING: .*asserts repository-wide state")
+        self.assertIn("an outcome THIS CHANGE controls", result.stderr)
+
+    def test_wrapped_ac_bullet_is_inspected_whole(self) -> None:
+        # Delivery review DOCS-DEL-2: only a bullet's FIRST physical line was
+        # inspected, so a wrapped bullet evaded the rule -- and long compound
+        # criteria, where a repo-wide clause actually hides, are the ones that wrap.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: The reproducer lands and the fixtures cover it, and\n"
+            "  the full framework test suite passes.\n",
+            "| AC-1 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("AC-1 asserts repository-wide state", result.stderr)
+        self.assertRegex(result.stderr, r"(?m)^WARNING: .*asserts repository-wide state")
+
+    def test_loose_list_continuation_paragraph_is_inspected_whole(self) -> None:
+        # Round-5 architecture reverification: a blank line ended the fold, so a
+        # loose-list continuation paragraph (blank line, then indented text, which
+        # markdown renders as the same item) was never inspected -- the wrapped
+        # bullet hole in a different costume.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: The reproducer lands and the fixtures cover it.\n"
+            "\n"
+            "  In addition, the full framework test suite passes.\n",
+            "| AC-1 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("AC-1 asserts repository-wide state", result.stderr)
+        self.assertRegex(result.stderr, r"(?m)^WARNING: .*asserts repository-wide state")
+
+    def test_backticked_runner_command_still_fires(self) -> None:
+        # CODE-DEL-7 / QA-DEL-7 / ARCH-DEL-10: backticking a command is this
+        # repository's house style, and exempting it silenced the exact
+        # runner-command family the rule names. Quoting exempts only when the
+        # PREDICATE is quoted with the clause.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: `python3 .wavefoundry/framework/scripts/run_tests.py` passes.\n",
+            "| AC-1 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("AC-1 asserts repository-wide state", result.stderr)
+        self.assertRegex(result.stderr, r"(?m)^WARNING: .*asserts repository-wide state")
+
+    def test_change_local_acs_naming_a_specific_target_do_not_fire(self) -> None:
+        # CODE-DEL-6 / REL-DEL-4 / ARCH-DEL-10: a blocking rule about assertion
+        # shape must not reject an assertion that is already change-local.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: All tests in `test_chunker.py` pass.\n"
+            "- [x] AC-2: The full test suite for the new module passes.\n"
+            "- [x] AC-3: Every test we touch passes.\n",
+            "| AC-1 | required |\n| AC-2 | required |\n| AC-3 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_unrelated_negation_word_does_not_disable_the_rule(self) -> None:
+        # CODE-DEL-5 / REL-DEL-5 / QA-DEL-7: the carve-out was tested line-wide,
+        # so any bullet containing an ordinary "flag" or an unrelated "never"
+        # clause silently exempted itself. It now has to sit immediately before
+        # the phrase it governs.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: The --all flag is honored and the full test suite passes.\n"
+            "- [x] AC-2: The sensor never fires on closed waves, and all framework tests pass.\n"
+            "- [x] AC-3: The whole-repository test suite passes.\n",
+            "| AC-1 | required |\n| AC-2 | required |\n| AC-3 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0)
+        for label in ("AC-1", "AC-2", "AC-3"):
+            self.assertIn(f"{label} asserts repository-wide state", result.stderr)
+            self.assertRegex(result.stderr, r"(?m)^WARNING: .*asserts repository-wide state")
+
+    def test_quoting_alone_and_negating_alone_each_exempt_a_bullet(self) -> None:
+        # QA-DEL-7: the original negative fixture carried BOTH signals at once,
+        # so either mechanism could be deleted and the test stayed green. Each is
+        # now exercised on its own.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: The seed shows the banned shape `the full test suite passes` verbatim.\n"
+            "- [x] AC-2: The guidance says to write a change-scoped clause rather than "
+            "the full framework test suite passing.\n",
+            "| AC-1 | required |\n| AC-2 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_change_scoped_and_quoting_acs_do_not_fire(self) -> None:
+        # Wave 1wur7 (1wuui AC-2): the replacement shape passes, and a bullet that
+        # quotes, negates, or specifies the clause is talking ABOUT it, not
+        # asserting it. The carve-out is scoped to the individual AC bullet.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: The change's own suites and every test it adds pass; the documents this "
+            "change authors or edits validate; and no failure elsewhere is attributable to this change.\n"
+            "- [x] AC-2: The validator flags an AC that says `the full framework test suite passes`.\n"
+            "- [x] AC-3: Every test class in `test_server_tools.py` is classified, and the runner "
+            "gains a `--file` flag.\n",
+            "| AC-1 | required |\n| AC-2 | required |\n| AC-3 | required |\n",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ac_repository_state_rule_does_not_reach_a_closed_wave(self) -> None:
+        # Wave 1wur7 (1wuui Requirement 4, AC-5): scoping is the wave record's
+        # Status via `_wave_requires_wave_owned_change_docs`, so closed-wave
+        # records and parked `docs/plans/` drafts are never reached and this
+        # change fails no document it promised not to touch.
+        root = self.copy_fixture()
+        self._replace_acs(
+            root,
+            "- [x] AC-1: Fixture criterion satisfied and the full framework test suite passes.\n",
+            "| AC-1 | required |\n",
+        )
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_text = wave_doc.read_text(encoding="utf-8")
+        self.assertIn("Status: active", wave_text)
+        wave_doc.write_text(wave_text.replace("Status: active", "Status: closed", 1), encoding="utf-8")
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertNotIn("asserts repository-wide state", result.stderr)
+
     def test_checkbox_ac_syntax_passes(self) -> None:
         root = self.copy_fixture()
         try:
@@ -2774,6 +2965,391 @@ class PrepareCouncilVerdictRegexParityTests(unittest.TestCase):
         )
 
 
+# Wave 1wur7, round 5. Four rounds of repairs each shipped a mechanism whose
+# deletion the suite could not detect, because every pin was written by reading the
+# mechanism's current contents. This matrix is the structural answer: one probe per
+# alternation member and per tuning constant, chosen so that ONLY that member can
+# change the outcome, and it lives here as literal data with no reference to the
+# module. Each row was generated and then VERIFIED by deleting its member in a
+# scratch copy and confirming the outcome flips; a row that did not flip was not
+# kept, and the two members that could not be made to flip were removed from the
+# validator as dead code rather than papered over with an unfalsifiable pin.
+#
+# Some probes read oddly ("the all test suite passes"). They are chosen for
+# discrimination, not for prose; readability here would cost the property.
+AC_RULE_MATRIX = (
+    # The two path-shaped referents. The coverage floor below caught their absence
+    # on its first run, which is the point of having it.
+    ('The full test suite in tests/ passes.', True),
+    ('All tests under .wavefoundry/ pass.', True),
+    ('the full test suite passes.', True),
+    ('the whole test suite passes.', True),
+    ('the entire test suite passes.', True),
+    ('the complete test suite passes.', True),
+    ('the all test suite passes.', True),
+    ('the every test suite passes.', True),
+    ('All tests in the repository pass.', True),
+    ('All tests in the repo pass.', True),
+    ('All tests in the tree pass.', True),
+    ('All tests in the project pass.', True),
+    ('All tests in the codebase pass.', True),
+    ('All tests in the framework pass.', True),
+    ('All tests in the suite pass.', True),
+    ('All tests in the ci pass.', True),
+    ('Every test class passes.', False),
+    ('Every test classes passes.', False),
+    ('Every test file passes.', False),
+    ('Every test files passes.', False),
+    ('Every test module passes.', False),
+    ('Every test modules passes.', False),
+    ('Every test case passes.', False),
+    ('Every test cases passes.', False),
+    ('Every test method passes.', False),
+    ('Every test methods passes.', False),
+    ('Every test function passes.', False),
+    ('Every test functions passes.', False),
+    ('Every test name passes.', False),
+    ('Every test names passes.', False),
+    ('Every test id passes.', False),
+    ('Every test ids passes.', False),
+    ('Every test fixture passes.', False),
+    ('Every test fixtures passes.', False),
+    ('Every test runner passes.', False),
+    ('Every test runners passes.', False),
+    ('Every test data passes.', False),
+    ('Every test helper passes.', False),
+    ('Every test helpers passes.', False),
+    ('Every test path passes.', False),
+    ('Every test paths passes.', False),
+    ('The full test suite for the new module passes.', False),
+    ('The full test suites for the new module passes.', False),
+    ('All existing tests pass.', True),
+    ('All pre-existing tests pass.', True),
+    ('All preexisting tests pass.', True),
+    ('All repository tests pass.', True),
+    ('All repo tests pass.', True),
+    ('All project tests pass.', True),
+    ('All codebase tests pass.', True),
+    ('All remaining tests pass.', True),
+    ('All other tests pass.', True),
+    ('All current tests pass.', True),
+    ('All known tests pass.', True),
+    ('All passing tests pass.', True),
+    ('All failing tests pass.', True),
+    ('the full test suite green.', True),
+    ('the full test suite clean.', True),
+    ('the full test suite succeeds.', True),
+    ('the full test suite succeeded.', True),
+    ('the full test suite agrees.', True),
+    # Round-5 architecture reverification: a carve-out marker inside a code span
+    # is quoted, not applied; the assertion after it must still fire.
+    ("- [ ] AC-1: `must not` full test suite passes.", True),
+    # Round-5 code reverification (M15b): the straight and curly double-quote
+    # span branches had no probe, so dropping either survived the suite. A clause
+    # quoted WITH its predicate is talking about the sentence, not asserting it.
+    ('The banned sentence is "the full test suite passes".', False),
+    ('The banned sentence is \u201cthe full test suite passes\u201d.', False),
+    # Round-5 code and qa reverification: every possessor and preposition of the
+    # narrowing lookahead, the two compound scope words, and the runner's
+    # positional-file lookahead had no row, so each survived deletion.
+    ('Every test it adds passes.', False),
+    ('All tests they add pass.', False),
+    ('All tests this change adds pass.', False),
+    ('All tests the change adds pass.', False),
+    ('All tests the wave adds pass.', False),
+    ('Every test added passes.', False),
+    ('Every test introduced passes.', False),
+    ('Every test we touch passes.', False),
+    ('All tests covering the parser pass.', False),
+    ('All tests touching the parser pass.', False),
+    ('All tests from the parser module pass.', False),
+    ('run_tests.py test_chunker.py passes.', False),
+    ('the repository-wide test suite passes.', True),
+    ('the repo-wide test suite passes.', True),
+    ('the whole-repository test suite passes.', True),
+    # Round-5 qa reverification: every carve-out marker, the passed/passing
+    # predicate forms, the `tests suite` noun form, the two-word gap cap in both
+    # directions, and the three windows at their exact boundaries.
+    ('The rule must not say the full test suite passes.', False),
+    ('The rule may not say the full test suite passes.', False),
+    ('The rule never says the full test suite passes.', False),
+    ('The rule no longer says the full test suite passes.', False),
+    ('Write local criteria rather than the full test suite passes.', False),
+    ('Write local criteria instead of the full test suite passes.', False),
+    ('The seed outlaws the full test suite passes.', False),
+    ('The seed forbids the full test suite passes.', False),
+    ('The sensor does not exempt the full test suite passes.', False),
+    ('A bullet asserting the full test suite passes is rejected.', False),
+    ('A bullet that asserts the full test suite passes is rejected.', False),
+    ('The full test suite passed.', True),
+    ('The full test suite is passing.', True),
+    ('The full tests suite passes.', True),
+    ('All remaining existing tests pass.', True),
+    ('All other remaining existing tests pass.', False),
+    # health-predicate window: the predicate ends exactly 120 / 121 chars past the phrase
+    ('the full test suite xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx passes.', True),
+    ('the full test suite xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx passes.', False),
+    # runner window: the predicate ends exactly 24 / 25 chars past run_tests.py
+    ('run_tests.py xxxxxxxxxxxxxxxx passes.', True),
+    ('run_tests.py xxxxxxxxxxxxxxxxx passes.', False),
+    # carve-out tail: 16 chars between the marker and the phrase exempts, 17 does not
+    ('The rule must not xxxxxxxxxx the full test suite passes.', False),
+    ('The rule must not xxxxxxxxxxx the full test suite passes.', True),
+    # Round-5 qa reverification (final): the old endpos cut and the explicit end bound
+    # agree at +1 and diverge at +2, where `pass` sat exactly at the cut; these two
+    # rows are what makes reverting the explicit bound fail.
+    ('the full test suite xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx passes.', False),
+    ('run_tests.py xxxxxxxxxxxxxxxxxx passes.', False),
+)
+
+
+class SensorPolarityRegistryTests(unittest.TestCase):
+    """Wave 1wuju (1wujs AC-1, AC-2): polarity is decided by the registry alone.
+
+    Standalone (not a DocsLintFixtureTests subclass) so the fixture suite is not
+    re-run under this class; the fixture helpers are borrowed by composition.
+    """
+
+    BULLET = "- [x] AC-1: All acceptance criteria are met and the full framework test suite passes.\n"
+
+    def setUp(self) -> None:
+        self.helper = DocsLintFixtureTests()
+
+    def run_docs_lint(self, root: Path):
+        return self.helper.run_docs_lint(root)
+
+    def _wave_root(self) -> Path:
+        root = self.helper.copy_fixture()
+        self.helper._replace_acs(root, self.BULLET, "| AC-1 | required |\n")
+        return root
+
+    def test_polarity_is_decided_only_by_the_registry_entry(self) -> None:
+        from unittest.mock import patch
+        from wave_lint_lib import wave_validators
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        root = self._wave_root()
+        try:
+            for polarity, expect_failure in (("advisory", False), ("blocking", True)):
+                with self.subTest(polarity=polarity):
+                    entry = {"ac_asserts_repository_state": {"polarity": polarity, "introduced_wave": "1wur7"}}
+                    warnings: list[str] = []
+                    with patch.dict(SENSOR_POLARITY_REGISTRY, entry, clear=True):
+                        failures = wave_validators.check_wave_docs(root, warnings=warnings)
+                    hits_f = [f for f in failures if "asserts repository-wide state" in f]
+                    hits_w = [w for w in warnings if "asserts repository-wide state" in w]
+                    self.assertEqual(expect_failure, bool(hits_f), (polarity, failures))
+                    self.assertEqual(not expect_failure, bool(hits_w), (polarity, warnings))
+                    if hits_w:
+                        self.assertIn("advisory sensor `ac_asserts_repository_state`", hits_w[0])
+                        self.assertIn("introduced in wave `1wur7`", hits_w[0])
+        finally:
+            shutil.rmtree(root)
+
+    def test_the_ac_locality_sensor_is_registered_advisory(self) -> None:
+        # The first registrant; removing the registration makes the sensor blocking
+        # again, which the public lint path shows as a failing exit.
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        self.assertEqual("advisory", SENSOR_POLARITY_REGISTRY["ac_asserts_repository_state"]["polarity"])
+        self.assertEqual("1wur7", SENSOR_POLARITY_REGISTRY["ac_asserts_repository_state"]["introduced_wave"])
+        root = self._wave_root()
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stderr, r"(?m)^WARNING: .*AC-1 asserts repository-wide state")
+        self.assertNotRegex(result.stderr, r"(?m)^ERROR: .*asserts repository-wide state")
+
+    def test_an_advisory_finding_without_a_sink_is_not_a_failure(self) -> None:
+        # Direct callers that pass no sink get blocking findings only; advisory
+        # findings are never promoted to failures by the absence of a sink.
+        from wave_lint_lib import wave_validators
+        root = self._wave_root()
+        try:
+            failures = wave_validators.check_wave_docs(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual([], [f for f in failures if "asserts repository-wide state" in f])
+
+    def test_an_unregistered_sensor_stays_a_failure(self) -> None:
+        # Delivery review QA-DEL-1: the pre-registry default is blocking; a sensor
+        # with no registry entry is never routed to the warnings sink.
+        from wave_lint_lib import wave_validators
+        failures: list[str] = []
+        warnings: list[str] = []
+        wave_validators._route_sensor_findings("not_registered", ["x.md: finding"], failures, warnings)
+        self.assertEqual(["x.md: finding"], failures)
+        self.assertEqual([], warnings)
+
+    def test_an_unknown_polarity_fails_loudly(self) -> None:
+        # Delivery review ARCH-DEL-2: a misspelled polarity must not silently become
+        # blocking (or advisory); the router validates against SENSOR_POLARITIES.
+        from unittest.mock import patch
+        from wave_lint_lib import wave_validators
+        from wave_lint_lib.constants import SENSOR_POLARITIES, SENSOR_POLARITY_REGISTRY
+        self.assertEqual(("advisory", "blocking"), SENSOR_POLARITIES)
+        entry = {"typo_sensor": {"polarity": "advisry", "introduced_wave": "1wuju"}}
+        with patch.dict(SENSOR_POLARITY_REGISTRY, entry, clear=True):
+            with self.assertRaises(ValueError) as caught:
+                wave_validators._route_sensor_findings("typo_sensor", ["x.md: finding"], [], [])
+        self.assertIn("advisry", str(caught.exception))
+        self.assertIn("typo_sensor", str(caught.exception))
+
+
+class ReviewCycleChurnControlPinTests(unittest.TestCase):
+    """Wave 1wuju (1wujr AC-1 to AC-3): every load-bearing sentence of the review-cycle
+    controls is pinned on the seed that owns it and on the surfaces this repository reads."""
+
+    SEEDS_DIR = SCRIPTS_ROOT.parent / "seeds"
+    DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
+
+    def _seed(self, name: str) -> str:
+        return (self.SEEDS_DIR / name).read_text(encoding="utf-8")
+
+    def _doc(self, *parts: str) -> str:
+        return self.DOCS_DIR.joinpath(*parts).read_text(encoding="utf-8")
+
+    def test_seed_209_owns_the_round_protocol_and_the_landing_rule(self) -> None:
+        seed = self._seed("209-agent-harness-core.prompt.md")
+        self.assertIn("| `tree_fingerprint` | Content fingerprint of the reviewed paths at brief time: `git hash-object`", seed)
+        self.assertIn("| `time_budget` | Wall-clock budget for the seat or lane", seed)
+        self.assertIn("| `sweep_rule` | For delivery lanes: targeted tests per mutant, whole-file runs only for survivors", seed)
+        self.assertIn("**Frozen tree per round (wave 1wuju):** while any lane runs against a briefing packet, no edit lands under `files_in_scope`.", seed)
+        self.assertIn("`frozen_boundary` freezes the finding SET at convergence and `policy_input_digest` hashes change-document bodies; neither freezes code.", seed)
+        self.assertIn("records a process finding, `tree_moved_under_review`, rather than re-sweeping silently", seed)
+        self.assertIn("**External blocker escalation (wave 1wuju):**", seed)
+        self.assertIn("presents the exact fix and a yes/no decision to the operator in the same message that reports the block", seed)
+        self.assertIn("Repairs are batched once per round (wave 1wuju)", seed)
+        self.assertIn("**Landing rule for guards (wave 1wuju).** A guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened", seed)
+        self.assertIn("the lane's mutation table is the prose projection of `known_bad_detection_method: focused-mutation`", seed)
+        self.assertIn("A census is re-derived whenever its predicate moves and is quoted only with the predicate that produced it", seed)
+        # Delivery review QA-DEL-1: the four clauses Requirements 1 and 2 name that
+        # the first pins left deletable.
+        self.assertIn("(working-tree content, so modified and untracked files count)", seed)
+        self.assertIn("The coordinator collects every lane's findings, repairs once per round, re-snapshots once, and issues a new packet with a new `tree_fingerprint`.", seed)
+        self.assertIn("a pin that passes for an unrelated reason is not a pin. The implementer records the mutant and the failing test in the change document's Progress Log before requesting review.", seed)
+        # Delivery review DOCS-DEL-2: the report-at-budget tail of the packet row.
+        self.assertIn("| `time_budget` | Wall-clock budget for the seat or lane; report at the budget with what is in hand and list what was not run (wave 1wuju) |", seed)
+
+    def test_seeds_180_and_190_carry_the_implementer_and_close_hooks(self) -> None:
+        seed180 = self._seed("180-implement-feature.prompt.md")
+        self.assertIn("Landing rule for guards (seed-209, wave 1wuju): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened", seed180)
+        self.assertIn("record the mutant and the failing test in the change document's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.", seed180)
+        self.assertIn("presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)", seed180)
+        seed190 = self._seed("190-finalize-feature.prompt.md")
+        self.assertIn("Do not finalize with an unreconciled `tree_moved_under_review` finding", seed190)
+
+    def test_lane_seeds_require_the_mutation_table(self) -> None:
+        for name in ("214-architecture-reviewer.prompt.md", "221-code-reviewer.prompt.md", "239-qa-reviewer.prompt.md"):
+            with self.subTest(seed=name):
+                seed = self._seed(name)
+                self.assertIn("**mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT)", seed)
+                self.assertIn("`known_bad_detection_method: focused-mutation` fields, not a second evidence shape", seed)
+                self.assertIn("Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`", seed)
+                self.assertIn("and `time_budget`; report at the budget and list what was not run (wave 1wuju).", seed)
+
+    def test_prompt_surfaces_and_role_docs_are_reconciled(self) -> None:
+        implement = self._doc("prompts", "implement-wave.prompt.md")
+        self.assertIn("**Landing rule for guards** (seed 180/209, wave `1wuju`)", implement)
+        self.assertIn("**External blockers** (seed 209): when a gate is blocked by an artifact this wave does not own", implement)
+        review = self._doc("prompts", "review-wave.prompt.md")
+        self.assertIn("Brief every lane with the seed-209 packet fields `tree_fingerprint` (`git hash-object` over the reviewed paths), `time_budget`, and `sweep_rule`", review)
+        self.assertIn("**Frozen tree per round:** no edit lands under the reviewed paths while a lane runs", review)
+        # Delivery review DOCS-DEL-2: the clauses the round-1 repair added.
+        self.assertIn("Neither `frozen_boundary` nor `policy_input_digest` freezes code; a repair landed while a lane is still running invalidates that lane's evidence for the paths it touched. Each lane reports at its `time_budget` with what is in hand and lists what was not run.", review)
+        close = self._doc("prompts", "close-wave.prompt.md")
+        self.assertIn("Do not finalize with an unreconciled `tree_moved_under_review` finding", close)
+        for role in ("architecture-reviewer.md", "qa-reviewer.md"):
+            with self.subTest(role=role):
+                self.assertIn("- a mutation table for every mechanism the wave landed in your scope (mechanism, mutation, failing test or NOT CAUGHT)", self._doc("agents", role))
+        for role in ("architecture-reviewer.md", "qa-reviewer.md", "code-reviewer.md"):
+            with self.subTest(role=role, clause="report-at-budget"):
+                self.assertIn("; report at the budget and list what was not run (seed 209, wave `1wuju`)", self._doc("agents", role))
+        self.assertIn("which named test fails with it deleted or loosened? Report it in a mutation table", self._doc("agents", "code-reviewer.md"))
+        self.assertIn("## Landing Rule for Guards (wave 1wuju)", self._doc("architecture", "testing-architecture.md"))
+        self.assertIn("A census is re-derived whenever\nits predicate moves and is quoted only with the predicate that produced it; a\nfigure carried forward from an earlier predicate is a stale claim, not evidence.", self._doc("architecture", "testing-architecture.md"))
+        self.assertIn("**Review-cycle churn controls in the seeds.**", (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+
+class AdvisoryFirstRulePinTests(unittest.TestCase):
+    """Wave 1wuju (1wujs AC-3, AC-5): the advisory-first rule and the polarity of the
+    first registrant are stated on every surface a planner, closer, or releaser reads."""
+
+    SEEDS_DIR = SCRIPTS_ROOT.parent / "seeds"
+    DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
+
+    def test_seed_170_states_the_advisory_first_rule_and_the_registered_polarity(self) -> None:
+        seed = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("**New docs-lint sensors ship advisory.**", seed)
+        self.assertIn("The sensor is registered `advisory` in the docs-lint\nsensor polarity registry", seed)
+        self.assertIn("a flip to\n`blocking` is a separate recorded change made on field data", seed)
+        self.assertNotIn("enforces this as a blocking\nerror", seed)
+
+    def test_seed_190_treats_advisory_findings_as_review_notes(self) -> None:
+        seed = (self.SEEDS_DIR / "190-finalize-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("are review notes at close, never a closure blocker", seed)
+
+    def test_prompt_surfaces_and_contributing_docs_are_reconciled(self) -> None:
+        plan = (self.DOCS_DIR / "prompts" / "plan-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("runs an advisory sensor on change documents", plan)
+        self.assertIn("new docs-lint sensors ship advisory the same way", plan)
+        # Delivery review DOCS-DEL-2: the two seed-170 clauses the round-1 repair added.
+        self.assertIn("(the release checklist lists every sensor still advisory so the flip is decided, not forgotten)", plan)
+        self.assertIn("The diagnostic supplies the replacement sentence: write \"the change's own suites", plan)
+        close = (self.DOCS_DIR / "prompts" / "close-wave.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("are review notes at close, never a closure blocker", close)
+        workflow = (self.DOCS_DIR / "contributing" / "change-workflow.md").read_text(encoding="utf-8")
+        self.assertIn("an advisory sensor (a `WARNING:` line that never\nfails validation", workflow)
+        spec = (self.DOCS_DIR / "specs" / "mcp-tool-surface.md").read_text(encoding="utf-8")
+        self.assertIn("Advisory findings never block Prepare, Review, or Close", spec)
+
+    def test_the_release_checklist_lists_advisory_sensors(self) -> None:
+        package = (self.DOCS_DIR / "prompts" / "package-wavefoundry.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("list every sensor still registered `advisory`", package)
+        self.assertIn("never a release-day edit", package)
+
+
+class AcRuleDiscriminationMatrixTests(unittest.TestCase):
+    """Every alternation member of the AC-shape rule has a case that pins it."""
+
+    def test_every_matrix_row_behaves_as_recorded(self) -> None:
+        from wave_lint_lib import wave_validators
+
+        for body, should_fire in AC_RULE_MATRIX:
+            with self.subTest(body=body):
+                got = wave_validators._ac_repo_state_match(f"- [ ] AC-1: {body}")
+                self.assertEqual(should_fire, bool(got), body)
+
+    def test_the_matrix_covers_every_alternation_member(self) -> None:
+        """A coverage floor, so a member added later without a probe is caught.
+
+        This reads the module deliberately -- it is the one assertion whose job is
+        to notice that the module grew past the matrix.
+        """
+        from wave_lint_lib import wave_validators
+
+        corpus = " ".join(body for body, _ in AC_RULE_MATRIX).lower()
+        # Every word-list alternation the rule is built from (round-5 code and qa
+        # reverification: the floor once read only two of them, so a member added
+        # to any other constant without a row went unnoticed).
+        for constant in ("_AC_REPO_SCOPE", "_AC_SCOPE_GAP_WORD", "_AC_TEST_CORPUS_NOUN",
+                         "_AC_REPO_REFERENT", "_AC_NARROWER_NOUN", "_AC_NOT_REPO_WIDE",
+                         "_AC_HEALTH_PREDICATE_RE", "_AC_REPO_STATE_CARVE_OUT_RE"):
+            pattern = getattr(wave_validators, constant)
+            pattern = getattr(pattern, "pattern", pattern)
+            members = [m for m in re.findall(r"[a-z][a-z-]+", pattern.lower())
+                       if m not in {"the", "or", "and"}]
+            uncovered = sorted({m for m in members if m not in corpus})
+            self.assertEqual([], uncovered,
+                             f"{constant} members with no probe in AC_RULE_MATRIX")
+        # The quoted-span exemption has three delimiter branches; each needs a row
+        # whose outcome depends on it (round-5 code reverification, M15b).
+        raw = " ".join(body for body, _ in AC_RULE_MATRIX)
+        for delimiter in ("`", '"', "\u201c"):
+            self.assertIn(delimiter, raw,
+                          f"no AC_RULE_MATRIX row exercises the {delimiter!r} span branch")
+
+
 class CouncilSeedVerificationContractTests(unittest.TestCase):
     """1p9pk AC-5: the council-review seed carries the code-grounded verification and
     roster-honesty contracts; the moderator and review-hub seeds point at them."""
@@ -2868,6 +3444,183 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
                 "citation-authoring paragraph; no re-render reaches it, so "
                 "align it with the seed by hand",
             )
+
+    def test_ac_locality_rule_pinned_in_seed_170_and_reconciled_prompt(self) -> None:
+        """Wave 1wur7 (1wuui AC-1): the AC-locality rule and its replacement shape.
+
+        Delivery review DOCS-DEL-3 / QA-DEL-1 found this pin missing while AC-1
+        was marked complete and named it: the entire section could be deleted and
+        every test stayed green. The load-bearing sentences are pinned here, plus
+        the reconciled sentence in the project-owned prompt doc, because no
+        renderer owns either file and nothing else would notice the drift.
+        """
+        seed = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "### Acceptance criteria assert what the change controls", seed,
+            "seed 170 AC-locality section header")
+        self.assertIn(
+            "An acceptance criterion states an outcome **this change owns** and that a\n"
+            "reviewer can verify from **this change's own evidence**.", seed,
+            "seed 170 AC-locality head sentence")
+        self.assertIn(
+            "is a **gate**\nconcern, not an acceptance criterion, and must not be written as one.", seed,
+            "seed 170 gate-versus-criterion rule")
+        self.assertIn(
+            "- [ ] AC-6: All acceptance criteria are met and the full framework test suite passes.",
+            seed, "seed 170 banned-shape example")
+        self.assertIn(
+            "The change's own suites and every test it adds pass; the documents", seed,
+            "seed 170 replacement shape")
+        self.assertIn(
+            "not \"documentation validation passes\"", seed,
+            "seed 170 qualifier against the unqualified docs-validation clause")
+        self.assertIn(
+            "This rule is also mechanically enforced", seed,
+            "seed 170 must name the sensor an author will hit (DOCS-DEL-12)")
+        self.assertIn(
+            "name the gate that will\nenforce it in this repository", seed,
+            "seed 170 must not promise a close gate that a pack-vendored repo lacks "
+            "(ARCH-DEL-4)")
+        prompt = (SCRIPTS_ROOT.parent.parent.parent / "docs" / "prompts"
+                  / "plan-feature.prompt.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "An acceptance criterion asserts an outcome **this change controls**", prompt,
+            "docs/prompts/plan-feature.prompt.md reconciled AC-locality rule")
+        self.assertIn(
+            "the state of files this change never touches", prompt,
+            "the prompt keeps the seed's fourth example (DOCS-DEL-12)")
+
+    def test_possessive_apostrophes_do_not_form_a_swallowing_span(self) -> None:
+        """Reverification mutant D2: re-adding the straight-apostrophe branch to
+        `_AC_CODE_SPAN_RE` restored the defect while all 1058 tests stayed green.
+        That is the untested-mechanism pattern this wave exists to eliminate, so
+        the removal is pinned directly."""
+        from wave_lint_lib import wave_validators
+
+        self.assertNotIn("'", wave_validators._AC_CODE_SPAN_RE.pattern,
+                         "a straight-apostrophe span branch lets two ordinary "
+                         "possessives bracket and swallow the clause")
+        bracketed = ("- [ ] AC-4: the repository's full test suite passes and the "
+                     "wave's evidence records it.")
+        self.assertEqual("full test suite",
+                         wave_validators._ac_repo_state_match(bracketed))
+
+    def test_repository_wide_shapes_with_intervening_modifiers_fire(self) -> None:
+        """Reverification measured 70 unambiguous repository-wide criteria the
+        first matcher missed because it required the quantifier and the corpus
+        noun to be adjacent. These are the live-corpus forms."""
+        from wave_lint_lib import wave_validators
+
+        for body in (
+            "All existing tests pass.",
+            "All 944 tests pass.",
+            "All pre-existing framework tests pass.",
+            "The full repository test suite passes.",
+            "Full framework tests run bytecode-free and docs validation passes.",
+            "All tests in CI pass.",
+            "Every test in tests/ passes.",
+            "The full suite is green with no new skips.",
+        ):
+            with self.subTest(body=body):
+                self.assertIsNotNone(
+                    wave_validators._ac_repo_state_match(f"- [ ] AC-1: {body}"), body)
+
+    def test_change_local_modifiers_inside_the_scope_gap_do_not_fire(self) -> None:
+        """Reverification D1: widening the quantifier-to-noun gap to recover 78
+        real detections also admitted a false-positive class on change-local
+        shapes. A blocking rule must not reject `All new tests pass`."""
+        from wave_lint_lib import wave_validators
+
+        for body, should_fire in (
+            ("All new tests pass.", False),
+            ("All added tests pass.", False),
+            ("All three new tests pass.", False),
+            ("Every new regression test passes.", False),
+            ("All updated tests pass.", False),
+            ("All modified tests pass.", False),
+            ("All newly written tests pass.", False),
+            # A bare total is a repository-wide assertion and must still fire.
+            ("All 944 tests pass.", True),
+            ("All existing tests pass.", True),
+        ):
+            with self.subTest(body=body):
+                got = wave_validators._ac_repo_state_match(f"- [ ] AC-1: {body}")
+                self.assertEqual(should_fire, bool(got), body)
+        # A loop that reads the alternation from the module under test cannot
+        # detect a deletion: removing an alternative removes the subtest that would
+        # have covered it. The discriminating cases live in AC_RULE_MATRIX below,
+        # as literal data.
+
+    def test_repository_wide_path_referents_are_reachable(self) -> None:
+        """Reverification D4: `tests/` and `.wavefoundry/` were followed by a word
+        boundary, which can never match after a slash, so both alternatives were
+        dead code behind a pin that passed for an unrelated reason."""
+        from wave_lint_lib import wave_validators
+
+        self.assertIsNotNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-1: All tests under .wavefoundry/ pass."))
+        # Reverification: the shape above matches through the widened scope gap
+        # (quantifier `All`, gap `tests under`, noun `tests`) and never touches the
+        # referent, so it would survive deleting `tests/` -- the same passes-for-an-
+        # unrelated-reason mechanism this wave exists to eliminate. This one is
+        # discriminating: remove `tests/` from the referent and it goes silent.
+        self.assertIsNotNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-2: The full test suite in tests/ passes."))
+        # The referent is what makes these repository-wide rather than narrowed;
+        # a genuinely specific target in the same position stays silent.
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-3: All tests under `tests/fixtures/retrieval_eval/` pass."))
+
+    def test_a_change_whose_subject_is_the_runner_is_not_flagged(self) -> None:
+        """Reverification found the bare `run_tests.py` token flagged bullets whose
+        subject is the runner itself, including a real closed-wave criterion about
+        its caching behaviour. A focused invocation is change-local."""
+        from wave_lint_lib import wave_validators
+
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-1: `run_tests.py --file test_chunker.py` passes."))
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-2: `run_tests.py` gains `--no-cache`, and the focused chunker "
+            "file passes."))
+        # Reverification D3: the two guards must be pinned SEPARATELY. Removing the
+        # focused-invocation lookahead was undetectable by the whole suite, because
+        # the predicate window alone suppressed both fixtures above. This shape puts
+        # the predicate inside the window, so only the lookahead can silence it.
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-4: `run_tests.py --file test_x.py` pass"))
+        # Reverification N1: the runner pattern carries TWO lookaheads and only
+        # their conjunction was pinned, so either could be deleted alone with the
+        # suite green. This shape is suppressed only by the bare `--file` guard.
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-5: `run_tests.py --file` passes."))
+        self.assertIsNone(wave_validators._ac_repo_state_match(
+            "- [ ] AC-6: run_tests.py --file passes."))
+        self.assertEqual("run_tests.py", wave_validators._ac_repo_state_match(
+            "- [ ] AC-3: `python3 .wavefoundry/framework/scripts/run_tests.py` passes."))
+
+    def test_health_predicate_window_keeps_an_incidental_mention_silent(self) -> None:
+        """QA-DEL-8: the window that rejects an aside had no test, so widening it
+        (the direction that produces false positives on live change docs) was
+        invisible to the suite."""
+        from wave_lint_lib import wave_validators
+
+        # Modelled on a real closed-wave bullet: the suite is mentioned as an
+        # incidental aside, and the nearest health predicate belongs to a
+        # different clause far away.
+        aside = ("- [ ] AC-12: Performance benchmark deferred; no field reports of a regression "
+                 "at production graph sizes (full test suite at 2200 tests still runs in ~65s), "
+                 "and the deferral is tracked for opportunistic verification at the next field "
+                 "validation window rather than blocking this wave, so the reproducer fixture "
+                 "passes.")
+        self.assertIsNone(wave_validators._ac_repo_state_match(aside))
+        self.assertLessEqual(wave_validators._AC_HEALTH_PREDICATE_WINDOW, 200)
+        widened = wave_validators._AC_HEALTH_PREDICATE_WINDOW
+        try:
+            wave_validators._AC_HEALTH_PREDICATE_WINDOW = 100000
+            self.assertEqual("full test suite", wave_validators._ac_repo_state_match(aside),
+                             "a widened window must be observable as a false positive")
+        finally:
+            wave_validators._AC_HEALTH_PREDICATE_WINDOW = widened
 
     def test_1urlb_citation_variant_pinned_in_seed_170(self) -> None:
         """1v1dh: the author-phase citation variant, head sentence exact plus
@@ -3716,6 +4469,58 @@ class IncrementalDocsLintTests(DocsLintFixtureTests):
         self.assertEqual(empty_result, ([], []), "empty changed set must be an ok no-op")
         self.assertEqual(code_result, ([], []), "a non-doc/non-config changed set must be an ok no-op")
 
+    def test_incremental_changed_wave_record_routes_an_advisory_finding_to_warnings(self) -> None:
+        """Wave 1wuju (1wujs Requirement 1; delivery review ARCH-DEL-2 / QA-DEL-1): the
+        incremental changed-docs site passes the warnings sink, so on the post-edit hook
+        path an advisory sensor's finding is a WARNING and never a failure. The AC
+        sensors run from the wave-record branch, so the changed path is `wave.md`."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            self._replace_acs(
+                root,
+                "- [x] AC-1: Fixture criterion satisfied and the full framework test suite passes.\n",
+                "| AC-1 | required |\n",
+            )
+            changed = [(root / self.AC_REPO_STATE_DOC).parent / "wave.md"]
+            with mock.patch.object(cli, "_get_changed_files", return_value=changed):
+                failures, warnings = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual([], [f for f in failures if "asserts repository-wide state" in f], failures)
+        self.assertTrue(any("AC-1 asserts repository-wide state" in w for w in warnings), warnings)
+
+    def test_incremental_changed_ledger_revalidates_the_owning_wave_through_the_sink(self) -> None:
+        """Same wave and findings, the changed-event-wave site: an `events.jsonl`-only
+        change revalidates the owning wave's documents through the same sink."""
+        import unittest.mock as mock
+        root = self.copy_fixture()
+        cli = self._cli()
+        try:
+            self._replace_acs(
+                root,
+                "- [x] AC-1: Fixture criterion satisfied and the full framework test suite passes.\n",
+                "| AC-1 | required |\n",
+            )
+            source_dir = (root / self.AC_REPO_STATE_DOC).parent
+            wave_dir = root / "docs" / "waves" / "00abd advisory-event-fixture"
+            shutil.copytree(source_dir, wave_dir)
+            wave_md = wave_dir / "wave.md"
+            wave_md.write_text(
+                wave_md.read_text(encoding="utf-8").replace(
+                    "00057 routine-behavior-contract", "00abd advisory-event-fixture"
+                ),
+                encoding="utf-8",
+            )
+            changed = [wave_dir / "events.jsonl"]
+            with mock.patch.object(cli, "_get_changed_files", return_value=changed):
+                failures, warnings = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual([], [f for f in failures if "asserts repository-wide state" in f], failures)
+        self.assertTrue(any("AC-1 asserts repository-wide state" in w for w in warnings), warnings)
+
     def test_incremental_canonical_event_change_revalidates_owning_wave(self) -> None:
         """A changed canonical ledger is not a generic non-doc no-op."""
         import unittest.mock as mock
@@ -4432,6 +5237,110 @@ class DesignTokenSeedGrammarTests(unittest.TestCase):
         self.assertIn("size.4xl", text)
         self.assertIn("normalizedFrom", text)
         self.assertIn("design_system_validators._DOT_PATH_RE", text)
+
+
+class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
+    """Wave 1wybs (1wybq AC-1 to AC-3): an evaluator-only edit records no close-time
+    baseline; the contributing, architecture, and CHANGELOG surfaces state one policy."""
+
+    DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
+
+    def test_the_contributing_document_states_the_rule(self) -> None:
+        text = (self.DOCS_DIR / "contributing" / "review-and-evals.md").read_text(encoding="utf-8")
+        self.assertIn("**An evaluator-only edit records no close-time baseline.**", text)
+        self.assertIn("In this repository that pair is a `cross_generation` comparison", text)
+        self.assertIn("is the expected signal, not a defect", text)
+        # Delivery review (ARCH-DEL-1's receipt): the drift attribution is disclosed.
+        self.assertIn("**A `cross_generation` comparison attributes corpus drift to the change.**", text)
+        # Delivery review ARCH-RV1-2: the pointer names the receipt binding the current identities.
+        self.assertIn("The current\nreference receipt is `docs/reports/retrieval-quality-post-1wybs.json`", text)
+        self.assertNotIn("reference receipt is `docs/reports/retrieval-quality-post-1wuju.json`", text)
+        self.assertIn("when the diff\nreaches no retrieval tool, the receipt records drift, not a regression", text)
+        self.assertNotIn("record a fresh baseline before the gate judges anything", text)
+        self.assertNotIn("records its own single-run baseline the same way", text)
+
+    def test_the_architecture_document_agrees(self) -> None:
+        text = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
+        self.assertIn("An evaluator-only edit records no close-time baseline (wave `1wybq`)", text)
+        self.assertIn("the reference only until the next evaluator edit", text)
+        self.assertIn("standing baseline `docs/reports/retrieval-quality-post-1wybs.json`", text)
+        self.assertIn("--baseline docs/reports/retrieval-quality-post-1wybs.json", text)
+        self.assertIn("attributes corpus drift to the change under the\nzero-tolerance regression rule", text)
+
+    def test_the_unreleased_changelog_states_one_policy(self) -> None:
+        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        self.assertIn("**An evaluator-only edit records no close-time baseline.**", unreleased)
+        self.assertIn("A cross-generation comparison attributes corpus drift", unreleased)
+        self.assertNotIn("record a fresh baseline", unreleased)
+
+
+class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
+    """Wave 1wybs (1wxe6 AC-1, AC-2): every scaffold surface states the token grammar
+    of both declaration forms, anchored beside an existing phrase of the same guidance,
+    and the templates' fenced examples are untouched."""
+
+    FRAMEWORK_DIR = SCRIPTS_ROOT.parent
+    DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
+    FRAGMENTS = (
+        "is never a token in either form",
+        "a `*` disqualifies the token",
+        # Delivery review CODE-DEL-1: the explicit-block clause states the parser's predicate.
+        "kept only when its last segment carries an extension or the span ends in `/`",
+        "a `*` span is accepted as a phantom",
+        # Delivery review CODE-RV1-1: a phantom recruits through the trigger table, not nothing.
+        "recruits a lane only through a trigger token it happens to carry",
+        "declare the directory that holds globbed files",
+    )
+    FRAMEWORK_CARRIERS = (
+        ("seeds/170-plan-feature.prompt.md", "Prose declares NOTHING in either form"),
+        ("seeds/040-docs-structure-bootstrap.prompt.md", "one stray English word makes the whole bullet prose, in either form"),
+        ("seeds/160-upgrade-wavefoundry.prompt.md", "State both declaration forms, because prose declares nothing"),
+        ("seeds/160-upgrade-wavefoundry.prompt.md", "names both declaration forms"),
+        ("install/plan-template.md", "Prepare selects automatic review lanes from declared paths, not from narrative prose."),
+        ("install/lifecycle-prompts/prepare-wave.prompt.md", "and a wrapped bullet is prose entirely."),
+    )
+
+    def test_every_carrier_states_the_token_grammar(self) -> None:
+        carriers = [
+            (rel, anchor, (self.FRAMEWORK_DIR / rel).read_text(encoding="utf-8"))
+            for rel, anchor in self.FRAMEWORK_CARRIERS
+        ]
+        carriers.append((
+            "docs/plans/plan-template.md",
+            "Prepare uses declared paths",
+            (self.DOCS_DIR / "plans" / "plan-template.md").read_text(encoding="utf-8"),
+        ))
+        for rel, anchor, text in carriers:
+            with self.subTest(carrier=rel):
+                self.assertIn(anchor, text)
+                for fragment in self.FRAGMENTS:
+                    self.assertIn(fragment, text)
+
+    def test_seed_160_states_it_at_all_three_sites(self) -> None:
+        # The repair instruction, the plan-template checklist item, and (delivery
+        # review ARCH-DEL-3) the Prepare-prompt checklist item.
+        seed = (self.FRAMEWORK_DIR / "seeds" / "160-upgrade-wavefoundry.prompt.md").read_text(encoding="utf-8")
+        self.assertEqual(3, seed.count("is never a token in either form"))
+        # Delivery review DOCS-RV1-1: the predicate clause is counted at every site too.
+        self.assertEqual(3, seed.count("kept only when its last segment carries an extension or the span ends in `/`"))
+        self.assertEqual(3, seed.count("recruits a lane only through a trigger token it happens to carry"))
+
+    def test_the_unreleased_changelog_announces_the_wave(self) -> None:
+        # Delivery review DOCS-DEL-4: both 1wybs CHANGELOG bullets are pinned.
+        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        self.assertIn("**Serialization Points scaffolds state the token grammar of both declaration forms.**", unreleased)
+        self.assertIn("kept only when\n  its last segment carries an extension or the span ends in `/`", unreleased)
+        self.assertIn("**Verdict-gap and install-audit hardening**", unreleased)
+        self.assertIn("repr-doubled", unreleased)
+
+    def test_the_fenced_examples_are_untouched(self) -> None:
+        shipped = (self.FRAMEWORK_DIR / "install" / "plan-template.md").read_text(encoding="utf-8")
+        self.assertIn("```\n- `src/app/handler.py`, `docs/specs/`\n```", shipped)
+        self.assertIn("```\n**Review targets (repo-relative paths):**\n\n- `docs/waves/1abc some slug/wave.md`\n```", shipped)
+        project = (self.DOCS_DIR / "plans" / "plan-template.md").read_text(encoding="utf-8")
+        self.assertIn("```\n**Review targets (repo-relative paths):**\n\n- `docs/waves/1abc some slug/wave.md`\n```", project)
 
 
 class FreshPlanTemplateTests(unittest.TestCase):

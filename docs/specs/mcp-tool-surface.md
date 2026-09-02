@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-31
+Last verified: 2026-09-02
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -173,6 +173,15 @@ site, not per diagnostic code**: `review_policy_receipt_stale` carries
 `wf_review_wave`, `wf_implement_wave`, `wf_review_event` and `wf_close_wave`,
 which key on code and ignore the field. Do not cache a code's classification
 across tools.
+
+**Advisory docs-lint sensors** (wave `1wuju`): a sensor registered `advisory` in
+`wave_lint_lib/constants.py` (`SENSOR_POLARITY_REGISTRY`) reports through the
+`WARNING:` channel; `run_validate` collects those lines as `warnings` with
+`passed: true`, and every lifecycle gate that renders `docs_lint_error`
+(`wf_validate_docs`, `wf_audit`, `wf_audit_install`, `wf_prepare_wave`,
+`wf_review_wave`, and `wf_close_wave`) renders each as a `docs_lint_warning` diagnostic carrying
+`advisory: true`. Advisory findings never block Prepare, Review, or Close; a
+sensor flips to `blocking` only in a recorded change.
 
 Non-blocking conventions described elsewhere in this document keep their payload
 shape and do not carry this field — the lifecycle-focus codes, the empty
@@ -479,6 +488,7 @@ once envelope migration is complete.
 - Optional `max_per_file`: cap results per file path (`0` means no cap). Use `1` for orientation passes when you want breadth over repeated hits from one file.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
 - Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
+- **Candidate generation (wave `1wpif`, `1wpah`):** `language` (single name, extension, or category), `kind`, and `tags` are pushed into BOTH candidate sources (the Lance `where` clause and the FTS5 `WHERE`) before the bounded top-k, so a selected-language match ranked past a global window is never a false zero; the language value resolves through a fixed allowlist and never enters a predicate verbatim (a value outside the allowlist stays a row-level guard). `max_per_file` cannot be pushed down: retrieval continues over bounded candidate windows `30 -> 60 -> 120 -> 240` per source (at most 4 queries / 240 examined rows per source per call) until `limit` capped rows exist. Every healthy response carries `retrieval_accounting` (per-source `queries`, `examined_rows`, `windows`, the call aggregate, and the stated ceiling: 8 queries / 480 rows over `code_dense` + `code_lexical`) and, when a per-file cap ran, `fill` with `reason` `null` (filled), `substrate_exhausted` (fewer eligible rows exist), or `bounded_ceiling_reached` (the ceiling exited first, eligible rows may remain; an informational diagnostic of the same code is attached and the status stays `ok`). The cross-encoder reranks at most `max(4 * limit, 30)` candidates, unchanged by refill. The lexical fallback applies the same pushdown and refill contract.
 - **Graph augmentation on by default** (since wave `12xr3`): the response appends a `graph_neighbors` block listing 1-hop structural relations (imports, calls — and, since wave `1p9qh`/`1p9qa`, the Java/C# inheritance relations `extends`/`implements`; since wave `1p9qi`, the SQL data-layer relations: `writes` (`1p9qd`) and the ORM entity→table `maps_to` mapping (`1p9qg`) are followed by default, `reads` only when passed explicitly per the standing 1p4ls opt-in) for the top hits. Neighbors may include namespaced `external::sql::<table>` nodes — tables referenced by embedded SQL or entity mappings whose DDL is not in the repo (`1p9qf`); the namespace keeps SQL externals disjoint from host-language candidates. Pass `graph=false` to suppress when the lean response is preferred. `graph_limit` (default 5) caps the number of top hits expanded.
 - Returns path, line range, score, excerpt, trust label, and a stable result ID
 once envelope migration is complete.
@@ -528,6 +538,7 @@ once envelope migration is complete.
 - **Low-information-path prior:** ignore files, lockfiles, dependency manifests, and generated agent surfaces receive `_LOW_INFORMATION_PATH_WEIGHT = 0.50` before candidate selection. This is a bounded down-weight, never an exclusion. The weight is `1.0` when the query directly names the artifact path, filename, or class (for example, "lockfile", "dependency manifest", or "generated surface"), preserving direct artifact questions.
 - Any citation whose chunk metadata carries a section path exposes it in `section` (wave 1seaw): a docs heading path (the same value `docs_search` returns) or a code symbol breadcrumb such as `server_impl > _classify_question`, so a heading can be matched structurally rather than through the breadcrumb baked into the excerpt. Rows produced only by the BM25 pass omit the field (their excerpt's first line is the same breadcrumb).
 - Citation `score` is the pre-partition reranker score. `final_rank` is the post-partition output order. `partition_applied`/`demotion_count` report the doc-type SCORE demotion (pre-selection in agent mode); the historical per-citation `seed`/`feedback` partition tags were removed with that mechanic.
+- **`retrieval_accounting` (wave `1wpif`, `1wpah`):** per-source substrate query counts and examined rows for the call (`docs_dense`, `code_dense`, `docs_lexical`, `code_lexical`, plus `keyword` when the live keyword pass fires), the call aggregate (`substrate_queries`, `examined_rows`), and the stated ceiling of 4 queries / 240 examined rows per source: 16 / 960 over the four fused sources, 20 / 1200 with the keyword pass. The assessment-class derived docs expansion (one extra docs vector query plus one extra lexical pass) counts inside those per-source budgets. Definition-boost keyword injection, direct-artifact owner-row reads, and graph lookups are store reads outside the substrate-query definition.
 - Drift-demoted citations (wave 1ro44) carry `demoted: true` and `partition_reason: "doc_code_drift"` — a drift-flagged doc stable-partitioned behind a comparably-relevant current alternative. Order-only, never a score change; ships DEFAULT-OFF (`WAVEFOUNDRY_ENABLE_DRIFT_PARTITION` opt-in for census/eval runs, `WAVEFOUNDRY_DISABLE_DRIFT_PARTITION` kill switch); suppressed on `lexical_fallback`/`live_fallback`/`exact`/unreranked envelopes. When it fires the envelope carries `drift_partition_applied`/`drift_demoted_count` — distinct from `partition_applied`.
 - Citations and search results may carry an optional per-citation `freshness` object: `{age_days, churn_score}` for any path; docs rows add `{drifted, commits_since_verified}` (living docs) or `{historical, waves_behind}` (wave-record archives, `docs/waves/`). Distinct from the envelope `index_freshness` (index-vs-working-tree currency). Served from `index-state.sqlite` in one batched read per response; absent on metadata-free stores and omitted in `live_fallback` mode. `code_lexical` results carry the same annotation.
 - Check `reranked`, `confidence`, `question_type`, `second_hop_symbols`, `validation_required`, and `index_freshness` before relying on the result.
@@ -800,6 +811,31 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
   Recovery: `repair_start` at the next cycle, then a distinct-role and
   distinct-context reverification; the new legal chain supersedes the invalid
   terminal chain and makes the audit eligible to clear.
+- **Framework test receipt (wave 1wur7):** close VERIFIES the existing
+  `.wavefoundry/framework/test-cache.json` receipt rather than running a suite.
+  `run_tests.py` writes that receipt only after a successful run of the WHOLE
+  suite, with an `inputs_hash` covering every file under
+  `.wavefoundry/framework/` except `VERSION`, `MANIFEST`, the cache itself,
+  `test-run.lock`, and the `index` / `__pycache__` / `.pytest_cache`
+  directories, so it self-invalidates the moment any framework file changes. The gate reads it, requires `result == "ok"` with an
+  `inputs_hash` matching the current framework tree, and otherwise emits a
+  blocking `framework_test_receipt_not_proven` diagnostic — missing, red, and
+  stale are all reported as "not proven", never assumed green. The gate runs no
+  suite and spawns no subprocess. The response carries `framework_test_receipt`
+  (`{state, scope, detail, ...}`) on both the blocked and the successful path,
+  with `state` one of `not_applicable`, `proven`, `missing`, `not_ok`, `stale`,
+  `unreadable`. **Scope:** the hash covers `.wavefoundry/framework/`, so only
+  receipt STALENESS is framework-scoped; because the receipt is written only on a
+  whole-suite pass, a failure triggered by content under `docs/` prevents a NEW
+  receipt from being written; when the framework tree also changed, the standing
+  receipt is stale and close is blocked, while in a documentation-only wave a
+  current green receipt persists and close is not blocked despite a red suite. A green receipt therefore attests the framework
+  code, not the tree — it is neither a whole-repository guarantee nor a
+  whole-repository exemption. Where `.wavefoundry/framework/scripts/run_tests.py` is
+  absent — every repository that consumes the packaged framework, because
+  `build_pack.py` excludes the runner, `scripts/tests`, and the receipt — the
+  check is a documented no-op (`state: not_applicable`) that neither blocks nor
+  claims proof.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
 
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
@@ -970,6 +1006,8 @@ All tools: on apply/create, request a background docs-index refresh for the new 
 - Resolves and parses the log before running docs lint. `missing_log` and `unparseable_log` therefore take precedence over lint, and neither response carries `pending_lint`.
 - Returns exactly one of seven install statuses: `missing_log`, `unparseable_log`, `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, or `complete`.
 - After a valid parse, docs-lint findings expected from artifacts whose Phase 2 seed rows are still pending are separated into `pending_lint`; `lint_errors.errors` contains only blocking findings. Expected absences become blocking at the final gate, when no seed-driven row remains pending.
+- A lint run that exits non-zero without an `ERROR:` line is reported as one synthesized `ERROR: docs-lint exited <rc> without a lint verdict; <cause>` entry that is always blocking and never `pending_lint`, even when its tail quotes an absence marker (wave `1wuju`). Advisory `WARNING:` lines ride every envelope after a valid parse as `docs_lint_warning` diagnostics carrying `advisory: true`.
+- `checked_but_missing` renders the artifact path relative to the repository root in `expected_artifact`, `all_missing[].expected_artifact`, `next_action`, and the `install_log_checked_but_missing` diagnostic (wave `1wybs`); an artifact that resolves outside the repository is rendered with leading `..` segments rather than failing the audit.
 - The exact `pending_lint` field matrix is: absent on `missing_log` and `unparseable_log`; present on `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, and `complete`. The object carries `{count, errors, truncated, note}`; its errors list is capped, while `count` preserves the total and `note` explains the final-gate behavior.
 - With `phase=1`, a terminal Phase 1 returns `phase_complete`. Without a phase argument, the tool returns the first pending row as `next_step`, or `complete` only when every row is terminal. The shipped final tail is `next_step` for instruction row 2.14 (remove the consumed bootstrap), then `next_step` for instruction row 2.15 (prepare the structured operator summary), then `complete`; the prepared summary is delivered only after that terminal audit.
 
@@ -1014,6 +1052,7 @@ All tools: on apply/create, request a background docs-index refresh for the new 
 
 - Runs docs validation and returns structured pass/fail diagnostics.
 - Recovery target for uncertain states.
+- A `docs_lint.py` run that exits non-zero without printing an `ERROR:` line (a crash) yields one synthesized `docs_lint_error` naming the exit code and the last output line, so this tool refuses with a named diagnostic, and every other lifecycle gate that renders `docs_lint_error` refuses instead of passing the crash through (wave `1wuju`).
 
 `wf_garden_docs(mode: str = "dry_run")`
 
@@ -1343,7 +1382,7 @@ All navigation tools are shipped. Path containment and allowed-root validation
 is enforced; structured diagnostics are returned for rejected paths.
 
 - `code_keyword` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging; **graph augmentation on by default** — appends `graph_neighbors` for top hits; pass `graph=false` to suppress for size-sensitive callers
-- `code_lexical` — BM25-ranked exact-token search over the indexed lexical layer (the index-state store's `fts_code`/`fts_docs`, the same corpus the hybrid retrieval fuses); `table` = `code`/`docs`/`both` (merged best-first), exact `kind` filter, `limit` default 20 capped at 50, per-result text capped with `text_truncated`; tokens are matched as literals (FTS operators inert) and keep `_` inside — compound identifiers are single tokens, so query the full identifier; degrades to ok + recovery diagnostic on an absent store, and warns `chunk_index_undercovered` when a searched table is materially behind Lance (zero results on an unhealed store mean "not backfilled yet", not "absent from corpus"). Use for exact-identifier lookups and lexical-layer verification; regex stays with `code_pattern`, live-file substring with `code_keyword` (wave 1sbfk)
+- `code_lexical` — BM25-ranked exact-token search over the indexed lexical layer (the index-state store's `fts_code`/`fts_docs`, the same corpus the hybrid retrieval fuses); `table` = `code`/`docs`/`both` (merged best-first), exact `kind` filter, `limit` default 20 capped at 50, per-result text capped with `text_truncated`; tokens are matched as literals (FTS operators inert) and keep `_` inside — compound identifiers are single tokens, so query the full identifier; degrades to ok + recovery diagnostic on an absent store, and warns `chunk_index_undercovered` when a searched table is materially behind Lance (zero results on an unhealed store mean "not backfilled yet", not "absent from corpus"). Since wave `1wpif` (`1wpag`) every FTS read goes through one probed-serving chokepoint keyed by the completed epoch: when a requested table's lexical state is damaged (missing or empty table, corrupt shadow row, payload digest mismatch) the tool returns `status: error` with `failure_reason: query_failed`, `damaged_tables`, and a bounded, repo-relative `detail`, never a healthy zero; healing is only scheduled through the ordinary build path, never performed by the query. The hybrid tools (`code_search`, `code_ask`) keep their semantic results and add a `lexical_undercoverage` diagnostic instead; `index_health` exposes the per-table verdict under `state_store.fts` and raises `fts_integrity_failed` (and `chunk_id_collisions` from the `1wngv` census) before coverage can read as complete. Use for exact-identifier lookups and lexical-layer verification; regex stays with `code_pattern`, live-file substring with `code_keyword` (wave 1sbfk)
 - `code_constants` — batch constant value lookup by name, **all languages** (wave 1p4hi/1p4pz; `.mts`/`.cts` TypeScript module extensions supported): module- and type-level constants — Python module + class, Java `static final`, Go/C# `const`, Kotlin `const val`, Rust `const`, Swift `static let`, Ruby/PHP, JS/TS `const` — found by reusing the indexer's per-language constant detector (not a Python-only column-0 scan). Returns name/value/file/line/kind per match; value is the RHS after `=` (trailing `;` trimmed; PHP `define('NAME', value)` 2nd arg); value extraction is **string-aware** — a `,`/`;`/`}` inside a quoted string is kept as value content, not a separator (`CSV_SEP=","` → the comma; `static final String SEP="a;b;c"` → the full string); leading comments are stripped before the value match (a `# THRESHOLD = 10` comment above `THRESHOLD = 99` resolves to `99`, not the comment); multiline container literals (frozenset/list/dict/array) preserved; Go grouped `const (...)`/iota blocks resolve **each** member to its own line+value, not just the first; qualified lookup works — both `["Status.OK"]` and `["OK","Status.OK"]` resolve (short no longer shadows qualified); function/block locals excluded (scope gate); not-found symbols included with null value; `glob` scopes to matching file paths
 - `code_pattern` — regex pattern search across repository files; `pattern` is a Python `re`-compatible string; results capped at `max_results` (default 50) with `truncated`/`total_matches_found` fields; `ignore_case` flag; files over 1 MB skipped (ReDoS guard)
 - `code_outline` — structural symbol map of a source file; tiered: Python AST → tree-sitter (11 languages) → regex fallback; returns `{name, kind, start_line, end_line, docstring}` per symbol with `parser_used` field

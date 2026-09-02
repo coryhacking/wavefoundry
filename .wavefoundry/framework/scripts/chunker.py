@@ -207,7 +207,7 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in the index-state store's build snapshot after rebuild.
-CHUNKER_VERSION = "39"  # 1wl7v (diagram-label-retrieval, wave 1wl7w): tool-diagram LABEL EXTRACTION. .drawio files chunk one docs-routed kind="doc-code" unit per <diagram> page — breadcrumb (page name, or the file stem when the name matches the auto Page-N pattern) plus extracted labels: mxCell value attrs AND object/UserObject wrapper label attrs (draw.io's Edit Data serialization; value-only extraction silently drops those labels), two-layer HTML decode (XML attr layer via ElementTree, then tag strip + html.unescape). The canonical compressed save (URL-encode -> raw deflate -> base64) inflates through a bounded decompressobj seam capped at DRAWIO_MAX_INFLATED_BYTES per page (an executed 64 KB deflate bomb inflates past 10 MB; the on-disk walk cap cannot see it) — over-cap, malformed, or label-free pages emit ZERO chunks, a recorded departure from the 1whuq raw-source degrade because these serializations are machine noise. Page ids ride _dedupe_id_base on the `diagram` base (#diagram, #diagram~2). .excalidraw files chunk one labels-plus-frames unit per file (originalText preferred, isDeleted ghosts and empty strings SKIPPED, files blob never read), id #diagram, language pins drawio/excalidraw. Paired with WALKER_VERSION 15 (both extensions re-admitted at the walk layer with retrieval value). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (38) 1wh1b (retrieval-loose-ends, wave 1wl7u): two chunk-set shape changes. (1) Notebook code cells emit kind="doc-code" instead of kind="code" — .ipynb files are never code-eligible, so code cells reached NEITHER table (the 1whup both-tables drop class); doc-code routes them into the DOCS table on the landed plumbing (code size cap, breadcrumb injection; `#cell-N` ids and notebook-level kernel language unchanged; outputs stay unread). Executed on the frozen nb golden set: code-cell recall@5 0 -> measured post-change. (2) Repeat-only file-pass prose-id ordinals via _dedupe_id_base: duplicate-titled sections in markdown (section, H3-split, line-window bases, preamble-vs-literal-title, doc-summary sentinel), rst/adoc (_emit_prose_sections), the HTML/XML regex fallbacks, and the tree-sitter markup path's {slug}-L{start} ids (same-line siblings, CODE-DEL-1) previously emitted IDENTICAL ids that collapsed silently (last-writer-wins) in the id-keyed delta planner and sqlite chunk registry. First occurrence keeps its bare id (single-title dominant case byte-identical, differential-pinned); the k-th repeat gets `~k` — `~` is outside the _slugify alphabet, so no literal heading can forge the shape (bare -N is a legal slug tail: `Setup 2` -> `setup-2`; the SDL -N ordinal shape deliberately NOT reused). Fence/code-directive ids keep their raw slug base (already unique via the 1whup file-pass fence counter). _ts_flat_emit_chunker (config/markup code-kind `{path}#{slug}` ids) is a recorded adjacent-class follow-up, not changed here. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (37) 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+CHUNKER_VERSION = "41"  # 1wngv delivery repair (chunk-identity-source-range-integrity, wave 1wpif): TWO stored-coordinate corrections, both of which change `lines` for existing chunks, so a one-time rebuild is required (ids and chunk text are unchanged, so embeddings reuse by content hash). (1) Table row groups: `_decompose_oversized_table_chunk` applied the section base but never the ROW-GROUP offset, so parts 2..n stored the table head's lines (live census before the fix: 1,075 of 1,413 row-group parts wrong; `docs/architecture/current-state.md#current-risk-areas:L133-L141:rows6-7` stored (133, 136) for rows living at 140-141). The decomposer now owns the mapping (only it knows each group's row offset), emits a per-part line_map so an over-cap part line-windows with absolute coordinates, and treats the prelude/header REPRODUCED on parts 2..n as generated context, so a part's range is exactly its own rows; the broken remap in `split_large_chunks` is gone. (2) rst/adoc preambles: the preamble and only-title sections passed `body_start = 1` while their body had the consumed doc-title lines excised, so the first RETAINED line was numbered 1; both process_body passes and `_emit_prose_sections` now accept per-line absolute numbers (a single base offset cannot describe a body with a hole in it). Paired repairs with no stored-shape effect: the terminal `_dedupe_chunk_ids` guard checks its generated `-L{n}` id against the FULL original id set (it could previously emit the duplicate it exists to prevent), and the Python-summary ast parse degrades to the regex scan on RecursionError / MemoryError. Verified by a whole-repository coordinate census (1,726 md/rst/adoc files, 22,848 prose chunks: zero WRONG, where wrong means a payload line outside the stored range or a range opening on a non-payload line). Previous (40) 1wngv (chunk-identity-source-range-integrity, wave 1wpif): four identity/coordinate repairs. (1) _ts_flat_emit_chunker (the yaml/toml/json/css/scss/hcl/make flat config emitters) routes ids through a per-file collision guard: a non-colliding base and the FIRST occurrence of a collision group keep the legacy bare {path}#{slug} id; the k-th (k>=2) same-slug repeat gets the deterministic line-anchored base {slug}-L{start} with the _dedupe_id_base ~k tie-break for same-line repeats (uppercase L is unforgeable: _slugify lowercases every emitted slug). Live census before the fix: 150 same-ID/distinct-content groups and 563 registry/FTS dedupe losses on this repo (one toml file carried 287 same-slug repeats). (2) Splice-aware absolute line mapping: oversized markdown/rst/adoc prose is character-spliced free of fenced/code spans before line-windowing, so windows renumbered from 1 inside the slice; chunk_markdown (whole-section, oversized-window, preamble, seed/prompt decompose), _split_h3_sections, _emit_prose_sections (both process_body passes now return per-line absolute numbers), _decompose_oversized_markdown_body, and the universal guard (_line_wrap_chunk plus the table decomposition remap, via the new process-local Chunk.line_map carrier whose None entries mark generated breadcrumb/separator lines) now emit one-based absolute source coordinates. Exactness is SCOPED: a whole section chunk keeps its section span (heading through section end), while an oversized-section window and a table row-group part carry the MINIMAL contiguous span containing their own payload; generated breadcrumbs are never counted as source lines. (3) Python code summaries use ast module-structure extraction (module-level def/async def/class only, so nested methods no longer consume _SUMMARY_SYMBOL_CAP; the regex line scan remains only as the SyntaxError fallback). (4) Paired store-layer collision census (index_state_store.chunk_id_collision_census at every derived rebuild, consuming already-materialized Lance rows) with the index_health chunk_id_collisions diagnostic, so a future same-ID/distinct-content regression is observable before full derived-state coverage is reported. Chunk-set shape change (ids for colliding flat-emitter chunks; line metadata and window ids for spliced prose) -> bump; a one-time rebuild is required; non-colliding ids are preserved and embeddings reuse by content hash. Previous (39) 1wl7v (diagram-label-retrieval, wave 1wl7w): tool-diagram LABEL EXTRACTION. .drawio files chunk one docs-routed kind="doc-code" unit per <diagram> page — breadcrumb (page name, or the file stem when the name matches the auto Page-N pattern) plus extracted labels: mxCell value attrs AND object/UserObject wrapper label attrs (draw.io's Edit Data serialization; value-only extraction silently drops those labels), two-layer HTML decode (XML attr layer via ElementTree, then tag strip + html.unescape). The canonical compressed save (URL-encode -> raw deflate -> base64) inflates through a bounded decompressobj seam capped at DRAWIO_MAX_INFLATED_BYTES per page (an executed 64 KB deflate bomb inflates past 10 MB; the on-disk walk cap cannot see it) — over-cap, malformed, or label-free pages emit ZERO chunks, a recorded departure from the 1whuq raw-source degrade because these serializations are machine noise. Page ids ride _dedupe_id_base on the `diagram` base (#diagram, #diagram~2). .excalidraw files chunk one labels-plus-frames unit per file (originalText preferred, isDeleted ghosts and empty strings SKIPPED, files blob never read), id #diagram, language pins drawio/excalidraw. Paired with WALKER_VERSION 15 (both extensions re-admitted at the walk layer with retrieval value). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (38) 1wh1b (retrieval-loose-ends, wave 1wl7u): two chunk-set shape changes. (1) Notebook code cells emit kind="doc-code" instead of kind="code" — .ipynb files are never code-eligible, so code cells reached NEITHER table (the 1whup both-tables drop class); doc-code routes them into the DOCS table on the landed plumbing (code size cap, breadcrumb injection; `#cell-N` ids and notebook-level kernel language unchanged; outputs stay unread). Executed on the frozen nb golden set: code-cell recall@5 0 -> measured post-change. (2) Repeat-only file-pass prose-id ordinals via _dedupe_id_base: duplicate-titled sections in markdown (section, H3-split, line-window bases, preamble-vs-literal-title, doc-summary sentinel), rst/adoc (_emit_prose_sections), the HTML/XML regex fallbacks, and the tree-sitter markup path's {slug}-L{start} ids (same-line siblings, CODE-DEL-1) previously emitted IDENTICAL ids that collapsed silently (last-writer-wins) in the id-keyed delta planner and sqlite chunk registry. First occurrence keeps its bare id (single-title dominant case byte-identical, differential-pinned); the k-th repeat gets `~k` — `~` is outside the _slugify alphabet, so no literal heading can forge the shape (bare -N is a legal slug tail: `Setup 2` -> `setup-2`; the SDL -N ordinal shape deliberately NOT reused). Fence/code-directive ids keep their raw slug base (already unique via the 1whup file-pass fence counter). _ts_flat_emit_chunker (config/markup code-kind `{path}#{slug}` ids) is a recorded adjacent-class follow-up, not changed here. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (37) 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -457,6 +457,14 @@ class Chunk:
     lines: tuple[int, int]
     section: Optional[str]
     text: str
+    # 1wngv (wave 1wpif): optional per-text-line absolute source-line map for
+    # doc-family chunks whose text was spliced (fences excised) or prefixed
+    # with a generated breadcrumb. Entry i is the one-based absolute source
+    # line of text line i, or None for a generated line (breadcrumb, blank
+    # separator, splice artifact). Process-local only: to_dict never emits it;
+    # the universal oversize guard consumes it to keep window coordinates
+    # absolute and source-exact.
+    line_map: Optional[tuple] = None
 
     def to_dict(self) -> dict:
         return {
@@ -812,38 +820,71 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
     total_rows = len(data_rows)
     base_section = chunk.section or ""
     base_line_start, _ = chunk.lines
-    table_start_line = base_line_start + table_start  # 1-based source line of header
-    prelude_line_offset = base_line_start
+
+    # 1wngv delivery repair (RED-DEL-1, wave 1wpif): absolute coordinates come
+    # from the parent's own line map when it carries one (spliced / breadcrumb-
+    # prefixed doc text), else from the parent's start plus the text offset.
+    # The previous emission anchored EVERY part at the table head, so parts
+    # 2..n stored the header's lines instead of their own rows.
+    num_map: "Optional[list]" = list(chunk.line_map) if chunk.line_map else None
+    if num_map is not None and len(num_map) != len(lines):
+        num_map = None  # defensive: a misaligned map must never misplace a citation
+    if num_map is None:
+        # No carrier: text line i is source line base + i, except a generated
+        # breadcrumb preamble, identified by the same heuristic
+        # ``_line_wrap_chunk`` applies to unmapped chunks.
+        _pre_lines, _pre_off = _extract_breadcrumb_preamble(lines)
+        num_map = [None] * _pre_off + [
+            base_line_start + i for i in range(_pre_off, len(lines))
+        ]
+
+    def _abs(idx: int) -> "Optional[int]":
+        return num_map[idx] if 0 <= idx < len(num_map) else None
+
+    prelude_split = prelude_text.split("\n") if prelude_text else []
 
     result: list[Chunk] = []
     rows_emitted = 0
     last_idx = len(groups) - 1
     for g_idx, group in enumerate(groups):
         group_start_row = rows_emitted + 1
+        rows_before = rows_emitted
         group_end_row = rows_emitted + len(group)
         rows_emitted = group_end_row
-        parts = []
+        # Build the emitted text as parallel (line, absolute-source-line) pairs
+        # so the two can never drift. A part that REPRODUCES the prelude and
+        # header (every part after the first) carries them as generated
+        # context (None): they are real source text elsewhere, and counting
+        # them here would stretch the range over another group's rows.
+        reproduced = g_idx > 0
+        text_lines: list[str] = []
+        map_entries: "list[Optional[int]]" = []
         if prelude_text:
-            parts.append(prelude_text)
-        parts.append(header_text)
-        parts.append("\n".join(group))
-        # Append postlude to the last group only
+            for i, line in enumerate(prelude_split):
+                text_lines.append(line)
+                map_entries.append(None if reproduced else _abs(i))
+            text_lines.append("")          # the blank joiner before the header
+            map_entries.append(None)
+        for k, line in enumerate(header_lines):
+            text_lines.append(line)
+            map_entries.append(None if reproduced else _abs(table_start + k))
+        for j, row in enumerate(group):
+            text_lines.append(row)
+            map_entries.append(_abs(sep_idx + 1 + rows_before + j))
         if g_idx == last_idx and postlude:
             postlude_text = "\n".join(postlude).rstrip()
             if postlude_text:
-                parts.append(postlude_text)
-        text = "\n\n".join(parts) if prelude_text else "\n".join(parts)
-        # Actually we need header attached to rows with single newline, not double
-        text_parts: list[str] = []
-        if prelude_text:
-            text_parts.append(prelude_text + "\n\n")
-        text_parts.append(header_text + "\n")
-        text_parts.append("\n".join(group))
-        if g_idx == last_idx and postlude:
-            postlude_text = "\n".join(postlude).rstrip()
-            if postlude_text:
-                text_parts.append("\n\n" + postlude_text)
-        emitted_text = "".join(text_parts)
+                text_lines.append("")      # the blank joiner before the postlude
+                map_entries.append(None)
+                for k, line in enumerate(postlude_text.split("\n")):
+                    text_lines.append(line)
+                    map_entries.append(_abs(table_end + k))
+        emitted_text = "\n".join(text_lines)
+        real = [n for n in map_entries if n is not None]
+        if real:
+            part_lines = (min(real), max(real))
+        else:  # every mapped line is generated: keep the parent's anchor
+            part_lines = (base_line_start, base_line_start)
         suffix = f"rows {group_start_row}–{group_end_row} of {total_rows}"
         section = f"{base_section} ({suffix})" if base_section else f"({suffix})"
         result.append(Chunk(
@@ -851,9 +892,10 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
             path=chunk.path,
             kind=chunk.kind,
             language=chunk.language,
-            lines=(table_start_line, table_start_line + len(group) + len(header_lines) - 1),
+            lines=part_lines,
             section=section,
             text=emitted_text,
+            line_map=tuple(map_entries),
         ))
     return result
 
@@ -864,6 +906,83 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
 # breadcrumb (e.g., `Doc Title > Section Heading`) vs. real content.
 _BREADCRUMB_NON_CONTENT_PREFIXES = ("-", "*", "+", "|", "#", "```", ">", "\t")
 _NUMBERED_LIST_RE = re.compile(r"^\s*\d+\.\s+")
+
+
+def _spliced_line_numbers(
+    body: str,
+    spans: "list[tuple[int, int]]",
+    first_line_abs: int,
+) -> "list[Optional[int]]":
+    """One-based absolute source line number for each line of ``body`` with
+    ``spans`` (character ranges) excised, aligned with the spliced text's
+    ``splitlines()`` output (1wngv, wave 1wpif).
+
+    ``first_line_abs`` is the absolute source line of body line 0. An output
+    line whose only retained character is a newline on a line that also had
+    excised characters (the splice artifact left behind by removing a fence)
+    maps to ``None``: it is not source text and must never anchor a range.
+    Genuinely blank source lines keep their own number.
+    """
+    if not spans:
+        return [first_line_abs + i for i in range(len(body.splitlines()))]
+    spans_sorted = sorted(spans)
+    out: "list[Optional[int]]" = []
+    si = 0
+    current_line = 0
+    line_recorded = False
+    line_had_excised = False
+    for i, ch in enumerate(body):
+        while si < len(spans_sorted) and i >= spans_sorted[si][1]:
+            si += 1
+        inside = si < len(spans_sorted) and spans_sorted[si][0] <= i < spans_sorted[si][1]
+        if inside:
+            line_had_excised = True
+        else:
+            if not line_recorded:
+                out.append(
+                    None if (ch == "\n" and line_had_excised)
+                    else first_line_abs + current_line
+                )
+                line_recorded = True
+            if ch == "\n":
+                line_recorded = False
+        if ch == "\n":
+            current_line += 1
+            line_had_excised = False
+    return out
+
+
+def _line_bounds_after_strip(text: str) -> tuple[int, int]:
+    """(first_idx, last_idx) of the lines that survive ``text.strip()``, as
+    indexes into ``text.splitlines()``. The caller guarantees non-blank text;
+    ``str.strip()`` only removes whole blank lines at either end (plus edge
+    whitespace inside the boundary lines), so the surviving line count equals
+    ``last_idx - first_idx + 1``."""
+    lines = text.splitlines()
+    first = 0
+    while first < len(lines) and not lines[first].strip():
+        first += 1
+    last = len(lines) - 1
+    while last >= 0 and not lines[last].strip():
+        last -= 1
+    return first, last
+
+
+def _map_window_lines(
+    num_map: "list[Optional[int]]",
+    ws: int,
+    we: int,
+    fallback: tuple[int, int],
+) -> tuple[int, int]:
+    """Absolute (start, end) for a one-based ``[ws, we]`` window over
+    ``num_map`` entries; None entries (generated / splice-artifact lines) are
+    trimmed from both ends, and ``fallback`` is returned when every entry in
+    the window is None (1wngv)."""
+    entries = [num_map[i] for i in range(max(ws - 1, 0), min(we, len(num_map)))]
+    real = [e for e in entries if e is not None]
+    if not real:
+        return fallback
+    return (real[0], real[-1])
 
 
 def _extract_breadcrumb_preamble(lines: list[str]) -> tuple[list[str], int]:
@@ -902,16 +1021,36 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
     followed by a blank), that preamble is preserved on every emitted
     part so retrieval consumers see the section context in every chunk
     body, not just the lead part.
+
+    1wngv (wave 1wpif): when the chunk carries a ``line_map`` (spliced or
+    breadcrumb-prefixed doc-family text), window ids and line metadata come
+    from the map's absolute source numbers instead of text-relative
+    arithmetic, and the generated preamble is identified by the map's leading
+    None entries; unmapped chunks keep the previous behavior byte-identically.
     """
     start_line, _ = chunk.lines
     lines = chunk.text.splitlines()
     if not lines:
         return []
 
+    num_map: "Optional[list]" = list(chunk.line_map) if chunk.line_map else None
+    if num_map is not None and len(num_map) != len(lines):
+        num_map = None  # defensive: a misaligned map must never misplace a citation
+
     # Detect breadcrumb preamble BEFORE char-windowing so we can size the
     # body cap correctly (every emitted chunk = preamble + \n + body slice).
-    preamble_lines, body_offset = _extract_breadcrumb_preamble(lines)
+    if num_map is not None:
+        # Generated lines are the map's leading None entries (1wngv) — this
+        # also catches the no-blank injected `section\ntext` shape the
+        # heuristic below cannot see.
+        body_offset = 0
+        while body_offset < len(num_map) and num_map[body_offset] is None:
+            body_offset += 1
+        preamble_lines = lines[:body_offset]
+    else:
+        preamble_lines, body_offset = _extract_breadcrumb_preamble(lines)
     body_lines_raw = lines[body_offset:]
+    body_map_raw: "Optional[list]" = num_map[body_offset:] if num_map is not None else None
     preamble_text = "\n".join(preamble_lines)
     preamble_size = len(preamble_text) + (1 if preamble_text else 0)
     # Leave room in each window for the preamble. If the preamble is so
@@ -924,6 +1063,7 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
         preamble_size = 0
         body_cap = cap
         body_lines_raw = lines
+        body_map_raw = num_map
         body_offset = 0
 
     if not body_lines_raw:
@@ -931,32 +1071,41 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
         return [chunk]
 
     # Char-window split any line that itself exceeds body_cap, so no single
-    # line exceeds the body budget.
+    # line exceeds the body budget. Split pieces inherit their line's map
+    # entry (they are the same source line).
     body_lines: list[str] = []
-    for line in body_lines_raw:
+    body_map: "Optional[list]" = [] if body_map_raw is not None else None
+    for j, line in enumerate(body_lines_raw):
+        entry = body_map_raw[j] if body_map_raw is not None else None
         if len(line) <= body_cap:
             body_lines.append(line)
+            if body_map is not None:
+                body_map.append(entry)
             continue
         for i in range(0, len(line), body_cap):
             body_lines.append(line[i:i + body_cap])
+            if body_map is not None:
+                body_map.append(entry)
 
-    windows: list[tuple[int, int, list[str]]] = []
+    windows: list[tuple[int, int, int, list[str]]] = []
     window_lines: list[str] = []
     window_start = start_line + body_offset
+    window_start_idx = 0
     current_len = 0
     for offset, line in enumerate(body_lines):
         line_len = len(line) + 1
         if window_lines and current_len + line_len > body_cap:
             window_end = window_start + len(window_lines) - 1
-            windows.append((window_start, window_end, window_lines))
+            windows.append((window_start, window_end, window_start_idx, window_lines))
             window_lines = []
             window_start = start_line + body_offset + offset
+            window_start_idx = offset
             current_len = 0
         window_lines.append(line)
         current_len += line_len
     if window_lines:
         window_end = window_start + len(window_lines) - 1
-        windows.append((window_start, window_end, window_lines))
+        windows.append((window_start, window_end, window_start_idx, window_lines))
 
     out: list[Chunk] = []
     total = len(windows)
@@ -970,7 +1119,17 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
     # delivery repair; scoped to the synthesized kinds so existing corpus
     # chunk shapes stay byte-identical).
     clamp_end = chunk.lines[1] if chunk.language in ("drawio", "excalidraw") else None
-    for idx, (ws, we, wl) in enumerate(windows, start=1):
+    # 1wngv: with a line map, several char-split pieces of ONE long source
+    # line share a single absolute number, so the mapped `:L{ws}-L{we}`
+    # suffix repeats — dedupe the suffix per call (`~k`; first occurrence
+    # stays bare, so unmapped chunks keep their previous ids byte-identically
+    # because their arithmetic suffixes were already unique).
+    suffix_counts: dict[str, int] = {}
+    for idx, (ws, we, w_start_idx, wl) in enumerate(windows, start=1):
+        if body_map is not None:
+            ws, we = _map_window_lines(
+                body_map, w_start_idx + 1, w_start_idx + len(wl), (ws, we)
+            )
         section = f"{base_section} (part {idx}/{total})" if base_section else f"(part {idx}/{total})"
         body_text = "\n".join(wl)
         if preamble_text:
@@ -980,7 +1139,7 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
         meta_lines = (ws, we) if clamp_end is None else (
             min(ws, clamp_end), min(we, clamp_end))
         out.append(Chunk(
-            id=f"{chunk.id}:L{ws}-L{we}",
+            id=f"{chunk.id}:{_dedupe_id_base(f'L{ws}-L{we}', suffix_counts)}",
             path=chunk.path,
             kind=chunk.kind,
             language=chunk.language,
@@ -1037,6 +1196,12 @@ def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> 
             # cap). Fall through to line/char-wrap for those residuals —
             # don't recurse into `split_large_chunks`, which would re-enter
             # the table path and infinite-loop.
+            # 1wngv delivery repair (RED-DEL-1): the decomposer owns the
+            # mapping now. The remap that used to live here re-derived every
+            # part's index from the TABLE HEAD, so parts 2..n were pinned to
+            # the header's lines; only the decomposer knows each group's row
+            # offset, and it emits a per-part line_map so an over-cap part
+            # line-wraps with absolute coordinates too.
             for tc in table_chunks:
                 if len(tc.text) <= cap:
                     result.append(tc)
@@ -1192,10 +1357,10 @@ def _split_h3_sections(
         )
         chunks.extend(code_chunks)
 
-        prose = sub_body
+        spliced = sub_body
         for start_pos, end_pos in reversed(code_spans):
-            prose = prose[:start_pos] + prose[end_pos:]
-        prose = prose.strip()
+            spliced = spliced[:start_pos] + spliced[end_pos:]
+        prose = spliced.strip()
 
         if prose:
             if h3_slug:
@@ -1203,14 +1368,25 @@ def _split_h3_sections(
                 id_str = f"{path}#{sub_base}"
             else:
                 id_str = f"{path}#{h2_id_base}"
+            # 1wngv: splice-aware absolute coordinates. Body line j is source
+            # line base_line + 1 + j (base_line is the ## heading line);
+            # sub_body's first line follows the ### heading when one exists.
+            first_abs = base_line + 1 + offset + (1 if h3_title else 0)
+            num_map = _spliced_line_numbers(sub_body, code_spans, first_abs)
+            first_ln, last_ln = _line_bounds_after_strip(spliced)
+            prose_map = num_map[first_ln:last_ln + 1]
+            real = [n for n in prose_map if n is not None]
+            lines_pair = (real[0], real[-1]) if real else (
+                abs_start, abs_start + sub_body.count("\n"))
             chunks.append(Chunk(
                 id=id_str,
                 path=path,
                 kind=default_kind,
                 language=None,
-                lines=(abs_start, abs_start + sub_body.count("\n")),
+                lines=lines_pair,
                 section=section_label,
                 text=f"{section_label}\n\n{prose}",
+                line_map=(None, None, *prose_map),
             ))
 
     return chunks
@@ -1231,6 +1407,7 @@ def _decompose_oversized_markdown_body(
     kind: str,
     slug: str,
     max_chars: int = MAX_CHUNK_CHARS,
+    line_numbers: "Optional[list]" = None,
 ) -> list[Chunk]:
     """Decompose an oversized markdown body into chunks ≤ max_chars.
 
@@ -1309,23 +1486,44 @@ def _decompose_oversized_markdown_body(
 
     # Walker: group blocks greedily into chunks ≤ max_chars.
     chunks: list[Chunk] = []
-    current_text_parts: list[str] = []
-    current_first_block_text: Optional[str] = None
-    current_start_offset: int = 0
+    current_parts: list[tuple[int, str]] = []  # (line offset into body, block text)
     current_len = 0
 
     def _flush() -> None:
-        if not current_text_parts:
+        if not current_parts:
             return
-        text = "\n\n".join(current_text_parts).strip()
+        text = "\n\n".join(p for _, p in current_parts).strip()
         if not text:
             return
-        section_hint = (current_first_block_text or text).split("\n", 1)[0].strip()
+        first_block_text = current_parts[0][1]
+        section_hint = first_block_text.split("\n", 1)[0].strip()
         # Strip leading list-item marker for cleaner section labels
         section_hint = re.sub(r"^(?:\d+\.|[-*+])\s+", "", section_hint)
         section = section_hint[:80].strip() or None
-        sl = start_line + current_start_offset
-        el = sl + text.count("\n")
+        # 1wngv: when the caller supplies an absolute per-line map (offsets
+        # index its entries), coordinates and the emitted line_map come from
+        # it; the blank separator each join inserts is generated (None).
+        # Unmapped callers keep the legacy body-relative arithmetic.
+        chunk_map: "Optional[tuple]" = None
+        sl: "Optional[int]" = None
+        el: "Optional[int]" = None
+        if line_numbers is not None:
+            lm: list = []
+            for bi, (off, btext) in enumerate(current_parts):
+                if bi:
+                    lm.append(None)
+                cnt = btext.count("\n") + 1
+                if off + cnt <= len(line_numbers):
+                    lm.extend(line_numbers[off:off + cnt])
+                else:
+                    lm.extend([None] * cnt)
+            real = [n for n in lm if n is not None]
+            if real:
+                sl, el = real[0], real[-1]
+                chunk_map = tuple(lm)
+        if sl is None or el is None:
+            sl = start_line + current_parts[0][0]
+            el = sl + text.count("\n")
         chunks.append(Chunk(
             id=f"{path}#{slug}@L{sl}",
             path=path,
@@ -1334,19 +1532,16 @@ def _decompose_oversized_markdown_body(
             lines=(sl, el),
             section=section,
             text=text,
+            line_map=chunk_map,
         ))
 
     for offset, block_text in expanded_blocks:
         block_len = len(block_text) + 2  # +2 for the blank-line separator
-        if current_text_parts and current_len + block_len > max_chars:
+        if current_parts and current_len + block_len > max_chars:
             _flush()
-            current_text_parts = []
-            current_first_block_text = None
+            current_parts = []
             current_len = 0
-        if not current_text_parts:
-            current_start_offset = offset
-            current_first_block_text = block_text
-        current_text_parts.append(block_text)
+        current_parts.append((offset, block_text))
         current_len += block_len
     _flush()
     return chunks
@@ -1435,6 +1630,10 @@ def chunk_markdown(
             if suppress_code_extraction:
                 prose = body.strip()
                 if prose:
+                    # 1wngv: absolute per-line map (preamble body line 0 IS
+                    # source line start_line; no fences are excised here).
+                    first_ln, last_ln = _line_bounds_after_strip(body)
+                    prose_map = [start_line + i for i in range(first_ln, last_ln + 1)]
                     # Wave 1p3b9 (1p397): when an H1-only seed/prompt body
                     # exceeds the cap, decompose at paragraph + list-item
                     # boundaries before falling through to the universal
@@ -1444,6 +1643,7 @@ def chunk_markdown(
                             and len(prose) > MAX_CHUNK_CHARS):
                         chunks.extend(_decompose_oversized_markdown_body(
                             prose, start_line, path, default_kind, id_base,
+                            line_numbers=prose_map,
                         ))
                     else:
                         chunks.append(Chunk(
@@ -1454,6 +1654,7 @@ def chunk_markdown(
                             lines=(start_line, section_end),
                             section=None,
                             text=prose,
+                            line_map=tuple(prose_map),
                         ))
             else:
                 code_chunks, code_spans = _extract_fenced_code(
@@ -1464,15 +1665,21 @@ def chunk_markdown(
                     c.section = None
                     c.text = c.text.split("\n\n", 1)[-1] if "\n\n" in c.text else c.text
                 chunks.extend(code_chunks)
-                prose = body
+                spliced = body
                 for start_pos, end_pos in reversed(code_spans):
-                    prose = prose[:start_pos] + prose[end_pos:]
-                prose = prose.strip()
+                    spliced = spliced[:start_pos] + spliced[end_pos:]
+                prose = spliced.strip()
                 if prose:
+                    # 1wngv: splice-aware absolute map (preamble body line 0
+                    # IS source line start_line).
+                    num_map = _spliced_line_numbers(body, code_spans, start_line)
+                    first_ln, last_ln = _line_bounds_after_strip(spliced)
+                    prose_map = num_map[first_ln:last_ln + 1]
                     if (default_kind in ("seed", "prompt")
                             and len(prose) > MAX_CHUNK_CHARS):
                         chunks.extend(_decompose_oversized_markdown_body(
                             prose, start_line, path, default_kind, id_base,
+                            line_numbers=prose_map,
                         ))
                         continue
                     chunks.append(Chunk(
@@ -1483,6 +1690,7 @@ def chunk_markdown(
                         lines=(start_line, section_end),
                         section=None,
                         text=prose,
+                        line_map=tuple(prose_map),
                     ))
             continue
 
@@ -1505,9 +1713,17 @@ def chunk_markdown(
             # Keep fenced code inline — emit entire section as a single prose chunk
             prose = body.strip()
             if prose:
+                # 1wngv: titled-section body line 0 is source line
+                # start_line + 1 (the heading occupies start_line).
+                first_ln, last_ln = _line_bounds_after_strip(body)
+                prose_map = [start_line + 1 + i for i in range(first_ln, last_ln + 1)]
                 if not suppress_h3_split and len(prose) > H3_SPLIT_THRESHOLD_CHARS:
                     for fw_chunk in chunk_line_window(prose, path):
-                        fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        rel_ws, rel_we = fw_chunk.lines
+                        ws, we = _map_window_lines(prose_map, rel_ws, rel_we, fw_chunk.lines)
+                        fw_chunk.line_map = (None, None, *prose_map[rel_ws - 1:rel_we])
+                        fw_chunk.lines = (ws, we)
+                        fw_chunk.id = f"{path}#{id_base}:L{ws}-L{we}"
                         fw_chunk.kind = default_kind
                         fw_chunk.section = section_label
                         fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
@@ -1521,6 +1737,7 @@ def chunk_markdown(
                         lines=(start_line, section_end),
                         section=section_label,
                         text=f"{section_label}\n\n{prose}",
+                        line_map=(None, None, *prose_map),
                     ))
         else:
             # Standard section: extract fenced code then emit prose
@@ -1530,16 +1747,25 @@ def chunk_markdown(
             )
             chunks.extend(code_chunks)
 
-            prose = body
+            spliced = body
             for start_pos, end_pos in reversed(code_spans):
-                prose = prose[:start_pos] + prose[end_pos:]
-            prose = prose.strip()
+                spliced = spliced[:start_pos] + spliced[end_pos:]
+            prose = spliced.strip()
 
             if prose:
+                # 1wngv: splice-aware absolute map; titled-section body line 0
+                # is source line start_line + 1.
+                num_map = _spliced_line_numbers(body, code_spans, start_line + 1)
+                first_ln, last_ln = _line_bounds_after_strip(spliced)
+                prose_map = num_map[first_ln:last_ln + 1]
                 # For oversized sections without ### (line-window fallback), inject breadcrumb
                 if len(prose) > H3_SPLIT_THRESHOLD_CHARS:
                     for fw_chunk in chunk_line_window(prose, path):
-                        fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                        rel_ws, rel_we = fw_chunk.lines
+                        ws, we = _map_window_lines(prose_map, rel_ws, rel_we, fw_chunk.lines)
+                        fw_chunk.line_map = (None, None, *prose_map[rel_ws - 1:rel_we])
+                        fw_chunk.lines = (ws, we)
+                        fw_chunk.id = f"{path}#{id_base}:L{ws}-L{we}"
                         fw_chunk.kind = default_kind
                         fw_chunk.section = section_label
                         fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
@@ -1553,6 +1779,7 @@ def chunk_markdown(
                         lines=(start_line, section_end),
                         section=section_label,
                         text=f"{section_label}\n\n{prose}",
+                        line_map=(None, None, *prose_map),
                     ))
 
     return chunks
@@ -1842,21 +2069,43 @@ def _rst_process_body(
     slug: str,
     path: str,
     fence_counter: Optional[list[int]] = None,
-) -> tuple[list[str], list[Chunk]]:
+    line_numbers: "Optional[list[int]]" = None,
+) -> "tuple[list[str], list[Chunk], list[Optional[int]]]":
     """Process directives in a section body: extract code-directive bodies as
     doc-code chunks, drop non-prose directives, unwrap admonition bodies.
-    Returns (prose_lines, code_chunks). The code ordinal is file-pass scoped
-    via fence_counter (per-section resets collide on duplicate titles, 1whup)."""
+    Returns (prose_lines, code_chunks, prose_line_numbers); the third entry
+    carries each prose line's one-based absolute source line (1wngv, wave
+    1wpif) so oversized sections line-window with source-exact coordinates.
+    The code ordinal is file-pass scoped via fence_counter (per-section
+    resets collide on duplicate titles, 1whup).
+
+    ``line_numbers`` (delivery repair CODE-DEL-3) is the per-line absolute
+    source number for a body that is NOT contiguous from ``base_line`` — the
+    preamble and only-title sections, whose consumed doc-title lines are
+    excised out of the middle. Contiguous bodies pass None and keep the
+    ``base_line + offset`` arithmetic byte-identically."""
     prose: list[str] = []
+    nums: "list[Optional[int]]" = []
     code_chunks: list[Chunk] = []
     counter = fence_counter if fence_counter is not None else [0]
     i = 0
     n = len(body_lines)
+    if not line_numbers or len(line_numbers) != n:
+        line_numbers = None
+
+    def _ln(offset: int) -> int:
+        """Absolute source line for body offset ``offset`` (clamped: callers
+        address the line just past a collected region)."""
+        if line_numbers is None:
+            return base_line + offset
+        return line_numbers[min(max(offset, 0), n - 1)]
+
     while i < n:
         raw = body_lines[i]
         m = _RST_DIRECTIVE_RE.match(raw.rstrip("\n"))
         if m is None:
             prose.append(raw)
+            nums.append(_ln(i))
             i += 1
             continue
         indent, name, arg = len(m.group(1)), m.group(2).lower(), m.group(3).strip()
@@ -1877,18 +2126,19 @@ def _rst_process_body(
         content = list(region)
         while content and (not content[0].strip() or re.match(r"^\s*:[\w-]+:", content[0])):
             content.pop(0)
+        dropped = len(region) - len(content)  # option/blank lines removed from the front
         dedented = _dedent_lines(content)
         if name in _RST_CODE_DIRECTIVES:
             code_text = "\n".join(dedented).strip("\n")
             if code_text.strip():
                 counter[0] += 1
-                start = base_line + i
+                start = _ln(i)
                 code_chunks.append(Chunk(
                     id=f"{path}#{slug}:code-{counter[0]}",
                     path=path,
                     kind="doc-code",
                     language=arg or None,
-                    lines=(start, start + len(region)),
+                    lines=(start, _ln(i + len(region))),
                     section=section_label,
                     text=code_text,
                 ))
@@ -1897,13 +2147,17 @@ def _rst_process_body(
         elif name in _RST_ADMONITION_DIRECTIVES:
             if arg:
                 prose.append(arg)
+                nums.append(_ln(i))  # the argument text lives on the directive line
             prose.extend(dedented)
+            nums.extend(_ln(i + 1 + dropped + k) for k in range(len(dedented)))
         else:
             # Unknown directive: keep the whole region as prose (degrade, never drop).
             prose.append(raw.rstrip("\n"))
+            nums.append(_ln(i))
             prose.extend(region_line.rstrip("\n") for region_line in region)
+            nums.extend(_ln(i + 1 + k) for k in range(len(region)))
         i = j
-    return prose, code_chunks
+    return prose, code_chunks, nums
 
 
 def _dedent_lines(lines: list[str]) -> list[str]:
@@ -1916,7 +2170,7 @@ def _dedent_lines(lines: list[str]) -> list[str]:
 
 
 def _emit_prose_sections(
-    sections: list[tuple[Optional[str], int, int, list[str]]],
+    sections: "list[tuple[Optional[str], int, int, list[str], Optional[list[int]]]]",
     doc_title: Optional[str],
     path: str,
     process_body,
@@ -1924,9 +2178,16 @@ def _emit_prose_sections(
     """Shared rst/adoc emission mirroring chunk_markdown's section shape:
     preamble without breadcrumb, sections as ``{label}\\n\\n{prose}`` with
     ``section`` set, oversized sections degrading to line windows. Each
-    section carries (title, header_line, body_start, body_lines) so extracted
-    code chunks anchor at the body's real first line, not the title line
-    (delivery-review line-offset advisory, 1wfsl)."""
+    section carries (title, header_line, body_start, body_lines, body_numbers)
+    so extracted code chunks anchor at the body's real first line, not the
+    title line (delivery-review line-offset advisory, 1wfsl).
+
+    ``body_numbers`` (delivery repair CODE-DEL-3) is the per-line absolute
+    source number list for a body whose lines are not contiguous from
+    ``body_start`` -- the preamble and only-title sections, which drop the
+    consumed doc-title lines. It also supplies the emitted chunk's own
+    ``lines`` bounds, which the ``body_start``-relative arithmetic cannot
+    describe."""
     chunks: list[Chunk] = []
     # File-pass-scoped code ordinal shared across every section (1whup).
     fence_counter: list[int] = [0]
@@ -1934,21 +2195,35 @@ def _emit_prose_sections(
     # section occurrence claims its slug; repeats get `~k`. Code-directive /
     # listing ids keep the raw slug (unique via fence_counter).
     id_counts: dict[str, int] = {}
-    for title, start_line, body_start, body_lines in sections:
+    for title, start_line, body_start, body_lines, body_numbers in sections:
         slug = _slugify(title) if title else "preamble"
         id_base = _dedupe_id_base(slug, id_counts)
         section_label = None
         if title:
             section_label = f"{doc_title} > {title}" if doc_title else title
-        prose_lines, code_chunks = process_body(
+        prose_lines, code_chunks, prose_nums = process_body(
             body_lines, body_start, section_label, slug, path,
-            fence_counter=fence_counter,
+            fence_counter=fence_counter, line_numbers=body_numbers,
         )
         chunks.extend(code_chunks)
-        prose = "\n".join(prose_lines).strip()
+        joined = "\n".join(prose_lines)
+        prose = joined.strip()
         if not prose:
             continue
-        section_end = body_start + max(len(body_lines) - 1, 0)
+        # 1wngv: absolute per-prose-line source numbers from the body pass,
+        # trimmed to the lines that survive the strip.
+        nums: "Optional[list]" = None
+        if len(prose_nums) == len(prose_lines):
+            first_ln, last_ln = _line_bounds_after_strip(joined)
+            nums = prose_nums[first_ln:last_ln + 1]
+        if body_numbers:
+            # A non-contiguous body (consumed doc-title lines excised) knows
+            # its own first and last absolute source lines; the arithmetic
+            # below would restate the section as if it began at body_start.
+            start_line = body_numbers[0]
+            section_end = body_numbers[-1]
+        else:
+            section_end = body_start + max(len(body_lines) - 1, 0)
         if title is None:
             chunks.append(Chunk(
                 id=f"{path}#{id_base}",
@@ -1958,10 +2233,18 @@ def _emit_prose_sections(
                 lines=(start_line, section_end),
                 section=None,
                 text=prose,
+                line_map=tuple(nums) if nums is not None else None,
             ))
         elif len(prose) > H3_SPLIT_THRESHOLD_CHARS:
             for fw_chunk in chunk_line_window(prose, path):
-                fw_chunk.id = f"{path}#{id_base}:L{fw_chunk.lines[0]}-L{fw_chunk.lines[1]}"
+                rel_ws, rel_we = fw_chunk.lines
+                if nums is not None:
+                    ws, we = _map_window_lines(nums, rel_ws, rel_we, fw_chunk.lines)
+                    fw_chunk.line_map = (None, None, *nums[rel_ws - 1:rel_we])
+                    fw_chunk.lines = (ws, we)
+                else:
+                    ws, we = rel_ws, rel_we
+                fw_chunk.id = f"{path}#{id_base}:L{ws}-L{we}"
                 fw_chunk.kind = "doc"
                 fw_chunk.section = section_label
                 fw_chunk.text = f"{section_label}\n\n{fw_chunk.text}"
@@ -1975,6 +2258,7 @@ def _emit_prose_sections(
                 lines=(start_line, section_end),
                 section=section_label,
                 text=f"{section_label}\n\n{prose}",
+                line_map=(None, None, *nums) if nums is not None else None,
             ))
     return chunks
 
@@ -2017,27 +2301,29 @@ def chunk_rst(source: str, path: str) -> list[Chunk]:
     if doc_title is not None:
         consumed_doc_title = set(range(leveled[0][0], leveled[0][0] + leveled[0][1]))
 
-    sections: list[tuple[Optional[str], int, int, list[str]]] = []
+    sections: "list[tuple[Optional[str], int, int, list[str], Optional[list[int]]]]" = []
     if not boundaries:
-        body = [
-            line for idx, line in enumerate(lines)
-            if idx not in consumed_doc_title
-        ]
+        # CODE-DEL-3 (delivery repair): the consumed doc-title lines are
+        # excised from the middle of the body, so the retained lines carry
+        # their own absolute numbers -- a single base offset cannot describe
+        # them, and passing 1 numbered the first RETAINED line as line 1.
+        kept = [idx for idx in range(len(lines)) if idx not in consumed_doc_title]
+        body = [lines[idx] for idx in kept]
+        numbers = [idx + 1 for idx in kept]
         title = doc_title
         # A document with only its title: single chunk labeled by the title.
-        sections.append((title, 1, 1, body))
+        sections.append((title, numbers[0] if numbers else 1, 1, body, numbers))
         return _emit_prose_sections(sections, None, path, _rst_process_body)
 
     first_boundary = boundaries[0][0]
-    preamble = [
-        line for idx, line in enumerate(lines[:first_boundary])
-        if idx not in consumed_doc_title
-    ]
+    kept_pre = [idx for idx in range(first_boundary) if idx not in consumed_doc_title]
+    preamble = [lines[idx] for idx in kept_pre]
+    preamble_numbers = [idx + 1 for idx in kept_pre]
     if any(line.strip() for line in preamble):
-        sections.append((None, 1, 1, preamble))
+        sections.append((None, preamble_numbers[0], 1, preamble, preamble_numbers))
     for b_idx, (start, span, title, _) in enumerate(boundaries):
         end = boundaries[b_idx + 1][0] if b_idx + 1 < len(boundaries) else len(lines)
-        sections.append((title, start + 1, start + span + 1, lines[start + span:end]))
+        sections.append((title, start + 1, start + span + 1, lines[start + span:end], None))
     return _emit_prose_sections(sections, doc_title, path, _rst_process_body)
 
 
@@ -2053,17 +2339,36 @@ def _adoc_process_body(
     slug: str,
     path: str,
     fence_counter: Optional[list[int]] = None,
-) -> tuple[list[str], list[Chunk]]:
+    line_numbers: "Optional[list[int]]" = None,
+) -> "tuple[list[str], list[Chunk], list[Optional[int]]]":
     """AsciiDoc body pass: extract [source] / ---- / .... listing blocks as
     doc-code chunks, drop |=== tables, keep admonitions and attribute
-    references as prose, strip other block delimiter lines. The code ordinal
-    is file-pass scoped via fence_counter (1whup)."""
+    references as prose, strip other block delimiter lines. Returns
+    (prose_lines, code_chunks, prose_line_numbers) with per-line absolute
+    source numbers (1wngv). The code ordinal is file-pass scoped via
+    fence_counter (1whup).
+
+    ``line_numbers`` (delivery repair CODE-DEL-3) carries per-line absolute
+    numbers for a body that is NOT contiguous from ``base_line`` (the
+    preamble and only-title sections, whose consumed doc-title line is
+    excised); contiguous bodies pass None and keep the arithmetic."""
     prose: list[str] = []
+    nums: "list[Optional[int]]" = []
     code_chunks: list[Chunk] = []
     counter = fence_counter if fence_counter is not None else [0]
     pending_attr: Optional[str] = None
     i = 0
     n = len(body_lines)
+    if not line_numbers or len(line_numbers) != n:
+        line_numbers = None
+
+    def _ln(offset: int) -> int:
+        """Absolute source line for body offset ``offset`` (clamped: callers
+        address the closing delimiter just past a collected block)."""
+        if line_numbers is None:
+            return base_line + offset
+        return line_numbers[min(max(offset, 0), n - 1)]
+
     while i < n:
         line = body_lines[i].rstrip("\n")
         attr_m = _ADOC_ATTR_LINE_RE.match(line)
@@ -2084,13 +2389,13 @@ def _adoc_process_body(
             code_text = "\n".join(block).strip("\n")
             if code_text.strip():
                 counter[0] += 1
-                start = base_line + i
+                start = _ln(i)
                 code_chunks.append(Chunk(
                     id=f"{path}#{slug}:code-{counter[0]}",
                     path=path,
                     kind="doc-code",
                     language=language,
-                    lines=(start, start + len(block) + 1),
+                    lines=(start, _ln(i + len(block) + 1)),
                     section=section_label,
                     text=code_text,
                 ))
@@ -2113,8 +2418,9 @@ def _adoc_process_body(
             # Attribute line not followed by a recognized block: keep neither.
             pending_attr = None
         prose.append(line)
+        nums.append(_ln(i))
         i += 1
-    return prose, code_chunks
+    return prose, code_chunks, nums
 
 
 def chunk_adoc(source: str, path: str) -> list[Chunk]:
@@ -2158,22 +2464,25 @@ def chunk_adoc(source: str, path: str) -> list[Chunk]:
         split_level = 1 if level1 else 2
     boundaries = [h for h in headings if h[1] == split_level]
 
-    sections: list[tuple[Optional[str], int, int, list[str]]] = []
+    sections: "list[tuple[Optional[str], int, int, list[str], Optional[list[int]]]]" = []
     if not boundaries:
-        body = [line for idx, line in enumerate(lines) if idx not in consumed]
-        sections.append((doc_title, 1, 1, body))
+        # CODE-DEL-3 (delivery repair): see chunk_rst -- the consumed doc-title
+        # line is excised, so the retained body carries per-line numbers.
+        kept = [idx for idx in range(len(lines)) if idx not in consumed]
+        body = [lines[idx] for idx in kept]
+        numbers = [idx + 1 for idx in kept]
+        sections.append((doc_title, numbers[0] if numbers else 1, 1, body, numbers))
         return _emit_prose_sections(sections, None, path, _adoc_process_body)
 
     first_boundary = boundaries[0][0]
-    preamble = [
-        line for idx, line in enumerate(lines[:first_boundary])
-        if idx not in consumed
-    ]
+    kept_pre = [idx for idx in range(first_boundary) if idx not in consumed]
+    preamble = [lines[idx] for idx in kept_pre]
+    preamble_numbers = [idx + 1 for idx in kept_pre]
     if any(line.strip() for line in preamble):
-        sections.append((None, 1, 1, preamble))
+        sections.append((None, preamble_numbers[0], 1, preamble, preamble_numbers))
     for b_idx, (start, _, title) in enumerate(boundaries):
         end = boundaries[b_idx + 1][0] if b_idx + 1 < len(boundaries) else len(lines)
-        sections.append((title, start + 1, start + 2, lines[start + 1:end]))
+        sections.append((title, start + 1, start + 2, lines[start + 1:end], None))
     return _emit_prose_sections(sections, doc_title, path, _adoc_process_body)
 
 
@@ -6105,6 +6414,18 @@ def _ts_flat_emit_chunker(
     source_lines = source.splitlines()
     chunks: list[Chunk] = []
     counter = 0
+    # 1wngv (wave 1wpif): per-file collision guard. Repeated selectors/keys
+    # (css class reuse, toml table arrays, duplicate json keys) previously
+    # emitted IDENTICAL `{path}#{slug}` ids that collapsed silently
+    # (last-writer-wins) in the id-keyed delta planner and the sqlite chunk
+    # registry (live census: 150 colliding groups / 563 dedupe losses). The
+    # frozen rule: a non-colliding base and the FIRST occurrence of a
+    # collision group keep the legacy bare id; the k-th (k>=2) repeat gets
+    # the deterministic line-anchored base `{slug}-L{start}` with the
+    # `_dedupe_id_base` `~k` tie-break for same-line repeats. Uppercase L is
+    # unforgeable (_slugify lowercases), so no literal key can occupy the
+    # disambiguated shape.
+    id_counts: dict[str, int] = {}
 
     def _walk(node, inside_emit: bool = False) -> None:
         nonlocal counter
@@ -6113,10 +6434,13 @@ def _ts_flat_emit_chunker(
             slug = _slugify(name) if name != "anonymous" else f"node-{counter}"
             counter += 1
             start, end = _ts_node_lines(node)
+            resolved = _dedupe_id_base(slug, id_counts)
+            if resolved != slug:
+                resolved = _dedupe_id_base(f"{slug}-L{start}", id_counts)
             breadcrumb = f"{stem} > {name}" if name != "anonymous" else f"{stem} > {slug}"
             text = _ts_collapse_body(_ts_node_text(node, source_lines))
             chunks.append(Chunk(
-                id=f"{path}#{slug}",
+                id=f"{path}#{resolved}",
                 path=path,
                 kind="code",
                 language=language,
@@ -7394,7 +7718,43 @@ _SYMBOL_PATTERNS: dict[str, list[re.Pattern]] = {
     "swift": [re.compile(r"^(?:public|internal|private|open)?\s*(?:func|class|struct|enum|protocol)\s+(\w+)")],
 }
 
+def _extract_python_module_symbols(source: str) -> "Optional[list[str]]":
+    """Module-level def/async def/class names via the ast module (1wngv,
+    wave 1wpif). The previous regex scan strip()ed every line before
+    matching, so nested methods consumed the ``_SUMMARY_SYMBOL_CAP`` and a
+    class with twenty methods evicted every later module-level symbol from
+    the summary. Returns None on a syntactically invalid module so the
+    caller falls back to the regex line scan.
+
+    The except tuple enumerates what the CALL CHAIN raises: ``ast.parse``
+    raises ``SyntaxError`` on invalid syntax and ``ValueError`` on a source
+    string with embedded NULs, but a deeply nested literal can exhaust the
+    interpreter's C stack (``RecursionError``) and a pathological module can
+    exhaust memory building the tree (``MemoryError``). All four degrade to
+    the regex fallback: a summary is advisory, never worth a failed chunk."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name not in seen:
+                seen.add(node.name)
+                symbols.append(node.name)
+                if len(symbols) >= _SUMMARY_SYMBOL_CAP:
+                    break
+    return symbols
+
+
 def _extract_code_symbols(source: str, language: str) -> list[str]:
+    if language == "python":
+        # Module-structure-aware extraction: only top-level statements count
+        # toward the cap (1wngv). SyntaxError degrades to the regex scan.
+        ast_symbols = _extract_python_module_symbols(source)
+        if ast_symbols is not None:
+            return ast_symbols
     patterns = _SYMBOL_PATTERNS.get(language, [])
     seen: set[str] = set()
     symbols: list[str] = []
@@ -7827,6 +8187,51 @@ def _inject_docs_breadcrumb(chunks: list[Chunk]) -> list[Chunk]:
             section = (c.section or "").strip()
             if section and not (c.text or "").startswith(section):
                 c.text = f"{section}\n{c.text}"
+                if c.line_map is not None:
+                    # 1wngv: the injected breadcrumb is a generated line —
+                    # shift the absolute map so the oversize guard never
+                    # counts it as source text.
+                    c.line_map = (None, *c.line_map)
+    return chunks
+
+
+def _dedupe_chunk_ids(chunks: list[Chunk]) -> list[Chunk]:
+    """Terminal per-file id-uniqueness guard (1wngv, wave 1wpif; Req 1).
+
+    Every id-producing chunker SHOULD emit unique ids itself (the flat
+    emitter, markup, and prose paths carry their own guards); this boundary
+    pass makes the contract unconditional for the remaining emitters (e.g.
+    structured code chunkers whose name extraction can degrade to a shared
+    fallback qname). The frozen rule: the FIRST occurrence keeps its legacy
+    id; the k-th (k>=2) repeat gets the deterministic line-anchored base
+    ``{id}-L{start}`` with the ``_dedupe_id_base`` ``~k`` tie-break for
+    same-line repeats. Already-unique output passes through byte-identical.
+
+    Delivery repair (RED-DEL-4): the resolved id is checked against the FULL
+    original id set and every already-claimed id, then re-tie-broken until it
+    is unused. Seeding from the incoming multiset alone let a generated
+    ``-L{n}`` collide with a natively emitted id of that exact shape (the
+    ``[C.m@5, C.m-L9@1, C.m@9]`` census case), which is the very defect this
+    guard exists to prevent.
+    """
+    original_ids: set[str] = {c.id for c in chunks}
+    used: set[str] = set()
+    seen: dict[str, int] = {}
+    resolved_counts: dict[str, int] = {}
+    for c in chunks:
+        n = seen.get(c.id, 0) + 1
+        seen[c.id] = n
+        if n == 1:
+            used.add(c.id)
+            continue
+        base = f"{c.id}-L{c.lines[0]}"
+        candidate = _dedupe_id_base(base, resolved_counts)
+        # A later FIRST occurrence keeps its legacy id, so the generated base
+        # must avoid every original id as well as every id already claimed.
+        while candidate in used or candidate in original_ids:
+            candidate = _dedupe_id_base(base, resolved_counts)
+        c.id = candidate
+        used.add(candidate)
     return chunks
 
 
@@ -7845,8 +8250,10 @@ def chunk_file(source: str, path: str) -> list[Chunk]:
     if source.strip() and not _strip_waveframework_marker_regions(source).strip():
         return []
     # Inject the docs breadcrumb BEFORE the oversized guard so split_large_chunks
-    # re-caps any chunk the prefix pushes over MAX_CHUNK_CHARS.
-    return split_large_chunks(_inject_docs_breadcrumb(_chunk_file_dispatch(source, path)))
+    # re-caps any chunk the prefix pushes over MAX_CHUNK_CHARS. The terminal
+    # id-uniqueness guard runs FIRST so guard-window suffixes derive from
+    # already-unique bases (1wngv).
+    return split_large_chunks(_inject_docs_breadcrumb(_dedupe_chunk_ids(_chunk_file_dispatch(source, path))))
 
 
 def _chunk_file_dispatch(source: str, path: str) -> list[Chunk]:

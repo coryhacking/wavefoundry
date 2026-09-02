@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sys
 import textwrap
 import tracemalloc
 import unittest
 import unittest.mock
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -3297,8 +3299,10 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         35 → 36 (wave 1wik9, 1whuq): standalone Mermaid/PlantUML/DOT diagram files chunk as one docs-routed doc-code unit each (title-or-stem breadcrumb + raw source; chunker-only registration, no walker bump).
         36 → 37 (wave 1wik9, 1wfso): spec-format family — AsyncAPI (content-detected, channel/operation/message units), GraphQL SDL and Protobuf (extension-gated internal parsers, description/comment units with symbol-path breadcrumbs); undetected files byte-identical.
         37 → 38 (wave 1wl7u, 1wh1b): notebook code cells emit kind="doc-code" (docs-routed; ids/language unchanged) and duplicate-titled prose sections gain repeat-only `~k` file-pass ordinals across md/rst/adoc, the H3-split and line-window bases, and the HTML/XML regex fallbacks (single-title files byte-identical, differential-pinned; `~` is outside the _slugify alphabet so no literal heading forges the shape).
-        38 → 39 (wave 1wl7w, 1wl7v): tool-diagram LABEL EXTRACTION — .drawio chunks one docs-routed doc-code unit per page (mxCell values + object/UserObject wrapper labels, two-layer HTML decode, bounded per-page inflate cap, #diagram/#diagram~k ids) and .excalidraw one labels-plus-frames unit (isDeleted and empty skipped); degenerate inputs emit zero chunks; paired with WALKER 15 re-admitting both extensions."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "39")
+        38 → 39 (wave 1wl7w, 1wl7v): tool-diagram LABEL EXTRACTION — .drawio chunks one docs-routed doc-code unit per page (mxCell values + object/UserObject wrapper labels, two-layer HTML decode, bounded per-page inflate cap, #diagram/#diagram~k ids) and .excalidraw one labels-plus-frames unit (isDeleted and empty skipped); degenerate inputs emit zero chunks; paired with WALKER 15 re-admitting both extensions.
+        39 → 40 (wave 1wpif, 1wngv): flat-emitter per-file collision guard (k-th same-slug repeat gets the line-anchored `{slug}-L{start}` base with the `~k` same-line tie-break; first occurrences and non-colliding bases keep legacy bare ids) and splice-aware absolute line mapping for oversized markdown/rst/adoc prose (windows and whole-section chunks map to one-based source coordinates across excised fence spans via Chunk.line_map; the universal guard consumes the map), plus ast-based module-level Python summary symbols and the store-layer chunk-id collision census.
+        40 -> 41 (wave 1wpif, 1wngv delivery repair): two stored-coordinate corrections. Table row-group parts carry the lines of THEIR OWN rows (the decomposer applied the section base but never the row-group offset, so parts 2..n stored the table head's lines) and the reproduced prelude/header on parts 2..n is generated context; rst/adoc preamble and only-title sections carry per-line absolute numbers instead of a base of 1, so the first RETAINED line after the excised doc title is no longer numbered 1."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "41")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -7325,6 +7329,647 @@ class SpecFamilyTests(unittest.TestCase):
         self.assertIn("Copyright 2026 Example Corp.", merged)
         self.assertIn("Licensed under Apache 2.0.", merged)
         self.assertFalse(any("Copyright" in (c.section or "") for c in chunks))
+
+
+class ChunkIdentitySourceRangeTests(unittest.TestCase):
+    """1wngv (wave 1wpif): chunk identity and source-range integrity.
+
+    Producer side of AC-1/AC-8 (flat-emitter guard, terminal id guard,
+    insertion/reordering stability), AC-2 (splice-aware absolute coordinates
+    whose ranges select the source-derived payload exactly; generated
+    breadcrumbs asserted separately), AC-4 (determinism, legacy-id
+    stability), and AC-6 (module-structure-aware Python summaries).
+    """
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    # --- helpers ----------------------------------------------------------
+
+    def _assert_windows_select_source(self, chunks, source):
+        lines = source.splitlines()
+        windows = [c for c in chunks if ":L" in c.id and c.kind == "doc"]
+        self.assertTrue(windows, [c.id for c in chunks])
+        for c in windows:
+            label, blank, body = c.text.split("\n", 2)
+            # The generated breadcrumb is asserted SEPARATELY from the range:
+            # it is never part of the cited source payload.
+            self.assertTrue(label.strip())
+            self.assertEqual(blank, "")
+            selected = "\n".join(lines[c.lines[0] - 1:c.lines[1]])
+            self.assertEqual(body, selected, (c.id, c.lines))
+        return windows
+
+    # --- AC-1 / AC-8: flat-emitter and terminal id guards -----------------
+
+    def test_toml_flat_emitter_collision_group_frozen_rule(self):
+        toml = "[server]\nport = 1\n\n[[item]]\na = 1\n\n[[item]]\nb = 2\n\n[[item]]\nb = 2\n"
+        chunks = self.chunker.chunk_toml_treesitter(toml, "conf/x.toml")
+        if chunks is None:
+            self.skipTest("toml tree-sitter grammar unavailable")
+        # Non-colliding base and FIRST collision-group occurrence keep the
+        # legacy bare id; k-th repeats get the line-anchored base.
+        self.assertEqual(
+            [c.id for c in chunks],
+            ["conf/x.toml#server", "conf/x.toml#item",
+             "conf/x.toml#item-L7", "conf/x.toml#item-L10"],
+        )
+
+    def test_css_duplicate_selectors_dedupe(self):
+        css = ".btn { color: red; }\n.btn { color: blue; }\n.other { top: 0; }\n"
+        chunks = self.chunker.chunk_css_treesitter(css, "web/a.css")
+        if chunks is None:
+            self.skipTest("css tree-sitter grammar unavailable")
+        self.assertEqual(
+            [c.id for c in chunks],
+            ["web/a.css#btn", "web/a.css#btn-L2", "web/a.css#other"],
+        )
+
+    def test_same_line_repeats_get_tilde_tie_break(self):
+        # Minified one-line CSS: three same-slug selectors share ONE start
+        # line, so the line anchor alone ties — the `~k` tie-break resolves.
+        css = ".a{x:0}.a{y:0}.a{z:0}"
+        chunks = self.chunker.chunk_css_treesitter(css, "web/min.css")
+        if chunks is None:
+            self.skipTest("css tree-sitter grammar unavailable")
+        self.assertEqual(
+            [c.id for c in chunks],
+            ["web/min.css#a", "web/min.css#a-L1", "web/min.css#a-L1~2"],
+        )
+
+    def test_insertion_of_earlier_same_slug_sibling_preserves_unrelated_ids(self):
+        # AC-8: adding an earlier same-slug sibling churns only its own
+        # collision group; every other base keeps its id.
+        before = ".btn { color: red; }\n.btn { color: blue; }\n.other { top: 0; }\n"
+        after = ".btn { margin: 0; }\n\n" + before
+        cb = self.chunker.chunk_css_treesitter(before, "web/a.css")
+        ca = self.chunker.chunk_css_treesitter(after, "web/a.css")
+        if cb is None or ca is None:
+            self.skipTest("css tree-sitter grammar unavailable")
+        self.assertIn("web/a.css#other", [c.id for c in cb])
+        self.assertIn("web/a.css#other", [c.id for c in ca])
+        self.assertEqual(
+            [c.id for c in ca if "btn" in c.id],
+            ["web/a.css#btn", "web/a.css#btn-L3", "web/a.css#btn-L4"],
+        )
+
+    def test_terminal_guard_uniquifies_any_emitter_output(self):
+        Chunk = self.chunker.Chunk
+        mk = lambda ln: Chunk(id="x.js::C.method", path="x.js", kind="code",
+                              language="javascript", lines=(ln, ln + 2),
+                              section="s", text=f"body {ln}")
+        out = self.chunker._dedupe_chunk_ids([mk(5), mk(9), mk(9)])
+        self.assertEqual(
+            [c.id for c in out],
+            ["x.js::C.method", "x.js::C.method-L9", "x.js::C.method-L9~2"],
+        )
+        # Already-unique output passes through byte-identically.
+        uniq = [Chunk(id=f"x.js::f{i}", path="x.js", kind="code", language=None,
+                      lines=(i, i), section=None, text="t") for i in range(3)]
+        self.assertEqual([c.id for c in self.chunker._dedupe_chunk_ids(uniq)],
+                         ["x.js::f0", "x.js::f1", "x.js::f2"])
+
+    # --- AC-2: splice-aware absolute coordinates --------------------------
+
+    def test_markdown_fence_before_oversized_prose_windows_select_source(self):
+        prose = "\n\n".join(
+            f"Prose sentence number {i} carries enough characters to matter for the window split logic."
+            for i in range(60)
+        )
+        src = "# Guide\n\n## Ops\n\n```bash\necho one\necho two\n```\n\n" + prose + "\n"
+        chunks = self.chunker.chunk_markdown(src, "docs/g.md")
+        self._assert_windows_select_source(chunks, src)
+
+    def test_markdown_whole_section_line_map_is_absolute(self):
+        src = "# G\n\n## S\n\n```py\nx=1\n```\n\nAlpha beta.\nGamma delta.\n"
+        chunks = self.chunker.chunk_markdown(src, "docs/s.md")
+        sec = next(c for c in chunks if c.kind == "doc" and c.id.endswith("#s"))
+        self.assertIsNotNone(sec.line_map)
+        self.assertEqual(sec.line_map[:2], (None, None))
+        lines = src.splitlines()
+        for i, n in enumerate(sec.line_map):
+            if n is not None:
+                self.assertEqual(sec.text.splitlines()[i], lines[n - 1])
+
+    def test_rst_code_directive_before_oversized_prose_windows_select_source(self):
+        prose = "\n\n".join(
+            f"Rst prose sentence {i} with plenty of characters to push past the split threshold value."
+            for i in range(50)
+        )
+        src = ("Title\n=====\n\nSect\n----\n\n.. code-block:: python\n\n"
+               "   x = 1\n   y = 2\n\n" + prose + "\n")
+        chunks = self.chunker.chunk_rst(src, "docs/r.rst")
+        self._assert_windows_select_source(chunks, src)
+
+    def test_adoc_listing_before_oversized_prose_windows_select_source(self):
+        prose = "\n\n".join(
+            f"Adoc prose sentence {i} with plenty of characters to push past the split threshold value."
+            for i in range(50)
+        )
+        src = ("= T\n\n== Sect\n\n[source,python]\n----\nx = 1\n----\n\n" + prose + "\n")
+        chunks = self.chunker.chunk_adoc(src, "docs/a.adoc")
+        self._assert_windows_select_source(chunks, src)
+
+    def test_universal_guard_routed_section_parts_select_source(self):
+        # Prose under the H3 window threshold, but the injected breadcrumb
+        # pushes the whole-section chunk over the doc cap — the split happens
+        # in the UNIVERSAL guard (split_large_chunks/_line_wrap_chunk), which
+        # must consume the line map (CODE-RDY-3).
+        body = "\n".join("Filler prose sentence that runs along nicely." for _ in range(43))
+        src = "# Guide Title Long Enough\n\n## Sec\n\n```sh\nls\n```\n\n" + body + "\n"
+        chunks = self.chunker.chunk_file(src, "docs/guard.md")
+        parts = [c for c in chunks if "(part " in (c.section or "")]
+        self.assertTrue(parts, [(c.id, len(c.text)) for c in chunks])
+        lines = src.splitlines()
+        for c in parts:
+            label, blank, bod = c.text.split("\n", 2)
+            selected = "\n".join(lines[c.lines[0] - 1:c.lines[1]])
+            self.assertEqual(bod, selected, (c.id, c.lines))
+
+    def test_seed_decompose_maps_absolute_through_fence(self):
+        items = "\n\n".join(
+            f"{i}. Seed task item number {i} with instructions that are long enough to need grouping into blocks."
+            for i in range(1, 60)
+        )
+        src = "# seed doc\n\nIntro paragraph.\n\n```sh\nrun me\n```\n\n" + items + "\n"
+        chunks = self.chunker.chunk_markdown(src, "seeds/seed-x.md", kind_override="seed")
+        lines = src.splitlines()
+        decomposed = [c for c in chunks if "@L" in c.id]
+        self.assertTrue(decomposed, [c.id for c in chunks])
+        for c in decomposed:
+            self.assertIsNotNone(c.line_map)
+            text_lines = c.text.splitlines()
+            for i, n in enumerate(c.line_map):
+                if n is not None:
+                    self.assertEqual(text_lines[i], lines[n - 1], (c.id, i, n))
+
+    def test_guard_char_split_of_one_long_mapped_line_keeps_unique_ids(self):
+        # Several char-window pieces of ONE long source line share a single
+        # absolute number; their suffixes must dedupe (~k), never collide.
+        Chunk = self.chunker.Chunk
+        long_line = "word " * 1200
+        chunk = Chunk(id="d/x.md#sec", path="d/x.md", kind="doc", language=None,
+                      lines=(4, 4), section="Doc > Sec",
+                      text=f"Doc > Sec\n\n{long_line.strip()}",
+                      line_map=(None, None, 4))
+        parts = self.chunker.split_large_chunks([chunk])
+        self.assertGreater(len(parts), 1)
+        ids = [c.id for c in parts]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        for c in parts:
+            self.assertEqual(tuple(c.lines), (4, 4))
+
+    # --- AC-4: determinism ------------------------------------------------
+
+    def test_chunk_file_is_deterministic(self):
+        prose = "\n\n".join(
+            f"Prose sentence number {i} carries enough characters to matter for the window split logic."
+            for i in range(60)
+        )
+        src = "# Guide\n\n## Ops\n\n```bash\necho one\n```\n\n" + prose + "\n"
+        first = [c.to_dict() for c in self.chunker.chunk_file(src, "docs/g.md")]
+        second = [c.to_dict() for c in self.chunker.chunk_file(src, "docs/g.md")]
+        self.assertEqual(first, second)
+
+    # --- AC-6: module-structure-aware Python summaries --------------------
+
+    def test_python_summary_nested_methods_do_not_consume_cap(self):
+        src = ("class Big:\n"
+               + "".join(f"    def m{i}(self): pass\n" for i in range(20))
+               + "\n\ndef late_module_fn():\n    pass\n")
+        symbols = self.chunker._extract_code_symbols(src, "python")
+        self.assertEqual(symbols, ["Big", "late_module_fn"])
+        summary = self.chunker._chunk_code_summary(src, "m.py", "python")
+        self.assertIn("Symbols: Big, late_module_fn", summary.text)
+
+    def test_python_summary_syntax_error_falls_back_to_regex(self):
+        src = "def ok():\n    pass\nclass Broken(:\n"
+        symbols = self.chunker._extract_code_symbols(src, "python")
+        self.assertIn("ok", symbols)
+
+
+class ChunkCoordinateContractTests(unittest.TestCase):
+    """1wngv delivery repair (wave 1wpif): the amended AC-2 coordinate
+    contract.
+
+    ``lines`` is a contiguous ONE-BASED ABSOLUTE range that CONTAINS the
+    chunk's source-derived payload. A whole section keeps its section span
+    (heading through section end); an oversized-section window and a table
+    row-group part carry the MINIMAL span containing their own payload, and a
+    window straddling an excised block (fence / code directive / listing)
+    carries the minimal span containing its payload. Reproduced context — the
+    injected breadcrumb, and the prelude + table header a row-group part
+    repeats for column context — is generated, never counted as source text.
+
+    RED-DEL-1: parts 2..n used to store the TABLE HEAD's lines (the
+    decomposer applied the section base but never the row-group offset), so
+    1,075 of 1,413 row-group parts in the live store cited the wrong rows.
+    """
+
+    # Generated-context and classification helpers for the corpus census.
+    _SEP_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
+    _SUFFIX_RE = re.compile(r"\s*\((?:rows |part ).*\)$")
+    _MINIMAL_RE = re.compile(r"(:L\d+-L\d+|:rows\d+-\d+)(~\d+)?$")
+    _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
+    _ADORN_RE = re.compile(r"^\s*([=\-`:'\"~^_*+#<>])\1{2,}\s*$")
+    _PROSE_KINDS = ("doc", "seed", "prompt")
+
+    def setUp(self):
+        self.chunker = load_chunker()
+
+    # --- RED-DEL-1: the focused row-group fixture ------------------------
+
+    def _table_source(self):
+        rows = ["| item-%02d | %s| owner-%02d |" % (i, "detail " * 22, i) for i in range(30)]
+        src = (
+            "# Guide\n\n## Ops\n\n```bash\necho one\necho two\n```\n\n"
+            "Intro paragraph before the table.\n\n"
+            "| Item | Detail | Owner |\n|---|---|---|\n"
+            + "\n".join(rows) + "\n\nTrailing note after the table.\n"
+        )
+        return src, rows
+
+    def test_table_row_group_parts_carry_their_own_row_coordinates(self):
+        src, rows = self._table_source()
+        header = "| Item | Detail | Owner |"
+        lines = src.splitlines()
+        parts = [c for c in self.chunker.chunk_file(src, "docs/t.md") if ":rows" in c.id]
+        self.assertGreaterEqual(len(parts), 3, [c.id for c in parts])
+        seen_groups = []
+        for c in parts:
+            first_row, last_row = (int(n) for n in re.search(r":rows(\d+)-(\d+)", c.id).groups())
+            seen_groups.append((first_row, last_row))
+            payload = rows[first_row - 1:last_row]
+            selected = lines[c.lines[0] - 1:c.lines[1]]
+            # The part's range SELECTS its own rows, in order, and nothing
+            # from any other group.
+            self.assertEqual(
+                [line for line in selected if line.startswith("| item-")], payload,
+                (c.id, c.lines),
+            )
+            # The header is reproduced on every part as generated context and
+            # is asserted SEPARATELY from the range: only the part that owns
+            # the table head may carry it inside its span.
+            self.assertIn(header, c.text, c.id)
+            self.assertEqual(header in selected, first_row == 1, (c.id, c.lines))
+        self.assertEqual(seen_groups, sorted(seen_groups), "groups stay in row order")
+        self.assertEqual(seen_groups[0][0], 1)
+        self.assertEqual(seen_groups[-1][1], len(rows))
+        # Every part's span is disjoint from the next one's rows: the
+        # pre-repair shape pinned every part to the table head.
+        starts = [c.lines[0] for c in parts]
+        self.assertEqual(starts, sorted(set(starts)), starts)
+
+    def test_first_table_part_spans_its_prelude_and_the_last_its_postlude(self):
+        src, rows = self._table_source()
+        lines = src.splitlines()
+        parts = [c for c in self.chunker.chunk_file(src, "docs/t.md") if ":rows" in c.id]
+        first, last = parts[0], parts[-1]
+        # Part 1 opens on the prelude prose (the injected breadcrumb is
+        # generated and never anchors a range) and ends on its last row.
+        self.assertEqual(lines[first.lines[0] - 1], "Intro paragraph before the table.")
+        self.assertTrue(lines[first.lines[1] - 1].startswith("| item-"))
+        self.assertTrue(first.text.startswith("Guide > Ops"), first.text[:40])
+        # The postlude rides the final part and lies inside its span.
+        self.assertEqual(lines[last.lines[1] - 1], "Trailing note after the table.")
+        self.assertIn("Trailing note after the table.", last.text)
+
+    # --- CODE-DEL-3: rst / adoc preamble coordinates ---------------------
+
+    def test_rst_oversized_preamble_windows_select_source(self):
+        prose = "\n\n".join(
+            "Rst preamble sentence %d with plenty of characters to push the preamble past the split threshold." % i
+            for i in range(40)
+        )
+        src = "Doc Title\n=========\n\n" + prose + "\n\nSect\n----\n\nSection body.\n"
+        lines = src.splitlines()
+        chunks = self.chunker.chunk_rst(src, "docs/p.rst")
+        pre = [c for c in chunks if "#preamble" in c.id]
+        self.assertTrue(pre, [c.id for c in chunks])
+        for c in pre:
+            selected = "\n".join(lines[c.lines[0] - 1:c.lines[1]])
+            body = c.text.split("\n\n", 1)[-1] if c.section else c.text
+            for line in body.splitlines():
+                if line.strip():
+                    self.assertIn(line, selected, (c.id, c.lines, line[:50]))
+            # The consumed doc-title lines are NOT the preamble's first lines.
+            self.assertGreater(c.lines[0], 2, (c.id, c.lines))
+            self.assertNotIn("=========", selected)
+
+    def test_adoc_oversized_preamble_windows_select_source(self):
+        prose = "\n\n".join(
+            "Adoc preamble sentence %d with plenty of characters to push the preamble past the split threshold." % i
+            for i in range(40)
+        )
+        src = "= Doc Title\n\n" + prose + "\n\n== Sect\n\nSection body.\n"
+        lines = src.splitlines()
+        chunks = self.chunker.chunk_adoc(src, "docs/p.adoc")
+        pre = [c for c in chunks if "#preamble" in c.id]
+        self.assertTrue(pre, [c.id for c in chunks])
+        for c in pre:
+            selected = "\n".join(lines[c.lines[0] - 1:c.lines[1]])
+            body = c.text.split("\n\n", 1)[-1] if c.section else c.text
+            for line in body.splitlines():
+                if line.strip():
+                    self.assertIn(line, selected, (c.id, c.lines, line[:50]))
+            self.assertGreater(c.lines[0], 1, (c.id, c.lines))
+            self.assertNotIn("= Doc Title", selected)
+
+    def test_rst_only_title_document_numbers_its_body_absolutely(self):
+        src = "Doc Title\n=========\n\nFirst body line.\nSecond body line.\n"
+        chunks = self.chunker.chunk_rst(src, "docs/only.rst")
+        self.assertTrue(chunks)
+        c = chunks[0]
+        selected = "\n".join(src.splitlines()[c.lines[0] - 1:c.lines[1]])
+        self.assertIn("First body line.", selected)
+        self.assertIn("Second body line.", selected)
+        self.assertNotIn("=========", selected)
+
+    # --- the whole-repository coordinate census --------------------------
+
+    @classmethod
+    def _excised_lines(cls, source: str, ext: str) -> set:
+        """One-based line numbers inside a fenced / directive / listing block:
+        the content a prose chunk's window legitimately spans without citing."""
+        out: set = set()
+        lines = source.splitlines()
+        if ext == ".md":
+            in_fence = False
+            for i, line in enumerate(lines, start=1):
+                if line.lstrip().startswith("```"):
+                    out.add(i)
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    out.add(i)
+        elif ext == ".rst":
+            i = 0
+            while i < len(lines):
+                m = re.match(r"^(\s*)\.\.\s+[\w-]+::", lines[i])
+                if not m:
+                    i += 1
+                    continue
+                indent = len(m.group(1))
+                out.add(i + 1)
+                j = i + 1
+                while j < len(lines):
+                    nxt = lines[j]
+                    if not nxt.strip() or (len(nxt) - len(nxt.lstrip())) > indent:
+                        out.add(j + 1)
+                        j += 1
+                        continue
+                    break
+                i = j
+        else:
+            delim = None
+            for i, line in enumerate(lines, start=1):
+                stripped = line.rstrip()
+                if delim is None and stripped in ("----", "....", "|==="):
+                    delim = stripped
+                    out.add(i)
+                    continue
+                if delim is not None:
+                    out.add(i)
+                    if stripped == delim:
+                        delim = None
+        return out
+
+    @staticmethod
+    def _same_line(payload_line: str, source_line: str) -> bool:
+        """Payload identity against a source line. Leading indentation is not
+        identity (a block-level strip() removes the first line's indent), and
+        a char-window piece of one long source line is a fragment of it."""
+        a, b = payload_line.strip(), source_line.strip()
+        return bool(a) and (a == b or a in b)
+
+    @classmethod
+    def _payload(cls, chunk, src_lines: list) -> list:
+        """The chunk's SOURCE-DERIVED lines: its text minus generated context.
+
+        Generated context is a leading line that duplicates the chunk's label
+        or reproduces the table prelude/header AND does not stand at the
+        chunk's own range start (a label line that IS its first source line
+        stays payload)."""
+        text_lines = chunk.text.splitlines()
+        start = chunk.lines[0]
+        at_start = src_lines[start - 1] if 1 <= start <= len(src_lines) else ""
+        section = cls._SUFFIX_RE.sub("", (chunk.section or "").strip())
+        if section and text_lines and text_lines[0].strip() == section:
+            nxt = text_lines[1] if len(text_lines) > 1 else ""
+            if (not cls._same_line(text_lines[0], at_start)) or cls._same_line(nxt, at_start):
+                text_lines = text_lines[1:]
+                if text_lines and not text_lines[0].strip():
+                    text_lines = text_lines[1:]
+        if ":rows" in chunk.id and text_lines and not cls._same_line(text_lines[0], at_start):
+            for k, line in enumerate(text_lines):
+                if cls._SEP_RE.match(line):
+                    text_lines = text_lines[k + 1:]
+                    break
+        while text_lines and not text_lines[0].strip():
+            text_lines = text_lines[1:]
+        while text_lines and not text_lines[-1].strip():
+            text_lines.pop()
+        return text_lines
+
+    @classmethod
+    def _classify(cls, chunk, src_lines: list, excised: set, ext: str):
+        """``(exact | superset | wrong | empty, reason)`` for one prose chunk."""
+        payload = cls._payload(chunk, src_lines)
+        if not payload:
+            return "empty", None
+        start, end = chunk.lines
+        if start < 1 or start > len(src_lines) or start > end:
+            return "wrong", "range start outside the file (%d, %d)" % (start, end)
+        window = src_lines[start - 1:end]
+        minimal = bool(cls._MINIMAL_RE.search(chunk.id)) or "(part " in (chunk.section or "")
+        if payload == window:
+            return "exact", None
+        # Blank lines carry no source identity (a splice leaves two blanks
+        # where a fence was), so only NON-BLANK payload lines are matched.
+        cursor = 0
+        skipped = []
+        first_at = None
+        for want in [line for line in payload if line.strip()]:
+            while cursor < len(window) and not cls._same_line(want, window[cursor]):
+                skipped.append(start + cursor)
+                cursor += 1
+            if cursor >= len(window):
+                return "wrong", "payload line outside the range: %r" % want[:70]
+            if first_at is None:
+                first_at = cursor
+            cursor += 1
+        trailing = list(range(start + cursor, min(end, len(src_lines)) + 1))
+        if first_at:
+            opener = window[0]
+            opens_on_section = (
+                (ext == ".md" and cls._HEADING_RE.match(opener))
+                or (ext == ".rst" and (cls._ADORN_RE.match(opener)
+                                       or (len(window) > 1 and cls._ADORN_RE.match(window[1]))))
+                or (ext in (".adoc", ".asciidoc") and re.match(r"^=+\s+\S", opener))
+            )
+            leading_blank_only = all(not line.strip() for line in window[:first_at])
+            if not leading_blank_only and (minimal or not opens_on_section):
+                return "wrong", "range opens on a non-payload line: %r" % opener[:70]
+        if minimal:
+            unexcused = [
+                n for n in skipped + trailing
+                if src_lines[n - 1].strip() and n not in excised
+            ]
+            if unexcused:
+                return "wrong", "minimal span carries unexcused lines %s" % unexcused[:5]
+        if not skipped and not trailing:
+            return "exact", None
+        return "superset", None
+
+    def _census(self, chunk_file=None):
+        """Classify every prose chunk of every md/rst/adoc file in the real
+        repository. ``chunk_file`` allows a deliberately broken producer to
+        prove the census is not vacuous."""
+        chunk_file = chunk_file or self.chunker.chunk_file
+        repo_root = Path(__file__).resolve().parents[4]
+        skip_parts = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+        counts = {"exact": 0, "superset": 0, "wrong": 0, "empty": 0}
+        wrong: list = []
+        files = 0
+        paths = []
+        for ext in (".md", ".rst", ".adoc", ".asciidoc"):
+            paths.extend(repo_root.rglob("*" + ext))
+        for path in sorted(paths):
+            rel = path.relative_to(repo_root).as_posix()
+            if set(rel.split("/")) & skip_parts or rel.startswith(".wavefoundry/index"):
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            files += 1
+            src_lines = source.splitlines()
+            ext = "." + rel.rsplit(".", 1)[-1]
+            excised = self._excised_lines(source, ext)
+            for chunk in chunk_file(source, rel):
+                if chunk.kind not in self._PROSE_KINDS:
+                    continue
+                verdict, reason = self._classify(chunk, src_lines, excised, ext)
+                counts[verdict] += 1
+                if verdict == "wrong":
+                    wrong.append((rel, chunk.id, chunk.lines, reason))
+        return files, counts, wrong
+
+    def test_repository_prose_coordinate_census_reports_zero_wrong(self):
+        files, counts, wrong = self._census()
+        self.assertGreater(files, 200, "the census must cover the real corpus")
+        self.assertGreater(counts["exact"] + counts["superset"], 2000, counts)
+        self.assertEqual(wrong[:8], [], counts)
+        self.assertEqual(counts["wrong"], 0, counts)
+
+    def test_the_coordinate_census_detects_the_pre_repair_row_group_anchor(self):
+        """Non-vacuity: with the pre-repair anchoring restored (every part
+        pinned to the table head), the census reports WRONG parts."""
+        chunker = self.chunker
+        original = chunker._decompose_oversized_table_chunk
+
+        def pre_repair(chunk, max_chars):
+            parts = original(chunk, max_chars)
+            if parts is None:
+                return None
+            head = parts[0].lines[0]
+            for part in parts:
+                part.lines = (head, head + (part.lines[1] - part.lines[0]))
+                part.line_map = None
+            return parts
+
+        src, _rows = self._table_source()
+        lines = src.splitlines()
+        excised = self._excised_lines(src, ".md")
+        chunker._decompose_oversized_table_chunk = pre_repair
+        try:
+            verdicts = [
+                self._classify(c, lines, excised, ".md")[0]
+                for c in chunker.chunk_file(src, "docs/t.md")
+                if ":rows" in c.id
+            ]
+        finally:
+            chunker._decompose_oversized_table_chunk = original
+        self.assertIn("wrong", verdicts, verdicts)
+        # …and the repaired producer is clean on the same fixture.
+        repaired = [
+            self._classify(c, lines, excised, ".md")[0]
+            for c in chunker.chunk_file(src, "docs/t.md")
+            if ":rows" in c.id
+        ]
+        self.assertNotIn("wrong", repaired, repaired)
+
+    # --- RED-DEL-4: the self-checking id guard ---------------------------
+
+    def test_terminal_guard_never_emits_a_natively_emitted_id(self):
+        """The generated ``-L{n}`` base must avoid every ORIGINAL id, not just
+        the ids already claimed: the pre-repair guard turned
+        ``[C.m@5, C.m-L9@1, C.m@9]`` into two ``x.js::C.m-L9`` chunks."""
+        Chunk = self.chunker.Chunk
+        mk = lambda name, ln: Chunk(id="x.js::%s" % name, path="x.js", kind="code",
+                                    language="javascript", lines=(ln, ln + 1),
+                                    section="s", text="body %s %d" % (name, ln))
+        out = self.chunker._dedupe_chunk_ids([mk("C.m", 5), mk("C.m-L9", 1), mk("C.m", 9)])
+        ids = [c.id for c in out]
+        self.assertEqual(len(ids), len(set(ids)), ids)
+        self.assertEqual(ids, ["x.js::C.m", "x.js::C.m-L9", "x.js::C.m-L9~2"])
+        # The reverse order (the collision resolved BEFORE the native id is
+        # claimed) is equally safe.
+        out2 = self.chunker._dedupe_chunk_ids([mk("C.m", 9), mk("C.m", 9), mk("C.m-L9", 1)])
+        ids2 = [c.id for c in out2]
+        self.assertEqual(len(ids2), len(set(ids2)), ids2)
+        self.assertIn("x.js::C.m-L9", ids2)
+
+    def test_golden_corpus_ids_are_unique_before_and_after_the_terminal_guard(self):
+        """Non-tautological form of the corpus id census: ``chunk_file`` ends
+        with ``_dedupe_chunk_ids``, so asserting ITS output is unique proves
+        nothing about the emitters. Assert the three layers separately: the
+        emitter output (pre-guard), the guard's own output, and the FINAL set
+        (whose oversize-guard window and row-group ids the terminal guard
+        never sees). Supersedes the delivery's
+        ``ChunkIdentitySourceRangeTests.test_chunk_file_ids_unique_across_golden_corpus``,
+        which asserted only the guarded output and so could not fail."""
+        fixtures = Path(__file__).resolve().parent / "fixtures" / "retrieval_golden"
+        exts = set()
+        for name in dir(self.chunker):
+            value = getattr(self.chunker, name)
+            if name.endswith("_EXTENSIONS") and isinstance(value, (set, frozenset)):
+                exts |= set(value)
+        checked = 0
+        pre_guard_duplicate_files = []
+        for path in sorted(fixtures.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in exts:
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            rel = path.relative_to(fixtures).as_posix()
+            emitted = self.chunker._chunk_file_dispatch(source, rel)
+            emitted_ids = [c.id for c in emitted]
+            if len(emitted_ids) != len(set(emitted_ids)):
+                pre_guard_duplicate_files.append(rel)
+            guarded = [c.id for c in self.chunker._dedupe_chunk_ids(list(emitted))]
+            self.assertEqual(guarded, emitted_ids, ("the guard rewrote an id", rel))
+            final = [c.id for c in self.chunker.chunk_file(source, rel)]
+            self.assertEqual(len(final), len(set(final)), rel)
+            checked += 1
+        self.assertGreater(checked, 20, "golden corpus census must cover real files")
+        # The load-bearing, non-tautological claim: every EMITTER is already
+        # unique on this corpus, so the terminal guard is a proven no-op here
+        # rather than the reason the final ids are unique.
+        self.assertEqual(pre_guard_duplicate_files, [],
+                         "an emitter produced duplicate ids before the terminal guard")
+
+    # --- defense in depth: the summary parse degrades, never raises ------
+
+    def test_python_summary_degrades_on_recursion_and_memory_errors(self):
+        src = "class Big:\n    def m(self): pass\n\n\ndef late_module_fn():\n    pass\n"
+        for exc in (RecursionError, MemoryError):
+            with patch.object(self.chunker.ast, "parse", side_effect=exc("boom")):
+                self.assertIsNone(self.chunker._extract_python_module_symbols(src))
+                symbols = self.chunker._extract_code_symbols(src, "python")
+            self.assertIn("late_module_fn", symbols)
 
 
 if __name__ == "__main__":

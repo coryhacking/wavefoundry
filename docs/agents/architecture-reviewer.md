@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: architecture-reviewer
 Category: review
-Last verified: 2026-08-12
+Last verified: 2026-09-02
 
 ## Operating Identity
 
@@ -57,6 +57,7 @@ A good architecture review output contains:
 - boundaries touched
 - invariants preserved or violated
 - required doc updates or follow-on ADR work
+- a mutation table for every mechanism the wave landed in your scope (mechanism, mutation, failing test or NOT CAUGHT), the prose projection of your evidence records' `known_bad_detection_method: focused-mutation` fields, under the packet's `sweep_rule` and `time_budget`; report at the budget and list what was not run (seed 209, wave `1wuju`)
 
 ## Assumption Tracking
 

@@ -59,6 +59,8 @@ When a target contains a space, use an explicit block; keep examples fenced:
 
 Prepare selects automatic review lanes from declared paths, not from narrative prose. Any example retained in this template must remain fenced. Verify this scaffold declares no targets before use.
 
+A declared path token has at least one `/`, so a root-level file (a changelog, a readme) is never a token in either form, and a bullet declares all or nothing in either form, so one such token turns the whole bullet into prose and every other path in it goes undeclared with it. In a bullet a `*` disqualifies the token too; inside the explicit block a span is kept only when its last segment carries an extension or the span ends in `/`, so there a `*` span is accepted as a phantom (a `*.json`, a `dir/*/`) that matches no file and recruits a lane only through a trigger token it happens to carry (a directory prefix, an extension, or a trigger basename), a block holding only phantoms leaves the document declared with whatever roster those triggers recruit (empty when none is a trigger), and any other `*` span turns its bullet into prose. Put a root-level file in its own prose bullet, and declare the directory that holds globbed files.
+
 ## Affected Architecture Docs
 
 ## AC Priority

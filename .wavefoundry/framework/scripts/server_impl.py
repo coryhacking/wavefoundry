@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import contextvars
 import datetime
 import functools
 import importlib.util
@@ -246,10 +247,253 @@ DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-sum
 VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
 VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
 
-# LanceDB vector index constants (must match indexer.py)
-# Tables live directly in the index directory: index_dir/docs.lance/, index_dir/code.lance/
-LANCEDB_NPROBES = 20        # ANN search probes (recall vs latency)
-LANCEDB_REFINE_FACTOR = 10  # reranking candidates multiplier
+# LanceDB tables live directly in the index directory: index_dir/docs.lance/, index_dir/code.lance/.
+# ANN query tuning (wave 1wpif, 1wpah): the former LANCEDB_NPROBES / LANCEDB_REFINE_FACTOR
+# constants (declared here and in indexer.py, applied nowhere) were retired. `_lance_search`
+# submits every query with neither `nprobes` nor `refine_factor` set, so an IVF_HNSW_SQ-indexed
+# table runs at the installed Lance engine defaults (lancedb 0.33.0 `explain_plan`:
+# `minimum_nprobes=20, maximum_nprobes=Some(20)`, no refine stage) and a table below the
+# indexer's LANCEDB_INDEX_THRESHOLD is a flat exact scan. Measured tuning is owned by `1wpih`.
+
+# Bounded candidate-window refill (wave 1wpif, 1wpah). Exact predicates (kind, tags, an
+# allowlisted language or category) are pushed into the Lance `where` / FTS5 `WHERE` BEFORE the
+# bounded top-k, so they never need a refill. Constraints that cannot be pushed down (a per-file
+# cap; a language value outside the fixed allowlist) continue bounded retrieval over these
+# monotonic, nested windows: each source/table is queried at most len(REFILL_WINDOWS) times and
+# never examines more than REFILL_WINDOWS[-1] distinct rows per public call. A public call that
+# exits on the last window still underfilled reports the typed FILL_REASON_CEILING; a call whose
+# every source returned fewer rows than its window reports FILL_REASON_EXHAUSTED (a genuine
+# underfill). Refill feeds the bounded per-file selection only: the cross-encoder input window is
+# unchanged by it (see `search_code`'s `rerank_window`).
+REFILL_WINDOWS = (30, 60, 120, 240)
+REFILL_MAX_QUERIES_PER_SOURCE = len(REFILL_WINDOWS)  # 4
+REFILL_MAX_ROWS_PER_SOURCE = REFILL_WINDOWS[-1]  # 240
+FILL_REASON_CEILING = "bounded_ceiling_reached"
+FILL_REASON_EXHAUSTED = "substrate_exhausted"
+# Declared substrate sources per public tool (the per-call ceiling is
+# len(sources) * REFILL_MAX_QUERIES_PER_SOURCE queries / len(sources) * REFILL_MAX_ROWS_PER_SOURCE
+# rows). code_ask fuses four sources (16 / 960); its live keyword pass, when it fires, is accounted
+# as a fifth (20 / 1200). Definition-boost keyword injections, direct-artifact owner-row reads, the
+# published-graph declaration lookup, and graph-signal expansion are store reads, not substrate
+# searches, and are outside this accounting by definition.
+CODE_SEARCH_SUBSTRATE_SOURCES = ("code_dense", "code_lexical")
+CODE_ASK_SUBSTRATE_SOURCES = ("docs_dense", "code_dense", "docs_lexical", "code_lexical")
+KEYWORD_SUBSTRATE_SOURCE = "keyword"
+KEYWORD_PASS_WINDOW = 50  # the live keyword pass's window: code_keyword_response's default limit (test-pinned)
+
+
+# --- Substrate-query accounting (wave 1wpif, 1wpah) -------------------------
+# A public retrieval call opens a ledger scope; every substrate query issued
+# beneath it (a Lance vector search, an FTS5 MATCH per table, a live keyword
+# pass) records its source, window, and returned-row count. Nested refill
+# windows on the SAME query text re-examine a prefix, so a source's
+# ``examined_rows`` is the sum over distinct query texts of the LARGEST
+# returned count, never the sum of every round. The scope is a context
+# variable: a query issued outside any public call records nothing, and the
+# accounting adds no substrate work of its own.
+_RETRIEVAL_LEDGER: "contextvars.ContextVar[dict[str, Any] | None]" = contextvars.ContextVar(
+    "wavefoundry_retrieval_ledger", default=None,
+)
+_LEDGER_WINDOWS_CAP = 16  # bounded envelope: at most this many window entries per source
+
+
+def _new_ledger() -> dict[str, Any]:
+    return {"sources": {}, "fill": None}
+
+
+@contextmanager
+def _ledger_scope():
+    """Open a fresh accounting ledger for one public retrieval call."""
+    ledger = _new_ledger()
+    token = _RETRIEVAL_LEDGER.set(ledger)
+    try:
+        yield ledger
+    finally:
+        _RETRIEVAL_LEDGER.reset(token)
+
+
+def _ledger_record(source: str, query_key: str, window: int, returned: int) -> None:
+    """Record one substrate query against the active ledger (no-op without one)."""
+    ledger = _RETRIEVAL_LEDGER.get()
+    if ledger is None:
+        return
+    entry = ledger["sources"].setdefault(
+        source, {"queries": 0, "examined_rows": 0, "windows": [], "_by_query": {}},
+    )
+    entry["queries"] += 1
+    if len(entry["windows"]) < _LEDGER_WINDOWS_CAP:
+        entry["windows"].append(int(window))
+    by_query = entry["_by_query"]
+    key = str(query_key)
+    by_query[key] = max(int(by_query.get(key, 0)), int(returned))
+    entry["examined_rows"] = sum(by_query.values())
+
+
+def _ledger_fill(fill: "dict[str, Any] | None") -> None:
+    """Attach a bounded-refill fill outcome to the active ledger (no-op without one)."""
+    ledger = _RETRIEVAL_LEDGER.get()
+    if ledger is not None:
+        ledger["fill"] = fill
+
+
+def _ledger_summary(declared_sources: "tuple[str, ...]", ledger: "dict[str, Any] | None") -> dict[str, Any]:
+    """The public ``retrieval_accounting`` payload: per-source queries and
+    examined rows, the public-call aggregate, and the stated ceiling over the
+    declared sources plus any extra source that fired (the keyword pass)."""
+    sources_raw = dict((ledger or {}).get("sources") or {})
+    sources: dict[str, Any] = {}
+    for name in sorted(sources_raw):
+        entry = sources_raw[name]
+        sources[name] = {
+            "queries": int(entry.get("queries", 0)),
+            "examined_rows": int(entry.get("examined_rows", 0)),
+            "windows": list(entry.get("windows") or []),
+        }
+    counted = list(declared_sources) + [s for s in sources if s not in declared_sources]
+    n = len(counted)
+    return {
+        "sources": sources,
+        "substrate_queries": sum(s["queries"] for s in sources.values()),
+        "examined_rows": sum(s["examined_rows"] for s in sources.values()),
+        "ceiling": {
+            "sources": counted,
+            "queries_per_source": REFILL_MAX_QUERIES_PER_SOURCE,
+            "rows_per_source": REFILL_MAX_ROWS_PER_SOURCE,
+            "substrate_queries": n * REFILL_MAX_QUERIES_PER_SOURCE,
+            "examined_rows": n * REFILL_MAX_ROWS_PER_SOURCE,
+        },
+        "windows": list(REFILL_WINDOWS),
+    }
+
+
+def _refill_windows(top_n: int) -> "tuple[int, ...]":
+    """The monotonic window sequence for a bounded refill: every REFILL_WINDOWS
+    entry that can hold ``top_n`` rows (a larger request gets one window)."""
+    wanted = max(1, int(top_n))
+    windows = tuple(w for w in REFILL_WINDOWS if w >= wanted)
+    return windows or (wanted,)
+
+
+def _fill_diagnostics(fill: "dict[str, Any] | None") -> list[dict[str, Any]]:
+    """Typed underfill diagnostics for a bounded-refill outcome: the ceiling
+    exit and substrate exhaustion are distinct reasons (Requirement 3)."""
+    if not fill or not fill.get("reason"):
+        return []
+    requested = fill.get("requested")
+    returned = fill.get("returned")
+    rounds = fill.get("rounds")
+    windows = fill.get("windows") or []
+    if fill["reason"] == FILL_REASON_CEILING:
+        return [_diagnostic(
+            FILL_REASON_CEILING,
+            f"Bounded retrieval reached its safety ceiling with {returned} of {requested} "
+            f"requested results after {rounds} rounds (candidate windows {windows}; at most "
+            f"{REFILL_MAX_QUERIES_PER_SOURCE} queries and {REFILL_MAX_ROWS_PER_SOURCE} examined "
+            "rows per source). Eligible rows may remain past the window: this is NOT an "
+            "exhausted corpus. Narrow the query, relax max_per_file, or use code_keyword / "
+            "code_pattern for an exhaustive exact pass. retrieval_accounting carries the "
+            "per-source examined-row counts.",
+            recovery_tools=["code_keyword", "code_pattern"],
+            recovery_usage="code_keyword(query='<exact token>')",
+        )]
+    if not rounds:
+        # PERF-DEL-4 (delivery repair): the constraint was answered from the
+        # STORED vocabulary before any substrate query, so the honest sentence
+        # is "nothing eligible exists", not "every source returned fewer rows".
+        constraints = fill.get("constraints") or {}
+        # The language is caller input: echo it BOUNDED (and repr'd) so a
+        # hostile value cannot inflate a diagnostic.
+        language = str(constraints.get("language"))[:64]
+        return [_diagnostic(
+            FILL_REASON_EXHAUSTED,
+            f"{returned} of {requested} requested results: no indexed row carries "
+            f"language {language!r}, so the eligible candidate set is empty and no "
+            "substrate query was issued. This is a genuine empty result for this "
+            "filter, not a bounded-retrieval ceiling; check the spelling against the "
+            "languages the index actually holds (index_health) or drop the filter.",
+            recovery_tools=["index_health", "code_search"],
+            recovery_usage="code_search(query='...')",
+        )]
+    return [_diagnostic(
+        FILL_REASON_EXHAUSTED,
+        f"{returned} of {requested} requested results: every candidate source returned "
+        f"fewer rows than its window after {rounds} rounds (windows {windows}), so the "
+        "eligible candidate set is exhausted. This is a genuine underfill, not a "
+        "bounded-retrieval ceiling.",
+    )]
+
+
+_LANGUAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
+_LANGUAGE_VOCABULARY_CACHE: "frozenset[str] | None" = None
+
+
+def _canonical_language_vocabulary() -> "frozenset[str]":
+    """The fixed allowlist of canonical language names a substrate predicate
+    may carry (SEC-4): the public extension map's names plus the chunker's
+    stored-language map (the values chunk rows actually carry). Never user
+    input; every member matches the canonical token shape."""
+    global _LANGUAGE_VOCABULARY_CACHE
+    if _LANGUAGE_VOCABULARY_CACHE is not None:
+        return _LANGUAGE_VOCABULARY_CACHE
+    names = {str(v) for v in _EXT_TO_LANG.values()}
+    try:
+        chunker_map = getattr(_get_chunker_module(), "_EXT_TO_LANGUAGE", {}) or {}
+        names.update(str(v) for v in chunker_map.values())
+    except Exception:  # noqa: BLE001 - the public map alone is a valid allowlist
+        pass
+    _LANGUAGE_VOCABULARY_CACHE = frozenset(n for n in names if _LANGUAGE_NAME_RE.match(n))
+    return _LANGUAGE_VOCABULARY_CACHE
+
+
+def _language_filter_names(language: "str | None") -> "tuple[frozenset, bool] | None":
+    """Resolve a public ``language`` value (category, canonical name, or raw
+    extension) through the fixed allowlist (wave 1wpif, 1wpah; SEC-4).
+
+    Returns ``None`` for no filter, else ``(names, pushdown)``: ``names`` is
+    the set of row-level ``language`` values that satisfy the filter and
+    ``pushdown`` says whether every name is an allowlisted canonical token
+    that may enter a substrate predicate. A value outside the allowlist is
+    never echoed into a predicate: it stays a row-level equality guard that
+    the bounded refill serves honestly.
+    """
+    raw = str(language or "").strip()
+    if not raw:
+        return None
+    if raw in _LANG_CATEGORIES:
+        return _LANG_CATEGORIES[raw], True
+    norm = raw.lstrip(".").lower()
+    as_ext = f".{norm}"
+    if as_ext in _EXT_TO_LANG:
+        return frozenset({_EXT_TO_LANG[as_ext]}), True
+    try:
+        chunker_map = getattr(_get_chunker_module(), "_EXT_TO_LANGUAGE", {}) or {}
+    except Exception:  # noqa: BLE001
+        chunker_map = {}
+    if as_ext in chunker_map and _LANGUAGE_NAME_RE.match(str(chunker_map[as_ext])):
+        return frozenset({str(chunker_map[as_ext])}), True
+    if norm in _canonical_language_vocabulary():
+        return frozenset({norm}), True
+    return frozenset({raw}), False
+
+
+def _language_pushdown_ok(names: "Iterable[str] | None") -> bool:
+    """True when every name is an allowlisted canonical token (may enter a predicate)."""
+    ordered = [str(n) for n in (names or [])]
+    if not ordered:
+        return False
+    vocabulary = _canonical_language_vocabulary()
+    return all(_LANGUAGE_NAME_RE.match(n) and n in vocabulary for n in ordered)
+
+
+def _language_where_clause(names: "Iterable[str]") -> "str | None":
+    """Lance ``where`` fragment for an allowlisted language set; ``None`` when
+    the set is empty or not pushdown-safe (the row guard then applies alone)."""
+    ordered = sorted({str(n) for n in names})
+    if not _language_pushdown_ok(ordered):
+        return None
+    if len(ordered) == 1:
+        return f"language = '{ordered[0]}'"
+    return "language IN (" + ", ".join(f"'{n}'" for n in ordered) + ")"
 
 # RRF source-weight bias applied when question_type == "navigational" (question-type-aware-retrieval)
 RRF_NAVIGATIONAL_CODE_WEIGHT = 1.5
@@ -742,27 +986,37 @@ class WaveIndex:
         kind: Optional[str] = None,
         tags: Optional[list] = None,
         layer: str = "project",
+        languages: Optional[Iterable[str]] = None,
     ) -> list[dict]:
         """Lexical candidates from the index-state store's FTS5 tables (wave 1rsh9 / 1sauc).
 
         Replaces the retired Lance/Tantivy ``_lance_fts_search`` as the FTS
         half of ``search_code``'s hybrid merge. Filter parity with the Lance
-        ``where`` clause it replaced: exact ``kind`` match and any-of ``tags``
-        substring match apply inside the FTS5 query; the ``language``
-        post-filter works because rows carry a ``language`` field. Scores are
-        ``-bm25`` (higher = better) so the existing best-first sort and RRF
-        rank order hold. Every degrade path — absent store, FTS5-less
-        interpreter, FTS-hostile query — returns ``[]`` (dense-only hybrid),
-        never an error.
+        ``where`` clause it replaced: exact ``kind`` match, any-of ``tags``
+        substring match, and (wave 1wpif, 1wpah) the allowlisted
+        ``languages`` set all apply inside the FTS5 query, so the bounded
+        window holds eligible rows; rows still carry ``language`` for the
+        caller's guard. Scores are ``-bm25`` (higher = better) so the
+        existing best-first sort and RRF rank order hold. Every degrade
+        path — absent store, FTS5-less interpreter, FTS-hostile query —
+        returns ``[]`` (dense-only hybrid), never an error.
         """
         fts_q = self._fts_query(query)
         try:
-            iss = _load_script("index_state_store")
-            index_dir = Path(self.root) / ".wavefoundry" / "index"
-            hits = iss.fts_search(index_dir, table_name, fts_q, limit=top_n,
-                                  kind=kind, tags_any=tags)
+            # 1wpag: the hybrid FTS half serves through the shared probed
+            # chokepoint. Damage yields no lexical candidates here (the
+            # hybrid keeps its healthy semantic results) and is typed at the
+            # response layer as lexical_undercoverage from the same
+            # epoch-cached verdict, so the two can never disagree.
+            fetch = _fts_probed_fetch(
+                Path(self.root), (table_name,), fts_q, top_n,
+                kind=kind, tags=tags, languages=languages, include_coverage=False,
+            )
         except Exception:  # noqa: BLE001 - the lexical half is additive only
             return []
+        if not fetch.get("available"):
+            return []
+        hits = fetch.get("results") or []
         out = []
         for h in hits:
             out.append({
@@ -1833,7 +2087,33 @@ class WaveIndex:
         and ``sources`` (the set); ordering is advisory only (the agent re-ranks).
         """
         def _key(c: dict):
-            return (c.get("path", ""), tuple(c.get("lines") or []))
+            # 1wngv (wave 1wpif): dedupe identity is (normalized_path,
+            # normalized_lines, chunk_hash). Path/lines alone collapsed
+            # DISTINCT chunks whose legacy metadata shared a path and line
+            # range (the flat-emitter collision class). When ``chunk_hash``
+            # is absent (lexical FTS rows, injected keyword/graph
+            # candidates), a deterministic sha256 digest of the canonical
+            # returned evidence fields (id, kind, section, text) stands in,
+            # so only identical evidence merges and merged evidence keeps
+            # its ``sources`` provenance.
+            content = str(c.get("chunk_hash") or "")
+            if not content:
+                content = "sha256:" + hashlib.sha256(json.dumps(
+                    [str(c.get("id") or ""), str(c.get("kind") or ""),
+                     str(c.get("section") or ""), str(c.get("text") or "")],
+                    ensure_ascii=False, separators=(",", ":"),
+                ).encode("utf-8")).hexdigest()
+            norm_lines: list = []
+            for v in (c.get("lines") or []):
+                try:
+                    norm_lines.append(int(v))
+                except (TypeError, ValueError):
+                    norm_lines.append(v)
+            return (
+                str(c.get("path") or "").replace("\\", "/"),
+                tuple(norm_lines),
+                content,
+            )
 
         def _wscore_base(c: dict) -> float:
             # Un-boosted weighted relevance. Post-rerank (1p4wz) docs + code share ONE cross-encoder
@@ -1946,17 +2226,19 @@ class WaveIndex:
         ``[]`` so retrieval stays vector-only with no error.
         """
         try:
-            iss = _load_script("index_state_store")
-        except Exception:
+            # 1wpag: the code_ask hybrid half serves through the shared
+            # probed chokepoint (per-table limit preserved); damage yields no
+            # lexical candidates and is typed at the response layer as
+            # lexical_undercoverage from the same epoch-cached verdict.
+            fetch = _fts_probed_fetch(
+                Path(self.root), ("docs", "code"), query, LEXICAL_TOP_K,
+                include_coverage=False,
+            )
+        except Exception:  # noqa: BLE001 - lexical is additive only
             return []
-        index_dir = Path(self.root) / ".wavefoundry" / "index"
-        hits: list[dict] = []
-        for table_name in ("docs", "code"):
-            try:
-                rows = iss.fts_search(index_dir, table_name, query, limit=LEXICAL_TOP_K)
-            except Exception:  # noqa: BLE001 - lexical is additive only
-                rows = []
-            hits.extend(rows)
+        if not fetch.get("available"):
+            return []
+        hits: list[dict] = list(fetch.get("results") or [])
         # sqlite bm25() is smaller-is-better (negative); best-first ascending.
         hits.sort(key=lambda h: h.get("bm25", 0.0))
         out: list[dict] = []
@@ -2026,7 +2308,9 @@ class WaveIndex:
         fetch_n = max(top_n, VECTOR_TOP_K)
         all_candidates: list[dict] = []
         if getattr(self, "_proj_docs_lance_table", None) is not None:
-            all_candidates.extend(self._lance_search(self._proj_docs_lance_table, qvec, fetch_n, where=where, layer="project"))
+            _docs_hits = self._lance_search(self._proj_docs_lance_table, qvec, fetch_n, where=where, layer="project")
+            _ledger_record("docs_dense", query, fetch_n, len(_docs_hits))
+            all_candidates.extend(_docs_hits)
         all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         candidates = all_candidates[:fetch_n]
         reranker = self._get_reranker()
@@ -2036,6 +2320,15 @@ class WaveIndex:
         return candidates[:top_n], False
 
     def search_code(self, query: str, language: Optional[str] = None, top_n: int = 7, kind: Optional[str] = None, max_per_file: Optional[int] = None, tags: Optional[list] = None) -> tuple[list[dict], bool]:
+        """Hybrid (dense + FTS5) code search: predicate pushdown + bounded refill (1wpah).
+
+        An allowlisted ``language`` (category / name / extension) is pushed
+        with ``kind``/``tags`` into BOTH sources before the bounded top-k.
+        ``max_per_file`` (or a non-allowlisted language) refills over
+        ``REFILL_WINDOWS`` per source with a typed ceiling/exhaustion outcome
+        recorded in the active ledger. The reranker input stays at the
+        pre-refill window (``rerank_window``). Return shape unchanged.
+        """
         self._start_background_model_downloads_after_startup()
         self._ensure_loaded()
         CODE_MODEL = self._indexer_constant("CODE_MODEL")
@@ -2048,62 +2341,136 @@ class WaveIndex:
         if tags:
             tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
             where_parts.append(f"({' OR '.join(tag_clauses)})")
+        lang = _language_filter_names(language)
+        lang_names: Optional[frozenset] = None
+        lang_pushdown = False
+        fts_languages: Optional[list[str]] = None
+        if lang is not None:
+            lang_names, lang_pushdown = lang
+            clause = _language_where_clause(lang_names) if lang_pushdown else None
+            if clause is None:
+                lang_pushdown = False
+            else:
+                where_parts.append(clause)
+                fts_languages = sorted(str(n) for n in lang_names)
         where = " AND ".join(where_parts) if where_parts else None
-        fetch_n_base = top_n * 4 if language or max_per_file is not None else top_n
-        fetch_n = max(fetch_n_base, VECTOR_TOP_K)
+        per_file_cap = int(max_per_file) if max_per_file is not None else None
+        refill = per_file_cap is not None or (lang_names is not None and not lang_pushdown)
+        # The pre-1wpah fetch formula is retained as the cross-encoder input
+        # window (PERF-RDY-4) and as the single window when nothing needs a
+        # refill (a pushed-down language keeps its former oversample).
+        rerank_window = max(top_n * 4 if (language or max_per_file is not None) else top_n, VECTOR_TOP_K)
+        windows = _refill_windows(top_n) if refill else (rerank_window,)
 
-        def _code_dense(layer: str) -> list[dict]:
-            table = self._open_lance_table(layer, "code")
+        hybrid = bool(getattr(self, "_lance_available", None))
+        fixed_table = None
+        if hybrid:
+            if ("project", "code") not in self._lance_available:
+                return [], False
+        else:
+            fixed_table = getattr(self, "_proj_code_lance_table", None)
+            if fixed_table is None:
+                return [], False
+
+        def _code_dense(window: int) -> list[dict]:
+            table = fixed_table if fixed_table is not None else self._open_lance_table("project", "code")
             if table is None:
                 return []
-            return self._lance_search(table, qvec, fetch_n, where=where, layer=layer)
+            rows = self._lance_search(table, qvec, window, where=where, layer="project")
+            _ledger_record("code_dense", query, window, len(rows))
+            return sorted(rows, key=lambda x: x.get("score", 0.0), reverse=True)
 
-        def _code_fts(layer: str) -> list[dict]:
+        def _code_fts(window: int) -> list[dict]:
             # Wave 1rsh9 (1sauc): the lexical half of the hybrid merge comes
             # from the index-state store's FTS5 tables (the Lance/Tantivy FTS
-            # is retired). kind/tags filter inside the FTS5 query; the
-            # language post-filter below applies because rows carry language.
-            return self._fts5_lexical_search(
-                "code", query, fetch_n, kind=kind, tags=tags, layer=layer
+            # is retired). kind/tags and the allowlisted language set filter
+            # inside the FTS5 query (the chokepoint records the query); rows
+            # carry language for the guard in _select.
+            rows = self._fts5_lexical_search(
+                "code", query, window, kind=kind, tags=tags, layer="project", languages=fts_languages,
             )
+            return sorted(rows, key=lambda x: x.get("score", 0.0), reverse=True)
 
-        if getattr(self, "_lance_available", None):
-            dense_lists: list[list[dict]] = []
-            fts_lists: list[list[dict]] = []
-            for layer in ("project",):
-                if (layer, "code") in self._lance_available:
-                    dense = sorted(_code_dense(layer), key=lambda x: x.get("score", 0.0), reverse=True)
-                    fts = sorted(_code_fts(layer), key=lambda x: x.get("score", 0.0), reverse=True)
-                    if dense:
-                        dense_lists.append(dense)
-                    if fts:
-                        fts_lists.append(fts)
-            if not dense_lists and not fts_lists:
+        def _select(candidates: list[dict]) -> list[dict]:
+            out = candidates
+            if lang_names is not None:
+                out = [r for r in out if r.get("language") in lang_names]
+            if per_file_cap is not None:
+                seen: dict[str, int] = {}
+                capped = []
+                for r in out:
+                    p = str(r.get("path") or "")
+                    count = seen.get(p, 0)
+                    if count < per_file_cap:
+                        seen[p] = count + 1
+                        capped.append(r)
+                out = capped
+            return out
+
+        fill: dict[str, Any] = {
+            "requested": int(top_n), "returned": 0, "rounds": 0, "windows": [], "reason": None,
+            "constraints": {
+                "max_per_file": per_file_cap,
+                "language": str(language) if language else None,
+                "language_pushdown": bool(lang_pushdown) if lang_names is not None else None,
+            },
+        }
+        # PERF-DEL-4 (delivery repair): a language value that NO stored row
+        # carries has nothing to refill toward. Discovering that by walking
+        # the four windows on both sources costs 8 substrate queries and 480
+        # examined rows, and the call then reports `bounded_ceiling_reached`
+        # ("eligible rows may remain") when nothing eligible exists. The
+        # stored vocabulary answers it before the first query, is read once
+        # per epoch, and returns None (unknown) for anything but a healthy
+        # readable FTS table, in which case the previous walk still runs. The
+        # value itself never enters a predicate: it is compared in Python
+        # against the vocabulary the store reports (SEC-4 unchanged).
+        _root = getattr(self, "root", None)
+        if lang_names is not None and _root is not None:
+            stored = _stored_language_names(Path(_root), "code")
+            if stored is not None and not {str(n) for n in lang_names} & stored:
+                fill["reason"] = FILL_REASON_EXHAUSTED
+                if refill:
+                    _ledger_fill(fill)
                 return [], False
-            dense_merged = self._rrf_merge(dense_lists, fetch_n) if dense_lists else []
-            fts_merged = self._rrf_merge(fts_lists, fetch_n) if fts_lists else []
-            results = self._rrf_merge([dense_merged, fts_merged], fetch_n)
+
+        dense_rows: list[dict] = []
+        fts_rows: list[dict] = []
+        dense_open, fts_open = True, hybrid
+        results: list[dict] = []
+        reached_ceiling = False
+        for round_no, window in enumerate(windows, start=1):
+            fill["rounds"] = round_no
+            fill["windows"].append(int(window))
+            # A source that returned fewer rows than its window is exhausted
+            # (nested windows cannot grow it) and is not queried again.
+            if dense_open:
+                dense_rows = _code_dense(window)
+                dense_open = len(dense_rows) >= window
+            if fts_open:
+                fts_rows = _code_fts(window)
+                fts_open = len(fts_rows) >= window
+            if hybrid:
+                merged = self._rrf_merge([dense_rows, fts_rows], window) if (dense_rows or fts_rows) else []
+            else:
+                merged = dense_rows[:window]
+            results = _select(merged)
+            fill["returned"] = min(len(results), int(top_n))
+            if len(results) >= top_n or not refill:
+                break
+            if not dense_open and not fts_open:
+                fill["reason"] = FILL_REASON_EXHAUSTED
+                break
         else:
-            tables = [t for t in [getattr(self, "_proj_code_lance_table", None)] if t is not None]
-            if not tables:
-                return [], False
-            all_candidates: list[dict] = []
-            if getattr(self, "_proj_code_lance_table", None) is not None:
-                all_candidates.extend(self._lance_search(self._proj_code_lance_table, qvec, fetch_n, where=where, layer="project"))
-            all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
-            results = all_candidates[:fetch_n]
-        if language:
-            results = [r for r in results if r.get("language") == language]
-        if max_per_file is not None:
-            seen: dict[str, int] = {}
-            filtered = []
-            for r in results:
-                p = str(r.get("path") or "")
-                count = seen.get(p, 0)
-                if count < max_per_file:
-                    seen[p] = count + 1
-                    filtered.append(r)
-            results = filtered
+            reached_ceiling = True
+        if reached_ceiling and len(results) < top_n:
+            fill["reason"] = FILL_REASON_CEILING
+        if refill:
+            _ledger_fill(fill)
+        if not dense_rows and not fts_rows:
+            return [], False
+        # PERF-RDY-4: the cross-encoder sees at most the pre-refill window.
+        results = results[:rerank_window]
         reranker = self._get_reranker()
         if reranker is not None:
             results = self._rerank(query, results, top_n)
@@ -2171,6 +2538,12 @@ class WaveIndex:
                 if artifact_token:
                     try:
                         kw_resp = code_keyword_response(self.root, artifact_token)
+                        # 1wpah: the artifact-anchored keyword pass is the
+                        # fifth substrate source when it fires.
+                        _ledger_record(
+                            KEYWORD_SUBSTRATE_SOURCE, artifact_token, KEYWORD_PASS_WINDOW,
+                            len((kw_resp.get("data") or {}).get("results") or []) if kw_resp.get("status") == "ok" else 0,
+                        )
                         if kw_resp.get("status") == "ok":
                             kw_candidates = [
                                 {
@@ -2210,7 +2583,9 @@ class WaveIndex:
         code_qvec = self._embed_query(query, CODE_MODEL)
         docs_candidates = []
         if getattr(self, "_proj_docs_lance_table", None) is not None:
-            docs_candidates.extend(self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project"))
+            _docs_hits = self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project")
+            _ledger_record("docs_dense", query, top_k, len(_docs_hits))
+            docs_candidates.extend(_docs_hits)
         assessment_evidence_query = ""
         if question_type == "assessment":
             # One bounded recall expansion for audit/findings evidence. It uses the
@@ -2229,15 +2604,15 @@ class WaveIndex:
                     top_k,
                     layer="project",
                 )
+                # 1wpah: the assessment-class expansion is accounted inside
+                # the docs_dense source budget (a second distinct query text).
+                _ledger_record("docs_dense", assessment_evidence_query, top_k, len(evidence_hits))
                 by_key = {
-                    (candidate.get("path", ""), tuple(candidate.get("lines") or [])): candidate
+                    _candidate_merge_key(candidate): candidate
                     for candidate in docs_candidates
                 }
                 for candidate in evidence_hits:
-                    key = (
-                        candidate.get("path", ""),
-                        tuple(candidate.get("lines") or []),
-                    )
+                    key = _candidate_merge_key(candidate)
                     existing = by_key.get(key)
                     if existing is None:
                         docs_candidates.append(candidate)
@@ -2247,7 +2622,9 @@ class WaveIndex:
         docs_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         code_candidates = []
         if getattr(self, "_proj_code_lance_table", None) is not None:
-            code_candidates.extend(self._lance_search(self._proj_code_lance_table, code_qvec, top_k, layer="project"))
+            _code_hits = self._lance_search(self._proj_code_lance_table, code_qvec, top_k, layer="project")
+            _ledger_record("code_dense", query, top_k, len(_code_hits))
+            code_candidates.extend(_code_hits)
         code_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         vector_ms = round((time.monotonic() - t_vector) * 1000)
 
@@ -2274,12 +2651,16 @@ class WaveIndex:
             except Exception:  # noqa: BLE001 - lexical is additive only
                 _lex_hits = []
             if _lex_hits:
+                # 1wpah delivery repair: keyed by chunk id (see
+                # _candidate_merge_key). Last-wins on the legacy coordinate
+                # key attributed a lexical hit to whichever same-coordinate
+                # chunk the dense pass happened to add last.
                 _by_key = {
-                    (c.get("path", ""), tuple(c.get("lines") or [])): c
+                    _candidate_merge_key(c): c
                     for c in all_candidates
                 }
                 for _rank, _h in enumerate(_lex_hits):
-                    _k = (_h.get("path", ""), tuple(_h.get("lines") or []))
+                    _k = _candidate_merge_key(_h)
                     _existing = _by_key.get(_k)
                     if _existing is not None:
                         _existing.setdefault("_lex_rank", _rank)
@@ -2298,10 +2679,10 @@ class WaveIndex:
         # candidate; duplicates of pool members are dropped, not double-counted.
         if direct_artifact_cue:
             _owner_keys = {
-                (c.get("path", ""), tuple(c.get("lines") or [])) for c in all_candidates
+                _candidate_merge_key(c) for c in all_candidates
             }
             for _row in self._direct_artifact_owner_rows(direct_artifact_cue):
-                _k = (_row.get("path", ""), tuple(_row.get("lines") or []))
+                _k = _candidate_merge_key(_row)
                 if _k in _owner_keys or not _row.get("path"):
                     continue
                 _owner_keys.add(_k)
@@ -2497,10 +2878,10 @@ class WaveIndex:
             ) or _direct_artifact_owner_candidate(direct_artifact_cue, all_candidates)
             if direct_artifact_candidate is not None:
                 result_count = len(results)
-                direct_key = (
-                    direct_artifact_candidate.get("path", ""),
-                    tuple(direct_artifact_candidate.get("lines") or []),
-                )
+                # 1wpah delivery repair: the SAME id-first identity, so the
+                # pin removes its own duplicate and never a distinct chunk
+                # that merely shares coordinates with it.
+                direct_key = _candidate_merge_key(direct_artifact_candidate)
                 _direct_path = direct_artifact_candidate.get("path", "")
                 direct_artifact_candidate.setdefault(
                     "source",
@@ -2516,10 +2897,7 @@ class WaveIndex:
                 results = [direct_artifact_candidate] + [
                     result
                     for result in results
-                    if (
-                        result.get("path", ""),
-                        tuple(result.get("lines") or []),
-                    ) != direct_key
+                    if _candidate_merge_key(result) != direct_key
                 ]
                 if result_count:
                     results = results[:result_count]
@@ -4248,6 +4626,90 @@ def _attach_lint_to_response(envelope: dict[str, Any], root: Path, mode_s: str) 
     return envelope
 
 
+# Wave 1wuju (delivery review QA-DEL-2): a docs_lint subprocess that exits
+# non-zero WITHOUT printing an ``ERROR:`` line (an uncaught exception such as a
+# misspelled sensor-polarity registry entry, or any crash) used to reach the six
+# lifecycle gates as ``passed: False, errors: []``, and every gate that keys on
+# rendered diagnostics let it through. Mirror the timeout branch: synthesize one
+# ERROR entry naming the exit code and the last output line, so every caller
+# renders ``docs_lint_error`` and refuses. The prefix is a contract:
+# ``wf_audit_install`` routes entries carrying it past its expected-absence
+# classifier (a crash tail may quote an absence marker and must never defer).
+DOCS_LINT_VERDICT_GAP_PREFIX = "ERROR: docs-lint exited "
+# Wave 1wybs (1wybr): the synthesized cause is bounded. A crash line's
+# actionable ends are its head (the exception class) and its tail (the quoted
+# detail), so an over-long line keeps both around a middle marker.
+DOCS_LINT_VERDICT_GAP_CAUSE_CAP = 240
+DOCS_LINT_VERDICT_GAP_CAUSE_MARKER = " [...] "
+
+
+def _docs_lint_verdict_gap_error(returncode: int, output: str, root: Path) -> str | None:
+    if returncode == 0:
+        return None
+    tail = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    cause = tail[-1] if tail else "no output captured"
+    # The root is stripped BEFORE the cap so the marker can never hide a path.
+    cause = _cap_cause_line(_strip_repository_root(cause, root))
+    return f"{DOCS_LINT_VERDICT_GAP_PREFIX}{returncode} without a lint verdict; {cause}"
+
+
+def _cap_cause_line(cause: str, cap: int = DOCS_LINT_VERDICT_GAP_CAUSE_CAP) -> str:
+    """Keep the head and the tail of an over-long cause line around a marker."""
+    if len(cause) <= cap:
+        return cause
+    marker = DOCS_LINT_VERDICT_GAP_CAUSE_MARKER
+    keep = cap - len(marker)
+    head = keep // 2
+    return cause[:head] + marker + cause[-(keep - head):]
+
+
+def _strip_repository_root(text: str, root: Path) -> str:
+    """Render an absolute repository path inside a crash line repo-relative.
+
+    Wave 1uu9z's contract: no read-failure message leaks the absolute repository
+    path. A traceback's last line (``PermissionError: [Errno 13] Permission
+    denied: '/…/docs/x.md'``) embeds it, in the given spelling or the resolved
+    one (macOS pairs ``/var`` with ``/private/var``), so both are replaced.
+    """
+    forms: list[str] = []
+    for candidate in (root.resolve(strict=False), root):
+        # Wave 1wybs (1wybr): only an absolute spelling with a parent is a
+        # usable root. A filesystem anchor would rewrite every separator in
+        # the line and a relative spelling would delete a bare segment wherever
+        # it occurs; neither is reachable through discover_root, which
+        # resolves every root, but the helper guards itself.
+        if not candidate.is_absolute() or candidate.parent == candidate:
+            continue
+        spelled = str(candidate)
+        if spelled not in forms:
+            forms.append(spelled)
+    return _strip_root_forms(text, forms)
+
+
+def _strip_root_forms(text: str, forms: list[str]) -> str:
+    """Strip every given root spelling, including its repr-doubled variant.
+
+    Wave 1wybs (1wybr; delivery review DOCS-DEL-5): a Windows traceback renders
+    the path through ``%r``, which doubles every backslash
+    (``'C:\\\\Users\\\\x\\\\repo\\\\docs\\\\w.md'``), so each spelling is also matched
+    with its separators doubled. The forms are taken as given so the doubled
+    case can be pinned at string level on any platform.
+    """
+    expanded: list[str] = []
+    for form in forms:
+        for variant in (form, form.replace("\\", "\\\\")):
+            if variant and variant not in expanded:
+                expanded.append(variant)
+    for form in sorted(expanded, key=len, reverse=True):
+        text = (
+            text.replace(form + "/", "")
+            .replace(form + "\\\\", "")
+            .replace(form + "\\", "")
+            .replace(form, "<repo>")
+        )
+    return text
+
+
 def run_validate(root: Path) -> dict:
     """Run docs_lint and return structured pass/fail.
 
@@ -4292,6 +4754,8 @@ def run_validate(root: Path) -> dict:
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
     warnings = [l for l in lines if l.startswith("WARNING:")]
+    if not errors and result.returncode != 0:
+        errors = [_docs_lint_verdict_gap_error(result.returncode, result.stdout + result.stderr, root)]
     passed = result.returncode == 0
     return {
         "passed": passed,
@@ -4368,6 +4832,8 @@ def run_validate_changed(root: Path) -> dict:
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
     warnings = [l for l in lines if l.startswith("WARNING:")]
+    if not errors and result.returncode != 0:
+        errors = [_docs_lint_verdict_gap_error(result.returncode, result.stdout + result.stderr, root)]
     if fallback_predicted:
         mode = "full-fallback"
     elif any(l.startswith("docs-lint: skipped") for l in lines):
@@ -4756,6 +5222,67 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
     return summary
 
 
+def _chunk_index_coverage(
+    root: Path, tables: "tuple[str, ...]" = ("docs", "code"),
+) -> dict[str, Any]:
+    """Per-table registry coverage against Lance (1sbfj): ``{table:
+    {lance_rows, registry_rows, covered, id_collisions?}}``.
+
+    ONE producer for the two consumers that report coverage —
+    ``_state_store_health_summary`` (``chunk_index``) and the probed-serving
+    boundary's ``_fts_serving_coverage`` — so the health readout and the
+    serving envelope can never drift. ``covered`` mirrors the zero-change heal
+    probe: an exact match against the counts recorded at the last successful
+    reconcile when available (Lance ids are not unique, so a raw-vs-registry
+    compare misreads duplicate-id rows as under-coverage), else the
+    proportional ``max(8, lance_rows // 50)`` gap.
+
+    1wpag delivery repair (PERF-DEL-3): extracting this out of the health
+    summary is what lets the serving boundary compute coverage WITHOUT
+    ``probe_state_store`` — the structural quick_check that measured 674 ms on
+    this repository's store and re-established what ``fts_state_verdict`` had
+    already established for the same epoch. The reads kept here are cheap
+    (a Lance metadata row count, ~1 ms, and one indexed registry ``count(*)``).
+    """
+    coverage: dict[str, Any] = {}
+    index_dir = root / ".wavefoundry" / "index"
+    try:
+        iss = _load_script("index_state_store")
+        import lancedb  # local import: keep module import cheap and optional
+        db = lancedb.connect(str(index_dir))
+        for table_name in tables:
+            if not (index_dir / f"{table_name}.lance").is_dir():
+                continue
+            lance_rows = int(db.open_table(table_name).count_rows())
+            registry_rows = iss.registry_chunk_count(index_dir, table_name)
+            if registry_rows is None:
+                continue
+            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
+            if synced_raw is not None and synced_unique is not None:
+                covered = lance_rows == synced_raw and registry_rows == synced_unique
+            else:
+                covered = abs(lance_rows - registry_rows) <= max(8, lance_rows // 50)
+            entry: dict[str, Any] = {
+                "lance_rows": lance_rows,
+                "registry_rows": int(registry_rows),
+                "covered": covered,
+            }
+            # 1wngv: same-ID/distinct-content census recorded at the last
+            # derived rebuild — non-zero means the registry/FTS layer holds
+            # one row per colliding id, so derived-state coverage is not
+            # complete for that content even when the counts above match.
+            if hasattr(iss, "chunk_id_collision_counts"):
+                _coll, _sample = iss.chunk_id_collision_counts(index_dir, table_name)
+                if _coll:
+                    entry["id_collisions"] = int(_coll)
+                    if _sample:
+                        entry["id_collision_sample"] = _sample[:5]
+            coverage[table_name] = entry
+    except Exception:  # noqa: BLE001 - advisory only
+        pass
+    return coverage
+
+
 def _state_store_health_summary(root: Path) -> dict[str, Any]:
     """Wave 1rsh9 (1rq4h): index-state store presence, schema version, integrity.
 
@@ -4798,29 +5325,31 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
         summary["schema_version"] = probe.get("schema_version")
     except Exception:
         pass
+    coverage = _chunk_index_coverage(root)
+    if coverage:
+        summary["chunk_index"] = coverage
+    # 1wpag (wave 1wpif): per-table FTS parity + keyed integrity. The recorded
+    # state is an O(1) meta read; the verdict is the SAME epoch-cached result
+    # the serving chokepoint uses (probed once per build-state transition,
+    # never per public query), so health and serving can never disagree.
     try:
-        coverage: dict[str, Any] = {}
-        import lancedb  # local import: keep module import cheap and optional
-        db = lancedb.connect(str(index_dir))
+        fts_block: dict[str, Any] = {}
         for table_name in ("docs", "code"):
-            if not (index_dir / f"{table_name}.lance").is_dir():
-                continue
-            lance_rows = int(db.open_table(table_name).count_rows())
-            registry_rows = iss.registry_chunk_count(index_dir, table_name)
-            if registry_rows is None:
-                continue
-            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
-            if synced_raw is not None and synced_unique is not None:
-                covered = lance_rows == synced_raw and registry_rows == synced_unique
-            else:
-                covered = abs(lance_rows - registry_rows) <= max(8, lance_rows // 50)
-            coverage[table_name] = {
-                "lance_rows": lance_rows,
-                "registry_rows": int(registry_rows),
-                "covered": covered,
+            rec = (iss.fts_recorded_integrity(index_dir, table_name)
+                   if hasattr(iss, "fts_recorded_integrity") else {})
+            verdict = _fts_serving_verdict(root, table_name)
+            fts_block[table_name] = {
+                "ok": bool(verdict.get("ok")),
+                "reason": verdict.get("reason"),
+                "live": bool(verdict.get("live")),
+                "fts_rows": verdict.get("fts_rows"),
+                "registry_rows": verdict.get("registry_rows"),
+                "digest": verdict.get("digest"),
+                "digest_recorded": bool(rec.get("digest_recorded")),
+                "heal_attempt": rec.get("heal_attempt"),
+                "epoch": verdict.get("epoch"),
             }
-        if coverage:
-            summary["chunk_index"] = coverage
+        summary["fts"] = fts_block
     except Exception:
         pass
     return summary
@@ -5778,13 +6307,19 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
             usage="wf_help(goal='search_code')",
         )
 
+    # 1wpah: one accounting ledger spans the healthy call and its degraded
+    # fallback; every substrate query beneath records itself (no extra work).
+    _ledger = _new_ledger()
+    _ledger_token = _RETRIEVAL_LEDGER.set(_ledger)
     try:
+        # 1wpah: a category (or canonical name / extension) resolves through
+        # the fixed allowlist INSIDE search_code and is pushed into both
+        # substrates before the bounded top-k; the former n * len(category)
+        # oversample and post-filter are gone. The row guard keeps the
+        # category contract for any index that returns rows without it.
+        results, reranked = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
         if category_langs is not None:
-            # Fetch unfiltered results then post-filter to the category set.
-            raw, reranked = index.search_code(query, language=None, top_n=n * len(category_langs), kind=kind, max_per_file=max_per_file, tags=tags or None)
-            results = [r for r in raw if r.get("language") in category_langs][:n]
-        else:
-            results, reranked = index.search_code(query, language=language or None, top_n=n, kind=kind, max_per_file=max_per_file, tags=tags or None)
+            results = [r for r in results if r.get("language") in category_langs][:n]
     except SemanticModelUnavailableOfflineError as exc:
         results = _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc)) if _epoch_complete else None
         if results is None:
@@ -5809,7 +6344,21 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         return _degraded_error(_REASON_QUERY_FAILED, _REASON_QUERY_FAILED,
                                f"Semantic retrieval failed unexpectedly ({exc}) — infrastructure "
                                "failure, NOT an empty corpus.")
+    finally:
+        _RETRIEVAL_LEDGER.reset(_ledger_token)
+    # 1wpah: the per-source accounting and the bounded-refill fill outcome
+    # (typed ceiling versus exhaustion) ride every healthy envelope.
+    _accounting = _ledger_summary(CODE_SEARCH_SUBSTRATE_SOURCES, _ledger)
+    _fill = _ledger.get("fill")
+    diagnostics.extend(_fill_diagnostics(_fill))
     _log_degradation_transition(index.root, "code_search", fallback_reason)
+    if fallback_reason is None and search_mode == _MODE_HYBRID:
+        # 1wpag (AC-7): healthy semantic results plus a typed
+        # lexical-undercoverage diagnostic when the FTS half is damaged
+        # (O(1) epoch-cached verdict; never a probe on a warmed read).
+        _lex_diag = _lexical_undercoverage_diagnostic(index.root, ("code",), epoch_state=epoch_state)
+        if _lex_diag is not None:
+            diagnostics.append(_lex_diag)
     if not results:
         if search_mode == _MODE_LEXICAL_FALLBACK and fallback_reason not in (_REASON_QUERY_FAILED, _REASON_STORE_ABSENT):
             diagnostics.append(_lexical_zero_hit_note())
@@ -5825,6 +6374,9 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         d = _data([], reranked=reranked)
         d["search_mode"] = search_mode
         d["fallback_reason"] = fallback_reason
+        d["retrieval_accounting"] = _accounting
+        if _fill is not None:
+            d["fill"] = _fill
         if fallback_reason is not None or search_mode == "lexical_fallback" or coverage:
             d["coverage"] = coverage
         return _response(
@@ -5841,6 +6393,9 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
     d = _data(_results_out, reranked=reranked)
     d["search_mode"] = search_mode
     d["fallback_reason"] = fallback_reason
+    d["retrieval_accounting"] = _accounting
+    if _fill is not None:
+        d["fill"] = _fill
     if fallback_reason is not None or search_mode == "lexical_fallback" or coverage:
         d["coverage"] = coverage
     return _response(
@@ -7169,6 +7724,27 @@ def _repo_rel(root: Path, path: Path) -> str:
     except ValueError:
         relative = path.resolve(strict=False).relative_to(root.resolve())
     return str(relative).replace("\\", "/")
+
+
+def _install_artifact_display(root: Path, artifact: Path) -> str:
+    """Repo-relative artifact path for the install audit's operator-facing envelope.
+
+    Wave 1wybs (1wybr): the 1uu9z convention renders repository paths
+    repo-relative. An operator-authored row can name an artifact that resolves
+    outside the repository, where ``_repo_rel`` raises ``ValueError``; the
+    envelope then carries a ``..``-relative path (delivery review CODE-DEL-5)
+    and, only for a path with no common anchor (a different Windows drive),
+    the resolved string, rather than crashing.
+    """
+    try:
+        return _repo_rel(root, artifact)
+    except ValueError:
+        pass
+    try:
+        relative = os.path.relpath(artifact.resolve(strict=False), root.resolve())
+    except ValueError:
+        return str(artifact)
+    return relative.replace("\\", "/")
 
 
 def _background_refresh_state_path(root: Path, layer: str = "project") -> Path:
@@ -9474,6 +10050,52 @@ def index_health_response(
                 recovery_usage="index_build(content='fts')",
             )
         )
+    # 1wngv (wave 1wpif): same-ID/distinct-content collisions detected by the
+    # store-layer census at the last derived rebuild. This fires BEFORE the
+    # coverage numbers can read as complete: one id maps to multiple
+    # different chunks, and the registry/FTS layer keeps only one of them.
+    _colliding = [
+        f"{t} ({c.get('id_collisions')} colliding id(s))"
+        for t, c in (health["state_store"].get("chunk_index") or {}).items()
+        if c.get("id_collisions")
+    ]
+    if _colliding:
+        diagnostics.append(
+            _diagnostic(
+                "chunk_id_collisions",
+                "The derived chunk index recorded same-ID/distinct-content collisions at "
+                "its last rebuild: " + "; ".join(sorted(_colliding)) + ". One id maps to "
+                "multiple different chunks, so the registry/FTS layer keeps only one of "
+                "them and derived-state coverage is NOT complete for the colliding "
+                "content. A full rebuild under the current chunker clears chunker-emitted "
+                "collisions: index_build(content='all', mode='rebuild').",
+                recovery_tools=["index_build", "index_build_status"],
+                recovery_usage="index_build(content='all', mode='rebuild')",
+            )
+        )
+    # 1wpag (wave 1wpif): FTS liveness / parity / keyed-integrity verdict per
+    # table (the epoch-cached result the serving chokepoint uses). Damage means
+    # code_lexical returns typed query_failed and the hybrid tools carry
+    # lexical_undercoverage until the next ordinary build heals the table.
+    _fts_damaged = [
+        f"{t} ({v.get('reason')}; fts_rows={v.get('fts_rows')}, registry_rows={v.get('registry_rows')})"
+        for t, v in (health["state_store"].get("fts") or {}).items()
+        if v.get("ok") is False and v.get("reason") in _FTS_DAMAGE_REASONS
+    ]
+    if _fts_damaged:
+        diagnostics.append(
+            _diagnostic(
+                "fts_integrity_failed",
+                "The derived FTS5 lexical state failed its liveness/parity/keyed-integrity "
+                "probe: " + "; ".join(sorted(_fts_damaged)) + ". Lexical retrieval "
+                "(code_lexical, the hybrid FTS half, the degraded fallbacks) reports typed "
+                "query_failed / lexical_undercoverage instead of a healthy zero until the "
+                "next ordinary build heals the table under the build lock (one heal per "
+                "table per epoch): index_build(content='all', mode='update').",
+                recovery_tools=["index_build", "index_build_status"],
+                recovery_usage="index_build(content='all', mode='update')",
+            )
+        )
 
     semantic_ready = health.get("semantic_ready")
     return _response(
@@ -11676,6 +12298,7 @@ def wf_audit_response(
     if not lint_ok:
         for err in val_result.get("errors", []):
             diagnostics.append(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]))
+    diagnostics.extend(_docs_lint_warning_diagnostics(val_result))
     if not index_ok:
         overview = index_data.get("readiness_overview", "absent")
         diagnostics.append(
@@ -11898,6 +12521,21 @@ def wf_audit_response(
     )
 
 
+def _docs_lint_warning_diagnostics(lint_result: Mapping[str, Any] | dict[str, Any],
+                                   *, recovery_tools: list[str] | None = None) -> list[dict[str, Any]]:
+    """Wave 1wuju (1wujs): render docs-lint ``WARNING:`` lines as ``docs_lint_warning``
+    diagnostics carrying ``advisory: true`` (the non-blocking flag the prepare contract
+    defines) at EVERY lifecycle gate caller of ``run_validate``, not only at
+    ``wf_validate_docs``. A sensor registered advisory would otherwise be visible in one
+    tool and invisible at Prepare, Review, Close, and audit, which is the hidden class a
+    non-blocking polarity must not create."""
+    return [
+        _diagnostic("docs_lint_warning", warning,
+                    recovery_tools=recovery_tools or ["wf_validate_docs"], advisory=True)
+        for warning in (lint_result.get("warnings") or [])
+    ]
+
+
 def wf_validate_docs_response(root: Path) -> dict[str, Any]:
     result = run_validate(root)
     status = "ok" if result["passed"] else "error"
@@ -11905,7 +12543,7 @@ def wf_validate_docs_response(root: Path) -> dict[str, Any]:
         _diagnostic("docs_lint_error", error, recovery_tools=["wf_validate_docs"])
         for error in result["errors"]
     ] + [
-        _diagnostic("docs_lint_warning", warning, recovery_tools=["wf_validate_docs"])
+        _diagnostic("docs_lint_warning", warning, recovery_tools=["wf_validate_docs"], advisory=True)
         for warning in result["warnings"]
     ]
     return _response(
@@ -12004,25 +12642,26 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
     # pending context; every other finding still blocks advancement.
     lint_result = run_validate(root)
     lint_errors = list(lint_result.get("errors", []))
-    synthesized_failure = None
-    if not lint_result.get("passed", False) and not lint_errors:
-        # Wave 1viyu (CODE-DEL-2): a lint run that FAILED without emitting any
-        # `ERROR:` line (subprocess crash, traceback, or the docs-less
-        # `docs/: missing repository docs root` exit path) must still block.
-        # The synthesized entry bypasses the classifier entirely (RTD-1): even
-        # an output tail that happens to quote an absence-marker phrase can
-        # never be deferred, so the audit fails closed exactly as the
-        # pre-classifier code did.
-        detail = str(lint_result.get("output") or "").strip().splitlines()
-        synthesized_failure = (
-            "docs-lint failed without an ERROR line: "
-            + (detail[-1] if detail else "no output captured")
-        )
-    blocking, expected_pending = install_log_lib.classify_lint_errors(
-        lint_errors, rows, root
+    # Wave 1wuju (QA-DEL-2): a synthesized verdict-gap entry bypasses the
+    # expected-absence classifier below (RTD-1 again: its tail may quote an
+    # absence-marker phrase and it can never be deferred).
+    verdict_gap_errors = [e for e in lint_errors if e.startswith(DOCS_LINT_VERDICT_GAP_PREFIX)]
+    classifiable_errors = [e for e in lint_errors if not e.startswith(DOCS_LINT_VERDICT_GAP_PREFIX)]
+    # Wave 1wuju (1wujs AC-1; delivery review ARCH-DEL-2): the install audit runs
+    # the full-corpus lint, which includes docs/waves, so an advisory sensor's
+    # finding on an activated carrier surfaces here too, flagged and non-blocking.
+    lint_warning_diagnostics = _docs_lint_warning_diagnostics(
+        lint_result, recovery_tools=["wf_audit_install", "wf_validate_docs"]
     )
-    if synthesized_failure is not None:
-        blocking = [synthesized_failure, *blocking]
+    blocking, expected_pending = install_log_lib.classify_lint_errors(
+        classifiable_errors, rows, root
+    )
+    # Wave 1wybs (1wybr): the 1viyu passed-false-with-no-errors branch that
+    # used to sit here is unreachable, because run_validate synthesizes a
+    # verdict-gap entry on every non-zero exit and its timeout branch returns
+    # an error entry; the real-parser test in the lifecycle suite proves that
+    # contract end to end (RTD-1: the entry is never deferred).
+    blocking = [*verdict_gap_errors, *blocking]
     pending_cap = 25
     pending_lint = {
         "count": len(expected_pending),
@@ -12054,7 +12693,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                     recovery_tools=["wf_audit_install", "wf_validate_docs"],
                 )
                 for error in blocking
-            ],
+            ] + lint_warning_diagnostics,
             next_tools=["wf_audit_install"],
             usage="wf_audit_install()",
         )
@@ -12065,24 +12704,25 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
     missing = install_log_lib.checked_rows_missing_artifact(scope_rows, root)
     if missing:
         first_row, first_path = missing[0]
+        first_display = _install_artifact_display(root, first_path)
         return _response(
             "error",
             {
                 "status": "checked_but_missing",
                 "phase": phase,
                 "row": _install_audit_row_brief(first_row),
-                "expected_artifact": str(first_path),
+                "expected_artifact": first_display,
                 "all_missing": [
                     {
                         "row": _install_audit_row_brief(r),
-                        "expected_artifact": str(p),
+                        "expected_artifact": _install_artifact_display(root, p),
                     }
                     for r, p in missing
                 ],
                 "pending_lint": pending_lint,
                 "next_action": (
                     f"Row {first_row.number} is marked [x] but its expected artifact "
-                    f"({first_row.target}) does not exist at {first_path}. "
+                    f"({first_row.target}) does not exist at {first_display}. "
                     f"Re-execute the step ({first_row.source}), confirm the artifact, "
                     f"then re-call wf_audit_install."
                 ),
@@ -12092,12 +12732,12 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                     "install_log_checked_but_missing",
                     (
                         f"Row {r.number} ({r.source}) marked [x] but artifact "
-                        f"{r.target!r} does not exist at {p}."
+                        f"{r.target!r} does not exist at {_install_artifact_display(root, p)}."
                     ),
                     recovery_tools=["wf_audit_install"],
                 )
                 for r, p in missing
-            ],
+            ] + lint_warning_diagnostics,
             next_tools=["wf_audit_install"],
             usage="wf_audit_install()",
         )
@@ -12119,7 +12759,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
                 ),
                 "pending_lint": pending_lint,
             },
-            diagnostics=[],
+            diagnostics=lint_warning_diagnostics or None,
             next_tools=[],
             usage="wf_audit_install()",
         )
@@ -12138,7 +12778,7 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
             ),
             "pending_lint": pending_lint,
         },
-        diagnostics=[],
+        diagnostics=lint_warning_diagnostics or None,
         next_tools=["wf_audit_install"],
         usage="wf_audit_install()",
     )
@@ -17121,6 +17761,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     lint_passed = lint_result["passed"]
     if not lint_passed:
         diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
+    diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
 
     # Policy selection/publication follows the complete docs preflight. Dry-run stays read-only.
     council_brief = _build_prepare_council_brief(wave_id, text, change_ids)
@@ -17597,6 +18238,7 @@ def _evaluate_shared_delivery_state(
             _diagnostic("docs_lint_error", error, recovery_tools=["wf_validate_docs"])
             for error in lint_result.get("errors", [])
         )
+    diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
     operator_current = authority.operator_signoff_present()
     if not operator_current:
         remedy = (
@@ -17775,6 +18417,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         diagnostics = list(review_evidence_diagnostics)
         if not lint_result["passed"]:
             diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
+        diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
         missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
         if missing:
             # Wave 1to78 delivery repair (DF2, message-only): remediation
@@ -18650,6 +19293,183 @@ def _memory_validation_diagnostics(root: Path, wave_id: str) -> list[dict[str, A
         )]
 
 
+# Wave 1wur7 (1wuui Requirement 5): close VERIFIES the existing framework test
+# receipt.  It runs no suite and spawns no subprocess.
+_FRAMEWORK_TEST_RUNNER_REL = ".wavefoundry/framework/scripts/run_tests.py"
+_FRAMEWORK_TEST_RECEIPT_REL = ".wavefoundry/framework/test-cache.json"
+# run_tests.py sets this on import for its own subprocesses.  The close gate only
+# borrows the module's hash computation, so both of its import side effects are
+# restored rather than leaked into a long-lived server process.
+_RUN_TESTS_IMPORT_ENV = "WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"
+
+
+def _load_framework_test_runner(runner_path: Path) -> Any:
+    """Load the target repository's ``run_tests.py`` for its hash computation only.
+
+    The hash is REUSED rather than reimplemented so the gate and the writer
+    cannot drift.  The module is loaded from the target root's own path (never
+    imported by name) and is not registered in ``sys.modules``.
+
+    ``run_tests.py`` mutates FIVE pieces of interpreter state at import, and all
+    five are undone here.  Delivery review found the inventory short twice: first
+    at two (ARCH-DEL-1 / CODE-DEL-2 added ``sys.path`` and the tool-venv
+    activation), then at four, when reverification demonstrated that
+    ``sys.modules`` is an unrestored fifth channel whose safety rested only on
+    ``server_impl`` happening to import the same two scripts-directory modules
+    the runner does.  One added module-scope import in a future runner would
+    leak a foreign module permanently, surviving deletion of the foreign
+    repository.  The five: ``sys.dont_write_bytecode``, the dashboard-browser
+    suppression variable, a ``sys.path`` insert of the runner's own scripts
+    directory, ``venv_bootstrap.activate_tool_venv()`` (which prepends the tool
+    venv's ``site-packages``), and every module the borrow registers.
+
+    This matters because the MCP server may be launched from one repository
+    against a different ``--root``: leaving a foreign ``scripts/`` directory
+    ahead of the server's own on ``sys.path``, or a foreign module in
+    ``sys.modules``, would make later imports resolve against code the server
+    does not own.
+
+    ``activate_tool_venv`` also calls ``sys.exit(2)`` on a venv/interpreter
+    mismatch. ``SystemExit`` is a ``BaseException``, so it is caught explicitly
+    (ARCH-DEL-2 / CODE-DEL-1 / REL-DEL-1): a runner that cannot be loaded is
+    "not proven", never a terminated tool call.  The catch is deliberately
+    ``(Exception, SystemExit)`` rather than bare ``BaseException``: reverification
+    showed the broader form swallows a ``KeyboardInterrupt`` delivered on the
+    server's main thread during the borrow, costing the operator a Ctrl-C and
+    mislabelling it as a load failure, while catching nothing the wave needs.
+    """
+    saved_bytecode = sys.dont_write_bytecode
+    saved_path = list(sys.path)
+    saved_modules = set(sys.modules)
+    saved_env_present = _RUN_TESTS_IMPORT_ENV in os.environ
+    saved_env = os.environ.get(_RUN_TESTS_IMPORT_ENV)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "wavefoundry_close_gate_run_tests", runner_path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except (Exception, SystemExit):  # noqa: BLE001 - a runner that cannot be loaded is "not proven"
+        return None
+    finally:
+        sys.dont_write_bytecode = saved_bytecode
+        sys.path[:] = saved_path
+        for name in [name for name in sys.modules if name not in saved_modules]:
+            sys.modules.pop(name, None)
+        if saved_env_present:
+            os.environ[_RUN_TESTS_IMPORT_ENV] = saved_env or ""
+        else:
+            os.environ.pop(_RUN_TESTS_IMPORT_ENV, None)
+
+
+def _framework_test_receipt_status(root: Path) -> dict[str, Any]:
+    """Verify the existing ``test-cache.json`` receipt without running anything.
+
+    ``run_tests.py`` writes the receipt only after a SUCCESSFUL run of the WHOLE
+    suite, with an ``inputs_hash`` covering every file under
+    ``.wavefoundry/framework/`` except ``VERSION``, ``MANIFEST``, the cache
+    itself, ``test-run.lock``, and the ``index`` / ``__pycache__`` /
+    ``.pytest_cache`` directories, so it self-invalidates the moment any
+    framework file changes.  A missing, red, stale, or unreadable receipt is reported as NOT
+    PROVEN rather than assumed green.
+
+    Scope has TWO halves and both matter (delivery reverification found the
+    first wording asserted one and negated the other).  The hash covers
+    ``.wavefoundry/framework/`` only, so a documentation edit never makes a
+    standing receipt stale -- but the receipt is written only on a whole-suite
+    pass, so a failure triggered by content under ``docs/`` prevents a NEW
+    receipt from being written.  The consequence: when the framework tree also
+    changed, the standing receipt is stale and close is blocked; in a
+    documentation-only wave a current green receipt persists and close is not
+    blocked despite a red suite.  A green receipt attests the framework code,
+    not the tree -- neither a whole-repository guarantee nor a whole-repository
+    exemption.
+
+    Where ``run_tests.py`` is absent this is a documented NO-OP that neither
+    blocks nor claims proof: ``build_pack.py`` excludes the runner, the tests,
+    and the receipt from the distribution under the standing policy that seeds
+    must not instruct target repositories to run framework tests, so a
+    pack-vendored target can never write the receipt and would otherwise be
+    hard-blocked at close forever.
+    """
+    runner = root / _FRAMEWORK_TEST_RUNNER_REL
+    if not runner.is_file():
+        return {"state": "not_applicable", "scope": "framework",
+                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` is absent (the distribution "
+                           "excludes it), so the framework test receipt is not checked here.")}
+    # Delivery review REL-DEL-2: `is_file()` follows symlinks, and the runner
+    # derives its framework directory and its receipt path from its own RESOLVED
+    # location.  A symlinked runner would therefore hash a foreign repository's
+    # tree and read a foreign receipt -- a false proof, which is the one direction
+    # a gate must never fail in.
+    try:
+        resolved_runner = runner.resolve()
+        resolved_root = root.resolve()
+        contained = resolved_runner.is_relative_to(resolved_root)
+    except OSError as exc:
+        return {"state": "unreadable", "scope": "framework",
+                "detail": f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not be resolved: {exc}"}
+    if not contained:
+        return {"state": "unreadable", "scope": "framework",
+                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` resolves outside this repository "
+                           f"({resolved_runner}); it would attest a different framework tree, "
+                           "so no proof is claimed.")}
+    module = _load_framework_test_runner(runner)
+    if module is None or not hasattr(module, "_hash_inputs") or not hasattr(module, "_read_cache"):
+        return {"state": "unreadable", "scope": "framework",
+                "detail": f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not be loaded to verify the receipt."}
+    # Delivery review REL-DEL-1: the borrowed call CONTRACT can drift too (an
+    # older or newer runner whose `_hash_inputs` takes an argument), so both
+    # calls degrade to "not proven" rather than raising out of the tool handler.
+    try:
+        current_hash = module._hash_inputs()
+        cached = module._read_cache()
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - any failure here is "not proven"
+        return {"state": "unreadable", "scope": "framework",
+                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not verify the receipt "
+                           f"({type(exc).__name__}: {exc}).")}
+    if not isinstance(cached, dict):
+        return {"state": "missing", "scope": "framework",
+                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` is absent or unreadable; no "
+                           "successful framework test run has been recorded.")}
+    if cached.get("result") != "ok":
+        return {"state": "not_ok", "scope": "framework", "ran_at": cached.get("ran_at"),
+                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` records "
+                           f"result={cached.get('result')!r}, not 'ok'.")}
+    if cached.get("inputs_hash") != current_hash:
+        return {"state": "stale", "scope": "framework", "ran_at": cached.get("ran_at"),
+                "test_count": cached.get("test_count"),
+                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` was written for a different "
+                           "framework tree (a file under `.wavefoundry/framework/` changed "
+                           "after that run), so it does not attest the current code.")}
+    return {"state": "proven", "scope": "framework", "ran_at": cached.get("ran_at"),
+            "test_count": cached.get("test_count"),
+            "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` is green for the current framework "
+                       "tree. It attests the framework code, not the tree: the hash covers "
+                       "`.wavefoundry/framework/` only, and the receipt is written only on a "
+                       "whole-suite pass.")}
+
+
+def _framework_test_receipt_diagnostic(status: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+    if status.get("state") in {"not_applicable", "proven"}:
+        return None
+    return _diagnostic(
+        "framework_test_receipt_not_proven",
+        (f"Wave close blocked: the framework test receipt is not proven ({status.get('state')}). "
+         f"{status.get('detail')} Close verifies the EXISTING receipt and never runs a suite; "
+         "record a fresh one with `python3 .wavefoundry/framework/scripts/run_tests.py`, "
+         "and run it LAST, because any edit under `.wavefoundry/framework/` invalidates it. "
+         "Scope note: the hash covers `.wavefoundry/framework/` only, so a documentation edit "
+         "never makes a receipt stale, but the receipt is written only on a whole-suite pass, "
+         "so a docs-triggered failure prevents a new one. A green receipt attests the "
+         "framework code, not the tree."),
+        recovery_tools=["wf_validate_docs", "wf_current_wave"],
+        recovery_usage="wf_current_wave()",
+    )
+
+
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
@@ -18800,11 +19620,21 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 recovery_usage="wf_current_wave()",
             )
         )
+    framework_test_receipt = _framework_test_receipt_status(root)
+    receipt_diagnostic = _framework_test_receipt_diagnostic(framework_test_receipt)
+    if receipt_diagnostic is not None:
+        diagnostics.append(receipt_diagnostic)
     # Gate close runs unconditionally so open gates are always reported (and closed in
     # create mode) even when other diagnostics cause an early return.
     gate_diagnostics = _force_gates_closed(root, mode_s)
-    if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, **secrets_notice}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
+    # Wave 1wuju (1wujs AC-1): an advisory diagnostic (`docs_lint_warning`) is
+    # rendered on every close envelope but never gates the close; only a
+    # blocking entry takes the early return. The predicate was list
+    # non-emptiness, so a wave whose only lint output was one advisory line
+    # closed with `error` (delivery review CODE-DEL-1 / ARCH-DEL-1).
+    advisory_diagnostics = [d for d in diagnostics if d.get("advisory") is True]
+    if any(d.get("advisory") is not True for d in diagnostics):
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
     # Generate the wave summary from structured change doc fields (12sq4).
     try:
         wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
@@ -18882,9 +19712,10 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
+         "framework_test_receipt": framework_test_receipt,
          **({"index_optimize": close_optimize} if close_optimize else {}),
          **({"memory": memory_summary} if memory_summary else {}), **secrets_notice},
-        diagnostics=([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics or None,
+        diagnostics=advisory_diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics or None,
         next_tools=["wf_current_wave"],
         usage="wf_current_wave()",
     )
@@ -19663,6 +20494,356 @@ def _log_degradation_transition(root: Path, tool: str, fallback_reason: "str | N
             pass  # unmarked: the next query retries the persist
 
 
+# ── Probed FTS serving (1wpag, wave 1wpif) ──────────────────────────────────
+#
+# ONE chokepoint serves every FTS read the public tools make: code_lexical,
+# the hybrid FTS half of code_search/code_ask (_fts5_lexical_search,
+# _lexical_candidates), and the degraded fallbacks (_fts_degraded_serve). The
+# paths therefore cannot re-diverge into a silent healthy zero. The serving
+# decision is an O(1) read of an in-process verdict cache keyed by the 1sed7
+# build-state token: the full probe (liveness, row/shadow parity, keyed
+# payload digest) runs ONCE per build-state transition per table, or once
+# after a serving error, and is then cached, so a warmed read performs no
+# COUNT(*), no quick_check, and no corpus scan. Damage yields a typed failure
+# and at most SCHEDULES healing through the sanctioned background refresh
+# (never inline); healing executes only under the build lock via the ordinary
+# reconcile path (index_state_store.reconcile_chunk_index), which also writes
+# the once-per-table-per-epoch heal marker. The public query path performs no
+# store writes.
+
+_FTS_SERVE_LOCK = threading.Lock()
+_FTS_SERVE_STATE: "dict[str, dict[str, Any]]" = {}
+_FTS_DETAIL_CAP = 240
+# Verdict reasons that mean the table is DAMAGED (heal-eligible). Everything
+# else is healthy, not promised (fts_disabled), or not-yet-built.
+_FTS_DAMAGE_REASONS = frozenset({"probe_failed", "digest_mismatch", "digest_unavailable"})
+
+
+def _bounded_failure_detail(root: Path, text: Any) -> str:
+    """A7 (1wpag): typed-failure ``detail`` strings are bounded and
+    path-sanitized: repo-relative (neither the root prefix nor the home
+    directory leaves the process), whitespace-collapsed, and capped at
+    ``_FTS_DETAIL_CAP`` characters."""
+    s = " ".join(str(text or "").split())
+    prefixes: set[str] = set()
+    for candidate in (str(root), str(Path(root).resolve()) if root else ""):
+        if candidate and candidate not in (".", "/"):
+            prefixes.add(candidate)
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        s = s.replace(prefix + "/", "").replace(prefix + "\\", "").replace(prefix, ".")
+    try:
+        home = str(Path.home())
+        if home and home != "/":
+            s = s.replace(home, "~")
+    except Exception:
+        pass
+    s = s.replace("\\", "/")
+    if len(s) > _FTS_DETAIL_CAP:
+        s = s[:_FTS_DETAIL_CAP - 3] + "..."
+    return s
+
+
+def _fts_serve_entry(root: Path, token: Any) -> dict[str, Any]:
+    """The per-root cache entry for ``token``; a changed token starts a fresh
+    entry (verdicts, coverage, and the heal-request set all reset)."""
+    key = str(root)
+    with _FTS_SERVE_LOCK:
+        entry = _FTS_SERVE_STATE.get(key)
+        if entry is None or entry.get("token") != token:
+            entry = {"token": token, "verdicts": {}, "coverage": {}, "scheduled": set()}
+            _FTS_SERVE_STATE[key] = entry
+        return entry
+
+
+def _fts_invalidate_serving_state(root: "Path | None" = None) -> None:
+    """Drop the cached verdicts (all roots, or one). Tests and explicit
+    maintenance only; the cache otherwise turns over with the epoch."""
+    with _FTS_SERVE_LOCK:
+        if root is None:
+            _FTS_SERVE_STATE.clear()
+        else:
+            _FTS_SERVE_STATE.pop(str(root), None)
+
+
+def _fts_serving_verdict(
+    root: Path, table: str, *, epoch_state: Any = "__compute__", refresh: bool = False,
+) -> dict[str, Any]:
+    """Epoch-cached FTS verdict for one table (read-compare-only).
+
+    Cache hit: one dict lookup, no store access. Cache miss (first read in a
+    build-state epoch, or ``refresh=True`` after a serving error): ONE bounded
+    probe via ``index_state_store.fts_state_verdict`` (liveness, parity, keyed
+    digest), then cached for the epoch. Never writes to the store.
+    """
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(root)
+    entry = _fts_serve_entry(root, epoch_state)
+    if not refresh:
+        cached = entry["verdicts"].get(table)
+        if cached is not None:
+            return cached
+    try:
+        iss = _load_script("index_state_store")
+        verdict = dict(iss.fts_state_verdict(root / ".wavefoundry" / "index", table))
+    except Exception as exc:  # noqa: BLE001 - honesty rule: never silently healthy
+        verdict = {
+            "table": table, "ok": False, "reason": "probe_failed", "live": False,
+            "digest": "unavailable", "fts_rows": None, "registry_rows": None,
+            "heal_attempt": None, "detail": _bounded_failure_detail(root, exc),
+        }
+    verdict["epoch"] = list(epoch_state) if isinstance(epoch_state, (tuple, list)) else None
+    with _FTS_SERVE_LOCK:
+        entry["verdicts"][table] = verdict
+    return verdict
+
+
+def _fts_serving_coverage(
+    root: Path, tables: "tuple[str, ...]" = ("docs", "code"), *, epoch_state: Any = "__compute__",
+) -> dict[str, Any]:
+    """Epoch-cached chunk-index coverage for the requested tables, cached per
+    table at the probe boundary and never recomputed per public query (AC-8).
+
+    1wpag delivery repair (PERF-DEL-3): the SAME compare ``index_health``
+    reports, from the shared ``_chunk_index_coverage`` producer, but WITHOUT
+    the ``_state_store_health_summary`` wrapper whose ``probe_state_store``
+    structural quick_check measured 674 ms on this repository's store and
+    re-established for the same epoch what ``fts_state_verdict`` had just
+    established (liveness, parity, keyed digest). What remains is a Lance
+    metadata row count and one indexed registry ``count(*)`` per table.
+    Tables without a Lance table fall back to the counts recorded at the last
+    successful reconcile, so degraded ``index_missing`` envelopes still carry
+    coverage."""
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(root)
+    entry = _fts_serve_entry(root, epoch_state)
+    cached = dict(entry.get("coverage") or {})
+    missing = tuple(t for t in tables if t not in cached)
+    if missing:
+        cached.update(_chunk_index_coverage(root, missing))
+        still_missing = [t for t in missing if t not in cached]
+        if still_missing:
+            try:
+                iss = _load_script("index_state_store")
+                index_dir = root / ".wavefoundry" / "index"
+                for table in still_missing:
+                    lance_rows, registry_rows = iss.chunk_sync_counts(index_dir, table)
+                    if registry_rows is not None:
+                        cached[table] = {
+                            "lance_rows": lance_rows, "registry_rows": registry_rows,
+                        }
+            except Exception:  # noqa: BLE001 - advisory only
+                pass
+        with _FTS_SERVE_LOCK:
+            entry["coverage"] = cached
+    return {t: cached[t] for t in tables if t in cached}
+
+
+def _stored_language_names(
+    root: Path, table: str, *, epoch_state: Any = "__compute__",
+) -> "frozenset | None":
+    """Epoch-cached DISTINCT stored ``language`` values for one table (1wpah
+    delivery repair, PERF-DEL-4), or None when the store cannot answer.
+
+    None means UNKNOWN, never "empty": an unreadable store, an FTS-less
+    interpreter, or a table whose FTS verdict is not healthy must never be
+    read as proof that a language has no rows. Cached in the same
+    build-state-keyed entry as the serving verdicts, so it turns over with
+    the epoch and costs one bounded read per epoch per table.
+    """
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(root)
+    entry = _fts_serve_entry(root, epoch_state)
+    cached = entry.get("languages") or {}
+    if table in cached:
+        return cached[table]
+    vocabulary: "frozenset | None" = None
+    verdict = _fts_serving_verdict(root, table, epoch_state=epoch_state)
+    if verdict.get("ok") and verdict.get("reason") != "fts_disabled":
+        try:
+            iss = _load_script("index_state_store")
+            vocabulary = iss.stored_language_vocabulary(
+                root / ".wavefoundry" / "index", table,
+            )
+        except Exception:  # noqa: BLE001 - unknown, not empty
+            vocabulary = None
+    with _FTS_SERVE_LOCK:
+        entry.setdefault("languages", {})[table] = vocabulary
+    return vocabulary
+
+
+def _fts_schedule_heal(root: Path, table: str, verdict: dict[str, Any], *, epoch_state: Any) -> dict[str, Any]:
+    """At most SCHEDULE healing for a damaged table (A2: the query path never
+    heals). Reuses the sanctioned single-flight background refresh; the
+    indexer's ordinary reconcile path heals under the build lock. Suppressed
+    when the lock owner's heal marker already names the published epoch's
+    attempt (one heal per damaged table per epoch: a re-damaged table keeps
+    its typed failure until the next epoch), and requested at most once per
+    table per epoch from this process."""
+    entry = _fts_serve_entry(root, epoch_state)
+    out: dict[str, Any] = {"scheduled": False, "suppressed": None}
+    attempt = epoch_state[0] if isinstance(epoch_state, (tuple, list)) and epoch_state else None
+    marker = verdict.get("heal_attempt")
+    if attempt and marker and str(marker) == str(attempt):
+        out["suppressed"] = "already_healed_this_epoch"
+        return out
+    with _FTS_SERVE_LOCK:
+        if table in entry["scheduled"]:
+            out["suppressed"] = "already_requested"
+            return out
+        entry["scheduled"].add(table)
+    try:
+        out["scheduled"] = bool(_start_background_index_refresh(root, "project"))
+    except Exception:  # noqa: BLE001 - scheduling is best-effort
+        out["scheduled"] = False
+    if not out["scheduled"]:
+        out["suppressed"] = "refresh_not_started"
+    return out
+
+
+def _fts_probed_fetch(
+    root: Path,
+    tables: "tuple[str, ...]",
+    query: str,
+    limit: int,
+    *,
+    kind: "str | None" = None,
+    tags: "list | None" = None,
+    epoch_state: Any = "__compute__",
+    languages: "Iterable[str] | None" = None,
+    include_coverage: bool = True,
+) -> dict[str, Any]:
+    """The shared probed-serving chokepoint (1wpag, AC-3).
+
+    Returns a TYPED result: ``{available, failure_reason, results, coverage,
+    detail, damage, heal, lexical_disabled}``. ``results`` are raw
+    ``fts_search`` rows with a ``table`` key, best-first per table (callers
+    shape them). ``failure_reason`` is ``store_absent`` (not built) or
+    ``query_failed`` (damage / serving error); ``damage`` maps table ->
+    verdict reason and ``heal`` maps table -> the schedule outcome.
+    A table whose verdict is ``fts_disabled`` (FTS5-less interpreter) is not
+    promised: it contributes no rows and sets ``lexical_disabled``.
+    ``languages`` (wave 1wpif, 1wpah) is the allowlisted language set pushed
+    into the FTS5 ``WHERE`` as bound parameters (callers resolve it through
+    ``_language_filter_names``; user input never reaches this parameter
+    unresolved). Every per-table query is recorded against the active
+    accounting ledger as ``<table>_lexical``.
+
+    ``include_coverage`` (delivery repair PERF-DEL-3) is False for the two
+    hybrid halves that never read ``coverage`` (``_fts5_lexical_search``,
+    ``_lexical_candidates``), so the first hybrid ``code_search`` / ``code_ask``
+    in an epoch does no coverage work at all; ``code_lexical`` and the
+    degraded fallbacks, which report it, keep the default.
+    """
+    index_dir = root / ".wavefoundry" / "index"
+    out: dict[str, Any] = {
+        "available": False, "failure_reason": None, "results": [], "coverage": {},
+        "detail": None, "damage": {}, "heal": {}, "lexical_disabled": False,
+    }
+    try:
+        iss = _load_script("index_state_store")
+        present = bool(iss.state_store_path(index_dir).exists())
+    except Exception:  # noqa: BLE001
+        iss, present = None, False
+    if iss is None or not present:
+        out["failure_reason"] = _REASON_STORE_ABSENT
+        return out
+    if epoch_state == "__compute__":
+        epoch_state = _epoch_state(root)
+    tables = tuple(tables)
+
+    def _coverage_for() -> dict[str, Any]:
+        if not include_coverage:
+            return {}
+        return _fts_serving_coverage(root, tables, epoch_state=epoch_state)
+
+    live_tables: list[str] = []
+    for table in tables:
+        verdict = _fts_serving_verdict(root, table, epoch_state=epoch_state)
+        reason = verdict.get("reason")
+        if verdict.get("ok"):
+            if reason == "fts_disabled":
+                out["lexical_disabled"] = True
+            else:
+                live_tables.append(table)
+            continue
+        # The store verdict's not-built reason is spelled with the public
+        # fallback-reason token on purpose (one vocabulary, consumed via the
+        # alias per the 1seax constants pin).
+        if reason in (_REASON_STORE_ABSENT, "unknown_table"):
+            out["failure_reason"] = _REASON_STORE_ABSENT
+            return out
+        out["damage"][table] = reason
+        out["heal"][table] = _fts_schedule_heal(root, table, verdict, epoch_state=epoch_state)
+    if out["damage"]:
+        out["failure_reason"] = _REASON_QUERY_FAILED
+        out["detail"] = _bounded_failure_detail(
+            root,
+            "; ".join(
+                f"FTS table for '{t}' failed its integrity probe ({r})"
+                for t, r in sorted(out["damage"].items())
+            ) + " (store damage; the next ordinary build heals it under the build lock)",
+        )
+        out["coverage"] = _coverage_for()
+        return out
+    rows: list[dict[str, Any]] = []
+    language_list = sorted({str(n) for n in (languages or []) if n}) or None
+    try:
+        for table in live_tables:
+            table_rows = iss.fts_search(
+                index_dir, table, query, limit=limit,
+                kind=(kind or None), tags_any=(tags or None), strict=True,
+                languages=language_list,
+            )
+            _ledger_record(f"{table}_lexical", query, limit, len(table_rows))
+            for r in table_rows:
+                r["table"] = table
+                rows.append(r)
+    except Exception as exc:  # noqa: BLE001 - serving error: ONE bounded re-probe, typed failure, at most a heal request
+        for table in live_tables:
+            verdict = _fts_serving_verdict(root, table, epoch_state=epoch_state, refresh=True)
+            if not verdict.get("ok") and verdict.get("reason") in _FTS_DAMAGE_REASONS:
+                out["damage"][table] = verdict.get("reason")
+                out["heal"][table] = _fts_schedule_heal(root, table, verdict, epoch_state=epoch_state)
+        out["failure_reason"] = _REASON_QUERY_FAILED
+        out["detail"] = _bounded_failure_detail(root, exc)
+        out["coverage"] = _coverage_for()
+        return out
+    out["available"] = True
+    out["results"] = rows
+    out["coverage"] = _coverage_for()
+    return out
+
+
+def _lexical_undercoverage_diagnostic(
+    root: Path, tables: "tuple[str, ...]", *, epoch_state: Any = "__compute__",
+) -> "dict[str, Any] | None":
+    """AC-7 (1wpag): the typed lexical-undercoverage diagnostic a HEALTHY
+    hybrid response carries when the FTS half is damaged. Reads the same
+    epoch-cached verdicts the chokepoint used (O(1) on a warmed epoch); None
+    when every table is healthy, not promised, or not yet built."""
+    if os.environ.get(LEXICAL_FUSION_DISABLE_ENV):
+        return None
+    damaged: dict[str, str] = {}
+    for table in tables:
+        verdict = _fts_serving_verdict(root, table, epoch_state=epoch_state)
+        if not verdict.get("ok") and verdict.get("reason") in _FTS_DAMAGE_REASONS:
+            damaged[table] = str(verdict.get("reason"))
+    if not damaged:
+        return None
+    return _diagnostic(
+        "lexical_undercoverage",
+        "Semantic results are healthy, but the lexical (FTS5) half of this hybrid "
+        "query is unavailable: "
+        + "; ".join(f"{t}: {r}" for t, r in sorted(damaged.items()))
+        + ". Exact-token recall is missing from these results until the derived FTS "
+        "state heals under the build lock on the next ordinary build (requested "
+        "automatically, one heal per table per epoch); index_health shows the "
+        "per-table verdict.",
+        recovery_tools=["index_health", "index_build"],
+        recovery_usage="index_health()",
+    )
+
+
 def _fts_degraded_serve(
     root: Path,
     tables: "tuple[str, ...]",
@@ -19677,50 +20858,82 @@ def _fts_degraded_serve(
 
     Serves BM25 results from the index-state store's FTS5 tables for the
     degraded-search fallbacks, with the FULL filter contract: ``kind`` is
-    applied inside the FTS query, ``tags`` row-carried (any-of), ``language``
-    as a row-carried post-filter (single name or category set), and
-    ``max_per_file`` as a post-group cap. Returns a TYPED result —
+    applied inside the FTS query, ``tags`` row-carried (any-of), an
+    allowlisted ``language_names`` set (single name or category set) pushed
+    into the FTS query as bound parameters (wave 1wpif, 1wpah; a value
+    outside the allowlist stays a row-level guard), and ``max_per_file`` as
+    a post-group cap served through the bounded refill: per table the
+    monotonic ``REFILL_WINDOWS``, at most ``REFILL_MAX_QUERIES_PER_SOURCE``
+    queries and ``REFILL_MAX_ROWS_PER_SOURCE`` examined rows per public
+    call, exiting as soon as ``top_n`` capped rows exist, when every table
+    is exhausted (``FILL_REASON_EXHAUSTED``), or at the ceiling
+    (``FILL_REASON_CEILING``). Returns a TYPED result —
     ``{"available": bool, "failure_reason": None | a store-absent or
     query-failed member of ``public_contract.LEXICAL_FALLBACK_REASONS``,
-    "results": [...], "coverage": {...}}`` — so a caught exception maps to
-    the query-failed reason and is distinguishable from a genuine zero-hit
-    (replacing the old collapse-to-``[]`` at this seam).
+    "results": [...], "coverage": {...}}`` plus ``fill`` when a refill ran —
+    so a caught exception maps to the query-failed reason and is
+    distinguishable from a genuine zero-hit (replacing the old
+    collapse-to-``[]`` at this seam).
 
     Epoch discipline: callers decide WHETHER to serve from the CAPTURED
-    1sed7 state token; this function never reads the epoch itself.
+    1sed7 state token; this function reads the token only as the key of the
+    probed-serving verdict cache (1wpag), never as a serve decision.
     """
-    index_dir = root / ".wavefoundry" / "index"
+    names = frozenset(str(n) for n in language_names) if language_names else None
+    pushdown = _language_pushdown_ok(names) if names else False
+    languages = sorted(names) if (names and pushdown) else None
+    per_file_cap = int(max_per_file) if (max_per_file and int(max_per_file) > 0) else None
+    refill = per_file_cap is not None or (names is not None and not pushdown)
+    windows = _refill_windows(top_n) if refill else (max(1, int(top_n)),)
+    fill: dict[str, Any] = {
+        "requested": int(top_n), "returned": 0, "rounds": 0, "windows": [], "reason": None,
+        "constraints": {
+            "max_per_file": per_file_cap,
+            "language": sorted(names) if names else None,
+            "language_pushdown": bool(pushdown) if names else None,
+        },
+    }
+    rows_by_table: dict[str, list[dict[str, Any]]] = {}
+    open_tables: list[str] = list(tables)
     coverage: dict[str, Any] = {}
-    try:
-        iss = _load_script("index_state_store")
-    except Exception:
-        return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
-    try:
-        if not iss.state_store_path(index_dir).exists():
-            return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
-    except Exception:
-        return {"available": False, "failure_reason": _REASON_STORE_ABSENT, "results": [], "coverage": coverage}
-    # Review fix: probe EVERY requested table's FTS liveness up front — a
-    # broken fts_code beside a matching fts_docs must not serve a partial
-    # result as available (fts_search fails soft to [] per table).
-    try:
-        for table in tables:
-            if not iss.fts_probe(index_dir, table):
-                return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
-                        "results": [], "coverage": coverage,
-                        "detail": f"FTS table for '{table}' is not queryable (store damage?)"}
-    except Exception as exc:  # noqa: BLE001
-        return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
-                "results": [], "coverage": coverage, "detail": str(exc)}
     hits: list[dict[str, Any]] = []
-    try:
-        fetch_n = max(top_n * (3 if (language_names or max_per_file) else 1), top_n)
-        for table in tables:
-            rows = iss.fts_search(
-                index_dir, table, query, limit=fetch_n,
-                kind=(kind or None), tags_any=(tags or None),
+    reached_ceiling = False
+    for round_no, window in enumerate(windows, start=1):
+        fill["rounds"] = round_no
+        fill["windows"].append(int(window))
+        if open_tables:
+            # 1wpag: ONE probed-serving chokepoint, shared with code_lexical and
+            # the hybrid FTS half. Store presence, the epoch-cached per-table
+            # verdict (every requested table must be live: a broken fts_code
+            # beside a healthy fts_docs fails the whole serve), the strict
+            # fetch, the serving-error re-probe, the bounded path-sanitized
+            # detail, and the at-most-schedule heal request all live there.
+            fetch = _fts_probed_fetch(
+                root, tuple(open_tables), query, window, kind=kind, tags=tags, languages=languages,
             )
-            for r in rows:
+            coverage.update(dict(fetch.get("coverage") or {}))
+            if not fetch.get("available"):
+                failed: dict[str, Any] = {
+                    "available": False,
+                    "failure_reason": fetch.get("failure_reason") or _REASON_QUERY_FAILED,
+                    "results": [], "coverage": coverage,
+                }
+                if fetch.get("detail"):
+                    failed["detail"] = fetch["detail"]
+                return failed
+            fetched: dict[str, list[dict[str, Any]]] = {t: [] for t in open_tables}
+            for r in fetch.get("results") or []:
+                fetched.setdefault(str(r.get("table") or ""), []).append(r)
+            # A table that returned fewer rows than its window is exhausted
+            # (nested windows cannot grow it) and is not queried again.
+            for t in list(open_tables):
+                rows_by_table[t] = fetched.get(t, [])
+                if len(rows_by_table[t]) < window:
+                    open_tables.remove(t)
+        hits = []
+        for table_rows in rows_by_table.values():
+            for r in table_rows:
+                table = str(r.get("table") or "")
                 hits.append({
                     "id": r.get("id", ""),
                     "table": table,
@@ -19734,29 +20947,33 @@ def _fts_degraded_serve(
                     # bm25 is smaller-is-better; negate for the house best-first order.
                     "score": -float(r.get("bm25", 0.0)),
                 })
-        for table in tables:
-            try:
-                lance_rows, registry_rows = iss.chunk_sync_counts(index_dir, table)
-                if registry_rows is not None:
-                    coverage[table] = {"lance_rows": lance_rows, "registry_rows": registry_rows}
-            except Exception:
-                pass
-    except Exception as exc:  # noqa: BLE001 - typed, never a silent zero-hit
-        return {"available": False, "failure_reason": _REASON_QUERY_FAILED,
-                "results": [], "coverage": coverage, "detail": str(exc)}
-    if language_names:
-        hits = [h for h in hits if h.get("language") in language_names]
-    hits.sort(key=lambda h: -float(h.get("score", 0.0)))
-    if max_per_file and max_per_file > 0:
-        per_file: dict[str, int] = {}
-        capped = []
-        for h in hits:
-            c = per_file.get(h["path"], 0)
-            if c < max_per_file:
-                capped.append(h)
-                per_file[h["path"]] = c + 1
-        hits = capped
-    return {"available": True, "failure_reason": None, "results": hits[:top_n], "coverage": coverage}
+        if names:
+            hits = [h for h in hits if h.get("language") in names]
+        hits.sort(key=lambda h: -float(h.get("score", 0.0)))
+        if per_file_cap is not None:
+            per_file: dict[str, int] = {}
+            capped = []
+            for h in hits:
+                c = per_file.get(h["path"], 0)
+                if c < per_file_cap:
+                    capped.append(h)
+                    per_file[h["path"]] = c + 1
+            hits = capped
+        fill["returned"] = min(len(hits), int(top_n))
+        if len(hits) >= top_n or not refill:
+            break
+        if not open_tables:
+            fill["reason"] = FILL_REASON_EXHAUSTED
+            break
+    else:
+        reached_ceiling = True
+    if reached_ceiling and len(hits) < top_n:
+        fill["reason"] = FILL_REASON_CEILING
+    out: dict[str, Any] = {"available": True, "failure_reason": None, "results": hits[:top_n], "coverage": coverage}
+    if refill:
+        out["fill"] = fill
+        _ledger_fill(fill)
+    return out
 
 
 def _lexical_zero_hit_note() -> dict[str, Any]:
@@ -19832,15 +21049,55 @@ def code_lexical_response(
         ))
         return _response("ok", data, diagnostics=diagnostics,
                          next_tools=["index_build"], usage="index_build(content='all', mode='update')")
-    hits: list[dict[str, Any]] = []
-    for t in tables:
-        try:
-            rows = iss.fts_search(index_dir, t, query, limit=limit, kind=(kind or None))
-        except Exception:  # noqa: BLE001 - degrade, never crash
-            rows = []
-        for r in rows:
-            r["table"] = t
-            hits.append(r)
+    # 1wpag (AC-3/AC-7): the lexical-only tool serves through the SAME probed
+    # chokepoint as the hybrid half and the degraded fallbacks. A damaged FTS
+    # table is a typed query_failed error, never a healthy zero; the healthy
+    # path is an O(1) cached-verdict read plus the MATCH query itself (AC-8).
+    epoch_state = _epoch_state(root)
+    fetch = _fts_probed_fetch(root, tables, query, limit, kind=(kind or None), epoch_state=epoch_state)
+    if fetch.get("coverage"):
+        data["coverage"] = fetch["coverage"]
+    if not fetch.get("available"):
+        if fetch.get("failure_reason") == _REASON_STORE_ABSENT:
+            diagnostics.append(_diagnostic(
+                "lexical_layer_unavailable",
+                "The index-state store is absent — the lexical layer has not been built. "
+                "Run a build to provision it.",
+                recovery_tools=["index_build", "index_health"],
+                recovery_usage="index_build(content='all', mode='update')",
+            ))
+            return _response("ok", data, diagnostics=diagnostics,
+                             next_tools=["index_build"], usage="index_build(content='all', mode='update')")
+        data["failure_reason"] = _REASON_QUERY_FAILED
+        if fetch.get("detail"):
+            data["detail"] = fetch["detail"]
+        if fetch.get("damage"):
+            data["damaged_tables"] = sorted(fetch["damage"])
+        diagnostics.append(_diagnostic(
+            _REASON_QUERY_FAILED,
+            "The lexical (FTS5) layer cannot serve this query: "
+            + (fetch.get("detail") or "store damage")
+            + ". This is an infrastructure failure, NOT an empty corpus: zero results "
+            "here say nothing about the tokens' presence. Healing runs under the build "
+            "lock on the next ordinary build (requested automatically, one heal per "
+            "table per epoch); index_health shows the per-table verdict. For an exact "
+            "match right now use code_keyword (live substring).",
+            recovery_tools=["index_health", "code_keyword"],
+            recovery_usage="index_health()",
+        ))
+        return _response("error", data, diagnostics=diagnostics,
+                         next_tools=["index_health", "code_keyword"], usage="index_health()")
+    if fetch.get("lexical_disabled") and not fetch.get("results"):
+        diagnostics.append(_diagnostic(
+            "lexical_layer_unavailable",
+            "This interpreter's SQLite has no FTS5, so the lexical layer is not built. "
+            "Use code_keyword (live substring) or code_pattern (regex) for exact matches.",
+            recovery_tools=["code_keyword", "code_pattern"],
+            recovery_usage="code_keyword(query='<exact_token>')",
+        ))
+        return _response("ok", data, diagnostics=diagnostics,
+                         next_tools=["code_keyword"], usage="code_keyword(query='<exact_token>')")
+    hits: list[dict[str, Any]] = list(fetch.get("results") or [])
     # sqlite bm25() is smaller-is-better (negative); best-first ascending.
     hits.sort(key=lambda h: h.get("bm25", 0.0))
     results: list[dict[str, Any]] = []
@@ -19866,11 +21123,12 @@ def code_lexical_response(
     data["result_count"] = len(results)
     # Coverage tie-in (1sbfj): a zero/thin result on an under-covered table is
     # a store problem, not corpus absence — same compare index_health uses.
+    # 1wpag/AC-8: read from the epoch-cached coverage the chokepoint already
+    # resolved (computed once per build-state transition), never a per-call
+    # quick_check / count_rows.
     try:
-        coverage = (_state_store_health_summary(root).get("chunk_index") or {})
+        coverage = dict(fetch.get("coverage") or {})
         uncovered = [t for t in tables if coverage.get(t, {}).get("covered") is False]
-        if coverage:
-            data["coverage"] = {t: coverage[t] for t in tables if t in coverage}
         if uncovered:
             diagnostics.append(_diagnostic(
                 "chunk_index_undercovered",
@@ -25379,6 +26637,33 @@ def _is_test_path(path: str) -> bool:
     )
 
 
+def _candidate_merge_key(candidate: "dict") -> tuple:
+    """Identity for JOINING one retrieval candidate onto another across
+    substrates (1wpah delivery repair, RED-DEL-2 / CODE-DEL-1).
+
+    The chunk ``id`` is the identity: it is unique per file from chunker 40,
+    and both substrates carry it (Lance rows keep the column;
+    ``_lexical_candidates`` and ``_fts5_lexical_search`` copy it out of the
+    FTS row). The former ``(path, tuple(lines))`` key collapsed DISTINCT
+    chunks that share coordinates — 433 docs and 17 code such groups in the
+    live store — so a lexical hit on one chunk was attributed to another and
+    the second chunk never reached ``_agent_candidate_select``.
+
+    Rows with no id (the keyword pass and definition-boost injections, which
+    are line hits rather than indexed chunks) fall back to the 1wngv
+    canonical shape. The two spaces never alias: the tuples differ in their
+    leading tag.
+    """
+    chunk_id = str(candidate.get("id") or "")
+    if chunk_id:
+        return ("id", chunk_id)
+    return (
+        "loc",
+        str(candidate.get("path") or ""),
+        tuple(candidate.get("lines") or []),
+    )
+
+
 def _partition_tests(results: list[dict]) -> list[dict]:
     """Stable index-based partition: move test-file citations to the end.
 
@@ -25952,7 +27237,26 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     rerank-FIRST cross-encoder. ``rerank="local"`` is a deprecated alias for
     the identical path (the old local/RRF pipelines are removed); citations
     are labeled, deduped, full-chunk in both spellings.
+
+    1wpah delivery repair (ledger hygiene): the accounting ledger's ContextVar
+    scope is opened and closed here in a try/finally (``_ledger_scope``), the
+    way ``code_search_response`` already did it. The body's inline reset sat
+    on the single success path, so every early return from it — invalid
+    arguments, a degraded envelope, an unexpected exception — leaked the scope
+    into the caller's context, where later substrate queries would keep
+    recording into a finished call's ledger.
     """
+    with _ledger_scope() as _ledger:
+        return _code_ask_response_body(index, root, question, rerank, epoch_state, _ledger)
+
+
+def _code_ask_response_body(
+    index: "WaveIndex", root: Path, question: str, rerank: str, epoch_state: Any,
+    _ledger: dict[str, Any],
+) -> dict[str, Any]:
+    """``code_ask_response`` inside its accounting-ledger scope. Separated only
+    so the scope is closed in a finally; every early return below is a public
+    ``code_ask`` envelope."""
     t_start = time.monotonic()
 
     question = question.strip()
@@ -25969,6 +27273,9 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     question_type = _classify_question(question)
     gaps: list[str] = []
     citations: list[dict] = []
+    # 1wpah: one accounting ledger (opened by the caller's scope) spans the
+    # whole public call — the fused sources, the assessment expansion, the
+    # degraded pass, and the live keyword pass.
 
     # Index freshness (wave 1seav / 1sbxq): the cheap cached three-state
     # verdict — per-layer last-embedded hashes + stat-fast-path walk +
@@ -26055,6 +27362,19 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         fallback_reason = _REASON_QUERY_FAILED
         gaps.append(f"search infrastructure failure (query_failed): {exc}")
     _log_degradation_transition(root, "code_ask", fallback_reason)
+    # 1wpag (AC-7): a healthy hybrid answer whose FTS half is damaged keeps
+    # its semantic citations and carries the typed lexical-undercoverage
+    # diagnostic plus a gap (O(1) epoch-cached verdict, never a probe on a
+    # warmed read).
+    _lexical_undercoverage: "dict[str, Any] | None" = None
+    if fallback_reason is None and search_mode == _MODE_HYBRID:
+        _lexical_undercoverage = _lexical_undercoverage_diagnostic(root, ("docs", "code"), epoch_state=epoch_state)
+        if _lexical_undercoverage is not None:
+            gaps.append(
+                "lexical undercoverage: the FTS5 half of hybrid retrieval is unavailable "
+                "(derived FTS state failed its integrity probe); citations are semantic-only "
+                "until the next ordinary build heals it, so exact-token recall may be missing"
+            )
 
     def _to_citation(r: dict) -> dict:
         path = r.get("path", "")
@@ -26118,7 +27438,13 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         # infrastructure failure with "Based on indexed sources" — during a
         # store/model outage the honest envelope is the failure itself.)
         try:
-            kw_resp = code_keyword_response(root, question.split()[0] if question.split() else question)
+            _kw_query = question.split()[0] if question.split() else question
+            kw_resp = code_keyword_response(root, _kw_query)
+            # 1wpah: the live keyword pass is the fifth substrate source when it fires.
+            _ledger_record(
+                KEYWORD_SUBSTRATE_SOURCE, _kw_query, KEYWORD_PASS_WINDOW,
+                len((kw_resp.get("data") or {}).get("results") or []) if kw_resp.get("status") == "ok" else 0,
+            )
             if kw_resp.get("status") != "ok":
                 gaps.append("keyword search failed")
             else:
@@ -26239,6 +27565,7 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
     else:
         answer = f"No indexed evidence found for this question. The topic may not be covered in the current index or may use different terminology."
 
+    _retrieval_accounting = _ledger_summary(CODE_ASK_SUBSTRATE_SOURCES, _ledger)
     total_ms = round((time.monotonic() - t_start) * 1000)
     _wf_log(f"[wavefoundry] code_ask timing: total={total_ms}ms vector={vector_ms}ms rerank={rerank_ms}ms")
 
@@ -26264,6 +27591,8 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
         "total_ms": total_ms,
         "vector_ms": vector_ms,
         "rerank_ms": rerank_ms,
+        # 1wpah: per-source substrate accounting and the stated public-call ceiling.
+        "retrieval_accounting": _retrieval_accounting,
     }
     if infrastructure_demoted:
         data["infrastructure_demoted"] = True
@@ -26304,6 +27633,8 @@ def code_ask_response(index: "WaveIndex", root: Path, question: str, rerank: str
                 pass
 
     _ask_diagnostics: list[dict[str, Any]] = []
+    if _lexical_undercoverage is not None:
+        _ask_diagnostics.append(_lexical_undercoverage)
     if _infra_failure:  # release-review fix: attached regardless of citations
         _ask_diagnostics.append(_diagnostic(
             "search_infrastructure_failure",
@@ -29022,6 +30353,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           Note: .tsx and .ts files are both indexed as language="typescript" — tsx/.tsx normalizes to typescript.
           Use "web" (category) if you want TypeScript + JavaScript + HTML + CSS + SCSS together.
 
+        Candidate generation (wave 1wpif): language (single name, extension, or category), kind, and tags
+        are pushed into BOTH candidate sources (the Lance where clause and the FTS5 WHERE) before the
+        bounded top-k, so a selected-language match is never lost past a global window; the language
+        value resolves through a fixed allowlist and never enters a predicate verbatim. max_per_file
+        cannot be pushed down: retrieval continues over bounded candidate windows 30 -> 60 -> 120 -> 240
+        per source (at most 4 queries / 240 examined rows per source per call) until `limit` capped rows
+        exist. Every response carries `retrieval_accounting` (per-source queries and examined rows plus
+        the stated ceiling: 8 queries / 480 rows over code_dense + code_lexical) and, when a per-file cap
+        ran, `fill` with `reason` null (filled), `substrate_exhausted` (fewer eligible rows exist), or
+        `bounded_ceiling_reached` (the ceiling exited first; a diagnostic of the same code is attached,
+        eligible rows may remain). The cross-encoder reranks at most max(4 * limit, 30) candidates,
+        unchanged by refill; the lexical fallback applies the same pushdown and refill contract.
+        When the lexical layer is damaged, the healthy semantic results are still returned and a
+        `lexical_undercoverage` diagnostic names the damaged tables (wave 1wpif, `1wpag`).
+
         Args:
             query: Natural language description of the code behavior or concept to find.
             language: Optional — category name, canonical language name, or raw extension (with or without dot).
@@ -29583,6 +30929,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           GPU machine this uses FP16; on a CPU-only machine it uses the INT8 export. If reranking is
           explicitly disabled or unbuildable, ordering falls back to coverage-floor over raw shared-embedder cosine (uncalibrated)
           (`reranked=false`) — fuse from full context yourself.
+        - retrieval_accounting (wave 1wpif): per-source substrate query counts and examined rows for
+          this call (docs_dense, code_dense, docs_lexical, code_lexical, plus keyword when the live
+          keyword pass fires) with the stated ceiling of 4 queries / 240 examined rows per source:
+          16 / 960 over the four fused sources, 20 / 1200 with the keyword pass. The assessment-class
+          derived docs expansion (one extra docs vector query plus one extra lexical pass) counts inside
+          those per-source budgets. Definition-boost keyword injection, direct-artifact owner rows, and
+          graph lookups are store reads outside the substrate-query definition.
         - rerank_mode: always "agent" — code_ask has one ranking path (agent selection + a rerank-FIRST
           cross-encoder). Use the `reranked` bool to tell whether the cross-encoder ran.
         - reranked: true = the cross-encoder ran and scored/ordered the candidates on one unified
@@ -30821,6 +32174,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         process-local observability; use ``index_build_status.lock.held`` as
         the authority for whether an index build is currently running.
 
+        Derived-state integrity (wave 1wpif): ``state_store.fts`` carries the
+        per-table lexical verdict (liveness, FTS/registry row parity, the
+        recorded payload digest, the last heal attempt) read from the epoch
+        cache, and ``state_store.chunk_index`` carries any ``id_collisions``
+        the publication census recorded. The diagnostics
+        ``fts_integrity_failed`` and ``chunk_id_collisions`` fire before
+        coverage can read as complete.
+
         If ``readiness_overview`` is not ``ready``, call ``index_build`` to rebuild
         the missing or stale layer (e.g. ``index_build(content='docs', mode='update')``).
         If the graph artifact is stale or missing, run ``index_build(content='graph')``
@@ -31822,6 +33183,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - coverage: per-table lexical coverage vs Lance (present when the store reports it).
         - A `chunk_index_undercovered` diagnostic when a searched table is materially behind —
           zero results on an under-covered store mean "store not healed yet", not "absent".
+        - Typed failure (wave 1wpif, `1wpag`): every FTS read goes through one probed-serving
+          chokepoint keyed by the completed epoch. When a requested table's lexical state is
+          damaged (missing or empty table, corrupt shadow row, payload digest mismatch) the
+          response is `status: error` with `failure_reason: query_failed`, `damaged_tables`,
+          and a bounded, repo-relative `detail`, never a healthy zero. Healing is only
+          scheduled through the ordinary build path; a query never repairs the store. Healthy
+          zero-result, store-absent, and FTS-less paths keep their `ok` contracts, and a warmed
+          healthy read executes no COUNT(*) or integrity scan.
         """
         bad = _ensure_no_extra_args("code_lexical", kwargs)
         if bad is not None:

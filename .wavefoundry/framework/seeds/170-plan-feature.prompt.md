@@ -78,15 +78,87 @@ Change document format:
 - `## Product Intent` captures the intended user/product outcome, boundaries, links to relevant `docs/specs/*.md`, and operator confirmation when non-trivial product work is in scope — distinct from pure implementation rationale (`docs/agents/product-owner.md`)
 - `## Requirements` captures numbered behavioral requirements — each requirement must be specific enough that an implementer can act on it unambiguously and a reviewer can verify it without asking for clarification; vague requirements are a blocking gap at `Prepare wave`
 - `## Requirements` should capture operational salience only when it changes engineering behavior. Use "Salience / Impact" for trust-risk, repeated rework, operator-signal, urgency, confusion, or confidence-shift that affects planning, not for routine priority labels.
-- `## Acceptance Criteria` and `## Tasks` must name concrete verification evidence, not only desired outcomes. Translate "fix the bug" into a reproducer plus passing result when feasible, "add validation" into explicit invalid-input checks, and "refactor" into before/after verification expectations. When a reproducer test is not feasible, record the substitute verification path and why. Each AC must use checkbox syntax with a stable identifier: `- [ ] AC-1: <outcome>`, `- [x] AC-2: <outcome>` (checked when actually complete) — this gives each criterion a stable ID for the AC Priority table, review comments, and test evidence, and enables live progress tracking identical to Tasks. Agents must mark AC and task checkboxes incrementally as work is done, not batch-update at closure. AC completion and every task marker are tracking only; an AC `[~]` remains a reviewable contract change and needs its required inline rationale.
+- `## Acceptance Criteria` and `## Tasks` must name concrete verification evidence, not only desired outcomes. Translate "fix the bug" into a reproducer plus passing result when feasible, "add validation" into explicit invalid-input checks, and "refactor" into before/after verification expectations. When a reproducer test is not feasible, record the substitute verification path and why. Each AC must use checkbox syntax with a stable identifier: `- [ ] AC-1: <outcome>`, `- [x] AC-2: <outcome>` (checked when actually complete) — this gives each criterion a stable ID for the AC Priority table, review comments, and test evidence, and enables live progress tracking identical to Tasks. Agents must mark AC and task checkboxes incrementally as work is done, not batch-update at closure. AC completion and every task marker are tracking only; an AC `[~]` remains a reviewable contract change and needs its required inline rationale. An acceptance criterion also has to be *about this change* — see **Acceptance criteria assert what the change controls** below.
 
-- `## Serialization Points` is the machine-readable review target declaration, and it accepts exactly two forms: a bullet whose content is entirely repo-relative paths, each backtick-quoted, for example `` - `src/app/handler.py`, `docs/specs/` ``; or an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries may contain spaces, which is the only way to declare a path like `docs/waves/<id> <slug>/wave.md`. Prose declares NOTHING in either form: a bullet with one stray English word in it is prose, a wrapped bullet is prose in its entirety, and a fenced example declares nothing. That includes bullets inside the explicit block, so a sentence there that merely quotes a path declares no target. Prepare selects automatic lanes only from declared paths, never from Scope or other narrative. Adoption is decided per DOCUMENT, so declaring targets here never suppresses an un-migrated sibling's prose scoring, and leaving them undeclared keeps that document's whole-document coverage rather than emptying it. Path scoring is a FLOOR, not a ceiling: it catches what a change demonstrably touches, and it cannot see risk that has no file to point at. **Any lane may also be requested by judgment through the wave-level `Requested review lanes` field, and the coordinator is expected to use it.** Architecture review in particular is usually a judgment call — an ownership shift, a protocol or state-machine change, or a new cross-component dependency can land entirely inside files whose paths recruit only the code lane. The same holds for security, performance, release and docs-contract risk. Requesting a lane is cheap and always honored: a requested lane is added ahead of path scoring and recorded in the receipt as `requested by operator/project wave input`, and `wave.md` is not part of the review-policy digest, so naming one costs no receipt churn. Never expect narrative to recruit a lane, and never treat an empty automatic roster as evidence that no review is warranted.
+- `## Serialization Points` is the machine-readable review target declaration, and it accepts exactly two forms: a bullet whose content is entirely repo-relative paths, each backtick-quoted, for example `` - `src/app/handler.py`, `docs/specs/` ``; or an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries may contain spaces, which is the only way to declare a path like `docs/waves/<id> <slug>/wave.md`. Prose declares NOTHING in either form: a bullet with one stray English word in it is prose, a wrapped bullet is prose in its entirety, and a fenced example declares nothing. That includes bullets inside the explicit block, so a sentence there that merely quotes a path declares no target. A declared path token has at least one `/`, so a root-level file (a changelog, a readme) is never a token in either form, and a bullet declares all or nothing in either form, so one such token turns the whole bullet into prose and every other path in it goes undeclared with it. In a bullet a `*` disqualifies the token too; inside the explicit block a span is kept only when its last segment carries an extension or the span ends in `/`, so there a `*` span is accepted as a phantom (a `*.json`, a `dir/*/`) that matches no file and recruits a lane only through a trigger token it happens to carry (a directory prefix, an extension, or a trigger basename), a block holding only phantoms leaves the document declared with whatever roster those triggers recruit (empty when none is a trigger), and any other `*` span turns its bullet into prose. Put a root-level file in its own prose bullet, and declare the directory that holds globbed files. Prepare selects automatic lanes only from declared paths, never from Scope or other narrative. Adoption is decided per DOCUMENT, so declaring targets here never suppresses an un-migrated sibling's prose scoring, and leaving them undeclared keeps that document's whole-document coverage rather than emptying it. Path scoring is a FLOOR, not a ceiling: it catches what a change demonstrably touches, and it cannot see risk that has no file to point at. **Any lane may also be requested by judgment through the wave-level `Requested review lanes` field, and the coordinator is expected to use it.** Architecture review in particular is usually a judgment call — an ownership shift, a protocol or state-machine change, or a new cross-component dependency can land entirely inside files whose paths recruit only the code lane. The same holds for security, performance, release and docs-contract risk. Requesting a lane is cheap and always honored: a requested lane is added ahead of path scoring and recorded in the receipt as `requested by operator/project wave input`, and `wave.md` is not part of the review-policy digest, so naming one costs no receipt churn. Never expect narrative to recruit a lane, and never treat an empty automatic roster as evidence that no review is warranted.
 
 - **Prepare-owned plan content is populated before the prepare council runs, not after it.** The `## AC Priority` table carries one row per AC with its priority and rationale, and `## Tasks` is fully enumerated, at plan time. Both are requirement-bearing and therefore stay part of the review-policy digest, so filling them after readiness has been recorded supersedes the receipt and lapses the readiness approvals it just collected. Template placeholder text that reads "populated at Prepare wave" is stale instruction; treat the `ac_priority_unpopulated` advisory at Prepare as a backstop for an author who skipped the plan-time fill, not as the schedule. This covers ENUMERATION and CONTENT only: checkbox STATE (`[ ]` to `[x]` to `[~]`) necessarily changes during implementation.
 
 ### Editing the review-policy canonicalizer is a repository-wide transition
 
 If a change edits `canonical_review_policy_body` or any of its normalizers, say so in the change document and expect a one-time cost that no other edit has. Those functions decide what the review-policy digest SEES, so changing them re-digests every change document in the repository at once, lapsing every readiness approval in every open wave with no document edited. Plan for one re-Prepare per open wave, disclose it, and avoid making the edit while waves are readied but unclosed without saying so.
+
+### Acceptance criteria assert what the change controls
+
+An acceptance criterion states an outcome **this change owns** and that a
+reviewer can verify from **this change's own evidence**. Repository-wide or
+environment state — the whole test suite being green, machine load, another
+wave's artifacts, the state of files this change never touches — is a **gate**
+concern, not an acceptance criterion, and must not be written as one.
+
+The reason is locality. An AC asserting whole-repository state cannot be
+satisfied or falsified by the change it belongs to: it measures the tree at a
+moment in time, so whether it can be marked depends on timing and on work owned
+by other people. In one observed wave, three sibling change documents carried
+the same clause shape, in three different wordings, and got opposite outcomes — one was marked complete because
+the suite happened to be green when that lane finished, and two could not be
+marked at all because a *concurrent* wave's uncommitted document tripped a
+repository-wide test, while the wave's own suites were entirely green. That also
+creates a standing temptation at close time to reword the criterion until it
+passes, which is the gate-shaping the house rules forbid.
+
+**Do not write:**
+
+```markdown
+- [ ] AC-6: All acceptance criteria are met and the full framework test suite passes.
+```
+
+**Write instead:**
+
+```markdown
+- [ ] AC-6: The change's own suites and every test it adds pass; the documents this change authors or edits validate; and no failure elsewhere is attributable to this change.
+```
+
+(Written on one line deliberately. The lint rule below reads a whole bullet,
+continuations included, but a one-line criterion is easier to scan and to diff.)
+
+The replacement keeps the intent — nothing is quietly broken — while staying
+inside what the change can be held to. Note that it says *the documents this
+change authors or edits* validate, not "documentation validation passes": a full
+validation pass scans every document in the repository and can be red because
+somebody else's in-flight document is malformed, which is the same non-local
+failure in a new costume.
+
+Repository-state requirements have not disappeared; they belong to a **gate**.
+Which gate depends on the repository: a framework SOURCE repository verifies a
+framework test receipt at close, while a repository that consumes the packaged
+framework has no framework suite and therefore no such gate — there, the
+enforcement is the project's own CI or review lanes. So do not simply assume a
+close gate will catch it. If a change genuinely needs a repository-wide
+condition enforced, say so in `## Requirements` and **name the gate that will
+enforce it in this repository**, rather than encoding it as a criterion of the
+change.
+
+This rule is also mechanically enforced: `docs-lint` runs a sensor on change
+documents in a readied, active, or implementing wave, or in any wave whose
+record carries an explicit `Activated at:` line (a paused wave that was once
+activated stays in scope). The sensor is registered `advisory` in the docs-lint
+sensor polarity registry: an acceptance criterion asserting whole-suite or
+whole-tree health produces a `WARNING:` line that names the offending phrase and
+supplies the replacement sentence, and validation still passes; a flip to
+`blocking` is a separate recorded change made on field data. The sensor is
+deliberately asymmetric: it recognises a finite list of repository-scope words
+between the quantifier and the noun, so an unlisted repository-wide adjective
+passes silently and is left to review, while a compliant change-local criterion
+is never blocked; for a rule meant to block one day the silent miss is the
+cheaper failure.
+
+**New docs-lint sensors ship advisory.** A new sensor is registered `advisory`
+in the polarity registry with the wave that introduced it, so its findings are
+`WARNING:` lines that never fail validation. It flips to `blocking` only in a
+later recorded change that cites the field data justifying the flip, and the
+release checklist lists every entry still advisory so the flip is decided, not
+forgotten.
 
 ### Citations in change docs anchor by symbol
 

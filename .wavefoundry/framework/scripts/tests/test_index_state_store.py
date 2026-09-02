@@ -19,6 +19,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr
+from unittest import mock
 from pathlib import Path
 from unittest import mock
 
@@ -115,6 +116,42 @@ class StoreSubstrateTests(_TempRepoCase):
                              self.iss.STATE_STORE_SCHEMA_VERSION)
         finally:
             store2.close()
+
+    def test_locked_open_is_not_treated_as_corruption(self):
+        """Wave 1wpif, ARCH-DEL-2: a writer holding the lock past the open
+        timeout is a wait condition; the store file must survive, the error
+        must propagate, and the durable store log must record the deferral."""
+        holder = self.iss.IndexStateStore(self.index_dir)
+        path = self.iss.state_store_path(self.index_dir)
+        inode_before = path.stat().st_ino
+        holder._conn.execute("BEGIN IMMEDIATE")
+        holder._conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('hold', '1')"
+        )
+        stderr = io.StringIO()
+        try:
+            with mock.patch.object(self.iss, "STORE_OPEN_TIMEOUT_SECONDS", 0.3):
+                with redirect_stderr(stderr):
+                    with self.assertRaises(sqlite3.OperationalError):
+                        self.iss.IndexStateStore(self.index_dir)
+        finally:
+            holder._conn.execute("ROLLBACK")
+            holder.close()
+        self.assertEqual(inode_before, path.stat().st_ino,
+                         "a locked open must never delete the store file")
+        self.assertNotIn("resetting store", stderr.getvalue())
+        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        self.assertIn("open deferred, store preserved", log_text)
+        # A genuinely corrupt file still resets, and the reset is now durable-logged too.
+        path.write_bytes(b"this is not a sqlite database" * 64)
+        with redirect_stderr(io.StringIO()):
+            recovered = self.iss.IndexStateStore(self.index_dir)
+        try:
+            self.assertNotEqual(inode_before, path.stat().st_ino)
+            self.assertIn("store unreadable or corrupt",
+                          self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8"))
+        finally:
+            recovered.close()
 
     def test_store_absence_is_not_an_error_for_readers(self):
         # No store built: every read primitive degrades to None/empty (AC-2).
@@ -751,6 +788,155 @@ class BuildEpochTests(_TempRepoCase):
         self.assertIn("_full_durable_connection(", src[begin:src.index("def finalize_build_epoch(")])
         fin = src.index("def finalize_build_epoch(")
         self.assertIn("_full_durable_connection(", src[fin:src.index("def read_build_state(")])
+
+
+class ChunkIdCollisionCensusTests(_TempRepoCase):
+    """1wngv (wave 1wpif) AC-1/AC-5/AC-9: same-ID/distinct-content census.
+
+    The detector consumes the SAME materialized rows the derived rebuild
+    already consumes (the store's `chunk_sync_raw`/`unique` counters and the
+    reconcile-time row fetch are the existing O(total chunks) source); the
+    synthetic growing corpus proves SCALING only, never defines the detector.
+    AC-5's collision is injected at the store-row layer because the fixed
+    chunker can no longer emit one.
+    """
+
+    def _rows(self):
+        # Injected same-ID/distinct-content pair plus a clean row and a
+        # same-ID/SAME-content churn duplicate (NOT a collision).
+        return [
+            {"id": "a.py#x", "path": "a.py", "kind": "code", "language": "python",
+             "lines": [1, 3], "text": "alpha", "chunk_hash": "h1"},
+            {"id": "a.py#x", "path": "a.py", "kind": "code", "language": "python",
+             "lines": [5, 7], "text": "beta", "chunk_hash": "h2"},
+            {"id": "a.py#y", "path": "a.py", "kind": "code", "language": "python",
+             "lines": [9, 11], "text": "gamma", "chunk_hash": "h3"},
+            {"id": "a.py#y", "path": "a.py", "kind": "code", "language": "python",
+             "lines": [9, 11], "text": "gamma", "chunk_hash": "h3"},
+        ]
+
+    def test_census_detects_distinct_content_and_skips_churn_duplicates(self):
+        census = self.iss.chunk_id_collision_census(self._rows())
+        self.assertEqual(census["rows_visited"], 4)
+        self.assertEqual(census["collision_count"], 1)
+        self.assertEqual(census["collision_ids"], ["a.py#x"])
+
+    def test_census_row_visits_scale_linearly(self):
+        # AC-9 countable: doubling the corpus doubles row visits exactly
+        # (one visit per row; keyed state, no nested passes).
+        def corpus(n):
+            return [{"id": f"f{i % 50}.py#s{i}", "chunk_hash": f"h{i}"} for i in range(n)]
+        small = self.iss.chunk_id_collision_census(corpus(400))
+        large = self.iss.chunk_id_collision_census(corpus(800))
+        self.assertEqual(small["rows_visited"], 400)
+        self.assertEqual(large["rows_visited"], 800)
+
+    def test_hashless_rows_cannot_prove_distinct_content(self):
+        rows = [{"id": "a#x", "chunk_hash": ""}, {"id": "a#x", "chunk_hash": "h1"}]
+        self.assertEqual(self.iss.chunk_id_collision_census(rows)["collision_count"], 0)
+
+    def test_rebuild_records_census_and_reconcile_warns(self):
+        # AC-5: injected store-row collision → recorded meta, reconcile
+        # result carries it, and an explicit warning reaches stderr.
+        rows = self._rows()
+        import contextlib
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), contextlib.redirect_stdout(out):
+            result = self.iss.reconcile_chunk_index(
+                self.index_dir, "code", {r["id"] for r in rows},
+                lambda: list(rows), raw_rows=len(rows),
+            )
+        self.assertTrue(result["reconciled"])
+        self.assertEqual(result.get("id_collisions"), 1)
+        self.assertEqual(result.get("id_collision_sample"), ["a.py#x"])
+        self.assertIn("chunk-id collision census", err.getvalue())
+        count, sample = self.iss.chunk_id_collision_counts(self.index_dir, "code")
+        self.assertEqual((count, sample), (1, ["a.py#x"]))
+        # The in-sync fast path re-reports the persisted census: an in-sync
+        # id SET cannot clear a collision the id set is blind to.
+        with redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            second = self.iss.reconcile_chunk_index(
+                self.index_dir, "code", {r["id"] for r in rows},
+                lambda: list(rows), raw_rows=len(rows),
+            )
+        self.assertTrue(second["in_sync"])
+        self.assertEqual(second.get("id_collisions"), 1)
+
+    def test_clean_rebuild_records_zero_census(self):
+        rows = [r for r in self._rows() if r["chunk_hash"] == "h3"][:1]
+        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        count, sample = self.iss.chunk_id_collision_counts(self.index_dir, "code")
+        self.assertEqual((count, sample), (0, []))
+
+    def test_census_consumes_the_materialized_rebuild_rows(self):
+        # AC-9 countable: the detector runs over exactly the rows the rebuild
+        # materialized (one visit each) — never a second repository pass —
+        # and touching a chunker or embedder module would blow up loudly.
+        rows = self._rows()
+
+        class _Sentinel:
+            def __getattr__(self, name):
+                raise AssertionError(f"census must not touch {name!r}")
+
+        with mock.patch.object(
+            self.iss, "chunk_id_collision_census",
+            wraps=self.iss.chunk_id_collision_census,
+        ) as spy:
+            with mock.patch.dict(
+                sys.modules,
+                {"chunker": _Sentinel(), "accel_embedder": _Sentinel()},
+            ):
+                self.iss.rebuild_chunk_index(self.index_dir, "code", list(rows))
+        spy.assert_called_once()
+        seen = spy.call_args[0][0]
+        self.assertEqual(seen, rows)
+        self.assertEqual(spy.call_args[0].__len__(), 1)
+
+    def test_census_overhead_within_advisory_bound(self):
+        """AC-9 advisory wall-clock bound. Protocol (declared BEFORE
+        measurement): paired same-process runs of ``rebuild_chunk_index``
+        over identical synthetic rows into fresh temp stores, census active
+        versus census patched to a constant no-op, interleaved, three
+        measured repetitions each, MEDIAN compared; bound 10%. The countable
+        assertions above are the primary oracle — this measurement is
+        advisory evidence and the generous bound reflects that."""
+        import statistics
+        rows = [
+            {"id": f"src/f{i % 100}.py::sym{i}", "path": f"src/f{i % 100}.py",
+             "kind": "code", "language": "python", "lines": [i, i + 2],
+             "text": f"def sym{i}(): return {i}", "chunk_hash": f"h{i}"}
+            for i in range(2000)
+        ]
+        noop = {"rows_visited": 0, "collision_count": 0, "collision_ids": []}
+
+        def run_once(patched: bool) -> float:
+            with tempfile.TemporaryDirectory() as td:
+                target = Path(td)
+                if patched:
+                    ctx = mock.patch.object(
+                        self.iss, "chunk_id_collision_census", return_value=noop
+                    )
+                else:
+                    ctx = mock.patch.object(
+                        self.iss, "chunk_id_collision_census",
+                        wraps=self.iss.chunk_id_collision_census,
+                    )
+                with ctx:
+                    t0 = time.perf_counter()
+                    self.iss.rebuild_chunk_index(target, "code", list(rows))
+                    return time.perf_counter() - t0
+
+        run_once(True); run_once(False)  # warm both paths
+        with_census, without_census = [], []
+        for _ in range(3):
+            without_census.append(run_once(True))
+            with_census.append(run_once(False))
+        ratio = statistics.median(with_census) / statistics.median(without_census)
+        self.assertLessEqual(
+            ratio, 1.10,
+            f"census overhead {ratio:.3f} exceeds the 10% advisory bound "
+            f"(with={with_census}, without={without_census})",
+        )
 
 
 if __name__ == "__main__":

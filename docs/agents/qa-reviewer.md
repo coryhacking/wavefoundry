@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-08-12
+Last verified: 2026-09-02
 
 ## Operating Identity
 
@@ -76,6 +76,7 @@ A good QA review output contains:
 - AC-by-AC evidence summary
 - uncovered risks or deferred checks
 - exact missing tests or missing manual steps
+- a mutation table for every mechanism the wave landed in your scope (mechanism, mutation, failing test or NOT CAUGHT), the prose projection of your evidence records' `known_bad_detection_method: focused-mutation` fields, under the packet's `sweep_rule` and `time_budget`; report at the budget and list what was not run (seed 209, wave `1wuju`)
 
 ## Assumption Tracking
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-29
+Last verified: 2026-09-02
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -302,8 +302,15 @@ Version differences trigger convergence, but they do not all require new embeddi
 - A `WALKER_VERSION` mismatch (currently `"15"`) forces a full rebuild because the eligible file
   set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
   12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
-- A `CHUNKER_VERSION` mismatch (currently `"39"`) selects `rechunk_all`: every eligible file is
+- A `CHUNKER_VERSION` mismatch (currently `"41"`) selects `rechunk_all`: every eligible file is
   reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
+  Versions `40` and `41` (wave `1wpif`, `1wngv`) are such boundaries: `40` changed flat-emitter
+  collision-group ids and spliced-prose window ids/coordinates; `41` corrects two stored
+  coordinate classes — table row-group parts now carry the lines of their own rows instead of
+  the table head's, and rst/adoc preamble sections number their body from its true first source
+  line instead of 1. Consumer indexes need the one-time `rechunk_all` pass before the identity
+  and citation repairs take effect; non-colliding ids are preserved and unchanged chunk text
+  keeps its vectors.
 
 Both full rebuild and `rechunk_all` bypass ordinary per-file change detection; only the former
 necessarily recomputes every vector.
@@ -422,6 +429,38 @@ Markdown files are split at heading boundaries, not at a fixed character count.
    further, subject to a length threshold. This prevents very long sections from producing
    oversized chunks.
 
+   Oversized-prose coordinates are splice-aware and absolute (wave `1wpif`, `1wngv`):
+   fenced code is character-spliced out of a section before line-windowing, so windows used
+   to renumber from 1 inside the slice and every window after a fence miscited. The markdown,
+   rst, and adoc section emitters now map each surviving prose line back to its one-based
+   absolute source line (`_spliced_line_numbers`), window ids/ranges use those numbers, and
+   each doc-family chunk carries a process-local `Chunk.line_map` (None entries mark
+   generated breadcrumb/separator lines) that the universal oversize guard
+   (`split_large_chunks`/`_line_wrap_chunk`, including the pipe-table decomposition)
+   consumes.
+
+   **The coordinate contract, precisely** (chunker `41`, delivery repair): a chunk's `lines`
+   is a contiguous **one-based absolute** range that **contains** its source-derived payload.
+   Exactness is scoped by chunk class:
+
+   - A **whole section** keeps its section span — the heading line through the section's last
+     line — so the range legitimately covers content the chunk text does not repeat.
+   - An **oversized-section window** and a **table row-group part** carry the **minimal**
+     contiguous span containing their own payload. A window straddling an excised block
+     (fence, rst code directive, adoc listing) carries the minimal span containing its
+     payload, which necessarily spans the excised lines a single contiguous range cannot
+     exclude.
+   - **Generated context is never counted as source text**: the injected breadcrumb, the
+     splice artifact left where a fence was removed, and the prelude plus table header that a
+     row-group part after the first repeats for column context all map to `None` in the line
+     map, so they never anchor a range. A row group's range is therefore exactly its own rows
+     (plus the postlude on the final part).
+
+   `ChunkCoordinateContractTests` enforces this as a census over every markdown, rst, and adoc
+   file in the repository: each prose chunk is classified exact / minimal-superset / wrong,
+   and wrong (a payload line outside the range, or a range opening on a non-payload line) must
+   be zero.
+
 4. **Code block extraction** — fenced code blocks inside sections are pulled out as
    separate `kind="doc-code"` chunks that route to the DOCS table (wave `1wik9`, `1whup`;
    previously `kind="code"`, dropped from both tables by the per-table eligibility gate).
@@ -524,7 +563,15 @@ change).
 1. **Structured** (`_ts_generic_structured_chunker`) — classes, methods, imports, namespaces.
    Used for Swift, ObjC, Scala, Ruby, PHP, PowerShell, and the original JS/TS/Go/Rust/Java/C/C#/Kotlin/Bash set.
 2. **Flat config** (`_ts_flat_emit_chunker`) — one chunk per top-level block/attribute/pair.
-   Used for HCL (`.tf`, `.hcl`), YAML, TOML, JSON, CSS, SCSS, Makefile rules.
+   Used for HCL (`.tf`, `.hcl`), YAML, TOML, JSON, CSS, SCSS, Makefile rules. Ids ride a
+   per-file collision guard (wave `1wpif`, `1wngv`): a non-colliding base and the first
+   occurrence of a collision group keep the legacy bare `{path}#{slug}` id; the k-th (k>=2)
+   same-slug repeat (css selector reuse, `[[...]]` toml table arrays, duplicate json keys)
+   gets the deterministic line-anchored base `{slug}-L{start}`, with the `_dedupe_id_base`
+   `~k` tie-break when repeats share a line. Uppercase `L` cannot be forged because
+   `_slugify` lowercases every emitted slug. Before the guard, repeated selectors emitted
+   identical ids and the id-keyed delta planner plus the sqlite chunk registry kept only the
+   last one (live census: 150 same-ID/distinct-content groups, 563 dedupe losses).
 3. **Markup** (`_ts_markup_chunker`) — shallow `element` nodes.
    Used for HTML and XML (fallback: landmark-regex `chunk_html` / `chunk_xml`).
 
@@ -734,16 +781,24 @@ finalize, after every flush has been appended.
 
 ### Index creation
 
-After all rows have been written, two secondary indexes are created if the total row count
+After all rows have been written, the vector index is created if the total row count
 reaches `LANCEDB_INDEX_THRESHOLD` (1000 rows):
 
 - **HNSW** — approximate nearest-neighbour vector index, used for semantic search queries.
-- **FTS (Tantivy/BM25)** — full-text search index, used for keyword/candidate-recall
-  queries. The index is built without positional data (`with_position=False`), so
-  server-side query shaping must avoid phrase queries that require positions.
 
-Below the threshold, queries fall back to a brute-force scan, which is fast enough at small
-scale and avoids the overhead of index construction on near-empty tables.
+The lexical index is **not** a Lance secondary index. Since wave 1rsh9 the only lexical
+engine is the SQLite FTS5 layer inside `index-state.sqlite` (`fts_docs` / `fts_code`, one
+contentful FTS5 table per Lance content table, keyed by chunk id): the chunk-delta
+transaction keeps it in sync after every Lance write, and the end-of-build reconcile
+rebuilds it from Lance when it diverges. Wave 1wpif (`1wpag`) made that reconcile honest
+about FTS-only damage: registry-vs-Lance id parity alone no longer takes the in-sync early
+return; the FTS table must also pass liveness (a real MATCH), row and shadow-table parity,
+and the keyed payload digest compare (see `search-architecture.md`, Hybrid Lexical Layer).
+The former Lance/Tantivy FTS index was retired with wave 1rsh9; its leftover `_indices/`
+versions are dropped by the reclaim path at upgrade.
+
+Below the threshold, vector queries fall back to a brute-force scan, which is fast enough at
+small scale and avoids the overhead of index construction on near-empty tables.
 
 ### Compaction and reclaim (bloat recovery)
 
@@ -800,7 +855,7 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"39"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
+| `CHUNKER_VERSION`         | `"41"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
 | `WALKER_VERSION`          | `"15"` | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |

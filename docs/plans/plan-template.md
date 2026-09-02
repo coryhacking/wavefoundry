@@ -4,7 +4,7 @@ Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** 
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-08-08
+Last verified: 2026-09-02
 Wave: [wave-id or TBD]
 
 ## Rationale
@@ -60,6 +60,8 @@ Declare a target with a bullet whose content is entirely repo-relative paths, fo
 ```
 
 Prepare uses declared paths—not Scope, Rationale, or other narrative—to select automatic review lanes, and prose declares nothing in either form: a bullet containing one stray English word is prose (including inside the block, so a sentence there that merely quotes a path declares no target), a wrapped bullet is prose in its entirety, and a fenced example declares nothing. Adoption is per document, so declaring targets here never suppresses a sibling change doc's scoring, and declaring none keeps this document's whole-document coverage rather than emptying it. Path scoring is a floor, not a ceiling: ANY lane may also be requested by judgment through the wave's `Requested review lanes` field, and the coordinator is expected to use it. Architecture review especially is usually a judgment call, since an ownership shift or a protocol change can live entirely in files whose paths recruit only the code lane. A requested lane is always honored and costs no receipt churn.
+
+A declared path token has at least one `/`, so a root-level file (a changelog, a readme) is never a token in either form, and a bullet declares all or nothing in either form, so one such token turns the whole bullet into prose and every other path in it goes undeclared with it. In a bullet a `*` disqualifies the token too; inside the explicit block a span is kept only when its last segment carries an extension or the span ends in `/`, so there a `*` span is accepted as a phantom (a `*.json`, a `dir/*/`) that matches no file and recruits a lane only through a trigger token it happens to carry (a directory prefix, an extension, or a trigger basename), a block holding only phantoms leaves the document declared with whatever roster those triggers recruit (empty when none is a trigger), and any other `*` span turns its bullet into prose. Put a root-level file in its own prose bullet, and declare the directory that holds globbed files.
 
 ## Affected Architecture Docs
 

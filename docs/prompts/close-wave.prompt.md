@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-02
 
 Shortcut: **`Close wave`**
 
@@ -27,6 +27,8 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 
 **Closure is blocked until all ten items are explicitly recorded in the wave record.**
 
+**Automatic gate — framework test receipt** (wave `1wur7`, framework SOURCE repositories only, nothing to record by hand): `wf_close_wave` verifies the existing `.wavefoundry/framework/test-cache.json` receipt — `result == "ok"` with an `inputs_hash` matching the current framework tree — and returns a blocking `framework_test_receipt_not_proven` diagnostic when it is missing, red, stale, or unreadable. Read the `framework_test_receipt` field on the response; do not invent a checklist line for it. The gate runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`, and run it LAST, because any edit under `.wavefoundry/framework/` (a seed edit made during closure included) invalidates the receipt. Two scope facts belong together. The receipt's `inputs_hash` covers `.wavefoundry/framework/` only, so only its STALENESS is framework-scoped. But `run_tests.py` writes a receipt only when the WHOLE suite is green, so a failure triggered by content under `docs/` prevents a NEW receipt from being written; when the framework tree also changed the standing receipt is stale and close is blocked, while in a documentation-only wave a current green receipt persists and close is not blocked despite a red suite. The gate is therefore not a whole-repository *guarantee* (a green receipt attests the framework code, not the tree), and it is not a whole-repository *exemption* either. Where the runner is absent — any repository consuming the packaged framework, since the distribution excludes it — the check is a documented no-op that neither blocks nor claims proof, and this item does not apply.
+
 **Close-handoff surfacing of `[~]` items:** the close summary in `## Wave Summary` must list every `[~]` AC across the wave's admitted changes, grouped by change, with the inline status note. Future-readers see them as one discoverable list of intentional deferrals rather than scattered across individual change docs.
 
 ## What Goes in Wave Summary
@@ -39,6 +41,8 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 
 ## Wavefoundry-Specific Closure Checks
 
+- Do not finalize with an unreconciled `tree_moved_under_review` finding: a lane that saw the tree change under it holds evidence for an earlier tree (seed 190).
+- Advisory docs-lint findings (`WARNING:` lines from sensors registered `advisory` in `wave_lint_lib/constants.py`, surfaced by `wf_close_wave` as `docs_lint_warning` diagnostics with `advisory: true`) are review notes at close, never a closure blocker; a flip to blocking is a recorded change decided at the release checklist (seed 190).
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`

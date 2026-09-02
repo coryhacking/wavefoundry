@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-13
+Last verified: 2026-09-02
 
 Shortcut: **`Implement wave`**
 
@@ -37,6 +37,8 @@ When `wave_review.enabled` is true, implementation starts only after `wave-counc
 - Stage gate applies: must be inside a clean Prepare wave pass.
 - Follow `docs/repo-profile.json` `code_pattern` when populated; surface significant pattern problems before deviating.
 - After changes, verify they actually address the stated problem before declaring done.
+- **Landing rule for guards** (seed 180/209, wave `1wuju`): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened; record the mutant and the failing test in the change doc's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.
+- **External blockers** (seed 209): when a gate is blocked by an artifact this wave does not own, present the exact fix and a yes/no decision to the operator in the same message that reports the block.
 - Required review lanes from readiness participate during **Review wave** after implementation evidence is complete. During implementation, request a named checkpoint only when a high-risk boundary needs independent judgment before work can safely continue.
 - Keep change-doc bookkeeping current: when a task or AC is completed during the run, mark it complete in that same implementation pass. Do not batch-update completion marks at review or closure time.
 - **MCP-first code exploration:** Any code investigation at any lifecycle stage (grounding the plan before the first edit, verifying review claims against the tree, and repair/reverification work inside review cycles alike) runs on MCP evidence first: `code_search`, `code_definition`, `code_references`, `code_keyword`, and `code_outline` before `grep`/`rg` or broad file reads. The run contract's Retrieval Rules (`seed-020`) carry this scope for every lane and briefed subagent. Shell search is fallback only when MCP is not attached, the relevant tool is absent, index health is unreliable, or MCP results are genuinely insufficient. Record a `Gapfill:` note in Progress Log when fallback was required. This posture is measured: `wf_implement_wave`'s activation response carries the directive as a `retrieval_posture` field, and a `retrieval_posture_gap` advisory fires at implementation review and close dry-run when implement-stage retrieval telemetry is near zero against a non-trivial code diff — the recorded `Gapfill:` note clears it.

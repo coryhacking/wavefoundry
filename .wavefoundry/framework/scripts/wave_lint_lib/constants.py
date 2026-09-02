@@ -323,3 +323,16 @@ def allowed_values_suffix(values, *, origin=None):
     if origin is None:
         return f"; allowed: {listed}"
     return f"; allowed from `{origin}`: {listed}"
+
+
+# Wave 1wuju (1wujs): docs-lint sensor polarity registry. A NEW sensor ships
+# `advisory` (its findings travel the existing `WARNING:` channel and never fail
+# lint) and flips to `blocking` in a later recorded change once field data
+# exists; the release checklist lists every entry still advisory so the flip is
+# decided, not forgotten. `introduced_wave` is the durable key because the
+# shipping release is unknown at authoring. Validators that predate the registry
+# keep their blocking polarity and are not registered.
+SENSOR_POLARITIES = ("advisory", "blocking")
+SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
+    "ac_asserts_repository_state": {"polarity": "advisory", "introduced_wave": "1wur7"},
+}

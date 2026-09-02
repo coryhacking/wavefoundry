@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-09-02
 
 The canonical schema for the **Wavefoundry install log**, the markdown-native state machine that gates Wavefoundry's two-phase install.
 
@@ -79,7 +79,7 @@ On each call, the tool:
 
 1. **Resolves and parses the live log before lint.** A missing log returns `missing_log`; an unreadable or unparseable log returns `unparseable_log`. These two statuses take precedence over docs lint and never carry `pending_lint`.
 2. **Runs `docs-lint` and classifies its findings.** Missing-path findings that are expected while at least one Phase 2 seed row is pending are separated into `pending_lint`; all other findings are blocking. Blocking findings return `lint_errors`, whose `errors` list contains only the blocking findings. Expected absences become blocking at the final gate, when no seed row remains pending.
-3. **Validates artifacts for each `[x]` row.** For every checked row, the tool parses the `artifact: <path>` field and verifies the file/directory exists. Missing artifact → `{status: "checked_but_missing", row, expected, next_action, pending_lint}`.
+3. **Validates artifacts for each `[x]` row.** For every checked row, the tool parses the `artifact: <path>` field and verifies the file/directory exists. Missing artifact → `{status: "checked_but_missing", phase, row, expected_artifact, all_missing, next_action, pending_lint}`; `expected_artifact` and each `all_missing[].expected_artifact` are paths relative to the repository root (an artifact that resolves outside the repository is rendered with leading `..` segments).
 4. **Returns install state.** Skipping `[~]` rows, a no-argument call returns the first `[ ]` row as `{status: "next_step", row, seed, instructions, pending_lint}`. If a requested phase has no pending row, it returns `{status: "phase_complete", phase, pending_lint}`. If no row remains anywhere, it returns `{status: "complete", pending_lint}`.
 
 The complete status/field matrix is:

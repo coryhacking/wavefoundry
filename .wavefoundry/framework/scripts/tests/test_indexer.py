@@ -2937,6 +2937,57 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in rows}, expected)
         self.assertEqual(stats["written"], 3)
 
+    def test_unchanged_chunk_set_is_a_no_op_with_zero_embeds(self):
+        # 1wngv AC-4/AC-9 (wave 1wpif): an incremental pass over an unchanged
+        # chunk set is provably equivalent to the full build state — zero
+        # deletes, zero adds, zero embedding calls; every chunk is accounted
+        # unchanged. Unaffected unique chunks therefore retain stable ids.
+        chunks = [self._chunk(f"c{i}", f"text {i}") for i in range(4)]
+        existing = []
+        for chunk in chunks:
+            row = dict(chunk)
+            row["chunk_hash"] = self.mod._chunk_hash(chunk)
+            row["vector"] = [0.0, 0.0, 0.0, 0.0]
+            existing.append(row)
+        calls: list[list[str]] = []
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=existing,
+            new_chunks=[dict(c) for c in chunks],
+            embedder=_make_embedder_mock(calls=calls),
+            label="project",
+        )
+        self.assertFalse(fallback_required)
+        self.assertEqual(delete_ids, set())
+        self.assertEqual(rows_to_add, [])
+        self.assertEqual(stats, {"written": 0, "removed": 0, "unchanged": 4})
+        self.assertEqual(calls, [], "no embedding call may run for an unchanged set")
+
+    def test_single_changed_chunk_embeds_exactly_once(self):
+        # 1wngv AC-4/AC-9: changing ONE chunk re-embeds exactly that chunk;
+        # the other ids stay untouched (no delete, no re-add, no embed).
+        chunks = [self._chunk(f"c{i}", f"text {i}") for i in range(4)]
+        existing = []
+        for chunk in chunks:
+            row = dict(chunk)
+            row["chunk_hash"] = self.mod._chunk_hash(chunk)
+            row["vector"] = [0.0, 0.0, 0.0, 0.0]
+            existing.append(row)
+        changed = [dict(c) for c in chunks]
+        changed[2]["text"] = "text 2 EDITED"
+        calls: list[list[str]] = []
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+            existing_rows=existing,
+            new_chunks=changed,
+            embedder=_make_embedder_mock(calls=calls),
+            label="project",
+        )
+        self.assertFalse(fallback_required)
+        self.assertEqual(delete_ids, {"c2"})
+        self.assertEqual([row["id"] for row in rows_to_add], ["c2"])
+        self.assertEqual(stats, {"written": 1, "removed": 1, "unchanged": 3})
+        self.assertEqual(sum(len(batch) for batch in calls), 1,
+                         "exactly one chunk may be embedded")
+
 
 # ---------------------------------------------------------------------------
 # Wave 1p3b9 (1p399): drift detection between file_meta and Lance
