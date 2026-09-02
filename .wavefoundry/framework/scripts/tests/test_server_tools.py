@@ -6598,10 +6598,13 @@ class BackgroundBuildReapRegistryTests(unittest.TestCase):
     linger as zombies whose stale PID makes the index-build lock read as live."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
-        self._saved = set(server_impl._BACKGROUND_BUILD_PIDS)
-        server_impl._BACKGROUND_BUILD_PIDS.clear()
+        # Wave 1wpif cycle-3 (CODE-RV2-2): the last setUp-level bare import
+        # in the tests tree. It resolved only because an earlier test in the
+        # module had already put SCRIPTS_ROOT on sys.path, so this class
+        # failed at import when run in isolation.
+        self.srv = load_server()
+        self._saved = set(self.srv._BACKGROUND_BUILD_PIDS)
+        self.srv._BACKGROUND_BUILD_PIDS.clear()
 
     def tearDown(self):
         self.srv._BACKGROUND_BUILD_PIDS.clear()

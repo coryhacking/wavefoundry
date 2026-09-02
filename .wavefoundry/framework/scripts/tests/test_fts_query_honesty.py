@@ -650,6 +650,131 @@ class ProbedServingTests(unittest.TestCase):
         self.assertEqual(serve["failure_reason"], "query_failed")
         self.assertFalse(serve["available"])
 
+    def test_failure_detail_strips_every_root_spelling_including_repr_doubled(self):
+        """Wave 1wpif delivery review, SEC-RV1-1: a Windows OSError renders its
+        filename through repr, which DOUBLES every backslash. The sanitizer
+        matched only the single-separator spellings, so the doubled form
+        survived the later backslash-to-slash normalization and left an
+        absolute root in a public error string, regressing the 1uu9z
+        no-path-leak contract. Pinned at string level so it holds on any
+        platform, the way `_strip_root_forms` (wave 1wybs) pins the same class.
+        """
+        win_root = Path(r"C:\Users\op\repo")
+        cases = {
+            "posix": f"[Errno 2] No such file: '{self.root}/.wavefoundry/index/s.sqlite'",
+            "win_single": r"[Errno 2] No such file: 'C:\Users\op\repo\.wavefoundry\index\s.sqlite'",
+            "win_repr_doubled":
+                "[Errno 2] No such file: 'C:\\\\Users\\\\op\\\\repo\\\\.wavefoundry\\\\index\\\\s.sqlite'",
+            "win_forward_slash":
+                "[Errno 2] No such file: 'C:/Users/op/repo/.wavefoundry/index/s.sqlite'",
+            "win_mixed":
+                "[Errno 2] No such file: 'C:/Users/op\\repo\\.wavefoundry\\index\\s.sqlite'",
+            "win_lowercased":
+                r"[Errno 2] No such file: 'c:\users\op\repo\.wavefoundry\index\s.sqlite'",
+        }
+        for name, text in cases.items():
+            root = self.root if name == "posix" else win_root
+            detail = self.srv._bounded_failure_detail(root, text)
+            # The oracle must be separator-blind. A first version of this
+            # test asserted the literal "Users/op/repo" and PASSED against a
+            # mutant with the repair reverted, because the leak comes out as
+            # "C://Users//op//repo//..." -- doubled separators the literal
+            # never matched. Collapse every separator run on both sides so
+            # the assertion sees the leaked root in any spelling.
+            flat_root = re.sub(r"[\\/]+", "/", str(root)).rstrip("/").casefold()
+            flat_detail = re.sub(r"[\\/]+", "/", detail).casefold()
+            with self.subTest(spelling=name):
+                self.assertNotIn(flat_root, flat_detail, detail)
+                self.assertIn("index", detail, detail)
+                self.assertLessEqual(len(detail), self.srv._FTS_DETAIL_CAP)
+
+    def test_failure_detail_does_not_mangle_a_sibling_of_the_root(self):
+        """Wave 1wpif cycle-4, SEC-RV3-1: making the root matcher separator-
+        and case-insensitive introduced an OVER-match. With no boundary after
+        the last segment, a root that is a string prefix of a sibling
+        directory matched inside it, so on a machine where this framework sits
+        beside a target repository `.../wavefoundry-target/x` came out as
+        `-target/x` -- a path that exists nowhere and reads as if it were
+        inside this repository. Over-matching is as much a defect as
+        under-matching, and no assertion caught it, because asserting only
+        that the root is ABSENT is satisfied by a mangled result.
+        """
+        root = Path("/Users/op/Developer/wavefoundry")
+        siblings = {
+            "suffixed": "[Errno 2] No such file: '/Users/op/Developer/wavefoundry-target/.wavefoundry/index/s.sqlite'",
+            "appended": "database is locked at /Users/op/Developer/wavefoundryX/docs/plan.md",
+        }
+        for name, text in siblings.items():
+            detail = self.srv._bounded_failure_detail(root, text)
+            with self.subTest(sibling=name):
+                # The sibling's own directory name must survive intact.
+                self.assertIn("wavefoundry-target" if name == "suffixed" else "wavefoundryX",
+                              detail, detail)
+        # The real root is still stripped, so the boundary did not disable it.
+        real = self.srv._bounded_failure_detail(
+            root, "[Errno 2] No such file: '/Users/op/Developer/wavefoundry/.wavefoundry/index/s.sqlite'")
+        self.assertNotIn("Developer/wavefoundry/", real, real)
+        self.assertIn(".wavefoundry/index/s.sqlite", real, real)
+
+    def test_failure_detail_strips_the_home_directory_in_every_spelling(self):
+        """Wave 1wpif cycle-4, SEC-RV3-2: the docstring promises that neither
+        the root prefix NOR the home directory leaves the process, but the
+        home branch was a literal, case-sensitive replace sitting one line
+        below the repaired root branch. It leaked the real home directory in
+        exactly the three spellings the root branch had just been fixed for,
+        and the trailing separator normalization turned those misses back into
+        readable absolute paths. Nothing constrained the home branch at all.
+        """
+        win_home = Path(r"C:\Users\op")
+        cases = {
+            "single": r"[Errno 2] No such file: 'C:\Users\op\elsewhere\notes.txt'",
+            "repr_doubled": "[Errno 2] No such file: 'C:\\\\Users\\\\op\\\\elsewhere\\\\notes.txt'",
+            "forward_slash": "[Errno 2] No such file: 'C:/Users/op/elsewhere/notes.txt'",
+            "lowercased": r"[Errno 2] No such file: 'c:\users\op\elsewhere\notes.txt'",
+        }
+        with patch.object(self.srv.Path, "home", staticmethod(lambda: win_home)):
+            for name, text in cases.items():
+                detail = self.srv._bounded_failure_detail(Path("/no-such-root"), text)
+                flat = re.sub(r"[\\/]+", "/", detail).casefold()
+                with self.subTest(spelling=name):
+                    self.assertNotIn("users/op", flat, detail)
+                    self.assertIn("elsewhere", detail, detail)
+
+        # Wave 1wpif cycle-5 (SEC-RV4-1): the longest-first ordering of the
+        # prefixes was justified in a comment and pinned by nothing -- sorting
+        # shortest-first, or not sorting at all, left all 41 tests in this
+        # module green. It is materially live: a repository nested under the
+        # home directory is the ordinary layout, and the wrong order strips the
+        # home prefix first, so the detail degrades from repo-relative to
+        # home-relative and discloses where the repository sits. Pin it.
+        posix_home = Path("/Users/op")
+        nested_root = Path("/Users/op/Developer/wavefoundry")
+        with patch.object(self.srv.Path, "home", staticmethod(lambda: posix_home)):
+            nested = self.srv._bounded_failure_detail(
+                nested_root,
+                "[Errno 2] No such file: '/Users/op/Developer/wavefoundry/.wavefoundry/index/s.sqlite'")
+            self.assertNotIn("Developer/wavefoundry", nested, nested)
+            self.assertIn(".wavefoundry/index/s.sqlite", nested, nested)
+            # A path under home but OUTSIDE the repository still reads as
+            # home-relative, so the ordering did not simply swallow everything.
+            outside = self.srv._bounded_failure_detail(
+                nested_root, "[Errno 2] No such file: '/Users/op/Documents/notes.txt'")
+            self.assertIn("~/Documents/notes.txt", outside, outside)
+
+        # The case above is satisfied by insertion order alone (the root is
+        # appended before the home directory), so it kills a shortest-first
+        # sort but not a no-sort. Discriminate the ORDERING itself with a
+        # layout where insertion order is unfavourable: a home directory that
+        # is LONGER than the root. Longest-first must still strip the longer
+        # prefix, which is the property the code's comment claims.
+        long_home = Path("/Users/op/Developer")
+        short_root = Path("/Users/op")
+        with patch.object(self.srv.Path, "home", staticmethod(lambda: long_home)):
+            ordered = self.srv._bounded_failure_detail(
+                short_root, "[Errno 2] No such file: '/Users/op/Developer/notes.txt'")
+            self.assertIn("~/notes.txt", ordered, ordered)
+            self.assertNotIn("Developer", ordered, ordered)
+
     # --- AC-8 / Req 7: probes, scheduling, marker, warmed reads ---
 
     def test_serving_error_probes_once_types_failure_and_schedules_at_most_once(self):

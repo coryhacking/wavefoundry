@@ -692,6 +692,197 @@ class CandidateMergeIdentityTests(_CandidateFixture):
         self.assertIn("lexical", alpha[0]["sources"],
                       "the legacy key must reproduce the misattribution")
 
+    def test_refill_windows_never_exceed_the_ceiling_for_any_reachable_request(self):
+        """Wave 1wpif, SEC-RV1-2: `_refill_windows` grants a single oversized
+        window above the last `REFILL_WINDOWS` entry, exceeding
+        `REFILL_MAX_ROWS_PER_SOURCE`. That is a FROZEN admitted contract
+        (pinned by `test_window_sequence_and_frozen_constants`) and it is
+        unreachable: no public MCP entry can pass a value above the ceiling. A
+        clamp was tried and reverted rather than change a pinned design inside
+        a delivery review; the disposition is routed to `1wpih`.
+
+        Cycle-3 (SEC-RV2-2): the first version of this test hardcoded the
+        clamp values, so its own docstring's promise -- that raising a clamp
+        would fail it -- was false, and the reverification lane proved it by
+        raising the lexical clamp tenfold with the test still green. The
+        clamps are now READ FROM PRODUCTION, so the promise holds.
+        """
+        srv = self.srv
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        def clamp_of(func_name):
+            """The literal ceiling in `min(int(limit), N)` inside a response.
+
+            Wave 1wpif cycle-4 (SEC-RV3-3): the first version returned the
+            FIRST `min(x, int)` in walk order, so an unrelated `min` added
+            earlier in the function silently repointed the pin -- the
+            reverification lane demonstrated it with a decoy that left the
+            test green while the real clamp was raised above the ceiling. Bind
+            to the clamp that actually reads `limit`, and require it to be
+            unique so a second one cannot be picked arbitrarily.
+            """
+            fn = next(
+                (n for n in ast.walk(tree)
+                 if isinstance(n, ast.FunctionDef) and n.name == func_name),
+                None,
+            )
+            self.assertIsNotNone(fn, f"{func_name} not found")
+            found = []
+            for call in ast.walk(fn):
+                if not (isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Name)
+                        and call.func.id == "min"
+                        and len(call.args) == 2
+                        and isinstance(call.args[1], ast.Constant)
+                        and isinstance(call.args[1].value, int)):
+                    continue
+                # The first argument must read the caller's `limit`.
+                names = {n.id for n in ast.walk(call.args[0]) if isinstance(n, ast.Name)}
+                if "limit" in names:
+                    found.append(call.args[1].value)
+            self.assertEqual(
+                len(found), 1,
+                f"{func_name} must contain exactly one min(<reads limit>, N) "
+                f"clamp for this pin to bind unambiguously; found {found}",
+            )
+            return found[0]
+
+        def code_ask_top_n():
+            """The largest literal `top_n` code_ask hands to search_combined.
+
+            Read from every `search_combined` call in the code_ask body,
+            nested helpers included, so adding a second call with a larger
+            window cannot slip past this test.
+            """
+            fn = next(
+                (n for n in ast.walk(tree)
+                 if isinstance(n, ast.FunctionDef)
+                 and n.name == "_code_ask_response_body"),
+                None,
+            )
+            self.assertIsNotNone(fn, "_code_ask_response_body not found")
+            found = []
+            for call in ast.walk(fn):
+                if not isinstance(call, ast.Call):
+                    continue
+                name = getattr(call.func, "attr", None) or getattr(call.func, "id", None)
+                if name != "search_combined":
+                    continue
+                for kw in call.keywords:
+                    if (kw.arg == "top_n"
+                            and isinstance(kw.value, ast.Constant)
+                            and isinstance(kw.value.value, int)):
+                        found.append(kw.value.value)
+            self.assertTrue(found, "no literal top_n on a search_combined call in code_ask")
+            return max(found)
+
+        # Every clamp is read from the shipped source, not restated here.
+        reachable = {
+            "code_search": clamp_of("code_search_response"),
+            "docs_search": clamp_of("docs_search_response"),
+            "code_lexical": srv.CODE_LEXICAL_MAX_LIMIT,
+            "code_ask": code_ask_top_n(),
+        }
+        for tool, ceiling in reachable.items():
+            with self.subTest(tool=tool, clamp=ceiling):
+                self.assertLessEqual(
+                    ceiling, srv.REFILL_MAX_ROWS_PER_SOURCE,
+                    f"{tool} now clamps above the per-source ceiling; the "
+                    f"oversized-window fallback is no longer unreachable and "
+                    f"SEC-RV1-2 must be reopened",
+                )
+            for top_n in (-5, 0, 1, max(1, ceiling - 1), ceiling):
+                windows = srv._refill_windows(top_n)
+                with self.subTest(tool=tool, top_n=top_n):
+                    self.assertTrue(windows)
+                    self.assertLessEqual(
+                        max(windows), srv.REFILL_MAX_ROWS_PER_SOURCE,
+                        f"{tool} limit {top_n} produced a window above the ceiling",
+                    )
+                    self.assertEqual(list(windows), sorted(windows))
+
+    def test_every_merge_seam_keys_on_the_candidate_identity(self):
+        """Wave 1wpif, CODE-RV1-1: RED-DEL-2 converted FOUR merge seams to
+        `_candidate_merge_key`, but only the hybrid fusion seam was pinned --
+        reverting either of the other three individually left the whole suite
+        green, so three quarters of the claimed repair could regress unseen.
+
+        Cycle-3 (CODE-RV2-1) replaced a source-text pin with this AST one. The
+        reverification lane defeated the text version twice: an extra pair of
+        parentheses (`tuple((c.get("lines") or ()))`) slipped past its regex
+        while being semantically identical, and two dead helper calls restored
+        its expected count. It also scanned 24,183 lines spanning 493
+        functions rather than `search_combined`'s body, so the count could be
+        satisfied from anywhere in half the file.
+
+        Parsing closes both of those specific holes: the region is now exactly
+        the function, and a parenthesised expression parses to the same tree as
+        an unparenthesised one.
+
+        Cycle-4 (CODE-RV3-1) narrows this docstring, which previously claimed
+        that "spelling tricks cannot hide the legacy key". That claim is FALSE
+        and the reverification lane proved it: a helper defined OUTSIDE
+        `search_combined`, reading `c["lines"]` by subscript rather than
+        `.get("lines")`, was wired into three seams with all eight helper calls
+        left in place; the count stayed 8, the legacy list stayed empty, and
+        2,025 tests across the affected modules passed while the legacy key
+        executed ten times. Other bypasses remain open: `operator.itemgetter`,
+        a comprehension key, and star-unpacking with no `tuple` node.
+
+        What this pin actually buys is detection of an ACCIDENTAL revert in
+        the two spellings a careless edit produces. The durable instrument is
+        behavioural: one fixture per seam, like the hybrid-fusion seam's
+        `test_the_legacy_coordinate_key_misattributes_the_same_fixture`, which
+        no source-shape trick can satisfy. That work is recorded as a
+        follow-up rather than claimed here.
+        """
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(
+            (n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef) and n.name == "search_combined"),
+            None,
+        )
+        self.assertIsNotNone(fn, "search_combined not found in server_impl.py")
+
+        merge_calls = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "_candidate_merge_key"
+        ]
+        self.assertEqual(
+            len(merge_calls), 8,
+            "the four merge seams contribute eight _candidate_merge_key calls "
+            "inside search_combined; a change here means a seam was added, "
+            "removed, or reverted",
+        )
+
+        def reaches_lines_get(node):
+            """True when the subtree reads the `lines` key off a mapping."""
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Attribute)
+                        and sub.func.attr == "get"
+                        and sub.args
+                        and isinstance(sub.args[0], ast.Constant)
+                        and sub.args[0].value == "lines"):
+                    return True
+            return False
+
+        legacy = [
+            n.lineno for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "tuple"
+            and reaches_lines_get(n)
+        ]
+        self.assertEqual(
+            legacy, [],
+            "a merge seam reverted to the legacy (path, lines) coordinate key",
+        )
+
     def test_merge_key_falls_back_to_the_canonical_shape_without_an_id(self):
         srv = self.srv
         with_id = {"id": "c1", "path": "src/x.py", "lines": [10, 12]}

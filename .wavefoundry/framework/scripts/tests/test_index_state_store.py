@@ -56,6 +56,45 @@ class _TempRepoCase(unittest.TestCase):
         self.index_dir = self.root / ".wavefoundry" / "index"
 
 
+class _FlakyConn:
+    """Delegating sqlite connection proxy that raises once on a marked SQL.
+
+    Wave 1wpif delivery review: injecting at the connection is the only way to
+    reproduce a lock or IO error at a specific statement without a second
+    process, and the error class is exactly what the repair classifies on.
+    """
+
+    def __init__(self, real, marker, exc, times=1):
+        self._real = real
+        self._marker = marker
+        self._exc = exc
+        self._left = times
+
+    def execute(self, sql, *args, **kwargs):
+        if self._marker in sql and self._left > 0:
+            self._left -= 1
+            raise self._exc
+        return self._real.execute(sql, *args, **kwargs)
+
+    def executemany(self, sql, *args, **kwargs):
+        # The registry insert is an executemany; intercepting only `execute`
+        # silently misses it and the injected error never fires.
+        if self._marker in sql and self._left > 0:
+            self._left -= 1
+            raise self._exc
+        return self._real.executemany(sql, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    # `with conn:` is a type-level lookup, so __getattr__ never sees it.
+    def __enter__(self):
+        return self._real.__enter__()
+
+    def __exit__(self, *exc_info):
+        return self._real.__exit__(*exc_info)
+
+
 class StoreSubstrateTests(_TempRepoCase):
     """AC-1, AC-2: WAL/versioning contract and drop-and-rebuild recovery."""
 
@@ -152,6 +191,161 @@ class StoreSubstrateTests(_TempRepoCase):
                           self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8"))
         finally:
             recovered.close()
+
+    def test_meta_read_lock_error_never_resets_the_store(self):
+        """Wave 1wpif delivery review, ARCH-RV1-1: `meta_all` swallowed every
+        sqlite error into `{}`, so `versions_current()` reported False against
+        a perfectly current store and `ensure_current()` dropped every
+        resident table. A wait/IO error must PROPAGATE; only a genuinely
+        absent table is an honest empty reading."""
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            flaky = _FlakyConn(store._conn, "FROM meta",
+                               sqlite3.OperationalError("database is locked"))
+            store._conn = flaky
+            with mock.patch.object(
+                store, "reset", side_effect=AssertionError("reset must not run")
+            ):
+                with self.assertRaises(sqlite3.OperationalError):
+                    store.ensure_current()
+            # The deferral is durable, not stderr-only.
+            self.assertIn(
+                "meta read deferred, store preserved",
+                self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8"),
+            )
+            # Control: a genuinely absent meta table still reads as empty, so a
+            # real schema absence still resets. The repair narrows the branch,
+            # it does not disable it.
+            store._conn = flaky._real
+            store._conn.execute("DROP TABLE meta")
+            self.assertEqual(store.meta_all(), {})
+            self.assertFalse(store.versions_current())
+        finally:
+            store.close()
+
+    def test_rebuild_defers_on_a_lock_error_and_preserves_the_store(self):
+        """Wave 1wpif delivery review, ARCH-RV1-2: the reset-and-retry arm
+        caught every `sqlite3.Error`, so a lock/IO error dropped every
+        resident table, erased the in-flight fence, and RETURNED SUCCESS."""
+        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
+                 "language": "python", "lines": [1, 3], "text": "alpha",
+                 "chunk_hash": "h1"}]
+        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        seed = self.iss.IndexStateStore(self.index_dir)
+        try:
+            seed.set_meta({"in-flight-fence": "1"})
+        finally:
+            seed.close()
+
+        real_cls = self.iss.IndexStateStore
+
+        def flaky_store(index_dir, *a, **k):
+            s = real_cls(index_dir, *a, **k)
+            s._conn = _FlakyConn(s._conn, "DELETE FROM chunk_registry",
+                                 sqlite3.OperationalError("database is locked"))
+            return s
+
+        stderr = io.StringIO()
+        with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
+            with redirect_stderr(stderr):
+                with self.assertRaises(sqlite3.OperationalError):
+                    self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        self.assertIn("deferred, store preserved", stderr.getvalue())
+        self.assertNotIn("resetting store", stderr.getvalue())
+        # The fence and the derived rows both survive: nothing was reset.
+        after = self.iss.IndexStateStore(self.index_dir)
+        try:
+            self.assertEqual(after.get_meta("in-flight-fence"), "1")
+            self.assertEqual(
+                after._conn.execute(
+                    "SELECT COUNT(*) FROM chunk_registry").fetchone()[0], 1)
+        finally:
+            after.close()
+
+    def test_rebuild_recovers_from_a_stale_column_shape(self):
+        """Wave 1wpif cycle-3, ARCH-RV2-1: `table X has no column named Y` is
+        sqlite's message for an INSERT against a stale-shaped table. It is an
+        OperationalError but it IS structural, and it self-healed before the
+        ARCH-RV1-2 repair. Omitting it from the marker list turned a
+        self-healing case into a hard failure, which is a recovery REGRESSION;
+        the most likely trigger is a schema change that adds a column without
+        bumping the store schema version.
+        """
+        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
+                 "language": "python", "lines": [1, 3], "text": "alpha",
+                 "chunk_hash": "h1"}]
+        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        real_cls = self.iss.IndexStateStore
+
+        def flaky_store(index_dir, *a, **k):
+            s = real_cls(index_dir, *a, **k)
+            s._conn = _FlakyConn(
+                s._conn, "INSERT OR REPLACE INTO chunk_registry",
+                sqlite3.OperationalError(
+                    "table chunk_registry has no column named chunk_hash"))
+            return s
+
+        stderr = io.StringIO()
+        with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
+            with redirect_stderr(stderr):
+                written = self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        self.assertEqual(written, 1, "a stale column shape must still self-heal")
+        self.assertIn("resetting store and retrying", stderr.getvalue())
+        self.assertNotIn("deferred, store preserved", stderr.getvalue())
+
+    def test_rebuild_still_resets_on_structural_damage(self):
+        """Control for ARCH-RV1-2: the repair narrows the reset arm to genuine
+        damage; it must not disable it. A missing object and a non-operational
+        DatabaseError both still reset and retry."""
+        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
+                 "language": "python", "lines": [1, 3], "text": "alpha",
+                 "chunk_hash": "h1"}]
+        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
+        real_cls = self.iss.IndexStateStore
+        for exc in (sqlite3.OperationalError("no such table: chunk_registry"),
+                    sqlite3.DatabaseError("database disk image is malformed")):
+            def flaky_store(index_dir, *a, _exc=exc, **k):
+                s = real_cls(index_dir, *a, **k)
+                s._conn = _FlakyConn(s._conn, "DELETE FROM chunk_registry", _exc)
+                return s
+            seed = real_cls(self.index_dir)
+            try:
+                seed.set_meta({"reset-witness": "1"})
+            finally:
+                seed.close()
+            stderr = io.StringIO()
+            with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
+                with redirect_stderr(stderr):
+                    written = self.iss.rebuild_chunk_index(
+                        self.index_dir, "code", rows)
+            self.assertEqual(written, 1, exc)
+            self.assertIn("resetting store and retrying", stderr.getvalue(), exc)
+            # Wave 1wpif cycle-3: the reverification lane showed this control
+            # pinned BRANCH SELECTION only -- deleting `store.reset()` outright
+            # left the whole module green, because the message is printed
+            # before the reset and the injected error fires once so the retry
+            # succeeds regardless. Assert the reset actually RAN by seeding a
+            # meta fence beforehand and requiring it to be gone afterwards.
+            after = self.iss.IndexStateStore(self.index_dir)
+            try:
+                self.assertIsNone(
+                    after.get_meta("reset-witness"),
+                    f"{exc}: the reset branch was selected but reset() never ran",
+                )
+                # Wave 1wpif cycle-4 (ARCH-RV3-1): the witness alone pins that
+                # reset RAN, not that it ran BEFORE the retry write. Swapping
+                # the order wipes the store after the successful retry and
+                # still returns 1 -- a false success over an emptied registry,
+                # which is this finding's own defect shape. Assert the rows the
+                # retry wrote are still there.
+                self.assertEqual(
+                    after._conn.execute(
+                        "SELECT COUNT(*) FROM chunk_registry").fetchone()[0], 1,
+                    f"{exc}: the retry wrote its rows and the reset then erased "
+                    f"them, so the reset ran after the write",
+                )
+            finally:
+                after.close()
 
     def test_store_absence_is_not_an_error_for_readers(self):
         # No store built: every read primitive degrades to None/empty (AC-2).

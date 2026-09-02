@@ -14944,8 +14944,11 @@ class IndexBuildLockStatusTests(unittest.TestCase):
     classification) + `ended_at`. Plain terminology (no 'zombie')."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def _fake_indexer(self, meta, held_result):
         from types import SimpleNamespace
@@ -15040,8 +15043,11 @@ class IndexSizeHealthTests(unittest.TestCase):
     """Wave 1p9a9: index_health reports on-disk index size (total + per-component)."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def test_index_dir_size_total_and_components(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -15083,8 +15089,11 @@ class IndexOptimizeToolTests(unittest.TestCase):
     """Wave 1p9aj: index_optimize reclaims Lance-table bloat (tiered, no re-embed)."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def _fake_indexer(self, results):
         from types import SimpleNamespace
@@ -15177,8 +15186,11 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
     and index-state store reporting in index_health."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def _fake_modules(self, lance_results, store_results=None, lock_raises=None):
         from contextlib import contextmanager
@@ -15453,8 +15465,11 @@ class CodeLexicalToolTests(unittest.TestCase):
     """Wave 1sbfk (1seiz): the `code_lexical` direct BM25 exact-token search tool."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
@@ -15600,8 +15615,11 @@ class CloseTimeOptimizeTests(unittest.TestCase):
     BEFORE the close's own background refresh (lock free) and never spawn a rebuild."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def _fake_indexer(self, results, raises=None, raise_busy=False):
         from types import SimpleNamespace
@@ -15750,8 +15768,11 @@ class StalenessMonitorQuietPeriodTests(unittest.TestCase):
     """Wave 1p9am: the staleness monitor is a quiet-period safety net, not a competing trigger."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
+        # resolved only because an earlier test in this module had already put
+        # SCRIPTS_ROOT on sys.path, so this class failed at import when run in
+        # isolation. Load it the way every other class here does.
+        self.srv = load_server()
 
     def _fake_idx(self, pending_age=None, ended_at=None):
         from types import SimpleNamespace

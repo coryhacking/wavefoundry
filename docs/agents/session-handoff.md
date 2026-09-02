@@ -370,7 +370,7 @@ plans.
 
 ## Current Session
 
-**Active wave:** *(none)*. Last closed: `1wybs review-churn-follow-ups`
+**Active wave:** *(none)*
 (2026-09-02) — Serialization Points token-grammar guidance across seeds and
 templates, the evaluator-edit baseline policy with its drift disclosure, and
 the verdict-gap and install-audit hardening. Framework and seed gates are

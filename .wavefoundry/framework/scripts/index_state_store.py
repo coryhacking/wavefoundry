@@ -222,6 +222,40 @@ GRAPH_STATE_STORE_RELPATH = "graph/project-graph-state.sqlite"
 
 _VERSION_KEYS = ("store_schema_version",)
 
+# Wave 1wpif delivery review (ARCH-RV1-1 / ARCH-RV1-2): ARCH-DEL-2 repaired the
+# corrupt-open classifier but left the same defect class at two more sites, both
+# of which reset the store on an operational error. An operational error is a
+# WAIT or IO condition (locked, busy, disk I/O, disk full, read-only) and is
+# never evidence about schema version or store damage. The one honest exception
+# is a genuinely absent table, which sqlite also reports as OperationalError and
+# which IS a legitimate empty reading, so the two are told apart by message.
+# "has no column named" is sqlite's message for an INSERT against a
+# stale-shaped table, which IS structural and DID self-heal before the
+# ARCH-RV1-1/2 repair. Wave 1wpif cycle-3 (ARCH-RV2-1): the independent lane
+# proved its omission was a recovery REGRESSION -- a schema change that adds a
+# column without bumping STATE_STORE_SCHEMA_VERSION made every existing store
+# hard-fail where it used to reset and retry. "no such module" is deliberately
+# NOT here: a missing FTS5 module is an environment fault that resetting the
+# store cannot repair, so propagating is correct for it.
+_MISSING_OBJECT_MARKERS = (
+    "no such table",
+    "no such column",
+    "no such index",
+    "has no column named",
+)
+
+
+def _is_missing_object_error(exc: BaseException) -> bool:
+    """True when an OperationalError means "the object is not there".
+
+    Distinguishes a real absence (a fresh or mid-reset store) from a wait or
+    IO condition. Message matching is the only signal sqlite3 offers: every
+    case here is raised as ``sqlite3.OperationalError`` with no error code
+    attribute on the exception in the stdlib driver.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _MISSING_OBJECT_MARKERS)
+
 
 def state_store_path(index_dir: Path) -> Path:
     return Path(index_dir) / STATE_STORE_FILENAME
@@ -610,9 +644,25 @@ class IndexStateStore:
     # -- version gate (whole-store invalidation, graph-store semantics) --
 
     def meta_all(self) -> dict[str, str]:
+        """Read the whole meta mapping.
+
+        An absent ``meta`` table reads as empty. A lock, IO or disk-full error
+        PROPAGATES: swallowing it into ``{}`` made ``versions_current()``
+        report False against a perfectly current store, and ``ensure_current()``
+        then dropped every resident table and erased any in-flight fence
+        (wave 1wpif delivery review, ARCH-RV1-1).
+        """
         try:
             rows = self._conn.execute("SELECT key, value FROM meta").fetchall()
-        except sqlite3.Error:
+        except sqlite3.OperationalError as exc:
+            if not _is_missing_object_error(exc):
+                store_log(
+                    self.index_dir,
+                    f"index-state-store: meta read deferred, store preserved ({exc})",
+                )
+                raise
+            return {}
+        except sqlite3.DatabaseError:
             return {}
         return {str(k): str(v) for k, v in rows}
 
@@ -1782,9 +1832,16 @@ def chunk_id_collision_counts(index_dir: Path, table_name: str) -> "tuple[Option
 def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[str, Any]]) -> int:
     """Full derived-only rebuild of one table's registry + FTS rows from Lance.
 
-    On a sqlite error mid-rebuild (e.g. a corrupt FTS shadow table) the whole
-    store is reset (drop-and-recreate, loud) and the rebuild retried once —
-    everything resident is derived, so recovery is free.
+    On STRUCTURAL damage mid-rebuild (a corrupt FTS shadow table, a missing
+    object) the whole store is reset (drop-and-recreate, loud) and the rebuild
+    retried once — everything resident is derived, so recovery is free.
+
+    An operational error is NOT damage. A lock, IO or disk-full error
+    propagates with the store preserved: resetting on one dropped every
+    resident table and erased the in-flight build fence, then returned
+    success, so no caller could tell the store had been emptied (wave 1wpif
+    delivery review, ARCH-RV1-2). "Recovery is free" holds for derived rows,
+    not for the fence `reset()` erases.
 
     Rows are deduped by chunk id (last wins): Lance's ``id`` column is not
     unique — incremental churn can leave duplicate-id rows (observed live:
@@ -1857,20 +1914,38 @@ def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[st
             _write_fts_digest_meta(conn, table_name, _fts_digest_of_rows(rows) if fts_on else None)
         return len(rows)
 
+    def _reset_and_retry(store: "IndexStateStore", exc: BaseException) -> int:
+        message = (
+            f"index-state-store: chunk-index rebuild for '{table_name}' hit a store "
+            f"error ({exc}) — resetting store and retrying (derived-only)"
+        )
+        print(message, file=sys.stderr, flush=True)
+        store_log(index_dir, message)
+        store.reset()
+        return _write(store)
+
     store = IndexStateStore(index_dir)
     try:
         store.ensure_current()
         try:
             return _write(store)
-        except sqlite3.Error as exc:
-            print(
-                f"index-state-store: chunk-index rebuild for '{table_name}' hit a store "
-                f"error ({exc}) — resetting store and retrying (derived-only)",
-                file=sys.stderr,
-                flush=True,
-            )
-            store.reset()
-            return _write(store)
+        except sqlite3.OperationalError as exc:
+            if not _is_missing_object_error(exc):
+                # Wave 1wpif delivery review (ARCH-RV1-2): a lock, IO or
+                # disk-full error is a wait condition, not store damage.
+                # Resetting here dropped every resident table and erased the
+                # in-flight build fence, then RETURNED SUCCESS, so no caller
+                # could tell the store had been emptied. Propagate instead.
+                message = (
+                    f"index-state-store: chunk-index rebuild for '{table_name}' deferred, "
+                    f"store preserved ({exc})"
+                )
+                print(message, file=sys.stderr, flush=True)
+                store_log(index_dir, message)
+                raise
+            return _reset_and_retry(store, exc)
+        except sqlite3.DatabaseError as exc:
+            return _reset_and_retry(store, exc)
     finally:
         store.close()
 

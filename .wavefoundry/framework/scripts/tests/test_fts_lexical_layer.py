@@ -267,8 +267,12 @@ class LexicalFusionWiringTests(unittest.TestCase):
     """AC-2: fusion mechanics — candidate shape, source marker, kill switch."""
 
     def setUp(self):
-        import server_impl
-        self.srv = server_impl
+        # Wave 1wpif cycle-3 (CODE-RV2-2): a bare `import server_impl` resolved
+        # only because an earlier test had put SCRIPTS_ROOT on sys.path, so
+        # this class failed at import when run in isolation. This module has no
+        # server loader of its own, so it uses the shared one.
+        from server_tools_support import load_server
+        self.srv = load_server()
         self.iss = load_store_module()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

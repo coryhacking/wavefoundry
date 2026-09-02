@@ -7861,6 +7861,14 @@ class ChunkCoordinateContractTests(unittest.TestCase):
         self.assertGreater(counts["exact"] + counts["superset"], 2000, counts)
         self.assertEqual(wrong[:8], [], counts)
         self.assertEqual(counts["wrong"], 0, counts)
+        # Wave 1wpif delivery review (QA-RV1-1): `_classify` has a fourth
+        # verdict, "empty", for a chunk whose payload extraction yields
+        # nothing. Asserting only `wrong == 0` let a defective chunk escape
+        # into `empty` and be scored neither right nor wrong: under a
+        # pre-repair mutant the bucket absorbed 110 chunks, none of which
+        # failed any assertion. Every prose chunk must land in a verdict this
+        # test constrains.
+        self.assertEqual(counts["empty"], 0, counts)
 
     def test_the_coordinate_census_detects_the_pre_repair_row_group_anchor(self):
         """Non-vacuity: with the pre-repair anchoring restored (every part

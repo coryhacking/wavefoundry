@@ -368,7 +368,20 @@ def _ledger_summary(declared_sources: "tuple[str, ...]", ledger: "dict[str, Any]
 
 def _refill_windows(top_n: int) -> "tuple[int, ...]":
     """The monotonic window sequence for a bounded refill: every REFILL_WINDOWS
-    entry that can hold ``top_n`` rows (a larger request gets one window)."""
+    entry that can hold ``top_n`` rows (a larger request gets one window).
+
+    Wave 1wpif delivery review (SEC-RV1-2, DISPOSITIONED not repaired): the
+    security seat noted that a request above the last window gets a single
+    window of that size, exceeding the declared ``REFILL_MAX_ROWS_PER_SOURCE``.
+    It is unreachable — every public MCP entry clamps its limit far below 240
+    (code_search / docs_search to 20, code_lexical to 50, code_ask fixed at 7)
+    — and the behavior is a FROZEN admitted contract pinned by
+    ``test_window_sequence_and_frozen_constants``. Clamping it here was tried
+    and reverted: closing an unreachable hole is not worth silently changing a
+    pinned design during a delivery review. Routed to `1wpih`, which owns
+    retrieval tuning. What IS pinned here is the reachable envelope: see
+    ``test_refill_windows_never_exceed_the_ceiling_for_any_reachable_request``.
+    """
     wanted = max(1, int(top_n))
     windows = tuple(w for w in REFILL_WINDOWS if w >= wanted)
     return windows or (wanted,)
@@ -20519,24 +20532,81 @@ _FTS_DETAIL_CAP = 240
 _FTS_DAMAGE_REASONS = frozenset({"probe_failed", "digest_mismatch", "digest_unavailable"})
 
 
+def _path_prefix_pattern(candidate: str) -> "re.Pattern[str] | None":
+    """A separator- and case-insensitive matcher for one absolute path prefix.
+
+    Wave 1wpif cycle-3 (SEC-RV2-1) replaced literal prefix matching, which
+    missed the repr-doubled, forward-slash, mixed-separator and case-differing
+    spellings of the same root. Cycle-4 (SEC-RV3-1) adds the BOUNDARY the first
+    version lacked: without it a root that is a string prefix of a sibling
+    directory matched inside it, so on a machine where this framework sits
+    beside a target repository, `.../wavefoundry-target/x` came out as
+    `-target/x` -- a path that exists nowhere and reads as if it were inside
+    this repository. Over-matching is as much a defect as under-matching. The
+    match must therefore end at a separator run or at a character that cannot
+    continue a path segment.
+    """
+    segments = [seg for seg in re.split(r"[\\/]+", candidate) if seg]
+    if not segments:
+        return None
+    body = r"[\\/]*".join(re.escape(seg) for seg in segments)
+    return re.compile(
+        r"[\\/]*" + body + r"(?:[\\/]+|(?![\w.\-]))",
+        re.IGNORECASE,
+    )
+
+
+def _strip_path_prefix(text: str, candidate: str, heading: str, standalone: str) -> str:
+    """Strip one path prefix in every spelling.
+
+    ``heading`` replaces the prefix when a relative path follows (empty for the
+    repository root, so the remainder reads repo-relative; ``~/`` for the home
+    directory, so the remainder stays recognisable as a home-relative path).
+    ``standalone`` replaces it when the prefix stood alone.
+    """
+    pattern = _path_prefix_pattern(candidate)
+    if pattern is None:
+        return text
+    return pattern.sub(
+        lambda m: heading if m.end() < len(m.string) and (
+            m.string[m.end()].isalnum() or m.string[m.end()] in "._-"
+        ) else standalone,
+        text,
+    )
+
+
 def _bounded_failure_detail(root: Path, text: Any) -> str:
     """A7 (1wpag): typed-failure ``detail`` strings are bounded and
     path-sanitized: repo-relative (neither the root prefix nor the home
     directory leaves the process), whitespace-collapsed, and capped at
-    ``_FTS_DETAIL_CAP`` characters."""
+    ``_FTS_DETAIL_CAP`` characters.
+
+    Both the root and the home directory go through the same spelling-tolerant
+    matcher. Wave 1wpif cycle-4 (SEC-RV3-2): the home branch was a literal,
+    case-sensitive ``replace`` one line below the repaired root branch, so it
+    still leaked the real home directory in exactly the three spellings the
+    root branch had just been fixed for, and the trailing separator
+    normalization turned those misses back into readable absolute paths. The
+    docstring's promise covers the home directory unconditionally, so it is
+    now enforced by the same mechanism.
+    """
     s = " ".join(str(text or "").split())
-    prefixes: set[str] = set()
+    roots: list[str] = []
     for candidate in (str(root), str(Path(root).resolve()) if root else ""):
-        if candidate and candidate not in (".", "/"):
-            prefixes.add(candidate)
-    for prefix in sorted(prefixes, key=len, reverse=True):
-        s = s.replace(prefix + "/", "").replace(prefix + "\\", "").replace(prefix, ".")
+        if candidate and candidate not in (".", "/") and candidate not in roots:
+            roots.append(candidate)
     try:
         home = str(Path.home())
-        if home and home != "/":
-            s = s.replace(home, "~")
+        if home and home != "/" and home not in roots:
+            roots.append(home)
     except Exception:
-        pass
+        home = ""
+    # Longest first, so a root nested under the home directory is stripped as a
+    # root rather than being half-consumed by the home match.
+    for candidate in sorted(roots, key=len, reverse=True):
+        is_home = bool(home) and candidate == home
+        s = _strip_path_prefix(
+            s, candidate, "~/" if is_home else "", "~" if is_home else ".")
     s = s.replace("\\", "/")
     if len(s) > _FTS_DETAIL_CAP:
         s = s[:_FTS_DETAIL_CAP - 3] + "..."
