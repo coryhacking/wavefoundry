@@ -5227,12 +5227,25 @@ def _build_index_locked(
             # Uses ThreadPoolExecutor internally for file-read parallelism so it is
             # safe to submit from here (no ProcessPoolExecutor spawn inside).
             if _run_secrets:
+                # Wave 1x4ol (1x4oj): `full` here means "rebuild the GRAPH from
+                # scratch"; it says nothing about whether any file's CONTENT
+                # changed, which is the only thing secret detection depends on.
+                # Passing it through as a full SCAN bypassed the per-file
+                # content-hash cache and re-read every tracked file on every
+                # graph rebuild (198.5 s of a 203 s command on this repository,
+                # 0 cache-skipped). A graph-only build now takes the scanner's
+                # incremental path: `changed_broad` still names every file, so
+                # every file is a candidate, and the cache skips exactly those
+                # whose content hash AND rules fingerprint match. The scanner's
+                # own escalations (rules hash, SCANNER_VERSION, missing ledger)
+                # are untouched and still force a real full scan on their own.
+                _secrets_full = bool(full) and content != "graph"
                 def _write_secrets(
                     _root=root,
                     _index_dir=index_dir,
                     _changed=changed_broad,
                     _removed=removed_broad,
-                    _full=full,
+                    _full=_secrets_full,
                     _verbose=verbose,
                     _elapsed=_secrets_elapsed,
                 ) -> None:

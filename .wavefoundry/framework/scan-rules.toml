@@ -26,6 +26,30 @@
 #      engine translates at load (see "Engine — RE2→Python"). If a fresh pattern
 #      uses RE2 syntax the shim does not yet handle, EXTEND THE SHIM.
 #
+# ── Engine — complexity gap, RE2 vs Python `re` (wave 1x4ol) ───────────────
+# RE2 guarantees linear-time matching; Python's `re` backtracks. A pattern that
+# is safe upstream can be super-linear here. The shape that bit this repository
+# is two nested bounded lazy spans over ONE class at the head of a rule:
+#     [\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:secret|key|token) ...
+# which eleven rules share (120 more open with a single `(?i)[\w.-]{0,50}?`
+# span, which the collapse does not reach). On identifier-dense input (a line that is `[\w.-]`
+# end to end, e.g. a fully qualified test id) the engine tries ~2,600 split
+# points per start position; one 1.15 MB evidence file cost 173.6 s of a 198.5 s
+# full scan. The engine collapses that exact shape to `(?i:[\w.-]{0,100}?` at
+# LOAD (secrets_validators.collapse_redundant_prefix) -- the same regular
+# language, one span -- and never edits this file to do it.
+#
+# What a future upstream refresh must re-check:
+#   * any NEW rule whose head repeats a bounded lazy span over the same class
+#     (`X{a,b}?X{c,d}?`, with or without a `(?i:` boundary between them) -- the
+#     collapse is restricted to the exact literal shape above, so a variant is
+#     NOT rewritten and will be slow; extend the shim, do not hand-edit here;
+#   * that the differential harness (test_secrets_prefix_collapse.py) still
+#     reports zero divergences against its frozen baseline after the refresh;
+#   * the per-file cost report in the scan summary, which names the most
+#     expensive rule per file so the next runaway pattern is diagnosed from a
+#     report rather than an investigation.
+#
 # ── Engine — RE2→Python regex shim (wave 1p4d1) ─────────────────────────────
 # Upstream patterns target Go's RE2; this scanner runs Python `re`. `_re2_to_re()`
 # in wave_lint_lib/secrets_validators.py rewrites RE2-only syntax at load, ONLY

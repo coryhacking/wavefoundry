@@ -18,3 +18,8 @@ docs/reports/retrieval-quality-*.json
 docs/reports/lexical-ranking-*.json
 docs/reports/ann-reference-*.json
 docs/reports/graph-quality-*.json
+
+# Frozen detection baseline for the secrets-scanner prefix collapse (wave 1x4ol):
+# a machine-generated match record, not source. Index exclusion only; the
+# secrets scanner still reads it (see NothingNewIsSkippedTests / FixturesYieldNoFindingsTests).
+.wavefoundry/framework/scripts/tests/fixtures/secrets_prefix_collapse_baseline.json

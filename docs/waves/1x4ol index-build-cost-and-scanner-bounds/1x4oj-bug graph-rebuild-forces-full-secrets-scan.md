@@ -1,7 +1,7 @@
 # Scope the Secrets Scan to Content Changes on a Graph Rebuild
 
 Change ID: `1x4oj-bug graph-rebuild-forces-full-secrets-scan`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
 Status: planned
 Last verified: 2026-09-04
@@ -60,6 +60,13 @@ full secrets scan behind it.
    the graph rebuild COMMAND beside the existing graph-phase rows, because the
    two existing rows measure a phase an operator never waits on alone and that
    gap is what let a 198.5 s tax sit unnoticed against a 52 s budget row.
+6. The graph-only path SHALL pass a NON-EMPTY candidate set to the scanner, and
+   that property SHALL be pinned by a test. The incremental branch returns early
+   on an empty `changed` and `removed` with `up_to_date: True`, emitting no
+   "scan complete" line at all, so a later narrowing of the candidate set would
+   turn the scan into a silent no-op that still reports success. The full-rebuild
+   branch populates the candidate set with every file today, which is what makes
+   this change safe; nothing currently states that dependency.
 
 ## Scope
 
@@ -84,33 +91,38 @@ every tracked file, which costs about 198.5 seconds and dominates the command.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A graph-only rebuild runs the secrets scan on its incremental path
+- [x] AC-1: A graph-only rebuild runs the secrets scan on its incremental path
       against a warm cache, reporting a nonzero `cache-skipped` count and a
       `scan_type` of `incremental`, while a docs or code full rebuild still
       reports `full`.
-- [ ] AC-2: Each scanner escalation still forces a full scan from a graph-only
+- [x] AC-2: Each scanner escalation still forces a full scan from a graph-only
       build, asserted separately for a changed rules hash, a changed
       `SCANNER_VERSION`, and a missing findings ledger.
-- [ ] AC-3: A file whose content changed since the last scan is scanned by the
+- [x] AC-3: A file whose content changed since the last scan is scanned by the
       graph-only path, proven by mutating a file's content and asserting it
       appears in the scanned set rather than the skipped set.
-- [ ] AC-4: Deleting the scoping change makes a named test fail, recorded as a
+- [x] AC-4: Deleting the scoping change makes a named test fail, recorded as a
       mutation before review.
-- [ ] AC-5: `docs/architecture/performance-budget.md` carries a command-level
+- [x] AC-5: `docs/architecture/performance-budget.md` carries a command-level
       wall-clock row for the graph rebuild beside the existing phase rows, with
       the before and after figures and the date each was measured.
-- [ ] AC-6: This change's own suites and every test it adds pass, the documents
+- [x] AC-6: The graph-only path passes a non-empty candidate set, asserted
+      directly, and a scan handed an empty set is shown to return early with
+      `up_to_date` and no completion line, so the silent-no-op shape is visible
+      in the test rather than only in the source.
+- [x] AC-7: This change's own suites and every test it adds pass, the documents
       it authors or edits validate, and no failure elsewhere is attributable to
       it.
 
 ## Tasks
 
-- [ ] Scope the `full` argument passed to the secrets future to non-graph builds.
-- [ ] Add the graph-only incremental assertion and the docs/code control.
-- [ ] Add the three escalation-trigger assertions.
-- [ ] Add the changed-content assertion so the cache cannot skip a real edit.
-- [ ] Record the mutation that kills the scoping change.
-- [ ] Measure the graph rebuild command before and after, and update the
+- [x] Scope the `full` argument passed to the secrets future to non-graph builds.
+- [x] Add the graph-only incremental assertion and the docs/code control.
+- [x] Add the three escalation-trigger assertions.
+- [x] Add the changed-content assertion so the cache cannot skip a real edit.
+- [x] Pin the non-empty candidate set and characterise the empty-set early return.
+- [x] Record the mutation that kills the scoping change.
+- [x] Measure the graph rebuild command before and after, and update the
       performance budget.
 
 ## Agent Execution Graph
@@ -147,7 +159,8 @@ still runs, still covers the same files, and still writes the same ledger.
 | AC-3 | required | Guards the one real risk, that the cache skips a file that genuinely changed. |
 | AC-4 | required | A guard that survives its own deletion is not landed. |
 | AC-5 | important | The missing command-level row is why the cost hid behind a healthy budget. |
-| AC-6 | required | Standard delivery gate. |
+| AC-6 | required | Without it the change's safety rests on an undocumented property of a different branch. |
+| AC-7 | required | Standard delivery gate. |
 
 
 ## Progress Log
@@ -156,6 +169,11 @@ still runs, still covers the same files, and still writes the same ledger.
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-09-04 | Root-caused from a build log rather than inferred. | Graph phase complete at 17:29:19 in 46.6 s; command returned 17:31:47; `secrets scan complete (full) — 0 finding(s), 0 cache-skipped, in 198.5s`. An earlier build's incremental scan took 0.2 s. |
+| 2026-09-04 | **Readiness review repaired the plan: the safety of this change rests on an unstated property.** | The incremental branch of `update_secrets_scan` returns early when `changed` and `removed` are both empty, reporting `up_to_date: True` and printing no completion line. This change is safe only because the full-rebuild branch sets the candidate set to every file, which nothing stated. Requirement 6 and AC-6 added so a later narrowing cannot turn the scan into a silent no-op. |
+| 2026-09-04 | **Isolated baseline taken BEFORE the edit, on the unmodified engine.** | `fullscan_measure.py`: 2,373 files, 8 workers, no concurrent graph build, 198.81 s. The earlier 198.5 s from the build log was therefore not inflated by contention; the scan is simply that slow, and the pool cannot help because the 173.6 s outlier is one file on one worker. A stdin-fed first attempt lost its spawn pool (`<stdin>` cannot be re-imported by a spawned worker) and fell back to serial; it was discarded and re-run from a file so the figure matches production's parallel path. |
+| 2026-09-04 | **Landed: one expression, `_secrets_full = bool(full) and content != "graph"`, forwarded as the scanner's `full`.** | `test_indexer_secrets_scope.py`, 9 tests across two layers. Indexer layer patches `_build_secrets_artifacts` to capture what `build_index` hands it: graph-only full rebuild passes `full=False` with a non-empty candidate set naming every file (AC-1, AC-6); a docs full rebuild still passes `full=True` (control). Scanner layer runs the REAL scanner against a REAL state store with the cache fixture's two-rule ruleset, no mocks: warm cache then `full=False` reports nonzero `files_skipped`, zero `files_scanned`, and `scan_type: incremental` (AC-1); an edited file is scanned while the rest skip (AC-3); a rules edit, a stale `SCANNER_VERSION`, and a deleted findings ledger each still force `scan_type: full` from the incremental call (AC-2); an empty candidate set returns `up_to_date` with no completion line, characterising the silent-no-op shape the indexer pin prevents (AC-6). |
+| 2026-09-04 | **After-fix command measurement, same machine, MCP reloaded.** | `index_build(content='graph', mode='rebuild')` at graph builder 49: `rebuilding graph index` 20:52:31, `secrets scan — incremental (1 to scan, 2069 cache-skipped, 0 removed)` complete in 6.4 s at 20:52:38, `graph phase complete` 20:53:19, `Done.` 20:53:23. Command wall clock 52 s against 203 s before; secrets 6.4 s against 198.5 s. The one file scanned was the change document being edited. The graph phase itself (40.2 s incl. a 21.7 s merge) is unchanged, as expected: this change never touched it. Recorded in `docs/architecture/performance-budget.md` as a new command-level row beside the two phase rows that could not show this cost. |
+| 2026-09-04 | Landing rule: mutation recorded before review. | Mutant: `_secrets_full = bool(full)` (scoping removed). Fails exactly `test_graph_only_full_rebuild_does_not_request_a_full_scan`; the other eight pass, which is correct because the scanner-layer tests do not depend on the indexer flag. Restored; 9 of 9 pass. |
 | 2026-09-04 | Saving measured against the warm cache before planning the fix. | `secret_scan_filter` over the same 2,368 candidates: 2,364 skipped, 4 to scan, and those 4 are exactly the session's edited files. |
 
 
@@ -174,6 +192,7 @@ still runs, still covers the same files, and still writes the same ledger.
 | --- | --- |
 | The cache skips a file that genuinely changed, so a new secret goes unreported. | AC-3 mutates a file's content and asserts it is scanned, not skipped. The cache keys on content hash plus rules fingerprint, so a content change cannot match a cached row. |
 | An escalation stops firing from the graph-only path, silently downgrading a scan that should have been full. | AC-2 asserts all three triggers separately from a graph-only build. |
+| A later change narrows the candidate set, and the scan silently becomes a no-op that still reports success. | Requirement 6 and AC-6 pin the non-empty set directly and characterise the early return, so the failure mode is asserted rather than reasoned about. |
 | The measured saving does not reproduce on a cold cache. | The first graph rebuild after this change still pays a full scan if the cache is empty; the budget row records both the warm and cold cases. |
 
 

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -326,6 +327,50 @@ def _re2_to_re(pattern: str) -> str:
     Faithful and minimal — only relocates inline flags to scoped groups and maps
     ``\\z``→``\\Z``. Caller applies it ONLY when the original fails to compile."""
     return _scope_inline_flags(_translate_end_anchor(pattern))
+
+
+# ---------------------------------------------------------------------------
+# Wave 1x4ol (1x4ok) — collapse the redundant nested prefix at load.
+#
+# Eleven upstream rules open with two nested bounded lazy spans over the SAME
+# character class, split by a case-insensitive group boundary:
+#
+#     [\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:secret|access|key|token) ...
+#
+# As a regular language that is identical to one span of the combined width:
+# `[\w.-]` has no letters for `(?i)` to act on, and X{0,50}?X{0,50}? accepts
+# exactly the strings X{0,100}? accepts. Under Go's RE2 (linear time) the two
+# forms cost the same. Under Python's backtracking `re` the nested form tries
+# ~2,600 split points per start position, restarted at every position of the
+# line; on an identifier-dense line (a fully qualified test id is `[\w.-]` end
+# to end) one rule cost 5.58 ms per line, and one 1.15 MB evidence file cost
+# 173.6 s of a 198.5 s full scan.
+#
+# This is DELIBERATELY an exact-literal substitution, not a quantifier
+# optimiser: it acts on this one shape, proven language-preserving by a
+# differential test against a baseline frozen before the edit existed
+# (tests/test_secrets_prefix_collapse.py), and leaves every other pattern
+# byte-identical. A variant shape is NOT rewritten and stays slow on purpose;
+# extend this with its own proof rather than widening the match. It runs on
+# every pattern before compile, unlike `_re2_to_re`, which runs only on a
+# compile failure -- the nested shape compiles fine, so the failure path would
+# never see it.
+# ---------------------------------------------------------------------------
+
+_REDUNDANT_PREFIX_SHAPE = "[\\w.-]{0,50}?(?i:[\\w.-]{0,50}?"
+_COLLAPSED_PREFIX = "(?i:[\\w.-]{0,100}?"
+
+
+def collapse_redundant_prefix(pattern: str) -> str:
+    """Return ``pattern`` with the one proven-redundant nested prefix collapsed.
+
+    Exact literal match only; idempotent; every other pattern is returned
+    unchanged. See the block comment above for why this is language-preserving
+    and why it is not a general rewriter.
+    """
+    if _REDUNDANT_PREFIX_SHAPE in pattern:
+        return pattern.replace(_REDUNDANT_PREFIX_SHAPE, _COLLAPSED_PREFIX, 1)
+    return pattern
 
 
 def get_scan_files(root: Path, scan_all: bool = False) -> list[Path]:
@@ -816,6 +861,20 @@ def _is_binary_path(file_path: Path) -> bool:
 #      reset at the start of each check_hardcoded_secrets run so it stays bounded.
 _SCANNER_SKIPS: list[dict] = []
 
+# Wave 1x4ol (1x4ok) — per-file cost report. For each scanned file, the single
+# most expensive rule and its wall time, so the next runaway pattern is named
+# by a report rather than found by an investigation. Filled by
+# check_hardcoded_secrets from the 4th element scan_file_raw returns (the
+# serial path and the spawn workers both carry it), reset per run like the
+# skips list. Measurement only: nothing is skipped or bounded on its basis.
+_SCANNER_COSTS: list[dict] = []
+COST_REPORT_TOP_N = 5
+
+
+def most_expensive_rules(top_n: int = COST_REPORT_TOP_N) -> list[dict]:
+    """Top-N (file, rule, seconds) rows from the last run, most costly first."""
+    return sorted(_SCANNER_COSTS, key=lambda d: -d["seconds"])[:top_n]
+
 
 def _record_scan_skip(rel: str, reason: str, detail: str) -> None:
     """Record and surface a guard skip (wave 1p44s AC-9)."""
@@ -911,7 +970,8 @@ def _scan_file_secrets_worker(args: tuple) -> tuple:
     """Worker task: scan one file using initializer-compiled globals."""
     file_path_str, rel = args
     from pathlib import Path as _Path
-    return scan_file_raw(
+    before = len(_SCANNER_COSTS)
+    result = scan_file_raw(
         _Path(file_path_str), rel,
         _WORKER_COMPILED_RULES,
         _WORKER_GLOBAL_ALLOWLIST_PATHS,
@@ -920,6 +980,11 @@ def _scan_file_secrets_worker(args: tuple) -> tuple:
         _WORKER_GLOBAL_REGEXES,
         _WORKER_GLOBAL_STOPWORDS,
     )
+    # Wave 1x4ol — the cost row lands in THIS worker's _SCANNER_COSTS, which
+    # dies with the worker; hand it back as a 4th element so the parent can
+    # aggregate it. The public scan_file_raw contract stays a 3-tuple.
+    cost = _SCANNER_COSTS[-1] if len(_SCANNER_COSTS) > before else None
+    return (*result, cost)
 
 
 def _scan_file_secrets_batch_worker(batch_args: list) -> list:
@@ -1035,12 +1100,23 @@ def scan_file_raw(
     # secrets that redact identically stay separate (AC-2); the first-matching
     # rule in ruleset order wins, making the result deterministic (AC-6).
     _kept_spans: dict[int, list[tuple[int, int]]] = {}
+    # Wave 1x4ol — per-rule wall time for this file (measurement only). The
+    # previous rule's clock is closed at the head of the next iteration and
+    # once more after the loop, so no textual anchor inside the line loop is
+    # needed.
+    _rule_costs: dict[str, float] = {}
+    _timing_rule: str | None = None
+    _timing_t0 = 0.0
 
     for rule_id, keywords, pattern, al_paths, al_regexes, cel_filter_expr in compiled_rules:
+        if _timing_rule is not None:
+            _rule_costs[_timing_rule] = time.perf_counter() - _timing_t0
+            _timing_rule = None
         if keywords and not any(kw in content_lower for kw in keywords):
             continue
         if _path_matches_allowlist(rel, al_paths):
             continue
+        _timing_rule, _timing_t0 = rule_id, time.perf_counter()
         for line_no, line in enumerate(lines, start=1):
             # Wave 1p44s — skip pathological over-long lines (minified bundles,
             # generated lockfiles) before handing them to the rule regex. Real
@@ -1125,6 +1201,15 @@ def scan_file_raw(
                 hit["exp_date"] = _exp_date
             hits.append(hit)
 
+    if _timing_rule is not None:
+        _rule_costs[_timing_rule] = time.perf_counter() - _timing_t0
+    _top = max(_rule_costs.items(), key=lambda kv: kv[1], default=None)
+    if _top:
+        # Serial path: this is the parent's list. Worker path: the worker's own
+        # list, which _scan_file_secrets_worker reads back and returns.
+        _SCANNER_COSTS.append({"file": rel, "rule": _top[0],
+                               "seconds": round(_top[1], 6),
+                               "rules_timed": len(_rule_costs)})
     return lines, file_sha256, hits
 
 
@@ -1330,6 +1415,7 @@ def check_hardcoded_secrets(
     # its count/paths reflect only the current scan (serial path; parallel-worker
     # skips surface via the per-skip stderr line emitted in the worker process).
     _SCANNER_SKIPS.clear()
+    _SCANNER_COSTS.clear()  # wave 1x4ol
 
     rules, policy, load_errors = load_merged_ruleset(root)
     if load_errors:
@@ -1422,6 +1508,9 @@ def check_hardcoded_secrets(
         pattern_str = rule.get("regex", "")
         if not pattern_str:
             continue
+        # Wave 1x4ol: language-preserving collapse of the nested lazy prefix,
+        # applied to EVERY pattern before compile (see collapse_redundant_prefix).
+        pattern_str = collapse_redundant_prefix(pattern_str)
         try:
             pattern = re.compile(pattern_str)
         except re.error:
@@ -1517,7 +1606,13 @@ def check_hardcoded_secrets(
 
     # Phase 2: serial exception matching — mutates exceptions list and collects failures.
     failures: list[str] = []
-    for (_fp, rel), (lines, file_sha256, hits) in zip(file_scan_list, scan_results):
+    for (_fp, rel), _res in zip(file_scan_list, scan_results):
+        lines, file_sha256, hits = _res[0], _res[1], _res[2]
+        # Wave 1x4ol — a 4th element arrives only from a spawn worker (the
+        # serial path appends to _SCANNER_COSTS in-process, so nothing is
+        # double-counted); it is None when the file was skipped or no rule ran.
+        if len(_res) > 3 and _res[3]:
+            _SCANNER_COSTS.append(_res[3])
         if not lines and not hits:
             continue  # file unreadable or globally allowlisted
         file_failures, file_changed = _match_hits_for_file(

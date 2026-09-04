@@ -408,6 +408,36 @@ and every assertion about it would pass vacuously. Each classification assertion
 is therefore preceded by a presence assertion, so an unindexed or relocated
 control FAILS instead of passing silently.
 
+## Engine Rewrites Are Judged Differentially (wave 1x4ol)
+
+The secrets ruleset is Gitleaks schema, written for Go's RE2, and it runs on
+Python's `re`. RE2 guarantees linear time; `re` backtracks. A pattern that is
+safe upstream can be quadratic here. Eleven of 280 rules open with two nested
+bounded lazy spans over the same class, which a backtracking engine explores at
+roughly 2,600 split points per start position; a further 120 open with a single
+lazy span that the collapse does not reach. Wave `1x4ol`
+collapses that shape to a single span at load, in the RE2-to-Python shim, never
+in the ruleset data.
+
+**A rewrite is judged by identical match sets, not by its own output.** The
+equivalence claim is that the rewritten pattern accepts exactly the language of
+the original. That is asserted three ways, all against inputs frozen BEFORE the
+engine edit existed: a seeded random corpus reproduced from its recorded seed, a
+hand-authored true-positive and known-negative fixture validated against the
+unmodified engine, and every match the unmodified engine recorded over the real
+repository, replayed at the same span with the same captured groups. A single
+divergence fails the change. A fixture written after the rewrite proves nothing
+about what stopped matching, which is why the freeze precedes the edit in the
+execution graph.
+
+**The rewrite is surgical.** It matches one exact literal shape and leaves every
+other pattern byte-identical, asserted by round-tripping the whole ruleset. A
+broader rewriter would be a new engine responsibility and needs its own review.
+
+**No coverage lever is used.** The operator declined a time bound. The scanner
+scans every file it scanned before; the set is asserted identical over the real
+repository, and no new skip reason exists.
+
 ## Docs-lint Sensor Polarity (wave 1wuju)
 
 Docs-lint sensors carry a registered polarity (`wave_lint_lib/constants.py`

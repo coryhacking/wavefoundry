@@ -324,6 +324,20 @@ def update_secrets_scan(
         f"{len(failures)} finding(s), {files_skipped} cache-skipped, in {elapsed:.1f}s",
         flush=True,
     )
+    # Wave 1x4ol (1x4ok) — per-file cost report: name the most expensive rule
+    # per file so the next runaway pattern is diagnosed from this line rather
+    # than from a bespoke investigation. Measurement only.
+    try:
+        from wave_lint_lib.secrets_validators import most_expensive_rules
+        most_expensive = most_expensive_rules()
+    except Exception:  # noqa: BLE001 - reporting must never fail the scan
+        most_expensive = []
+    for row in most_expensive:
+        print(
+            f"build_index: secrets scan cost — {row['seconds']*1000:.1f} ms "
+            f"{row['file']} (rule {row['rule']}, {row['rules_timed']} rules timed)",
+            flush=True,
+        )
 
     _save_scan_state(scan_dir, {
         "scanned_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -333,6 +347,7 @@ def update_secrets_scan(
         "files_skipped": files_skipped,
         "rules_change_escalation": rules_changed,
         "rules_hash": current_rules_hash,
+        "most_expensive": most_expensive,  # wave 1x4ol cost report
     })
 
     return {

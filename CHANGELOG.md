@@ -10,6 +10,32 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A graph rebuild costs what the graph costs.** `index_build(content='graph', mode='rebuild')` took
+  about 203 seconds on this repository, and 198.5 of them were a full secrets re-scan the graph had no
+  reason to trigger: the build forwarded its own "rebuild the graph from scratch" flag to the scanner as
+  "re-read every file", which bypassed the per-file content-hash cache. The flag is now scoped to
+  docs and code rebuilds; a graph-only build takes the scanner's incremental path, where a file is
+  skipped only when its content hash AND the rules fingerprint match a cached row, and the scanner's
+  own escalations (a rules change, a scanner version change, a missing findings ledger) still force a
+  full pass on their own. Measured on the same machine: the command went from 203 seconds to 52, the
+  secrets phase from 198.5 seconds to 6.4 with 2,069 files cache-skipped. Wave
+  `1x4ol index-build-cost-and-scanner-bounds` / change `1x4oj`.
+
+- **The secrets scanner's super-linear cost is removed without changing what it detects.** The
+  ruleset is Gitleaks schema written for Go's RE2, which guarantees linear time; it runs on Python's
+  backtracking `re`. Eleven rules open with two nested bounded lazy spans over the same character
+  class, a shape a backtracking engine explores at roughly 2,600 split points per start position, and
+  one 1.15 MB identifier-dense evidence artifact cost 173.6 seconds of a 198.5 second full scan. The
+  engine now collapses that exact shape to a single span of the combined width at load, in the
+  RE2-to-Python shim rather than in the ruleset, so the fix survives the next upstream refresh. The
+  rewrite accepts the same regular language, and that is proven rather than assumed: original and
+  collapsed patterns produce identical spans and captured groups over a seeded random corpus, a
+  hand-authored true-positive fixture, and every match recorded over the real repository, all frozen
+  before the engine edit existed. Every file scanned before is scanned after; no time bound or skip
+  condition was added. The isolated full scan went from 198.8 seconds to 18.2. The scan summary now
+  names the most expensive rule per file, so the next runaway pattern is diagnosed from a report.
+  Wave `1x4ol` / change `1x4ok`.
+
 - **Machine evidence no longer crowds real architecture out of the graph report.** On this
   repository the third-largest community was 987 nodes of a single archived test-timing artifact,
   ranked alongside genuine code domains. `wf_graph_report` now classifies an artifact as a machine
