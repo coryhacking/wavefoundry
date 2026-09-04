@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-04
 
 ## Test Tiers
 
@@ -35,7 +35,7 @@ Last verified: 2026-09-02
 | Diagram-file chunking (wave 1wik9, 1whuq) | per-family fixture shape and breadcrumb tests (mermaid frontmatter title, plantuml title directive, DOT graph identifier incl. quoted names, stem fallback), degenerate inputs (empty, oversized via the universal guard), chunker-only registration pins (extension-set disjointness in the chunker; never `_KNOWN_TEXT_EXTENSIONS`, `SOURCE_CODE_EXTENSIONS`, `BINARY_EXTENSIONS`, or the generated set in the indexer), docs-split membership in and out of docs roots, the binary-impostor OLE `.dot` sniff exclusion, and the frozen 9-query `diagrams` golden set with its executed eligibility census | `test_chunker.py` (`DiagramChunkerTests`), `test_indexer.py` (`DiagramCorpusMembershipTests`), `tests/fixtures/retrieval_golden/diagrams/` | Same runner |
 | Doc-code routing and kind filtering (wave 1wik9, 1whup) | doc-code emission from all three doc-family emitters with file-pass-scoped ordinal identities (duplicate-titled-section collision pins), per-emitter breadcrumb truth (baked markdown, injected rst/adoc, bare preamble), code-cap selection, prompt fence-inline exemption, notebook doc-code routing (the 1wl7u/1wh1b executable supersession of the preserved state), per-emission-site content-coverage invariant, docs-table routing via `_is_docs_kind`, and the server-side kind-filter enforcement including a real-Lance semantic-path raw-SQL filter regression and the `code_ask` partition-tuple complementarity pin; the regenerated markdown differential snapshot with the specs-negatives zero-delta assertion; the extended prose golden set with unique-anchor fence queries and the content-anchored recall supplement | `test_chunker.py` (`DocCodeRoutingTests`, `MarkdownDifferentialTests`), `test_indexer.py` (`DocCodeTableRoutingTests`), `test_server_tools_retrieval.py` (`DocCodeKindFilterTests`), `tests/fixtures/retrieval_golden/` | Same runner |
 | Spec-aware chunking detection and differential (wave 1wfsl, 1wfr8) | Detection positives (OpenAPI 3.x YAML+JSON, Swagger 2.x, JSON Schema dialect-URI and schema-shaped roots) and negatives (kubernetes/CI/compose configs, schemastore `$schema` configs, arbitrary JSON, and the adversarial schema-shaped data file) over the COMMITTED spec fixture corpus; operation/definition chunk shapes with baked breadcrumbs and deterministic identities; kind="code" layer-boundary pin; the `indexing.max_treesitter_parse_bytes` cap boundary on the spec path; the config gate (`WAVEFOUNDRY_SPEC_CHUNKING`); the non-spec byte-identity differential against a pre-change-chunker snapshot; and the golden-set measurement harness (`run_retrieval_eval.py`) whose before/after results are wave evidence | `test_chunker.py` (`SpecChunkingTests`), `tests/fixtures/retrieval_golden/` | Same runner |
-| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; standing baseline `docs/reports/retrieval-quality-post-1wybs.json` (a single run recorded at the `1wybs` delivery review, verdict `fail` under the drift disposition recorded in that wave's record; the reference only until the next evaluator edit, after which the next ranking wave records its own before-receipt; earlier receipts either bind a superseded evaluator identity and are incomparable, or, for the `1wuju` before-receipt, bind superseded production bytes and are no longer the reference) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/<new-receipt>.json --baseline docs/reports/retrieval-quality-post-1wybs.json` |
+| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; standing baseline `docs/reports/retrieval-quality-post-1wybs.json` (a single run recorded at the `1wybs` delivery review, verdict `fail` under the drift disposition recorded in that wave's record; the reference only until the next evaluator edit, after which the next ranking wave records its own before-receipt; earlier receipts either bind a superseded evaluator identity and are incomparable, or, for the `1wuju` before-receipt, bind superseded production bytes and are no longer the reference) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json --baseline docs/reports/retrieval-quality-post-1wybs.json` |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
@@ -256,6 +256,59 @@ acceptance criteria; the feedforward half is seed `170-plan-feature.prompt.md`
 
 ## Standing Gate Identity and Reproducibility Contract (wave 1wur7)
 
+**Production identity now binds the cluster carrier (wave `1wpaj`).**
+`graph_cluster.py` joined the production retrieval modules and
+`CLUSTER_BUILDER_VERSION` joined the production version constants, so a cluster
+artifact change moves the production digest. This is recorded as **provenance
+honesty, not as a detector**: across the tool set the evaluator actually
+measures, the cluster artifact reaches query time only through memory-advisory
+ranking, so binding it does not give the gate a new way to catch a citation
+regression. The graph tools do read the artifact by other paths, which is why
+the claim is scoped to the measured set rather than stated generally.
+
+**Eleven tuning variables are identity, recorded as values (wave `1wpaj`).**
+The four `WAVEFOUNDRY_GRAPH_BETWEENNESS_*` knobs,
+`WAVEFOUNDRY_MAX_TS_PARSE_BYTES`, `WAVEFOUNDRY_MAX_LINE_SCAN_BYTES`, the four
+`WAVEFOUNDRY_GRAPH_PARALLEL_*` knobs, and `WAVEFOUNDRY_SPEC_CHUNKING` change
+centrality method, artifact shape, extraction breadth, rebuild duration, or
+which chunks a spec file produces — all while moving no module hash, so a
+receipt taken under different values would otherwise compare as identical. They
+are recorded as resolved VALUES in their own compared key and are deliberately
+**not** retrieval toggles: that set records presence rather than value, and
+treats any set name as an active quality toggle requiring operator review — and
+the indexer MANAGES two of the eleven in the process environment on every build,
+assigning the spec-chunking one when a workflow override is present and popping it
+otherwise, so either branch is what the frozen snapshot captures, which would make a run's own required verdict unreachable. The
+values are frozen at evaluator import so an in-process assignment cannot move
+the snapshot mid-run. `WAVEFOUNDRY_SPEC_CHUNKING` was missing from the first
+delivery of this set and was added at delivery review: without it, two runs
+built under different spec-chunking settings compare as identical and any
+resulting quality difference is attributed to the code under test.
+
+**Per-fixture regressions cannot hide behind an aggregate (wave `1wpaj`).** The
+comparison now walks every `(fixture_id, tool)` key across both reports,
+requires identical key sets and exactly one row per key, and compares every
+gate metric under the evaluator's own key mapping, since two of the five gate
+names do not exist on a case row. Null semantics are explicit: a baseline value
+against a current null fails, a current value against a baseline null is
+reported without failing, and null against null is a skip. Without the mapping
+the two affected metrics would read null on both sides and silently disable
+themselves, which is the masking channel this oracle exists to close.
+
+**Report I/O is confined and never overwrites (wave `1wpaj`).** A baseline or
+output path must be a regular direct child of `docs/reports/` whose basename
+begins with `retrieval-quality-`; the prefix is part of the rule rather than a
+convention, because the repository's ignore rule keys on it and a report written
+outside it enters the retrieval corpus and contaminates the next run's own
+measurement. Outside-root paths, symlinked components, hard-link and path
+aliases, and non-regular files are rejected, the three confining ancestors are
+checked explicitly since the no-follow open flag covers only the final
+component, and the baseline is opened once without following symlinks and hashed
+from that handle before parsing. Writes land in a same-directory temporary that
+satisfies the same prefix rule, publish by atomic link, unlink the temporary in
+a `finally`, and verify a single link afterwards. The three closed-`1seaw`
+receipts are protected inputs and can never be destinations.
+
 **Identity is compared per comparison kind.** The repository root (path, device,
 inode), the index directory, and the state-store path bind every kind; the state
 store file's own device and inode bind only a `same_generation_pair`, where "one
@@ -310,6 +363,50 @@ per round and the tree is re-snapshotted once. A census is re-derived whenever
 its predicate moves and is quoted only with the predicate that produced it; a
 figure carried forward from an earlier predicate is a stale claim, not evidence.
 Seeds 180, 190, 209, 214, 221, and 239 carry the rules.
+
+## Graph Fidelity Corpus and Declared Gaps (wave 1wpie)
+
+`graph_quality_eval.py` scores the fixed corpus at
+`docs/evals/graph-quality-golden.json` through a frozen relation-to-public-tool
+matrix. Two rules keep it honest.
+
+**Every scored relation needs both sides.** A relation with no expected edge, or
+no forbidden opportunity, scores vacuously: precision or recall is undefined and
+the relation proves nothing. `load_corpus` refuses such a corpus outright.
+
+**False positives and recall gaps are graded differently.** A false positive is
+an edge that is simply not true, so the gate is zero, always. A recall gap is a
+measured limitation of the extractor, so it is DECLARED rather than hidden.
+Each entry in `known_gaps` names an expected edge the graph does not currently
+produce, the evidence that isolated it, and a stable id. The suite asserts the
+declared set equals the actual miss set **exactly**, in both directions: a new
+miss fails because it is undeclared, and a repaired miss also fails, so an
+improvement cannot land while the corpus still describes it as broken. A gap
+that does not correspond to an expected edge is rejected at load, because a gap
+for an edge nobody expects is a claim about nothing.
+
+**A report says what produced it.** `--report <path> --label baseline|post`
+writes an identity-bound report: corpus digest, evaluator source, the extraction
+and query sources actually loaded, graph and cluster builder/schema versions, the
+graph input fingerprint, repository provenance, environment and clustering
+backend, and a digest over the report's own content. Evaluator identity and
+production identity are recorded SEPARATELY, because the normal comparison is one
+instrument reading two productions; a single combined digest would hide exactly
+the difference being measured. `production_identity.source_root` records where
+the measured production was loaded from, so a baseline taken from a predecessor
+checkout is not misread as the working repository. `verify_report_pair` reports a
+delta as attributable only when the corpus and the instrument both held still.
+The two report paths join `.aiignore` like every other standing report family, so
+a measurement never becomes its own search answer.
+
+**Controls live where the walker indexes them.** The Evidence/Data positive and
+negative controls sit under the owning wave's `evidence/` directory, not beside
+the other eval fixtures. A re-derived census of the persisted graph found
+`docs/evals/` and `docs/reports/` contribute zero nodes each while wave evidence
+trees contribute 2,758; a control filed with the fixtures would never be indexed
+and every assertion about it would pass vacuously. Each classification assertion
+is therefore preceded by a presence assertion, so an unindexed or relocated
+control FAILS instead of passing silently.
 
 ## Docs-lint Sensor Polarity (wave 1wuju)
 

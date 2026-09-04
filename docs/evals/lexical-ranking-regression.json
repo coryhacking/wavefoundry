@@ -1,0 +1,41 @@
+{
+  "schema": "wavefoundry.lexical-ranking-fixtures/v1",
+  "evidence_role": "regression_only",
+  "rows": {
+    "code": [
+      {"id": "reg-code-target", "path": "sigma/pipeline.py", "text": "pipeline dispatcher sigma"},
+      {"id": "reg-code-m0", "path": "sigma/m0.py", "text": "separate module content zero"},
+      {"id": "reg-code-m1", "path": "sigma/m1.py", "text": "separate module content one"},
+      {"id": "reg-code-m2", "path": "sigma/m2.py", "text": "separate module content two"},
+      {"id": "reg-code-m3", "path": "sigma/m3.py", "text": "separate module content three"},
+      {"id": "reg-code-m4", "path": "sigma/m4.py", "text": "separate module content four"},
+      {"id": "reg-code-m5", "path": "sigma/m5.py", "text": "separate module content five"},
+      {"id": "reg-code-m6", "path": "sigma/m6.py", "text": "separate module content six"},
+      {"id": "reg-code-m7", "path": "sigma/m7.py", "text": "separate module content seven"},
+      {"id": "reg-code-m8", "path": "sigma/m8.py", "text": "separate module content eight"},
+      {"id": "reg-code-m9", "path": "sigma/m9.py", "text": "separate module content nine"},
+      {"id": "reg-code-m10", "path": "sigma/m10.py", "text": "separate module content ten"},
+      {"id": "reg-code-m11", "path": "sigma/m11.py", "text": "separate module content eleven"},
+      {"id": "reg-code-tail", "path": "sigma/tail.py", "text": "REGRESSION_TAIL_MARKER = 2"}
+    ],
+    "docs": [
+      {"id": "reg-docs-rival", "path": "sigma/pipeline.md", "text": "pipeline dispatcher sigma"}
+    ]
+  },
+  "cases": [
+    {
+      "id": "reg-cross-table-order",
+      "query": "pipeline dispatcher",
+      "table": "both",
+      "relevant_ids": ["reg-code-target", "reg-docs-rival"],
+      "rationale": "The cross-table stability contract on vocabulary disjoint from the calibration corpus. Held back for delivery non-regression evidence only; it may not select a mechanism and it may not support an improvement claim, because it is authored by the same party that builds the mechanism."
+    },
+    {
+      "id": "reg-tail-identifier",
+      "query": "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima REGRESSION_TAIL_MARKER",
+      "table": "code",
+      "relevant_ids": ["reg-code-tail"],
+      "rationale": "The tail-identifier contract on a disjoint filler vocabulary, so a mechanism overfitted to the calibration filler words does not pass here by coincidence. Delivery non-regression evidence only."
+    }
+  ]
+}

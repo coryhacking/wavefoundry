@@ -1,0 +1,12 @@
+{
+  "title": "Reviewer stance catalog",
+  "description": "NEGATIVE CONTROL for wave 1wpie requirement 12. Hand-authored reference data with the repeated-key shape a naive size/shape heuristic would flag. It carries no provenance and no machine-run signature, so it must remain in its ordinary domain.",
+  "stances": [
+    {"id": "correctness", "prompt": "Does the change do what it claims under adversarial inputs?", "applies_to": ["code", "plans"]},
+    {"id": "simplicity", "prompt": "Is there a materially simpler design with the same guarantees?", "applies_to": ["code", "design"]},
+    {"id": "operability", "prompt": "What does a failure look like at 3am, and what does the operator do?", "applies_to": ["code", "operations"]},
+    {"id": "evidence", "prompt": "Is every claim backed by something a skeptic could re-derive?", "applies_to": ["plans", "reports"]},
+    {"id": "scope", "prompt": "What was quietly added or dropped relative to the stated request?", "applies_to": ["plans", "code"]}
+  ],
+  "defaults": {"minimum_stances": 3, "rotation": "per-wave"}
+}

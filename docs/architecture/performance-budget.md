@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-04
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -36,7 +36,8 @@ batch 32. The L6 reranker remains FP16 GPU / INT8 CPU at its independent batch
 | FTS derived rebuild (`content='fts'`) | seconds-class | ~3.4 s (recorded) |
 | `code_ask` end-to-end | sub-second to low seconds; envelope carries `vector_ms` / `rerank_ms` components | live envelopes; reranker session cold-load dominates first call |
 | Codebase map refresh (`content='map'`) | ~0.1 s | 1p601 measurement (~0.09 s) |
-| Graph-only rebuild (`content='graph'`) | ~10–20 s | this repo: 19.4 s incremental merge (2026-07-20 build log) |
+| Graph-only rebuild (`content='graph'`), incremental merge | ~10–20 s | this repo: 19.4 s (2026-07-20 build log) |
+| Graph-only rebuild after a BUILDER VERSION bump (full re-extraction) | ~40–60 s | this repo: 52 s at graph builder 48 / cluster builder 13 (2026-09-03). A version bump invalidates every per-file artifact by design, so this is the one-time cost OF the bump, not a recurring per-build figure. Compare against the incremental row above only after the first post-bump build. |
 | `wf docs-lint` full corpus | < 300 s bound (config-tunable `docs_lint.full_scan_timeout_seconds`) | typically seconds; the bound guards the subprocess |
 | Gardener / surface render subprocesses | < 180 s bound (config-tunable `subprocess_ops.*_timeout_seconds`, wave 1seax) | typically seconds; generous bound for slow machines |
 | Framework script test suite | ~4.5 min full (6 workers, ~6,000 tests) | 2026-07-20 runs: 260–320 s |

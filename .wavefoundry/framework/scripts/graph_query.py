@@ -12,7 +12,7 @@ import os
 import sys
 from collections import deque
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal, Mapping
 
 import cli_stdio  # wave 1p9io: isolated_stdout_fd() for the in-process graph auto-rebuild
 
@@ -23,6 +23,34 @@ Direction = Literal["callers", "callees", "both"]
 # size-tiered) and persisted in the clusters artifact; `wf_graph_report` serves the
 # persisted ranking. The per-query computation and its 10k-node cap are retired.
 ReportSection = Literal["fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs"]
+
+# Wave 1wpie: the sections that carry an exact parallel Evidence/Data array.
+# `orphan_docs` is deliberately absent -- it is an unranked diagnostic set with
+# no top-N slot to protect, so it has no evidence half.
+EVIDENCE_PAIR_SECTIONS = ("communities", "fan_in", "fan_out", "chokepoints", "file_hubs")
+
+# Wave 1wpie: a community is Evidence/Data when a MAJORITY of its members are
+# classified machine-result nodes. Majority rather than presence, so one stray
+# artifact cannot evict a real architectural domain from the production
+# ranking. The threshold and the share function live here rather than at a
+# call site because the public report and the community catalog resource must
+# apply the SAME rule; two copies would drift and present the same community
+# two different ways depending on which surface a reader happened to open.
+EVIDENCE_COMMUNITY_MAJORITY = 0.5
+
+
+def community_evidence_share(index: Any, community: Mapping[str, Any]) -> float:
+    """Fraction of a community's members that are classified machine results."""
+    members = community.get("node_ids") or []
+    if not members:
+        return 0.0
+    hits = sum(1 for n in members if index.is_evidence_node(str(n)))
+    return hits / len(members)
+
+
+def is_evidence_community(index: Any, community: Mapping[str, Any]) -> bool:
+    return community_evidence_share(index, community) > EVIDENCE_COMMUNITY_MAJORITY
+
 
 # Wave 1p9qh (1p9qa): `implements`/`extends` join the default impact traversal
 # — a change to a supertype/interface potentially lands on every subtype via
@@ -1172,6 +1200,34 @@ class GraphQueryIndex:
         # Wave 1p4ww: single project graph — framework/union layers removed.
         return cls(load_graph(root, layer="project"))
 
+    def is_evidence_node(self, node_id: str) -> bool:
+        """Whether a node belongs to a classified machine-result artifact.
+
+        Wave 1wpie. The classification is stamped at build time on the MODULE
+        node, so a key node inherits it from the file that owns it: a JSON
+        artifact's 987 key nodes are evidence because their file is, not
+        because anything was inferred about each key. Resolving through the
+        owning file is also what keeps the rule move-invariant, since the
+        lookup is by node identity rather than by any path pattern.
+        """
+        nid = str(node_id or "")
+        if not nid:
+            return False
+        owner = self._node_by_id.get(nid.split("::", 1)[0]) or {}
+        if owner.get("evidence_data") is True:
+            return True
+        return bool((self._node_by_id.get(nid) or {}).get("evidence_data"))
+
+    def evidence_reasons(self, node_id: str) -> list[str]:
+        """Why a node was classified; never empty for a classified node."""
+        nid = str(node_id or "")
+        for candidate in (nid.split("::", 1)[0], nid):
+            node = self._node_by_id.get(candidate) or {}
+            reasons = node.get("classification_reasons")
+            if reasons:
+                return list(reasons)
+        return []
+
     def get_node(self, node_id: str) -> dict[str, Any] | None:
         return self._node_by_id.get(node_id)
 
@@ -1987,7 +2043,24 @@ class GraphQueryIndex:
         limit: int = 20,
         sections: Iterable[str] | None = None,
         chokepoint_threshold: int = _CHOKEPOINT_FAN_OUT,
+        eligible: "Callable[[str], bool] | None" = None,
+        is_evidence: "Callable[[str], bool] | None" = None,
     ) -> dict[str, Any]:
+        """Ranked report sections.
+
+        Wave 1wpaj: ``eligible`` filters the candidate universe BEFORE each
+        top-N truncation. It used to be applied by the caller AFTER this method
+        had already sliced, so a filtered request returned fewer rows than asked
+        for whenever ineligible candidates outranked eligible ones — at
+        ``limit=1`` with external nodes on top, an empty list. The predicate has
+        to arrive here because the RANKED sections truncate at three separate
+        sites (the shared ranking helper below, plus an inline slice in each of
+        chokepoints and file_hubs); filtering in the helper alone would repair
+        only the two fan sections. ``orphan_docs`` has a fourth slice that the
+        predicate deliberately does not reach: it is an unranked diagnostic set
+        of doc nodes, which carry neither the ``external::`` prefix nor the
+        generated flag, so no eligibility question arises there.
+        """
         wanted = set(sections) if sections is not None else {
             "fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs",
         }
@@ -2015,8 +2088,19 @@ class GraphQueryIndex:
             if isinstance(src, str):
                 fan_out_counts[src] = fan_out_counts.get(src, 0) + 1
 
-        def _ranked(counts: dict[str, int]) -> list[dict[str, Any]]:
-            rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        def _ranked(counts: dict[str, int],
+                    keep: "Callable[[str], bool] | None" = None) -> list[dict[str, Any]]:
+            # Wave 1wpaj: eligibility BEFORE the slice (truncation site 1 of 3).
+            # Wave 1wpie: `keep` additionally splits the universe into the
+            # production and Evidence/Data halves BEFORE this same slice, so the
+            # limit applies to each half independently and evidence rows never
+            # consume a production slot.
+            items = counts.items() if eligible is None else [
+                item for item in counts.items() if eligible(item[0])
+            ]
+            if keep is not None:
+                items = [item for item in items if keep(item[0])]
+            rows = sorted(items, key=lambda item: (-item[1], item[0]))[:limit]
             ranked_rows: list[dict[str, Any]] = []
             for nid, count in rows:
                 node = self._node_by_id.get(nid) or {}
@@ -2034,10 +2118,34 @@ class GraphQueryIndex:
             return ranked_rows
 
         result: dict[str, Any] = {"layer": self.layer, "present": self.present}
+
+        def _decorate_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            """Every evidence row states its type and WHY it was classified."""
+            for row in rows:
+                row["evidence_type"] = "evidence_data"
+                row["classification_reasons"] = self.evidence_reasons(str(row["node_id"]))
+            return rows
+
+        def _emit_pair(name: str, counts: dict[str, int]) -> None:
+            """One production array and its exact parallel evidence array.
+
+            Wave 1wpie requirement 7: the evidence array is emitted whenever its
+            production section is, and it is present-and-empty rather than absent
+            when nothing qualifies, so a consumer never has to distinguish
+            "no evidence rows" from "this build predates the partition".
+            """
+            if is_evidence is None:
+                result[name] = _ranked(counts)
+                result[f"evidence_{name}"] = []
+                return
+            result[name] = _ranked(counts, keep=lambda nid: not is_evidence(nid))
+            result[f"evidence_{name}"] = _decorate_evidence(
+                _ranked(counts, keep=is_evidence))
+
         if "fan_in" in wanted:
-            result["fan_in"] = _ranked(fan_in_counts)
+            _emit_pair("fan_in", fan_in_counts)
         if "fan_out" in wanted:
-            result["fan_out"] = _ranked(fan_out_counts)
+            _emit_pair("fan_out", fan_out_counts)
         if "orphan_docs" in wanted:
             # Wave 13129 (1316t): track candidate total so an empty list can be
             # distinguished from "no doc nodes existed at all".
@@ -2077,16 +2185,29 @@ class GraphQueryIndex:
                 if count > 0
                 and (self._node_by_id.get(nid) or {}).get("kind") != "module"
             )
-            chokepoints = [
-                {
-                    "node_id": nid,
-                    "fan_out": count,
-                    "label": (self._node_by_id.get(nid) or {}).get("label", nid),
-                }
-                for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
-                if count >= chokepoint_threshold
-                and (self._node_by_id.get(nid) or {}).get("kind") != "module"
-            ][:limit]
+            def _chokepoint_rows(keep: "Callable[[str], bool] | None") -> list[dict[str, Any]]:
+                return [
+                    {
+                        "node_id": nid,
+                        "fan_out": count,
+                        "label": (self._node_by_id.get(nid) or {}).get("label", nid),
+                    }
+                    for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
+                    if count >= chokepoint_threshold
+                    and (self._node_by_id.get(nid) or {}).get("kind") != "module"
+                    # Wave 1wpaj: eligibility BEFORE the slice (site 2 of 3).
+                    and (eligible is None or eligible(nid))
+                    # Wave 1wpie: partition BEFORE the same slice.
+                    and (keep is None or keep(nid))
+                ][:limit]
+
+            if is_evidence is None:
+                chokepoints = _chokepoint_rows(None)
+                result["evidence_chokepoints"] = []
+            else:
+                chokepoints = _chokepoint_rows(lambda nid: not is_evidence(nid))
+                result["evidence_chokepoints"] = _decorate_evidence(
+                    _chokepoint_rows(is_evidence))
             result["chokepoints"] = chokepoints
             result["chokepoints_candidates_total"] = chokepoint_candidates_total
             result["chokepoints_threshold"] = chokepoint_threshold
@@ -2103,7 +2224,8 @@ class GraphQueryIndex:
                 if count > 0
                 and (self._node_by_id.get(nid) or {}).get("kind") == "module"
             )
-            file_hubs = [
+            def _file_hub_rows(keep: "Callable[[str], bool] | None") -> list[dict[str, Any]]:
+                return [
                 {
                     "node_id": nid,
                     "fan_out": count,
@@ -2113,7 +2235,22 @@ class GraphQueryIndex:
                 for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
                 if count >= chokepoint_threshold
                 and (self._node_by_id.get(nid) or {}).get("kind") == "module"
+                # Wave 1wpaj: eligibility BEFORE the slice (site 3 of 3). NOTE
+                # this is a CONTRACT WIDENING for the generated filter, which
+                # never reached file_hubs before; the external filter already
+                # covered this section, so only the generated case is new.
+                and (eligible is None or eligible(nid))
+                # Wave 1wpie: partition BEFORE the same slice.
+                and (keep is None or keep(nid))
             ][:limit]
+
+            if is_evidence is None:
+                file_hubs = _file_hub_rows(None)
+                result["evidence_file_hubs"] = []
+            else:
+                file_hubs = _file_hub_rows(lambda nid: not is_evidence(nid))
+                result["evidence_file_hubs"] = _decorate_evidence(
+                    _file_hub_rows(is_evidence))
             result["file_hubs"] = file_hubs
             result["file_hubs_candidates_total"] = file_hubs_candidates_total
             result["file_hubs_threshold"] = chokepoint_threshold
@@ -2124,6 +2261,18 @@ class GraphQueryIndex:
         # section directly. This method never computes centrality.
         # Wave 1p4ww: the ``cross_layer`` section required the union layer
         # (project×framework boundary edges), which no longer exists.
+        #
+        # Wave 1wpie delivery review (DOCS-DEL-1 / ARCH-DEL-1): Requirement 7
+        # says every evidence array is present and empty "even when
+        # `communities` itself was not requested", and four public surfaces
+        # promise it. Emitting each one inside its own section guard broke
+        # that: a caller asking for one section saw the other four ABSENT and,
+        # per the documented contract, had to read absence as "this build
+        # predates the partition" -- reintroducing the exact ambiguity the rule
+        # exists to remove. The five names are normalized here, after section
+        # assembly, so presence never depends on what was requested.
+        for _pair in EVIDENCE_PAIR_SECTIONS:
+            result.setdefault(f"evidence_{_pair}", [])
         return result
 
 

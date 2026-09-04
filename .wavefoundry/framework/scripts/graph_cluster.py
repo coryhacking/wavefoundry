@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 CLUSTER_SCHEMA_VERSION = "1"
-CLUSTER_BUILDER_VERSION = "11"  # Wave 1p9q3 (1p9q1, build-time betweenness): the clusters artifact gains a top-level `betweenness` section — top-N node ranking (node_id/score/label/kind) with computation metadata (`method`: exact|cutoff|degree_fallback, `node_count`, `edge_count`, `elapsed_ms`, `cutoff` when applicable, `top_n`) computed at build time over the directed `calls` graph with a size-tiered strategy (exact below BETWEENNESS_EXACT_MAX_NODES; igraph bounded-path `cutoff` approximation below BETWEENNESS_CUTOFF_MAX_NODES; deterministic degree/fan-out fallback above that or when igraph is unavailable). `wf_graph_report` now READS this section instead of computing betweenness per query (the 10k-node query cap is retired). Artifact-shape change → bump per the standing rule. Previous: 10 (wave 1p65m, clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
+CLUSTER_BUILDER_VERSION = "13"  # Wave 1wpie: bumped per requirement 8, which directs this wave to read the LANDED predecessor version (12, from 1wpaj) and move to the next. Honest note on what changed: the cluster artifact's SHAPE is unchanged by this wave, because Evidence/Data partitioning happens at report time from `evidence_data` flags stamped on GRAPH nodes, not inside the cluster payload. The bump is therefore a deliberate invalidation rather than a shape change -- it guarantees a same-fingerprint artifact built at 12 is recomputed rather than reused, which is the behaviour AC-8 pins. The accompanying GRAPH_BUILDER_VERSION 46 -> 47 would have forced the same recompute on its own; the explicit cluster bump makes the predecessor-version path testable in its own right. Previous (12): Wave 1wpaj: the betweenness section gains `complete_ranking` (the complete deterministic positive-score order, compact node_id/score rows) plus `complete_ranking_total`, beside the unchanged top-N `ranking` prefix. A filtered public query cannot refill from the prefix alone, so old artifacts must rebuild. Previous (11): Wave 1p9q3 (1p9q1, build-time betweenness): the clusters artifact gains a top-level `betweenness` section — top-N node ranking (node_id/score/label/kind) with computation metadata (`method`: exact|cutoff|degree_fallback, `node_count`, `edge_count`, `elapsed_ms`, `cutoff` when applicable, `top_n`) computed at build time over the directed `calls` graph with a size-tiered strategy (exact below BETWEENNESS_EXACT_MAX_NODES; igraph bounded-path `cutoff` approximation below BETWEENNESS_CUTOFF_MAX_NODES; deterministic degree/fan-out fallback above that or when igraph is unavailable). `wf_graph_report` now READS this section instead of computing betweenness per query (the 10k-node query cap is retired). Artifact-shape change → bump per the standing rule. Previous: 10 (wave 1p65m, clustering cohesion + determinism): (1) seed igraph's global RNG before Leiden partitioning so clustering is reproducible across rebuilds even on a leidenalg lacking the `seed=` kwarg (the old unseeded fallback caused identical-input area-count churn, a consumer's 221/224); (2) a conservative, deterministic post-cluster split of cross-directory GRAB-BAG communities — a community scattered across >= GRABBAG_MIN_DIRS distinct module-dirs with NO dominant home (incidental weak/util edges) is split per module-dir, with an anti-over-split dominant-share guard so a cohesive module with a few strays is left intact. Community-shape change → consumer caches re-cluster. Previous: 1p4ls (exclude constant nodes + `reads` edges from clustering).
 # Wave 1p65m (#2): cross-directory grab-bag split thresholds (conservative — only
 # egregious grab-bags; field-validated tuning may adjust). A community is a grab-bag
 # when its members span at least this many distinct module-dirs (first 2 path
@@ -948,12 +948,20 @@ def compute_betweenness_ranking(graph_payload: dict[str, Any]) -> dict[str, Any]
     `calls` graph, computed at build time and persisted in the clusters artifact.
 
     Returns the artifact section: ``{method, node_count, edge_count, top_n,
-    elapsed_ms, ranking, [cutoff]}`` where ``ranking`` is the top-N nodes by
+    elapsed_ms, ranking, complete_ranking, complete_ranking_total, [cutoff]}`` where
+    ``ranking`` is the top-N nodes by
     score (positive, finite scores only) with a stable ``(-score, node_id)``
     order. Deterministic for a given graph in every tier: igraph's exact and
     ``cutoff`` betweenness carry no sampling RNG, and the degree fallback is a
-    deterministic sort with a node-id tiebreak. Never unbounded: above
-    ``BETWEENNESS_CUTOFF_MAX_NODES`` igraph is not consulted at all.
+    deterministic sort with a node-id tiebreak. The COMPUTE is never unbounded: above
+    ``BETWEENNESS_CUTOFF_MAX_NODES`` igraph is not consulted at all. That bound is
+    about compute time and does NOT bound ``complete_ranking``, whose length is the
+    positive-score universe. Note the regime matters: the degree fallback (igraph
+    absent at any size, not only above the tier) scores every node with an outgoing
+    call rather than every node on a shortest path, which on this repository is 9,270
+    rows against 2,173 exact — roughly four times the rows and five times the parse
+    increment. Still small in absolute terms, but it is the regime nobody measured
+    when the size figures were recorded.
     """
     started = time.monotonic()
     nodes_by_id, call_edges = _betweenness_projection(graph_payload)
@@ -1000,22 +1008,36 @@ def compute_betweenness_ranking(graph_payload: dict[str, Any]) -> dict[str, Any]
         for source, _target in call_edges:
             fan_out[source] += 1
         scores_by_id = {node_id: float(count) for node_id, count in fan_out.items()}
-    ranked = sorted(
+    # Wave 1wpaj: the COMPLETE deterministic order, then the compatibility
+    # prefix. The candidate universe is every node with a positive finite score,
+    # ordered by (-score, node_id); zero and non-finite nodes stay excluded
+    # exactly as before. A filtered public query cannot refill from the top-N
+    # prefix alone — eligible rows below the prefix are unreachable — so the
+    # complete order is persisted beside it rather than replacing it.
+    complete = sorted(
         (
             (node_id, score)
             for node_id, score in scores_by_id.items()
             if score > 0 and math.isfinite(score)
         ),
         key=lambda item: (-item[1], item[0]),
-    )[:BETWEENNESS_TOP_N]
-    ranking = [
-        {
+    )
+    ranked = complete[:BETWEENNESS_TOP_N]
+
+    def _row(node_id: str, score: float) -> dict[str, Any]:
+        return {
             "node_id": node_id,
             "score": round(score, 4),
             "label": nodes_by_id.get(node_id, {}).get("label", node_id),
             "kind": nodes_by_id.get(node_id, {}).get("kind"),
         }
-        for node_id, score in ranked
+
+    ranking = [_row(node_id, score) for node_id, score in ranked]
+    # Compact rows: label and kind are resolvable at serve time from the graph,
+    # so the complete order carries only what the ordering needs.
+    complete_ranking = [
+        {"node_id": node_id, "score": round(score, 4)}
+        for node_id, score in complete
     ]
     elapsed_ms = int((time.monotonic() - started) * 1000)
     section: dict[str, Any] = {
@@ -1025,6 +1047,13 @@ def compute_betweenness_ranking(graph_payload: dict[str, Any]) -> dict[str, Any]
         "top_n": BETWEENNESS_TOP_N,
         "elapsed_ms": elapsed_ms,
         "ranking": ranking,
+        # Wave 1wpaj: the complete scored base order behind the compatibility
+        # prefix above. `ranking` keeps its exact previous shape and length so
+        # existing top-N consumers are untouched; `complete_ranking` is what a
+        # filtered public query refills from. Internal only — the complete order
+        # is never returned in a public response.
+        "complete_ranking": complete_ranking,
+        "complete_ranking_total": len(complete_ranking),
     }
     if cutoff_value is not None:
         section["cutoff"] = cutoff_value

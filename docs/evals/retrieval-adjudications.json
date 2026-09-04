@@ -1,0 +1,60 @@
+{
+  "schema": "wavefoundry.retrieval-adjudications/v1",
+  "adjudications": [
+    {
+      "fixture_id": "constant-value-calibration-reranker",
+      "tool": "code_ask",
+      "metric": "question_type_accuracy",
+      "run_id": "b73066238c5d4e5929ad2a0c9d7a032f6b42539934d6ae85400b9bb38952f9df",
+      "inspected_path": ".wavefoundry/framework/scripts/indexer.py",
+      "anchor": {"type": "symbol", "value": "RERANKER_MODEL"},
+      "observed": "Retrieval succeeded and only the routing label failed. In the same run the case scored ndcg_at_10 1.0, recall_at_10 1.0 and mrr_at_10 1.0 for this tool, so the declaration was returned at rank one; the question was nevertheless classified as something other than the expected navigational type. A zero here therefore measures the classifier contract, not retrieval.",
+      "verdict": "classifier_contract_mismatch",
+      "rationale": "The three retrieval metrics for this exact (fixture, tool) pair are all 1.0 in the same run, so the target was retrieved at rank one. Only question_type_correct is false. Treating this zero as a ranking defect would charge retrieval for a routing decision it did not make. Requirement 6 selects navigational as the documented contract for upper-snake constant-value questions, which is the repair this zero actually calls for."
+    },
+    {
+      "fixture_id": "constant-value-holdout-int8-revision",
+      "tool": "code_ask",
+      "metric": "question_type_accuracy",
+      "run_id": "b73066238c5d4e5929ad2a0c9d7a032f6b42539934d6ae85400b9bb38952f9df",
+      "inspected_path": ".wavefoundry/framework/scripts/indexer.py",
+      "anchor": {"type": "symbol", "value": "INT8_ENCODING_REVISION"},
+      "observed": "Replayed the public path live during implementation. code_ask returned question_type 'explanatory' against an expected 'navigational', while final_rank 1 was indexer.py:3661-3684 whose excerpt carries the literal declaration INT8_ENCODING_REVISION = \"int8enc2\" at cross-encoder score 1.0, with envelope confidence high and no gaps. The recorded run scored ndcg_at_10, recall_at_10 and mrr_at_10 all 1.0 for this pair.",
+      "verdict": "classifier_contract_mismatch",
+      "rationale": "The declaration was the rank-one citation and the answer pointer named it, so the user-visible retrieval result is correct and complete. The only failing signal is the question-type label. This is the second of the two constant-value cases and it reproduces the first exactly, which is what makes it a contract mismatch rather than a per-fixture accident."
+    },
+    {
+      "fixture_id": "constant-value-calibration-reranker",
+      "tool": "code_lexical",
+      "metric": "recall_at_10",
+      "run_id": "b73066238c5d4e5929ad2a0c9d7a032f6b42539934d6ae85400b9bb38952f9df",
+      "inspected_path": ".wavefoundry/framework/scripts/indexer.py",
+      "anchor": {"type": "symbol", "value": "RERANKER_MODEL"},
+      "observed": "Replayed code_lexical('what value is RERANKER_MODEL') live on both tables and on the code table alone. On table='both' all six top hits were wave-archive documents under docs/waves/1p4hi that discuss RERANKER_MODEL. On table='code' the top four were setup_index.py and server_impl.py chunks that merely mention the identifier. The indexer.py declaration chunk was absent from both result sets, although code_ask retrieves that same chunk with a lexical source tag, so it is indexed and reachable.",
+      "verdict": "confirmed_retrieval_miss",
+      "rationale": "The target really was not returned, so this is a genuine retrieval failure rather than an oracle or carrier artifact. The mechanism is explainable: a short constant-declaration chunk carries the identifier once, while longer chunks that discuss it match the identifier plus the query's other tokens repeatedly, and BM25 rewards that. Recorded deliberately as a miss that NEITHER mechanism proposed in 1wpid would repair, because restricting to the code table still misses, which rules out cross-table fusion, and the identifier is already the query's final token, which rules out tail-token truncation."
+    },
+    {
+      "fixture_id": "constant-value-calibration-reranker",
+      "tool": "code_lexical",
+      "metric": "ndcg_at_10",
+      "run_id": "b73066238c5d4e5929ad2a0c9d7a032f6b42539934d6ae85400b9bb38952f9df",
+      "inspected_path": ".wavefoundry/framework/scripts/indexer.py",
+      "anchor": {"type": "symbol", "value": "RERANKER_MODEL"},
+      "observed": "Same replay as the recall receipt for this pair: the declaration chunk appears in neither the both-table nor the code-table result set, so no graded gain is available at any rank and the discounted gain is necessarily zero.",
+      "verdict": "confirmed_retrieval_miss",
+      "rationale": "Zero here is entailed by the recall miss for the same pair rather than being independent evidence. It is adjudicated separately because Requirement 3 keys receipts on the exact (fixture, tool, metric) triple, and a fixture-wide or tool-wide label may not stand in for per-metric evidence."
+    },
+    {
+      "fixture_id": "constant-value-calibration-reranker",
+      "tool": "code_lexical",
+      "metric": "mrr_at_10",
+      "run_id": "b73066238c5d4e5929ad2a0c9d7a032f6b42539934d6ae85400b9bb38952f9df",
+      "inspected_path": ".wavefoundry/framework/scripts/indexer.py",
+      "anchor": {"type": "symbol", "value": "RERANKER_MODEL"},
+      "observed": "Same replay as the recall receipt for this pair: with the declaration chunk absent from the returned set there is no reciprocal rank to award.",
+      "verdict": "confirmed_retrieval_miss",
+      "rationale": "Entailed by the same recall miss and adjudicated separately for the same per-metric reason. Grouping it under the recall receipt would leave this metric unadjudicated under the coverage check, which is exactly the fixture-wide shortcut Requirement 3 forbids."
+    }
+  ]
+}

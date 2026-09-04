@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fnmatch
+import hashlib
 import json
 import os
+import re
+import shutil
 import sqlite3
 import statistics
 import sys
@@ -34,9 +38,20 @@ CLASSES = (
 
 
 def _fixture(case_id: str, case_class: str, split: str, *, tools=("code_ask",),
-             abstention: bool = False, query_form: str | None = None) -> dict:
+             abstention: bool = False, query_form: str | None = None,
+             evidence_role: str = "regression_only",
+             authorship_class: str = "qa_local",
+             consultation_status: str = "unknown",
+             mechanism_exposure: str = "unknown") -> dict:
     omitted = set(subject.TOOLS) - set(tools)
     row = {
+        # Wave 1wscp: evidence authority is mandatory on every fixture.  The
+        # default here is deliberately NON-gain-eligible so a test must opt in
+        # explicitly to assert an improvement claim.
+        "evidence_role": evidence_role,
+        "authorship_class": authorship_class,
+        "consultation_status": consultation_status,
+        "mechanism_exposure": mechanism_exposure,
         "id": case_id,
         "class": case_class,
         "split": split,
@@ -78,6 +93,342 @@ def _valid_payload() -> dict:
                 query_form="symptom_only" if number < 3 else "contextual",
             ))
     return {"schema": subject.FIXTURE_SCHEMA, "fixtures": fixtures}
+
+
+class EvidenceAuthorityTests(unittest.TestCase):
+    """Wave 1wscp AC-2: gain eligibility is DERIVED, and a fixture cannot
+    assert independence by label while contradicting it in the same object."""
+
+    def _load(self, payload):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "target.py").write_text("needle\n", encoding="utf-8")
+            path = root / "fixtures.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            return subject.load_fixture_corpus(path, root=root)
+
+    def _reject(self, payload):
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            self._load(payload)
+        return caught.exception
+
+    def test_the_only_independent_combination_is_gain_eligible(self):
+        payload = _valid_payload()
+        payload["fixtures"][0].update(subject.GAIN_ELIGIBLE_COMBINATION)
+        loaded = self._load(payload)
+        self.assertTrue(loaded["fixtures"][0]["gain_eligible"])
+        # Everything else in the same corpus stays ineligible.
+        self.assertEqual(
+            1, sum(1 for f in loaded["fixtures"] if f["gain_eligible"]))
+
+    def test_false_independence_is_rejected_on_each_field_separately(self):
+        # Each of the three supporting fields, mutated alone, must fail.  A
+        # single combined mutant would pass if only one field were checked.
+        for field, bad in (
+            ("authorship_class", "implementer"),
+            ("consultation_status", "consulted"),
+            ("mechanism_exposure", "exposed"),
+        ):
+            with self.subTest(field=field):
+                payload = _valid_payload()
+                payload["fixtures"][0].update(subject.GAIN_ELIGIBLE_COMBINATION)
+                payload["fixtures"][0][field] = bad
+                error = self._reject(payload)
+                self.assertEqual("invalid_fixture", error.code)
+                self.assertIn(field, str(error))
+
+    def test_a_fixture_cannot_declare_its_own_eligibility(self):
+        payload = _valid_payload()
+        payload["fixtures"][0]["gain_eligible"] = True
+        self.assertEqual("invalid_fixture", self._reject(payload).code)
+
+    def test_each_authority_field_is_mandatory_and_vocabulary_checked(self):
+        for field in subject.EVIDENCE_FIELD_VOCABULARIES:
+            with self.subTest(field=field, case="missing"):
+                payload = _valid_payload()
+                payload["fixtures"][0].pop(field)
+                self.assertEqual("invalid_fixture", self._reject(payload).code)
+            with self.subTest(field=field, case="unknown value"):
+                payload = _valid_payload()
+                payload["fixtures"][0][field] = "not-a-real-value"
+                self.assertEqual("invalid_fixture", self._reject(payload).code)
+
+    def test_derivation_ignores_the_role_label_alone(self):
+        # The label by itself never confers eligibility; the derivation reads
+        # all four fields.  This pins the "sole authority" contract directly.
+        self.assertFalse(subject.derive_gain_eligibility(
+            {"evidence_role": "independent_holdout"}))
+        self.assertTrue(subject.derive_gain_eligibility(
+            dict(subject.GAIN_ELIGIBLE_COMBINATION)))
+        for field in subject.GAIN_ELIGIBLE_COMBINATION:
+            with self.subTest(field=field):
+                weakened = dict(subject.GAIN_ELIGIBLE_COMBINATION)
+                weakened[field] = "unknown"
+                self.assertFalse(subject.derive_gain_eligibility(weakened))
+
+    def test_a_gain_claim_on_ineligible_evidence_is_refused_at_load(self):
+        # A floor is a non-regression assertion any evidence may carry; a
+        # minimum_improvement asserts the system got BETTER and needs
+        # independent evidence.  Same rule, same target, opposite verdicts.
+        def gate(improvement):
+            payload = _valid_payload()
+            rule = {"scope": "fixture", "target": "case-4", "tool": "code_ask",
+                    "metric": "mrr_at_10", "floor": 1.0}
+            if improvement is not None:
+                rule["minimum_improvement"] = improvement
+            payload["quality_gate"] = {"critical_floors": [rule]}
+            return payload
+
+        # Floor alone on ineligible (default, historical-style) evidence: fine.
+        self._load(gate(None))
+
+        # The same rule with a gain claim attached: refused, naming the case.
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            self._load(gate(0.1))
+        self.assertEqual("invalid_fixture", caught.exception.code)
+        self.assertIn("case-4", str(caught.exception))
+        self.assertIn("minimum_improvement", str(caught.exception))
+
+        # Make that one case genuinely independent and the claim is allowed.
+        payload = gate(0.1)
+        for fixture in payload["fixtures"]:
+            if fixture["id"] == "case-4":
+                fixture.update(subject.GAIN_ELIGIBLE_COMBINATION)
+        self.assertEqual(
+            0.1,
+            self._load(payload)["quality_gate"]["critical_floors"][0]["minimum_improvement"])
+
+    def test_the_standing_corpus_claims_no_independent_evidence(self):
+        # The shipped 1seaw corpus was authored by the implementing agent
+        # during the wave that built the classifier it measures, so no case in
+        # it may support an improvement claim.  If this ever flips, someone has
+        # relabelled historical evidence as independent.
+        root = Path(__file__).resolve().parents[3].parent
+        corpus_path = root / "docs" / "evals" / "retrieval-quality-golden.json"
+        if not corpus_path.is_file():  # packaged distributions ship no corpus
+            self.skipTest("standing corpus is not present in this tree")
+        # Deliberately no ``root=``: relevance-path existence is a different
+        # contract (covered by the stale-corpus tests) and requiring the whole
+        # source tree here would make this assertion unrunnable in the scratch
+        # copies used for mutation checks.
+        loaded = subject.load_fixture_corpus(corpus_path)
+        self.assertEqual(35, len(loaded["fixtures"]))
+        self.assertEqual(
+            [], [f["id"] for f in loaded["fixtures"] if f["gain_eligible"]])
+        self.assertEqual(
+            {"historical"}, {f["authorship_class"] for f in loaded["fixtures"]})
+
+
+def _receipt(fixture_id="f1", tool="code_ask", metric="recall_at_10",
+             verdict="confirmed_retrieval_miss", **over) -> dict:
+    row = {
+        "fixture_id": fixture_id, "tool": tool, "metric": metric,
+        "run_id": "run-abc", "inspected_path": "target.py",
+        "anchor": {"type": "content", "value": "needle"},
+        "observed": "replayed the public path; target absent from the returned set",
+        "verdict": verdict, "rationale": "grounded in the replayed response",
+    }
+    row.update(over)
+    return row
+
+
+class CarrierContaminationTests(unittest.TestCase):
+    """Wave 1wscp AC-4: the evaluation apparatus must not occupy result slots
+    that belong to the product, and must never be the source of an apparent
+    gain."""
+
+    EXPECTED = [".wavefoundry/framework/scripts/indexer.py"]
+
+    def test_only_the_apparatus_counts_as_a_carrier(self):
+        self.assertIsNone(subject.classify_carrier(
+            ".wavefoundry/framework/scripts/indexer.py"))
+        self.assertIsNone(subject.classify_carrier("docs/architecture/search.md"))
+        for path, kind in (
+            ("docs/evals/retrieval-quality-golden.json", "fixture_source"),
+            ("docs/reports/retrieval-quality-post.json", "generated_report"),
+            (".wavefoundry/framework/scripts/retrieval_eval.py", "evaluator_source"),
+            ("docs/waves/1abc thing/wave.md", "wave_record"),
+            ("docs/waves/1abc thing/events.jsonl", "review_commentary"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(kind, subject.classify_carrier(path))
+        # A fixture living under a wave directory is still a fixture: the most
+        # specific rule wins, so ordering is load-bearing.
+        self.assertEqual("fixture_source",
+                         subject.classify_carrier("docs/evals/nested/case.json"))
+
+    def test_a_carrier_above_the_expected_target_displaced_it(self):
+        rows = subject.carrier_rows(
+            ["docs/waves/1abc thing/wave.md"] + self.EXPECTED,
+            self.EXPECTED)
+        self.assertEqual(1, len(rows))
+        self.assertEqual("displaced_expected", rows[0]["effect"])
+        self.assertEqual(1, rows[0]["rank"])
+        self.assertEqual("wave_record", rows[0]["carrier_kind"])
+        self.assertTrue(subject.carrier_contamination_violations(rows))
+
+    def test_a_carrier_below_the_expected_target_is_neutral(self):
+        rows = subject.carrier_rows(
+            self.EXPECTED + ["docs/waves/1abc thing/wave.md"],
+            self.EXPECTED,
+            approved=["docs/waves/1abc thing/wave.md"])
+        self.assertEqual("none", rows[0]["effect"])
+        self.assertEqual("approved", rows[0]["approval_state"])
+        self.assertEqual([], subject.carrier_contamination_violations(rows))
+
+    def test_a_carrier_standing_in_for_a_missing_target_supplied_the_gain(self):
+        # The expected path never appeared; whatever the case scored came from
+        # the apparatus.  This is the self-match shape AC-4 names.
+        rows = subject.carrier_rows(
+            ["docs/evals/retrieval-quality-golden.json"], self.EXPECTED)
+        self.assertEqual("supplied_gain", rows[0]["effect"])
+        violations = subject.carrier_contamination_violations(rows)
+        self.assertEqual(["carrier_supplied_gain"], [v["kind"] for v in violations])
+
+    def test_an_unapproved_carrier_is_a_violation_even_when_neutral(self):
+        rows = subject.carrier_rows(
+            self.EXPECTED + ["docs/reports/retrieval-quality-post.json"],
+            self.EXPECTED)
+        self.assertEqual("none", rows[0]["effect"])
+        self.assertEqual(["unapproved_carrier_present"],
+                         [v["kind"] for v in subject.carrier_contamination_violations(rows)])
+
+    def test_a_clean_holdout_reports_no_carriers_at_all(self):
+        rows = subject.carrier_rows(
+            self.EXPECTED + [".wavefoundry/framework/scripts/server_impl.py"],
+            self.EXPECTED)
+        self.assertEqual([], rows)
+        self.assertEqual([], subject.carrier_contamination_violations(rows))
+
+    def test_only_the_top_k_slots_are_examined(self):
+        padding = [f".wavefoundry/framework/scripts/mod{i}.py" for i in range(subject.RECALL_K)]
+        rows = subject.carrier_rows(
+            padding + ["docs/evals/retrieval-quality-golden.json"], self.EXPECTED)
+        self.assertEqual([], rows)
+
+
+class AdjudicationReceiptTests(unittest.TestCase):
+    """Wave 1wscp AC-3: a zero is not automatically a ranking defect, and the
+    receipt that says which kind of failure it is must be per-(fixture, tool,
+    metric) and grounded in a replayed public response."""
+
+    def _load(self, payload):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "adjudications.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            return subject.load_adjudication_manifest(path)
+
+    def _reject(self, payload):
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            self._load(payload)
+        return caught.exception
+
+    def _manifest(self, *rows):
+        return {"schema": subject.ADJUDICATION_SCHEMA, "adjudications": list(rows)}
+
+    def test_a_valid_receipt_round_trips_keyed_by_the_exact_triple(self):
+        loaded = self._load(self._manifest(_receipt()))
+        self.assertEqual(
+            [("f1", "code_ask", "recall_at_10")], list(loaded))
+
+    def test_every_required_field_is_mandatory(self):
+        for field in ("fixture_id", "tool", "metric", "run_id",
+                      "inspected_path", "anchor", "observed", "verdict", "rationale"):
+            with self.subTest(field=field):
+                row = _receipt()
+                row.pop(field)
+                self.assertEqual(
+                    "invalid_adjudication", self._reject(self._manifest(row)).code)
+
+    def test_a_blank_rationale_or_observation_is_refused(self):
+        for field in ("rationale", "observed", "inspected_path"):
+            with self.subTest(field=field):
+                self.assertEqual(
+                    "invalid_adjudication",
+                    self._reject(self._manifest(_receipt(**{field: "   "}))).code)
+
+    def test_the_verdict_and_anchor_are_vocabulary_checked(self):
+        self.assertEqual("invalid_adjudication",
+                         self._reject(self._manifest(_receipt(verdict="looks_fine"))).code)
+        self.assertEqual("invalid_adjudication",
+                         self._reject(self._manifest(
+                             _receipt(anchor={"type": "vibes", "value": "x"}))).code)
+
+    def test_one_receipt_per_triple(self):
+        self.assertEqual(
+            "invalid_adjudication",
+            self._reject(self._manifest(_receipt(), _receipt())).code)
+        # The same fixture and tool at a DIFFERENT metric is a distinct receipt.
+        both = self._load(self._manifest(
+            _receipt(), _receipt(metric="ndcg_at_10")))
+        self.assertEqual(2, len(both))
+
+    def test_a_seeded_wrong_section_case_is_adjudicated_as_an_oracle_miss(self):
+        # AC-3's second named case: the oracle pointed at the wrong section, so
+        # the zero indicts the label rather than the ranking.  The verdict must
+        # be expressible and must survive validation with a section anchor.
+        loaded = self._load(self._manifest(_receipt(
+            fixture_id="seeded-wrong-section", metric="ndcg_at_10",
+            verdict="oracle_anchor_miss",
+            anchor={"type": "section", "value": "Guru > Retrieval Loop"},
+            observed="replayed the response; the returned chunk is the correct "
+                     "document under a different heading than the anchor names",
+            rationale="the anchor names a heading the target content does not "
+                      "live under, so the miss is an oracle defect")))
+        self.assertEqual(
+            "oracle_anchor_miss",
+            loaded[("seeded-wrong-section", "code_ask", "ndcg_at_10")]["verdict"])
+
+    def test_gaps_names_every_unadjudicated_zero_and_ignores_scored_cases(self):
+        report = {"cases": [
+            {"fixture_id": "f1", "tool": "code_ask", "applicable": True,
+             "recall_at_10": 0.0, "ndcg_at_10": 1.0},
+            {"fixture_id": "f2", "tool": "code_lexical", "applicable": True,
+             "recall_at_10": 0.0, "mrr_at_10": 0.0},
+            # Not applicable: never demands a receipt.
+            {"fixture_id": "f3", "tool": "code_ask", "applicable": False,
+             "recall_at_10": 0.0},
+        ]}
+        self.assertEqual(
+            [("f1", "code_ask", "recall_at_10"),
+             ("f2", "code_lexical", "mrr_at_10"),
+             ("f2", "code_lexical", "recall_at_10")],
+            subject.adjudication_gaps(report, {}))
+        # Covering one triple removes exactly that triple.
+        covered = subject.adjudication_gaps(
+            report, {("f1", "code_ask", "recall_at_10"): _receipt()})
+        self.assertNotIn(("f1", "code_ask", "recall_at_10"), covered)
+        self.assertEqual(2, len(covered))
+
+    def test_the_shipped_manifest_cannot_enter_the_retrieval_corpus(self):
+        # The manifest quotes fixture queries and target paths verbatim, so an
+        # indexed copy would let the evaluator answer its own questions.  This
+        # was a live defect: the framework's own contamination guard refused
+        # the file until it was added to .aiignore beside the golden corpus.
+        import indexer as indexer_module
+        root = Path(__file__).resolve().parents[3].parent
+        manifest = root / "docs" / "evals" / "retrieval-adjudications.json"
+        if not manifest.is_file():
+            self.skipTest("adjudication manifest is not present in this tree")
+        subject.assert_eval_artifacts_excluded(root, [manifest], indexer_module)
+
+    def test_the_shipped_manifest_adjudicates_the_real_constant_value_cases(self):
+        root = Path(__file__).resolve().parents[3].parent
+        manifest_path = root / "docs" / "evals" / "retrieval-adjudications.json"
+        if not manifest_path.is_file():
+            self.skipTest("adjudication manifest is not present in this tree")
+        loaded = subject.load_adjudication_manifest(manifest_path)
+        # Both constant-value cases: retrieval succeeded, routing did not.
+        for fixture_id in ("constant-value-calibration-reranker",
+                           "constant-value-holdout-int8-revision"):
+            with self.subTest(fixture_id=fixture_id):
+                receipt = loaded[(fixture_id, "code_ask", "question_type_accuracy")]
+                self.assertEqual("classifier_contract_mismatch", receipt["verdict"])
+        # The lexical zeros on the same fixture are a real miss, not a mismatch.
+        self.assertEqual(
+            "confirmed_retrieval_miss",
+            loaded[("constant-value-calibration-reranker",
+                    "code_lexical", "recall_at_10")]["verdict"])
 
 
 class FixtureSchemaTests(unittest.TestCase):
@@ -133,6 +484,11 @@ class FixtureSchemaTests(unittest.TestCase):
 
     def test_accepts_explicit_critical_floor_contract(self):
         payload = _valid_payload()
+        # Wave 1wscp: a gain claim needs independently eligible evidence, so
+        # the targeted case must carry the full independent combination.
+        for fixture in payload["fixtures"]:
+            if fixture["id"] == "case-4":
+                fixture.update(subject.GAIN_ELIGIBLE_COMBINATION)
         payload["quality_gate"] = {"critical_floors": [{
             "scope": "fixture", "target": "case-4",
             "tool": "code_ask", "metric": "mrr_at_10", "floor": 1.0,
@@ -481,6 +837,8 @@ class BaselineComparisonTests(unittest.TestCase):
                 "packages": {"fastembed": "1", "lancedb": "1", "onnxruntime": "1"},
                 "offline": True,
                 "retrieval_toggles": {name: False for name in subject.RETRIEVAL_TOGGLE_ENVS},
+                "production_tuning": {name: default
+                                      for name, _module, default in subject.PRODUCTION_TUNING_ENVS},
             },
             "metrics": {"by_tool": {tool: {
                 "by_split": {"holdout": dict(aggregate)},
@@ -872,15 +1230,28 @@ class MainCliTests(unittest.TestCase):
                 line.strip() for line in (root / ".aiignore").read_text().splitlines()
                 if line.strip()
             ],
-            _matches_ignore=lambda rel, patterns: rel in patterns,
+            # Wave 1wpig: the repository's real rule is a GLOB
+            # (``docs/reports/retrieval-quality-*.json``), and the publish
+            # temporary is only covered because of it.  An exact-membership fake
+            # would let a temporary that the real ignore rule covers read as
+            # self-contaminating, and would hide the case where it does not.
+            _matches_ignore=lambda rel, patterns: any(
+                fnmatch.fnmatch(rel, pattern) for pattern in patterns),
         )
 
-    @staticmethod
-    def _tree(root: Path, ignored: tuple[str, ...]):
+    #: Confined report names used by these CLI tests. ``retrieval-quality-``
+    #: prefixed direct children of ``<root>/docs/reports``, per 1wpaj R8.
+    BASELINE_REL = "docs/reports/retrieval-quality-baseline-input.json"
+    OUT_REL = "docs/reports/retrieval-quality-report.json"
+    REPORTS_GLOB = "docs/reports/retrieval-quality-*.json"
+
+    @classmethod
+    def _tree(cls, root: Path, ignored: tuple[str, ...]):
         (root / ".aiignore").write_text("\n".join(ignored) + "\n", encoding="utf-8")
+        (root / "docs" / "reports").mkdir(parents=True, exist_ok=True)
         fixtures = root / "fixtures.json"
-        baseline = root / "baseline.json"
-        out = root / "report.json"
+        baseline = root / cls.BASELINE_REL
+        out = root / cls.OUT_REL
         fixtures.write_text("{}", encoding="utf-8")
         baseline.write_text("{}", encoding="utf-8")
         return fixtures, baseline, out
@@ -890,12 +1261,16 @@ class MainCliTests(unittest.TestCase):
             with self.subTest(verdict=verdict), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 fixtures, baseline, out = self._tree(
-                    root, ("fixtures.json", "baseline.json", "report.json"),
+                    root, ("fixtures.json", self.REPORTS_GLOB),
                 )
                 report = {
                     "verdict": verdict, "schema": subject.REPORT_SCHEMA,
                     "payload": {"z": 2, "a": 1},
                 }
+                # An existing destination is NEVER overwritten, so byte
+                # determinism is proved across two declared destinations rather
+                # than by republishing over one.
+                second_out = out.parent / "retrieval-quality-report-2.json"
                 argv = ["--root", str(root), "--fixtures", str(fixtures), "--out", str(out)]
                 if with_baseline:
                     argv.extend(("--baseline", str(baseline)))
@@ -904,17 +1279,22 @@ class MainCliTests(unittest.TestCase):
                         with patch("builtins.print"):
                             self.assertEqual(0, subject.main(argv))
                             first = out.read_bytes()
+                            argv[argv.index(str(out))] = str(second_out)
                             self.assertEqual(0, subject.main(argv))
-                            second = out.read_bytes()
+                            second = second_out.read_bytes()
                 self.assertEqual(subject._stable_json_bytes(report, pretty=True), first)
                 self.assertEqual(first, second)
+                # The publish temporary never survives its own invocation.
+                self.assertEqual(
+                    [], [name for name in os.listdir(out.parent)
+                         if subject._REPORT_TEMP_RE.match(name)])
 
     def test_exit_one_for_fail_and_operator_review_required(self):
         for verdict in ("fail", "operator_review_required"):
             with self.subTest(verdict=verdict), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 fixtures, baseline, out = self._tree(
-                    root, ("fixtures.json", "baseline.json", "report.json"),
+                    root, ("fixtures.json", self.REPORTS_GLOB),
                 )
                 argv = [
                     "--root", str(root), "--fixtures", str(fixtures), "--out", str(out),
@@ -930,7 +1310,7 @@ class MainCliTests(unittest.TestCase):
     def test_exit_two_invalid_writes_stable_machine_report(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            fixtures, _, out = self._tree(root, ("fixtures.json", "report.json"))
+            fixtures, _, out = self._tree(root, ("fixtures.json", self.REPORTS_GLOB))
             reason = subject.EvaluationInvalid("broken_fixture", "fixture is invalid")
             with patch.dict(sys.modules, {"indexer": self._indexer()}):
                 with patch.object(subject, "run_evaluation", side_effect=reason):
@@ -944,16 +1324,14 @@ class MainCliTests(unittest.TestCase):
     def test_fixture_output_and_baseline_must_be_excluded_before_execution(self):
         cases = (
             ("fixtures.json", False),
-            ("report.json", False),
-            ("baseline.json", True),
+            (self.OUT_REL, False),
+            (self.BASELINE_REL, True),
         )
+        all_patterns = ("fixtures.json", self.OUT_REL, self.BASELINE_REL)
         for unignored, include_baseline in cases:
             with self.subTest(unignored=unignored), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
-                ignored = tuple(
-                    name for name in ("fixtures.json", "report.json", "baseline.json")
-                    if name != unignored
-                )
+                ignored = tuple(name for name in all_patterns if name != unignored)
                 fixtures, baseline, out = self._tree(root, ignored)
                 argv = ["--root", str(root), "--fixtures", str(fixtures), "--out", str(out)]
                 if include_baseline:
@@ -1095,7 +1473,8 @@ class FullRunnerTests(unittest.TestCase):
         self.assertEqual({**expected_identity, "end_digest_verified": True},
                          report["production_identity"])
         self.assertEqual(64, len(report["production_identity"]["digest"]))
-        self.assertEqual({"chunker": "7", "walker": None, "graph_builder": None},
+        self.assertEqual({"chunker": "7", "walker": None, "graph_builder": None,
+                          "cluster_builder": None},
                          report["production_identity"]["versions"])
         self.assertEqual("2023-11-14T22:13:20Z", report["run_time"]["started_at"])
         self.assertEqual("2023-11-14T22:13:21Z", report["run_time"]["finished_at"])
@@ -1587,5 +1966,866 @@ class IndexIdentityBindingTests(unittest.TestCase):
         self.assertNotIn("state_store_inode", caught.exception.message)
 
 
+class ClusterProductionIdentityTests(unittest.TestCase):
+    """Wave 1wpig (1wpaj Requirement 8): cluster module/version drift MOVES
+    production identity.
+
+    The clusters artifact carries the communities and the betweenness ranking
+    that ``wf_graph_report`` serves, so a change there changes what the measured
+    public paths return.  Before this change a cluster-only edit produced two
+    reports with an identical ``production_identity.digest``, which is exactly
+    the "before/after receipt" claim the digest exists to make.
+    """
+
+    def _scripts(self, root: Path) -> Path:
+        scripts = root / "scripts"
+        scripts.mkdir()
+        for name in subject.PRODUCTION_RETRIEVAL_MODULES:
+            (scripts / name).write_text(f"# fake {name}\n", encoding="utf-8")
+        (scripts / "graph_cluster.py").write_text(
+            'CLUSTER_BUILDER_VERSION = "12"  # trailing prose\n', encoding="utf-8")
+        return scripts
+
+    def test_cluster_module_is_part_of_the_production_module_set(self):
+        self.assertIn("graph_cluster.py", subject.PRODUCTION_RETRIEVAL_MODULES)
+        self.assertEqual(("graph_cluster.py", "CLUSTER_BUILDER_VERSION"),
+                         subject.PRODUCTION_VERSION_CONSTANTS["cluster_builder"])
+
+    def test_cluster_module_edit_moves_the_production_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            scripts = self._scripts(Path(temp))
+            before = subject._production_identity(scripts)
+            (scripts / "graph_cluster.py").write_text(
+                'CLUSTER_BUILDER_VERSION = "12"  # trailing prose, edited\n', encoding="utf-8")
+            after = subject._production_identity(scripts)
+        self.assertNotEqual(before["digest"], after["digest"])
+        self.assertIn("graph_cluster.py", before["modules"])
+
+    def test_cluster_version_bump_is_reported_in_the_version_block(self):
+        with tempfile.TemporaryDirectory() as temp:
+            scripts = self._scripts(Path(temp))
+            self.assertEqual("12", subject._production_identity(scripts)["versions"]["cluster_builder"])
+            (scripts / "graph_cluster.py").write_text(
+                'CLUSTER_BUILDER_VERSION = "13"\n', encoding="utf-8")
+            self.assertEqual("13", subject._production_identity(scripts)["versions"]["cluster_builder"])
+
+    def test_shipped_cluster_module_exposes_a_readable_builder_version(self):
+        # The constant is read off the SHIPPED module, not a fixture: a rename or
+        # a switch to a non-string literal would silently return None.
+        scripts = SCRIPTS
+        self.assertIsNotNone(
+            subject._module_constant(scripts / "graph_cluster.py", "CLUSTER_BUILDER_VERSION"),
+            "CLUSTER_BUILDER_VERSION must stay a readable string literal")
+
+
+class ProductionTuningEnvironmentTests(unittest.TestCase):
+    """Wave 1wpig (1wpaj Requirement 8): eleven named tuning variables recorded as
+    VALUES, in a compared key of their own, resolved identically every run."""
+
+    EXPECTED = (
+        "WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N",
+        "WAVEFOUNDRY_GRAPH_BETWEENNESS_EXACT_MAX_NODES",
+        "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF_MAX_NODES",
+        "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF",
+        "WAVEFOUNDRY_MAX_TS_PARSE_BYTES",
+        "WAVEFOUNDRY_MAX_LINE_SCAN_BYTES",
+        "WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD",
+        "WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS",
+        "WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND",
+        "WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD",
+        # Wave 1wpaj delivery review: the second variable the indexer
+        # assigns during every build, and a chunk-set change.
+        "WAVEFOUNDRY_SPEC_CHUNKING",
+    )
+
+    def test_exactly_the_declared_variables(self):
+        self.assertEqual(list(self.EXPECTED),
+                         [name for name, _module, _default in subject.PRODUCTION_TUNING_ENVS])
+
+    def test_values_not_presence(self):
+        # The toggle set would snapshot two different centrality settings
+        # identically, because it records a boolean.
+        low = subject._production_tuning({"WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N": "50"})
+        high = subject._production_tuning({"WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N": "400"})
+        self.assertEqual("50", low["WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N"])
+        self.assertEqual("400", high["WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N"])
+        self.assertNotEqual(low, high)
+        # The toggle-set encoding, applied to the same two settings, collapses.
+        self.assertEqual(bool("50"), bool("400"),
+                         "presence-as-boolean cannot separate two different values")
+
+    def test_never_joins_the_retrieval_toggle_set(self):
+        # An entry in the toggle set routes any invocation where it is SET to
+        # operator review, and ``indexer`` assigns WAVEFOUNDRY_MAX_TS_PARSE_BYTES
+        # during every build, so the required verdict would be unreachable.
+        # The runner itself pins some kill switches for hermetic runs, so the
+        # oracle is that setting all eleven tuning variables CHANGES NOTHING about
+        # the toggle snapshot -- not that the snapshot is all-false.
+        self.assertEqual(set(), set(self.EXPECTED) & set(subject.RETRIEVAL_TOGGLE_ENVS))
+        before = subject._retrieval_toggles()
+        with patch.dict(os.environ, {name: "1" for name in self.EXPECTED}):
+            self.assertEqual(before, subject._retrieval_toggles())
+
+    def test_resolution_falls_back_to_the_module_default(self):
+        resolved = subject._production_tuning({})
+        for name, _module, default in subject.PRODUCTION_TUNING_ENVS:
+            self.assertEqual(default, resolved[name])
+        # An empty value is unset, matching the ``or DEFAULT`` production form.
+        self.assertEqual("2000000",
+                         subject._production_tuning({"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": ""})
+                         ["WAVEFOUNDRY_MAX_TS_PARSE_BYTES"])
+
+    def test_a_build_assignment_after_import_cannot_move_the_snapshot(self):
+        # ``indexer`` writes WAVEFOUNDRY_MAX_TS_PARSE_BYTES into os.environ while
+        # building.  Reading it back would give two invocations of the same
+        # evaluator different snapshots and fail the hard equality gate.
+        before = subject._production_tuning()
+        with patch.dict(os.environ, {"WAVEFOUNDRY_MAX_TS_PARSE_BYTES": "777",
+                                     "WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N": "777"}):
+            self.assertEqual(before, subject._production_tuning())
+
+    def test_declared_defaults_match_the_owning_module_source(self):
+        # Drift pin: the defaults are DECLARED in the evaluator (seven of the eleven
+        # live inline in an ``os.environ.get`` call rather than in a named
+        # constant), so the oracle is the owning module's own source text.
+        patterns = {
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N",\s*"(\d+)"\)',
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_EXACT_MAX_NODES":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_BETWEENNESS_EXACT_MAX_NODES",\s*"(\d+)"\)',
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF_MAX_NODES":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF_MAX_NODES",\s*"(\d+)"\)',
+            "WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_BETWEENNESS_CUTOFF",\s*"(\d+)"\)',
+            "WAVEFOUNDRY_MAX_TS_PARSE_BYTES":
+                r"MAX_TREESITTER_PARSE_BYTES_DEFAULT\s*=\s*([\d_]+)",
+            "WAVEFOUNDRY_MAX_LINE_SCAN_BYTES":
+                r"_LINE_SCAN_MAX_BYTES_DEFAULT\s*=\s*([\d_]+)",
+            "WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD",\s*"(\d+)"\)',
+            "WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND":
+                r'"WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND",\s*"([a-z]+)"',
+            "WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD":
+                r'os\.environ\.get\("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD",\s*"([a-z]+)"\)',
+        }
+        sources: dict[str, str] = {}
+        for name, module, default in subject.PRODUCTION_TUNING_ENVS:
+            with self.subTest(variable=name):
+                if name == "WAVEFOUNDRY_SPEC_CHUNKING":
+                    # The module default is a boolean constant, not a string
+                    # literal inside the env read, so the declared default is
+                    # None and the oracle is that constant's presence.
+                    self.assertIsNone(default)
+                    self.assertIn(
+                        "SPEC_CHUNKING_DEFAULT_ON",
+                        sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8")))
+                    continue
+                if name == "WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS":
+                    # No module default: unset means "auto-scale by file count".
+                    self.assertIsNone(default)
+                    self.assertIn(
+                        '"WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS" in os.environ',
+                        sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8")))
+                    continue
+                text = sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8"))
+                found = re.search(patterns[name], text)
+                self.assertIsNotNone(found, f"{name} default not found in {module}")
+                self.assertEqual(default, found.group(1).replace("_", ""))
+
+    def test_a_tuning_difference_refuses_the_comparison(self):
+        builder = BaselineComparisonTests()
+        baseline = builder._report(8, 100.0, 1000)
+        current = builder._report(8, 100.0, 1000)
+        current["environment"]["production_tuning"] = dict(
+            current["environment"]["production_tuning"],
+            WAVEFOUNDRY_GRAPH_BETWEENNESS_TOP_N="9",
+        )
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+        self.assertIn("production_tuning", caught.exception.message)
+
+    def test_a_report_missing_the_key_entirely_is_refused(self):
+        builder = BaselineComparisonTests()
+        baseline = builder._report(8, 100.0, 1000)
+        current = builder._report(8, 100.0, 1000)
+        current["environment"].pop("production_tuning")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+
+
+class FixtureLevelComparisonTests(unittest.TestCase):
+    """Wave 1wpig (1wpaj Requirement 8): one row per applicable holdout
+    ``(fixture_id, tool)`` key, compared on every gate metric."""
+
+    def _pair(self, rows):
+        builder = BaselineComparisonTests()
+        baseline = builder._report(8, 100.0, 1000)
+        current = builder._report(8, 100.0, 1000)
+        baseline["cases"] = [dict(row) for row in rows["baseline"]]
+        current["cases"] = [dict(row) for row in rows["current"]]
+        baseline["run_id"] = subject._compute_run_id(baseline)
+        return current, baseline
+
+    @staticmethod
+    def _row(fixture_id, tool="code_ask", **overrides):
+        row = {"fixture_id": fixture_id, "class": "class-a", "split": "holdout",
+               "tool": tool, "applicable": True, "recall_at_10": 1.0,
+               "ndcg_at_10": 1.0, "mrr_at_10": 1.0,
+               "abstention_correct": None, "question_type_correct": True}
+        row.update(overrides)
+        return row
+
+    def test_a_masked_per_fixture_regression_the_aggregate_cannot_see(self):
+        # Two fixtures, one down and one up by the same amount: the holdout
+        # aggregate and the holdout class metric are BYTE-IDENTICAL on both
+        # sides, and only the per-fixture oracle can see the loss.
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", recall_at_10=1.0),
+                         self._row("fixture-b", recall_at_10=0.0)],
+            "current": [self._row("fixture-a", recall_at_10=0.0),
+                        self._row("fixture-b", recall_at_10=1.0)],
+        })
+        self.assertEqual(
+            baseline["metrics"], current["metrics"],
+            "the aggregate arms must be identical or this proves nothing")
+        self.assertEqual([], subject._quality_comparison(current, baseline),
+                         "the aggregate comparison misses it by construction")
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        regressions = [row for row in violations if row["kind"] == "fixture_quality_regression"]
+        self.assertEqual(1, len(regressions))
+        self.assertEqual(("fixture-a", "recall_at_10", 1.0, 0.0),
+                         (regressions[0]["fixture_id"], regressions[0]["metric"],
+                          regressions[0]["baseline"], regressions[0]["current"]))
+
+    def test_gate_metric_names_are_mapped_onto_the_case_row_fields(self):
+        # Reading ``abstention_accuracy``/``question_type_accuracy`` straight off
+        # a case row returns null on BOTH sides, and the null-vs-null skip would
+        # silently disable two of the five metrics.
+        self.assertEqual({"abstention_accuracy": "abstention_correct",
+                          "question_type_accuracy": "question_type_correct"},
+                         subject.FIXTURE_CASE_METRIC_KEYS)
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", abstention_correct=True)],
+            "current": [self._row("fixture-a", abstention_correct=False)],
+        })
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual(
+            ["abstention_accuracy"],
+            [row["metric"] for row in violations if row["kind"] == "fixture_quality_regression"])
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", question_type_correct=True)],
+            "current": [self._row("fixture-a", question_type_correct=False)],
+        })
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual(
+            ["question_type_accuracy"],
+            [row["metric"] for row in violations if row["kind"] == "fixture_quality_regression"])
+
+    def test_null_semantics_are_asymmetric(self):
+        # baseline value vs current null -> FAILURE.
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", abstention_correct=True)],
+            "current": [self._row("fixture-a", abstention_correct=None)],
+        })
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual(
+            ["abstention_accuracy"],
+            [row["metric"] for row in violations if row["kind"] == "fixture_quality_regression"])
+        # current value vs baseline null -> REPORTED, never a failure and never
+        # an operator-review reason (a signal APPEARING is not a regression).
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", abstention_correct=None)],
+            "current": [self._row("fixture-a", abstention_correct=True)],
+        })
+        violations, operator_reviews = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual([], [row for row in violations
+                              if row["kind"] == "fixture_quality_regression"])
+        reported = current["comparison"]["fixture_comparison"]["reported"]
+        self.assertEqual(["abstention_accuracy"], [row["metric"] for row in reported])
+        self.assertEqual([], [row for row in operator_reviews
+                              if row.get("kind") == "fixture_metric_appeared"])
+        # null vs null -> SKIP: neither a violation nor a report.
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", abstention_correct=None)],
+            "current": [self._row("fixture-a", abstention_correct=None)],
+        })
+        subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual([], current["comparison"]["fixture_comparison"]["reported"])
+        self.assertEqual([], current["comparison"]["fixture_comparison"]["violations"])
+
+    def test_duplicate_rows_for_one_key_are_refused(self):
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a")],
+            "current": [self._row("fixture-a"), self._row("fixture-a")],
+        })
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+        self.assertIn("more than one applicable holdout row", caught.exception.message)
+
+    def test_key_sets_must_be_identical_in_both_directions(self):
+        for missing_side, expected in (("current", "current report is missing"),
+                                       ("baseline", "baseline is missing")):
+            with self.subTest(missing_side=missing_side):
+                rows = {"baseline": [self._row("fixture-a"), self._row("fixture-b")],
+                        "current": [self._row("fixture-a"), self._row("fixture-b")]}
+                rows[missing_side] = [self._row("fixture-a")]
+                current, baseline = self._pair(rows)
+                with self.assertRaises(subject.EvaluationInvalid) as caught:
+                    subject.apply_baseline_comparison(current, baseline)
+                self.assertEqual("invalid_baseline", caught.exception.code)
+                self.assertIn(expected, caught.exception.message)
+
+    def test_inapplicable_and_calibration_rows_are_outside_the_oracle(self):
+        rows = {
+            "baseline": [self._row("fixture-a"),
+                         self._row("fixture-c", split="calibration", recall_at_10=1.0),
+                         {"fixture_id": "fixture-d", "tool": "code_ask", "split": "holdout",
+                          "applicable": False, "exclusion_reason": "out of contract"}],
+            "current": [self._row("fixture-a"),
+                        self._row("fixture-c", split="calibration", recall_at_10=0.0),
+                        {"fixture_id": "fixture-d", "tool": "code_ask", "split": "holdout",
+                         "applicable": False, "exclusion_reason": "out of contract"}],
+        }
+        current, baseline = self._pair(rows)
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        self.assertEqual([], [row for row in violations
+                              if row["kind"] == "fixture_quality_regression"])
+        self.assertEqual(1, current["comparison"]["fixture_comparison"]["compared_keys"])
+
+    def test_the_same_fixture_on_two_tools_is_two_keys(self):
+        current, baseline = self._pair({
+            "baseline": [self._row("fixture-a", tool="code_ask"),
+                         self._row("fixture-a", tool="code_search")],
+            "current": [self._row("fixture-a", tool="code_ask"),
+                        self._row("fixture-a", tool="code_search", recall_at_10=0.5)],
+        })
+        violations, _ = subject.apply_baseline_comparison(current, baseline)
+        regressions = [row for row in violations if row["kind"] == "fixture_quality_regression"]
+        self.assertEqual([("fixture-a", "code_search")],
+                         [(row["fixture_id"], row["tool"]) for row in regressions])
+        self.assertEqual(2, current["comparison"]["fixture_comparison"]["compared_keys"])
+
+
+class ConfinedReportIOTests(unittest.TestCase):
+    """Wave 1wpig (1wpaj Requirement 8): confined baseline/output paths, a
+    single no-follow baseline handle, and atomic link publish."""
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._temp.cleanup)
+        self.root = Path(self._temp.name)
+        self.reports = self.root / "docs" / "reports"
+        self.reports.mkdir(parents=True)
+
+    def _dest(self, name="retrieval-quality-out.json") -> Path:
+        return self.reports / name
+
+    @staticmethod
+    def _can_symlink(target: Path, link: Path) -> bool:
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            return False
+        return True
+
+    # -- confinement ------------------------------------------------------
+    def test_path_escape_is_refused(self):
+        cases = {
+            "outside the root": Path(self._temp.name).parent / "retrieval-quality-x.json",
+            "outside the report directory": self.root / "retrieval-quality-x.json",
+            "not a direct child": self.reports / "nested" / "retrieval-quality-x.json",
+            "traversal out of the report directory":
+                self.reports / ".." / ".." / "retrieval-quality-x.json",
+            "wrong basename prefix": self.reports / "report.json",
+        }
+        for label, candidate in cases.items():
+            with self.subTest(case=label):
+                with self.assertRaises(subject.EvaluationInvalid) as caught:
+                    subject.confined_report_path(self.root, candidate, role="output")
+                self.assertEqual("report_path_unconfined", caught.exception.code)
+
+    def test_a_traversal_that_lands_back_inside_is_accepted(self):
+        # ``docs/reports/nested/../retrieval-quality-x.json`` normalizes INTO the
+        # report directory; the rule is the resolved parent, not the spelling.
+        (self.reports / "nested").mkdir()
+        resolved = subject.confined_report_path(
+            self.root, self.reports / "nested" / ".." / "retrieval-quality-x.json",
+            role="output")
+        self.assertEqual(self._dest("retrieval-quality-x.json").resolve(), resolved)
+
+    def test_symlinked_report_directory_is_refused(self):
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        shutil.rmtree(self.reports)
+        if not self._can_symlink(elsewhere, self.reports):
+            self.skipTest("symlink creation is unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.confined_report_path(self.root, self._dest(), role="output")
+        self.assertEqual("report_path_unconfined", caught.exception.code)
+        self.assertIn("symlink", caught.exception.message)
+
+    def test_symlinked_final_component_is_refused(self):
+        target = self.root / "elsewhere.json"
+        target.write_text("{}", encoding="utf-8")
+        if not self._can_symlink(target, self._dest()):
+            self.skipTest("symlink creation is unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.confined_report_path(self.root, self._dest(), role="output")
+        self.assertEqual("report_path_unconfined", caught.exception.code)
+        self.assertIn("symlink", caught.exception.message)
+
+    def test_non_regular_file_is_refused(self):
+        directory = self._dest("retrieval-quality-dir.json")
+        directory.mkdir()
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.confined_report_path(self.root, directory, role="baseline")
+        self.assertEqual("report_path_unconfined", caught.exception.code)
+        self.assertIn("not a regular file", caught.exception.message)
+
+    def test_parent_directories_are_never_created(self):
+        missing = self.root / "other" / "reports" / "retrieval-quality-x.json"
+        with self.assertRaises(subject.EvaluationInvalid):
+            subject.confined_report_path(self.root, missing, role="output")
+        self.assertFalse((self.root / "other").exists())
+
+    def test_protected_closed_1seaw_receipts_can_be_read_but_never_written(self):
+        self.assertEqual(3, len(subject.PROTECTED_REPORT_PATHS))
+        for relative in subject.PROTECTED_REPORT_PATHS:
+            with self.subTest(protected=relative):
+                path = self.root / relative
+                path.write_text("{}", encoding="utf-8")
+                with self.assertRaises(subject.EvaluationInvalid) as caught:
+                    subject.confined_report_path(self.root, path, role="output")
+                self.assertEqual("report_path_protected", caught.exception.code)
+                # Still a legitimate INPUT.
+                self.assertEqual(path.resolve(),
+                                 subject.confined_report_path(self.root, path, role="baseline"))
+
+    def test_a_publish_temporary_name_cannot_be_a_declared_destination(self):
+        temporary = subject._publish_temporary(self._dest())
+        self.assertTrue(temporary.name.startswith(subject.REPORT_BASENAME_PREFIX))
+        self.assertTrue(subject._REPORT_TEMP_RE.match(temporary.name))
+        subject.confined_report_path(self.root, temporary, role="temporary")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.confined_report_path(self.root, temporary, role="output")
+        self.assertEqual("report_path_unconfined", caught.exception.code)
+        self.assertIn("reserved for publish temporaries", caught.exception.message)
+
+    # -- single-handle baseline read --------------------------------------
+    def test_baseline_bytes_are_hashed_exactly_as_parsed(self):
+        path = self._dest("retrieval-quality-baseline-input.json")
+        payload = b'{"schema": "x", "value": 1}\n'
+        path.write_bytes(payload)
+        read_bytes, parsed = subject.read_baseline_bytes(path)
+        self.assertEqual(payload, read_bytes)
+        self.assertEqual({"schema": "x", "value": 1}, parsed)
+
+    def test_hard_link_alias_is_rejected_from_the_descriptor_link_count(self):
+        path = self._dest("retrieval-quality-baseline-input.json")
+        path.write_text('{"a": 1}', encoding="utf-8")
+        alias = self._dest("retrieval-quality-alias.json")
+        try:
+            os.link(path, alias)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.read_baseline_bytes(path)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+        self.assertIn("hard-link alias", caught.exception.message)
+
+    def test_a_symlinked_baseline_is_not_followed(self):
+        target = self.root / "elsewhere.json"
+        target.write_text('{"a": 1}', encoding="utf-8")
+        link = self._dest("retrieval-quality-link.json")
+        if not self._can_symlink(target, link):
+            self.skipTest("symlink creation is unavailable on this platform")
+        if not subject._NO_FOLLOW:
+            self.skipTest("O_NOFOLLOW is unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.read_baseline_bytes(link)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+
+    def test_a_non_regular_baseline_is_refused(self):
+        directory = self._dest("retrieval-quality-dir.json")
+        directory.mkdir()
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.read_baseline_bytes(directory)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+
+    def test_a_baseline_replaced_between_validation_and_read_is_refused(self):
+        path = self._dest("retrieval-quality-baseline-input.json")
+        path.write_text('{"a": 1}', encoding="utf-8")
+        replacement = self._dest("retrieval-quality-replacement.json")
+        replacement.write_text('{"a": 2}', encoding="utf-8")
+        real_stat = os.stat
+
+        def replaced(target, *args, **kwargs):
+            # The window this closes: the descriptor is held, and the NAME is
+            # re-pointed at a different inode before the bytes are read.
+            if Path(target) == path:
+                os.replace(replacement, path)
+            return real_stat(target, *args, **kwargs)
+
+        with patch.object(subject.os, "stat", side_effect=replaced):
+            with self.assertRaises(subject.EvaluationInvalid) as caught:
+                subject.read_baseline_bytes(path)
+        self.assertEqual("invalid_baseline", caught.exception.code)
+        self.assertIn("replaced between validation and read", caught.exception.message)
+
+    # -- atomic publish ----------------------------------------------------
+    def test_publish_writes_the_report_and_leaves_no_temporary(self):
+        destination = self._dest()
+        receipt = subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual(subject._stable_json_bytes({"verdict": "baseline"}, pretty=True),
+                         destination.read_bytes())
+        self.assertEqual(receipt["content_sha256"],
+                         hashlib.sha256(destination.read_bytes()).hexdigest())
+        self.assertFalse(receipt["recovered_leftover_temporary"])
+        self.assertEqual(1, os.lstat(destination).st_nlink)
+        self.assertEqual([], [name for name in os.listdir(self.reports)
+                              if subject._REPORT_TEMP_RE.match(name)])
+
+    def test_an_existing_destination_is_never_overwritten(self):
+        destination = self._dest()
+        destination.write_bytes(b"original\n")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual("report_destination_exists", caught.exception.code)
+        self.assertEqual(b"original\n", destination.read_bytes())
+
+    def test_the_temporary_satisfies_the_prefix_rule_and_the_exclusion_assertion(self):
+        seen: list[str] = []
+
+        def recording_matches(rel, patterns):
+            seen.append(rel)
+            return True
+
+        indexer = SimpleNamespace(
+            SOURCE_CODE_EXTENSIONS={".json"}, DOCS_TEXT_EXTENSIONS=set(),
+            DOCS_EXTENSIONLESS_NAMES=set(), CODE_EXTENSIONLESS_NAMES=set(),
+            _load_ignore_patterns=lambda root: ["docs/reports/retrieval-quality-*.json"],
+            _matches_ignore=recording_matches,
+        )
+        destination = self._dest()
+        subject.publish_report(self.root, destination, {"verdict": "baseline"},
+                               indexer=indexer)
+        self.assertIn("docs/reports/retrieval-quality-out.json", seen)
+        temporaries = [rel for rel in seen if subject._REPORT_TEMP_RE.match(Path(rel).name)]
+        self.assertEqual(1, len(temporaries),
+                         "the publish temporary is covered by the pre-create assertion")
+        for rel in seen:
+            self.assertTrue(Path(rel).name.startswith(subject.REPORT_BASENAME_PREFIX))
+
+    def test_an_unprefixed_temporary_name_is_refused_before_anything_is_created(self):
+        destination = self._dest()
+        with patch.object(subject, "_publish_temporary",
+                          return_value=self.reports / "scratch.json"):
+            with self.assertRaises(subject.EvaluationInvalid) as caught:
+                subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual("report_path_unconfined", caught.exception.code)
+        self.assertFalse(destination.exists())
+        self.assertFalse((self.reports / "scratch.json").exists())
+
+    def test_a_leftover_temporary_aliasing_the_destination_is_recovered(self):
+        # The interrupt window: os.link ran, the unlink did not.  The recovery
+        # unlinks the TEMPORARY, never the destination.
+        destination = self._dest()
+        report = {"verdict": "baseline"}
+        payload = subject._stable_json_bytes(report, pretty=True)
+        leftover = subject._publish_temporary(destination)
+        leftover.write_bytes(payload)
+        try:
+            os.link(leftover, destination)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this platform")
+        destination_inode = os.lstat(destination).st_ino
+        receipt = subject.publish_report(self.root, destination, report)
+        self.assertTrue(receipt["recovered_leftover_temporary"])
+        self.assertFalse(leftover.exists(), "the temporary is what gets unlinked")
+        self.assertTrue(destination.exists(), "the destination is never unlinked")
+        self.assertEqual(destination_inode, os.lstat(destination).st_ino)
+        self.assertEqual(1, os.lstat(destination).st_nlink)
+        self.assertEqual(payload, destination.read_bytes())
+
+    def test_a_leftover_alias_with_different_content_is_refused_and_nothing_is_unlinked(self):
+        destination = self._dest()
+        leftover = subject._publish_temporary(destination)
+        leftover.write_bytes(b"someone elses report\n")
+        try:
+            os.link(leftover, destination)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual("report_destination_exists", caught.exception.code)
+        self.assertTrue(destination.exists())
+        self.assertTrue(leftover.exists())
+        self.assertEqual(b"someone elses report\n", destination.read_bytes())
+
+    def test_an_unrecoverable_extra_link_fails_the_publish_verification(self):
+        # A second link that is NOT a publish temporary: the destination is left
+        # exactly as it is and the publish is reported unverified.
+        destination = self._dest()
+        alias = self._dest("retrieval-quality-someone-elses-name.json")
+        payload = subject._stable_json_bytes({"verdict": "baseline"}, pretty=True)
+        destination.write_bytes(payload)
+        try:
+            os.link(destination, alias)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this platform")
+        with self.assertRaises(subject.EvaluationInvalid) as caught:
+            subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual("report_destination_exists", caught.exception.code)
+        self.assertTrue(destination.exists())
+        self.assertTrue(alias.exists())
+
+    def test_an_interrupted_unlink_is_recovered_by_the_publish_verification(self):
+        # The other half of the interrupt window: os.link ran, the finally-unlink
+        # did not.  The destination is left with two links and the verification
+        # must recover it -- by unlinking the TEMPORARY, never the destination.
+        destination = self._dest()
+        report = {"verdict": "baseline"}
+        real_unlink = os.unlink
+        skipped: list[Path] = []
+
+        def skip_the_first_temporary_unlink(target, *args, **kwargs):
+            if not skipped and subject._REPORT_TEMP_RE.match(Path(target).name):
+                skipped.append(Path(target))
+                return
+            return real_unlink(target, *args, **kwargs)
+
+        with patch.object(subject.os, "unlink", side_effect=skip_the_first_temporary_unlink):
+            receipt = subject.publish_report(self.root, destination, report)
+        self.assertEqual(1, len(skipped), "the interrupt must have been simulated")
+        self.assertTrue(receipt["recovered_leftover_temporary"])
+        self.assertFalse(skipped[0].exists(), "the leftover temporary is unlinked")
+        self.assertTrue(destination.exists(), "the destination is never unlinked")
+        self.assertEqual(1, os.lstat(destination).st_nlink)
+        self.assertEqual(subject._stable_json_bytes(report, pretty=True),
+                         destination.read_bytes())
+
+    def test_a_failed_link_removes_the_temporary(self):
+        destination = self._dest()
+        with patch.object(subject.os, "link", side_effect=OSError("nope")):
+            with self.assertRaises(subject.EvaluationInvalid) as caught:
+                subject.publish_report(self.root, destination, {"verdict": "baseline"})
+        self.assertEqual("report_publish_failed", caught.exception.code)
+        self.assertFalse(destination.exists())
+        self.assertEqual([], [name for name in os.listdir(self.reports)
+                              if subject._REPORT_TEMP_RE.match(name)])
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class CheckpointBudgetTests(unittest.TestCase):
+    """Wave 1wscp AC-10 / requirement 10: the nine-invocation sequence, the
+    per-invocation and cumulative ceilings, and fail-closed exhaustion."""
+
+    def setUp(self):
+        self.mod = subject
+
+    def _entry(self, slot, seconds=10.0, report_bytes=1000, public_calls=35):
+        return {"slot": slot, "seconds": seconds,
+                "report_bytes": report_bytes, "public_calls": public_calls}
+
+    def test_the_sequence_is_exactly_the_nine_named_slots(self):
+        self.assertEqual(9, len(self.mod.CHECKPOINT_SLOTS))
+        self.assertEqual(9, self.mod.MAX_CHECKPOINT_INVOCATIONS)
+        self.assertEqual(
+            ("baseline_a", "baseline_b", "post_confidence_routing",
+             "post_lexical", "ann_candidate_1", "ann_candidate_2",
+             "ann_candidate_3", "post_graph_final", "replay"),
+            self.mod.CHECKPOINT_SLOTS)
+
+    def test_at_most_three_ann_candidate_slots_exist(self):
+        ann = [s for s in self.mod.CHECKPOINT_SLOTS if s.startswith("ann_candidate")]
+        self.assertEqual(3, len(ann))
+
+    def test_the_declared_ceilings_are_the_requirement_ten_values(self):
+        self.assertEqual(10_800, self.mod.CHECKPOINT_SEQUENCE_SECONDS)
+        self.assertEqual(9 * 1024 * 1024, self.mod.CHECKPOINT_SEQUENCE_BYTES)
+        self.assertEqual(7_020, self.mod.CHECKPOINT_SEQUENCE_PUBLIC_CALLS)
+        self.assertEqual(1_200, self.mod.CHECKPOINT_INVOCATION_SECONDS)
+        self.assertEqual(1024 * 1024, self.mod.CHECKPOINT_INVOCATION_BYTES)
+        self.assertEqual(780, self.mod.CHECKPOINT_INVOCATION_PUBLIC_CALLS)
+
+    def test_an_unknown_slot_is_refused(self):
+        with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+            self.mod.authorize_checkpoint([], "post_everything")
+        self.assertEqual("unknown_checkpoint_slot", ctx.exception.code)
+
+    def test_a_slot_cannot_be_used_twice(self):
+        entries = [self._entry("baseline_a")]
+        with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+            self.mod.authorize_checkpoint(entries, "baseline_a")
+        self.assertEqual("checkpoint_slot_already_used", ctx.exception.code)
+
+    def test_a_tenth_invocation_fails_closed(self):
+        entries = [self._entry(s) for s in self.mod.CHECKPOINT_SLOTS]
+        with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+            self.mod.authorize_checkpoint(entries, "replay")
+        # The slot check fires first; both are exhaustion, and both fail closed.
+        self.assertIn(ctx.exception.code,
+                      {"checkpoint_slot_already_used",
+                       "checkpoint_invocations_exhausted"})
+
+    def test_the_invocation_count_guard_is_reachable_and_pinned(self):
+        # Delivery review (QA-DEL-3): the test above accepts EITHER code, and
+        # with a well-formed ledger the slot-reuse check always fires first, so
+        # deleting the count guard entirely left it green. That made
+        # `checkpoint_invocations_exhausted` unpinned while AC-10's note
+        # claimed every refusal was covered.
+        #
+        # A ledger CAN legitimately hold repeats of one slot (a failed attempt
+        # is retained against the slot it was attempting), so drive the count
+        # guard with nine entries on one slot and then request a FRESH slot --
+        # the reuse check cannot fire, and only the count guard stands.
+        entries = [self._entry("baseline_a") for _ in range(9)]
+        with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+            self.mod.authorize_checkpoint(entries, "post_graph_final")
+        self.assertEqual("checkpoint_invocations_exhausted", ctx.exception.code)
+
+    def test_the_per_invocation_ceilings_are_enforced(self):
+        for kwargs, code in (
+            ({"seconds": 1201}, "checkpoint_invocation_seconds_exceeded"),
+            ({"report_bytes": 1024 * 1024 + 1}, "checkpoint_invocation_bytes_exceeded"),
+            ({"public_calls": 781}, "checkpoint_invocation_calls_exceeded"),
+        ):
+            with self.subTest(limit=code):
+                with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+                    self.mod.authorize_checkpoint([], "baseline_a", **kwargs)
+                self.assertEqual(code, ctx.exception.code)
+
+    def test_the_cumulative_ceilings_are_enforced(self):
+        # Eight prior runs, each just inside its own ceiling, leave less than a
+        # full invocation of sequence budget.
+        entries = [self._entry(s, seconds=1200, report_bytes=1024 * 1024,
+                               public_calls=780)
+                   for s in self.mod.CHECKPOINT_SLOTS[:8]]
+        state = self.mod.checkpoint_budget_state(entries)
+        self.assertEqual(1200, state["seconds_remaining"])
+        with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+            self.mod.authorize_checkpoint(entries, "replay", seconds=1200,
+                                          report_bytes=1024 * 1024 + 1)
+        self.assertEqual("checkpoint_invocation_bytes_exceeded", ctx.exception.code)
+        # 8 MiB spent of 9 MiB: a full 1 MiB report still fits exactly.
+        ok = self.mod.authorize_checkpoint(entries, "replay", seconds=1200,
+                                           report_bytes=1024 * 1024,
+                                           public_calls=780)
+        self.assertTrue(ok["authorized"])
+
+    def test_failed_attempts_consume_budget(self):
+        # Not counting them would make the ceiling evadable by discarding
+        # unfavourable runs.
+        entries = [self._entry("baseline_a", seconds=900),
+                   self._entry("baseline_b", seconds=900)]
+        state = self.mod.checkpoint_budget_state(entries)
+        self.assertEqual(1800.0, state["seconds"])
+        self.assertEqual(2, state["invocations"])
+        self.assertEqual(7, state["invocations_remaining"])
+
+    def test_the_state_reports_which_slots_remain(self):
+        state = self.mod.checkpoint_budget_state([self._entry("baseline_a")])
+        self.assertEqual(["baseline_a"], state["slots_used"])
+        self.assertNotIn("baseline_a", state["slots_available"])
+        self.assertIn("post_graph_final", state["slots_available"])
+
+    def test_a_missing_ledger_reads_as_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                [], self.mod.load_checkpoint_ledger(Path(tmp) / "absent.jsonl"))
+
+    def test_a_corrupt_ledger_fails_closed_rather_than_reading_as_empty(self):
+        # An unreadable ledger must never look like "no budget consumed".
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger.jsonl"
+            path.write_text('{"slot": "baseline_a"}\nnot json\n')
+            with self.assertRaises(self.mod.CheckpointBudgetExhausted) as ctx:
+                self.mod.load_checkpoint_ledger(path)
+            self.assertEqual("checkpoint_ledger_unreadable", ctx.exception.code)
+
+    def test_a_valid_ledger_round_trips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger.jsonl"
+            path.write_text("\n".join(
+                json.dumps(self._entry(s)) for s in ("baseline_a", "baseline_b")) + "\n")
+            entries = self.mod.load_checkpoint_ledger(path)
+            self.assertEqual(2, len(entries))
+            self.assertEqual("baseline_a", entries[0]["slot"])
+
+
+class CheckpointLedgerKindTests(unittest.TestCase):
+    """Wave 1wpie delivery reverification (finding A): a failed attempt must
+    not occupy a slot, and the SHIPPED ledger must replay legally.
+
+    The previous version counted every row as an invocation and put every
+    row's slot in `slots_used`, so replaying the real ledger reported 15
+    invocations against a ceiling of 9, listed duplicate slots, and refused
+    the run the wave's own evidence rests on. A budget gate that rejects its
+    own history is not enforcing anything."""
+
+    LEDGER = (Path(__file__).resolve().parents[3].parent
+              / "docs" / "evals" / "checkpoint-ledger.jsonl")
+
+    def setUp(self):
+        self.mod = subject
+
+    def test_a_failed_attempt_does_not_occupy_its_slot(self):
+        entries = [
+            {"slot": "baseline_a", "kind": "failed_attempt", "seconds": 60.0,
+             "report_bytes": 215, "public_calls": 0},
+            {"slot": "baseline_a", "kind": "published", "seconds": 300.0,
+             "report_bytes": 1000, "public_calls": 165},
+        ]
+        state = self.mod.checkpoint_budget_state(entries)
+        self.assertEqual(1, state["invocations"])
+        self.assertEqual(1, state["failed_attempts"])
+        self.assertEqual(["baseline_a"], state["slots_used"])
+
+    def test_a_failed_attempt_still_consumes_the_resource_budget(self):
+        # The other half: retries are allowed, free retries are not.
+        entries = [{"slot": "baseline_a", "kind": "failed_attempt",
+                    "seconds": 900.0, "report_bytes": 500, "public_calls": 40}]
+        state = self.mod.checkpoint_budget_state(entries)
+        self.assertEqual(0, state["invocations"])
+        self.assertEqual(900.0, state["seconds"])
+        self.assertEqual(40, state["public_calls"])
+
+    def test_a_retry_after_a_failed_attempt_is_authorized(self):
+        entries = [{"slot": "post_graph_final", "kind": "failed_attempt",
+                    "seconds": 60.0, "report_bytes": 215, "public_calls": 0}]
+        ok = self.mod.authorize_checkpoint(entries, "post_graph_final",
+                                           seconds=300.0, report_bytes=600000,
+                                           public_calls=165)
+        self.assertTrue(ok["authorized"])
+
+    def test_a_row_without_an_explicit_kind_counts_as_published(self):
+        # Conservative default: a pre-distinction ledger must not silently
+        # free slots.
+        state = self.mod.checkpoint_budget_state([{"slot": "baseline_a"}])
+        self.assertEqual(1, state["invocations"])
+        self.assertEqual(["baseline_a"], state["slots_used"])
+
+    def test_the_shipped_ledger_replays_legally(self):
+        # The regression that motivated this class: the real on-disk ledger
+        # must satisfy the gate that claims to enforce it.
+        if not self.LEDGER.is_file():
+            self.skipTest("no checkpoint ledger in this tree")
+        entries = self.mod.load_checkpoint_ledger(self.LEDGER)
+        if not entries:
+            self.skipTest("checkpoint ledger is empty")
+        state = self.mod.checkpoint_budget_state(entries)
+        self.assertLessEqual(state["invocations"],
+                             self.mod.MAX_CHECKPOINT_INVOCATIONS,
+                             "the shipped ledger exceeds its own ceiling")
+        self.assertEqual(len(state["slots_used"]), len(set(state["slots_used"])),
+                         f"a slot is occupied twice: {state['slots_used']}")
+        for key in ("seconds", "report_bytes", "public_calls"):
+            with self.subTest(cap=key):
+                self.assertGreaterEqual(state[f"{key}_remaining"], 0,
+                                        f"the shipped ledger exceeds the {key} cap")

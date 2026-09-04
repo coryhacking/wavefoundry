@@ -1,0 +1,14 @@
+{
+  "schema": "wavefoundry.evidence-classifier-control/v1",
+  "generated_by": "graph_quality_eval.py",
+  "captured_at": "2026-09-03T00:00:00Z",
+  "command": "python3 .wavefoundry/framework/scripts/graph_quality_eval.py --mode post",
+  "corpus_digest": "sha256:0f1c2d3e4a5b60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "run_id": "1wpie-positive-control",
+  "note": "POSITIVE CONTROL for wave 1wpie requirement 11. A synthetic machine-result artifact with explicit producer/schema provenance. It exists to be classified into Evidence/Data by the LIVE graph, so it must stay in a directory the walker indexes -- see the requirement's census. It records no real measurement; nothing reads its numbers.",
+  "relations": [
+    {"relation": "calls", "true_positives": 12, "false_positives": 0, "false_negatives": 1, "precision": 1.0, "recall": 0.923},
+    {"relation": "imports", "true_positives": 20, "false_positives": 1, "false_negatives": 0, "precision": 0.952, "recall": 1.0}
+  ],
+  "totals": {"expected_edges": 33, "observed_edges": 33}
+}

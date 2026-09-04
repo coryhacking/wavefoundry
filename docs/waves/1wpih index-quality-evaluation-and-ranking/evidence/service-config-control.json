@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "indexer-service-configuration",
+  "description": "NEGATIVE CONTROL for wave 1wpie requirement 12. A realistic service configuration with a schema-shaped document AND an embedded JSON Schema. It mentions 'command' in a property name without a capture timestamp, so neither classifier route may fire. It must NOT be classified as Evidence/Data.",
+  "type": "object",
+  "required": ["indexer", "server"],
+  "properties": {
+    "indexer": {
+      "type": "object",
+      "properties": {
+        "batch_size": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256},
+        "worker_count": {"type": "integer", "minimum": 1, "default": 4},
+        "include_tests": {"type": "boolean", "default": false},
+        "include_generated": {"type": "boolean", "default": false},
+        "startup_command": {"type": "string", "default": "wf setup"},
+        "excluded_prefixes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "server": {
+      "type": "object",
+      "properties": {
+        "transport": {"type": "string", "enum": ["stdio", "http"], "default": "stdio"},
+        "quiet_period_seconds": {"type": "number", "minimum": 0, "default": 45},
+        "max_response_bytes": {"type": "integer", "default": 1048576}
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {"type": "string", "enum": ["debug", "info", "warn", "error"], "default": "info"},
+        "destination": {"type": "string", "default": "stderr"}
+      }
+    }
+  }
+}

@@ -238,8 +238,10 @@ When suspect, follow up with `code_callhierarchy(node_id=…)` on the specific n
 
 **Parameter cheat-sheet:**
 
-- `exclude_external` (default False) — filter `external::*` nodes from fan_in/fan_out/chokepoints/betweenness. Use for "show me MY code" architectural orientation; safe to combine with `exclude_generated`.
-- `exclude_generated` (default False) — filter nodes tagged `generated: true` (Java + C# generated-code classifier coverage). Independent of `exclude_external`.
+- `exclude_external` (default False) — filter `external::*` nodes from fan_in/fan_out/chokepoints/file_hubs/betweenness. Use for "show me MY code" architectural orientation; safe to combine with `exclude_generated`.
+- `exclude_generated` (default False) — filter nodes tagged `generated: true` (Java + C# generated-code classifier coverage) from fan_in/fan_out/chokepoints/file_hubs/betweenness, and drop generated-dominated communities. Independent of `exclude_external`.
+- **Both filters run BEFORE top-N truncation (wave `1wpaj`).** A filtered request now returns as many rows as you asked for whenever enough eligible candidates exist. Previously filtering ran on the already-truncated rows, so a request could come back short or empty — at `limit=1` on a graph whose top row was external, `exclude_external=True` returned nothing at all. Two contract notes: `exclude_generated` reaching `file_hubs` is new in that wave, and filtered `betweenness` refills from a complete persisted order rather than the compatibility top-N prefix, so `betweenness_metadata.top_n` describes the prefix size and not how deep the served ranking went — read `betweenness_served_from` to tell which view answered.
+- **Betweenness is base-topology only (wave `1wpaj`).** Requesting it alongside ANY `collapse_*` flag returns `betweenness: []` with `betweenness_skipped_reason: "unsupported_for_collapsed_view"`. The persisted centrality order describes the base graph, and every collapse flag rewrites nodes or edges before the report is computed, so serving that order under collapse would label base centrality as collapsed-graph centrality. This is a behaviour change: such a request used to return base rows. Ask for betweenness with all collapse flags false.
 - `collapse_generated_files` (default False) — aggregate generated source files into per-file nodes before computing sections. Preserves "handwritten code calls into ELParser" topology while shrinking apparent complexity (ELParser's 330 internal nodes collapse to 1). Per-symbol tools do NOT support this flag.
 - `collapse_class_module_pairs` (default False) — merge file-and-class pairs into one node per file. Swift-first; Java/Kotlin/C# enablement is operator-validation-driven via `_CLASS_MODULE_COLLAPSE_LANGUAGES`. Per-symbol tools do NOT support this flag.
 - `collapse_package_to_directory` (default False, wave 1319m) — aggregate files in a directory into one `package` / `namespace` node per language. Detection per language: Go matching `package <name>` declarations; Python `__init__.py` presence; Java/Kotlin/Scala/C#/PHP matching `package` / `namespace` declarations; Swift directory-presence convention. Rust (mod tree), Ruby (namespace declaration), JS/TS (ES modules) deliberately excluded. Mixed-package directories skip with no collapse; single-file directories skip. Collapsed nodes carry `collapse_origin_files`, `collapse_unit`, and `kind` of `"package"` or `"namespace"` preserving language idiom. Stacks with `collapse_class_module_pairs` (file → class then files → packages). Per-symbol tools do NOT support this flag.
@@ -550,7 +552,26 @@ Never present an inferred conclusion as a confirmed fact. A qualified answer is 
 - `validation_required` — present and true when an `explanatory` or `assessment` question's top citation is documentation. Treat the required `code_read` continuation as mandatory before synthesis.
 - `index_freshness` — three states: `"current"`, `"stale"` (the index may not reflect recent edits; recommend `index_build(content="all", mode="update")` before answering questions about recently changed code), and `"unknown"` (the freshness check could not determine state — treat results as potentially stale and verify with `index_health` when currency matters; never assume current).
 - `search_mode` — how the results were retrieved: `"hybrid"`/`"semantic"` (normal, including direct file/path artifact questions), `"exact"` (a weak generated-symbol/config/tool artifact exact-first pass answered before semantic retrieval — healthy), `"lexical_fallback"` (semantic retrieval unavailable; results are BM25 exact-token matches — compound identifiers are indivisible tokens, substrings do not match, and recall is narrower than semantic; confidence is capped), or `"live_fallback"` (docs only: no published index at all; a live filesystem walk served). Interpret degraded modes accordingly — a zero-hit in lexical fallback does NOT mean the concept is absent, only that the exact tokens did not match.
+- `confidence_basis` (wave `1wpie`/`1wscp`) — WHY the reported `confidence` has its value, so a strong
+  answer is distinguishable from a merely long candidate list: `semantic_lead` (follows the LEAD
+  citation's reranked score), `exact_owner` (an exact owner row answered directly), `no_citations`
+  (nothing retrieved), `unranked_similarity` (the cross-encoder did not run, so ordering is vector or
+  coverage based), `lexical_fallback` (BM25 answered). It reads the LEAD citation, never the best
+  score anywhere in the set — a strong citation at rank 7 does not raise confidence in the answer the
+  response actually opens with.
 - `fallback_reason` — always present: `null` when healthy; else why the degraded path served (`model_unavailable`, `index_missing`, `store_absent`, `index_not_ready`, `query_failed`). `query_failed` means infrastructure failure, NOT an empty corpus — do not conclude "not found" from it.
+
+**`wf_graph_report` Evidence/Data arrays (wave `1wpie`).** Five sections return an exact parallel
+typed array: `communities`/`evidence_communities`, `fan_in`/`evidence_fan_in`,
+`fan_out`/`evidence_fan_out`, `chokepoints`/`evidence_chokepoints`, `file_hubs`/`evidence_file_hubs`.
+Rows whose owning artifact is a classified MACHINE RESULT (it declares its own producer/schema, or
+pairs a real capture timestamp with a digest or run field) are partitioned out BEFORE top-N, so an
+archived benchmark artifact cannot occupy an architectural ranking slot. Read the production array
+for orientation and the evidence array when you actually want the machine records. All five evidence
+arrays are ALWAYS present, empty when nothing qualifies, so absence never has to be interpreted; the
+public `limit` applies independently to each half; `exclude_generated` does not erase them; and the
+communities stay queryable through `code_graph_community` with cross-boundary edges intact.
+
 
 **Citation interpretation:** when `reranked=true`, `score` is the unified cross-encoder relevance (`sigmoid(logit)`) before any soft demotion. Two `reranked=false` cases: on the healthy path it is vector/coverage order over raw shared-embedder cosine (uncalibrated and weaker; confidence capped at medium), and in `search_mode: lexical_fallback` it is BM25 exact-token score/order (confidence low). `final_rank` is the actual output order after any soft demotion. When `demoted: true` is present, the lower position is intentional — `partition_reason: "doc_code_drift"` marks a drift-flagged doc moved behind a comparably-relevant current alternative (order-only; the partition ships default-off). Prefer `final_rank` over `score` when deciding which citation is primary. Structural matches live in `graph_related`, NOT in `citations` (citations are semantic-only).
 

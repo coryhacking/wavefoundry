@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import io
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 
 
@@ -741,8 +742,88 @@ class ConstantClusterExclusionTests(unittest.TestCase):
     def test_cluster_builder_version_bumped(self):
         # 1p4ls bumped 8→9 (constant/reads exclusion); 1p65m bumped 9→10 (Leiden RNG
         # seeding for reproducibility + cross-directory grab-bag split); 1p9q1
-        # bumped 10→11 (build-time betweenness section in the clusters artifact).
-        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "11")
+        # bumped 10→11 (build-time betweenness section in the clusters artifact);
+        # 1wpaj bumped 11→12 (the complete deterministic betweenness order beside
+        # the compatibility top-N prefix); 1wpie bumped 12→13 as a deliberate
+        # invalidation for the Evidence/Data partition — the artifact's SHAPE is
+        # unchanged (partitioning reads graph-node flags at report time), so this
+        # bump exists to force a rebuild of artifacts computed at 12.
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION, "13")
+
+    def _betweenness_payload(self, fan):
+        """A directed calls graph where `fan` leaf nodes all call one hub.
+
+        Betweenness is computed over the directed `calls` projection, so a star
+        gives the hub a positive score and leaves the leaves at zero. To get
+        MANY positive-score nodes we chain instead: each node calls the next,
+        so every interior node lies on a shortest path.
+        """
+        nodes = [{"id": f"m.py::n{i}", "kind": "function"} for i in range(fan)]
+        edges = [
+            {"source": f"m.py::n{i}", "target": f"m.py::n{i + 1}", "relation": "calls"}
+            for i in range(fan - 1)
+        ]
+        return {"nodes": nodes, "edges": edges}
+
+    def test_complete_ranking_holds_every_positive_score_node(self):
+        # 1wpaj AC-6 producer side. The compatibility prefix is capped at
+        # BETWEENNESS_TOP_N; the complete order is not, and a filtered public
+        # query refills from it.
+        original_top_n = self.mod.BETWEENNESS_TOP_N
+        self.mod.BETWEENNESS_TOP_N = 3
+        try:
+            section = self.mod.compute_betweenness_ranking(self._betweenness_payload(12))
+        finally:
+            self.mod.BETWEENNESS_TOP_N = original_top_n
+        complete = section["complete_ranking"]
+        self.assertEqual(len(section["ranking"]), 3, "the compatibility prefix is not capped")
+        self.assertGreater(
+            len(complete), len(section["ranking"]),
+            "the complete order is no deeper than the prefix, so a filtered "
+            "query could not refill past it",
+        )
+        self.assertEqual(section["complete_ranking_total"], len(complete))
+        # Every persisted row has a positive finite score, and the order is the
+        # documented (-score, node_id).
+        scores = [row["score"] for row in complete]
+        self.assertTrue(all(score > 0 for score in scores), scores)
+        self.assertEqual(
+            [(-row["score"], row["node_id"]) for row in complete],
+            sorted((-row["score"], row["node_id"]) for row in complete),
+            "the complete order is not sorted by (-score, node_id)",
+        )
+
+    def test_complete_ranking_is_prefixed_by_the_compatibility_ranking(self):
+        # The prefix must be exactly the head of the complete order, or an
+        # old top-N consumer and a refilling consumer disagree about rank.
+        original_top_n = self.mod.BETWEENNESS_TOP_N
+        self.mod.BETWEENNESS_TOP_N = 4
+        try:
+            section = self.mod.compute_betweenness_ranking(self._betweenness_payload(12))
+        finally:
+            self.mod.BETWEENNESS_TOP_N = original_top_n
+        head = [row["node_id"] for row in section["complete_ranking"][:4]]
+        self.assertEqual([row["node_id"] for row in section["ranking"]], head)
+
+    def test_complete_ranking_rows_are_compact(self):
+        # Presentation fields resolve at serve time; carrying them here would
+        # grow the artifact for no gain.
+        section = self.mod.compute_betweenness_ranking(self._betweenness_payload(6))
+        self.assertTrue(section["complete_ranking"], "no positive-score rows produced")
+        self.assertEqual(set(section["complete_ranking"][0]), {"node_id", "score"})
+        # The compatibility prefix keeps its richer shape unchanged.
+        self.assertEqual(
+            set(section["ranking"][0]), {"node_id", "score", "label", "kind"},
+        )
+
+    def test_zero_and_non_finite_scores_stay_excluded(self):
+        # The candidate universe is unchanged by this wave: positive finite only.
+        section = self.mod.compute_betweenness_ranking(self._betweenness_payload(6))
+        ids = {row["node_id"] for row in section["complete_ranking"]}
+        # The chain's endpoints lie on no shortest path between others, so they
+        # score zero and must be absent from both views.
+        self.assertNotIn("m.py::n0", ids)
+        self.assertTrue(ids, "every node was excluded, so the assertion is vacuous")
 
     def test_reads_and_constants_excluded_from_projection(self):
         payload = {
@@ -1086,3 +1167,108 @@ class InheritanceRelationIngestionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PredecessorVersionRebuildThenReuseTests(unittest.TestCase):
+    """Wave 1wpie AC-8: an artifact left at the LANDED PREDECESSOR cluster-builder
+    version rebuilds even when its fingerprint matches, and the very next
+    unchanged invocation reuses it without rewriting the file.
+
+    This is the version half of the fingerprint gate. Fingerprint equality alone
+    must not authorise reuse, or a builder-version bump would silently serve
+    stale-shaped artifacts to every consumer that already has one on disk.
+    """
+
+    LANDED_PREDECESSOR = "12"
+
+    def setUp(self):
+        self.mod = load_graph_cluster()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+
+    def test_the_predecessor_is_exactly_one_below_the_current_version(self):
+        # Guards the premise: if someone bumps the constant without revisiting
+        # this file, the fixture below stops describing the real predecessor.
+        self.assertEqual(
+            int(self.mod.CLUSTER_BUILDER_VERSION), int(self.LANDED_PREDECESSOR) + 1,
+            "this test's fixture version must be the immediately preceding release",
+        )
+
+    def _graph(self):
+        return {
+            "input_fingerprint": "fp-ac8-stable",
+            "builder_version": self.mod.GRAPH_BUILDER_VERSION,
+            "nodes": [
+                {"id": f"src/mod{i}.py::fn{i}", "kind": "function",
+                 "file": f"src/mod{i}.py"}
+                for i in range(6)
+            ],
+            "edges": [
+                {"source": f"src/mod{i}.py::fn{i}",
+                 "target": f"src/mod{i + 1}.py::fn{i + 1}", "relation": "calls"}
+                for i in range(5)
+            ],
+        }
+
+    def _build(self):
+        with redirect_stderr(io.StringIO()) as err:
+            payload = self.mod.update_graph_clusters(
+                root=self.root, index_dir=self.index_dir,
+                layer="project", graph_payload=self._graph(), verbose=False,
+            )
+        return payload, err.getvalue()
+
+    def _seed_predecessor_artifact(self):
+        """Write an artifact that matches on EVERY gate field but the version."""
+        payload, _ = self._build()
+        path = self.mod.cluster_path(self.root, "project")
+        stored = self.mod._read_json(path, None)
+        self.assertEqual("fp-ac8-stable", stored.get("input_fingerprint"))
+        stored["cluster_builder_version"] = self.LANDED_PREDECESSOR
+        stored["marker_from_predecessor"] = True
+        self.mod._write_json(path, stored)
+        return path
+
+    def test_a_same_fingerprint_predecessor_artifact_is_rebuilt(self):
+        path = self._seed_predecessor_artifact()
+        payload, stderr = self._build()
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION,
+                         payload["cluster_builder_version"])
+        self.assertNotIn("fingerprint match", stderr,
+                         "a version mismatch must not take the reuse path")
+        self.assertNotIn("marker_from_predecessor", self.mod._read_json(path, {}),
+                         "the stale artifact must be replaced, not merged into")
+
+    def test_the_next_unchanged_invocation_reuses_without_rewriting(self):
+        self._seed_predecessor_artifact()
+        self._build()  # the rebuild that lands the current version
+        path = self.mod.cluster_path(self.root, "project")
+        before_bytes = path.read_bytes()
+        before_mtime = path.stat().st_mtime_ns
+        os.utime(path, ns=(before_mtime - 5_000_000_000,
+                           before_mtime - 5_000_000_000))
+        aged = path.stat().st_mtime_ns
+
+        payload, stderr = self._build()
+
+        self.assertIn("fingerprint match", stderr,
+                      "an unchanged input at the current version must reuse")
+        self.assertEqual(aged, path.stat().st_mtime_ns,
+                         "reuse must not rewrite the artifact")
+        self.assertEqual(before_bytes, path.read_bytes())
+        self.assertTrue(payload["present"])
+        self.assertEqual(self.mod.CLUSTER_BUILDER_VERSION,
+                         payload["cluster_builder_version"])
+
+    def test_a_changed_fingerprint_still_rebuilds_at_the_current_version(self):
+        # The version gate must not have replaced the fingerprint gate.
+        self._build()
+        path = self.mod.cluster_path(self.root, "project")
+        stored = self.mod._read_json(path, None)
+        stored["input_fingerprint"] = "fp-ac8-different"
+        self.mod._write_json(path, stored)
+        _, stderr = self._build()
+        self.assertNotIn("fingerprint match", stderr)

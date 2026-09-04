@@ -1,0 +1,10 @@
+{
+  "invalidation_reasons": [
+    {
+      "code": "index_not_ready",
+      "message": "index build state is 'building', not complete"
+    }
+  ],
+  "schema": "wavefoundry.retrieval-eval/v1",
+  "verdict": "invalid"
+}

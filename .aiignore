@@ -8,4 +8,13 @@
 
 # Retrieval-eval inputs/outputs must never become their own search answers.
 docs/evals/retrieval-quality-golden.json
+docs/evals/retrieval-adjudications.json
+docs/evals/lexical-ranking-calibration.json
+docs/evals/lexical-ranking-regression.json
+docs/evals/ann-reference-golden.json
+docs/evals/graph-quality-golden.json
+docs/evals/checkpoint-ledger.jsonl
 docs/reports/retrieval-quality-*.json
+docs/reports/lexical-ranking-*.json
+docs/reports/ann-reference-*.json
+docs/reports/graph-quality-*.json

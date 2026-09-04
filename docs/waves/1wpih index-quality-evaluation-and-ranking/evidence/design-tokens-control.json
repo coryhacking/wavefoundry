@@ -1,0 +1,27 @@
+{
+  "$schema": "https://design-tokens.org/schema.json",
+  "name": "wavefoundry-dashboard-tokens",
+  "version": "2.4.0",
+  "description": "NEGATIVE CONTROL for wave 1wpie requirement 12. A realistic design-token document: repeated-key shape, JSON extension, sizeable. It must remain in its ordinary domain and must NOT be classified as Evidence/Data.",
+  "color": {
+    "surface": {"base": "#0b0d10", "raised": "#141820", "overlay": "#1c2230", "inverse": "#f7f9fc"},
+    "text": {"primary": "#e8edf5", "secondary": "#9aa7bd", "muted": "#67748c", "inverse": "#0b0d10"},
+    "accent": {"default": "#4c8dff", "hover": "#6ba0ff", "pressed": "#3a76e0", "subtle": "#1b2f52"},
+    "status": {"ok": "#3fb950", "warn": "#d29922", "error": "#f85149", "info": "#58a6ff"}
+  },
+  "space": {"xs": "4px", "sm": "8px", "md": "12px", "lg": "16px", "xl": "24px", "2xl": "32px", "3xl": "48px"},
+  "radius": {"none": "0", "sm": "3px", "md": "6px", "lg": "10px", "pill": "999px"},
+  "typography": {
+    "family": {"sans": "Inter, system-ui, sans-serif", "mono": "SF Mono, ui-monospace, monospace"},
+    "size": {"xs": "11px", "sm": "12px", "md": "14px", "lg": "16px", "xl": "20px", "2xl": "28px"},
+    "weight": {"regular": 400, "medium": 500, "semibold": 600, "bold": 700},
+    "leading": {"tight": 1.2, "normal": 1.5, "loose": 1.8}
+  },
+  "elevation": {
+    "none": "none",
+    "sm": "0 1px 2px rgba(0,0,0,0.24)",
+    "md": "0 4px 12px rgba(0,0,0,0.32)",
+    "lg": "0 12px 32px rgba(0,0,0,0.40)"
+  },
+  "motion": {"duration": {"fast": "120ms", "base": "200ms", "slow": "320ms"}, "easing": {"standard": "cubic-bezier(0.2,0,0,1)", "decelerate": "cubic-bezier(0,0,0,1)"}}
+}

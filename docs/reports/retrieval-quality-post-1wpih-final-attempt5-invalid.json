@@ -1,0 +1,10 @@
+{
+  "invalidation_reasons": [
+    {
+      "code": "invalid_baseline",
+      "message": "baseline fixture schema mismatch"
+    }
+  ],
+  "schema": "wavefoundry.retrieval-eval/v1",
+  "verdict": "invalid"
+}

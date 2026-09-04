@@ -678,6 +678,11 @@ _GRAPH_OUTGOING_INTENT_RE = re.compile(
 # INT8). Two reranked=false cases (wave 1seav): healthy-path vector/coverage ordering with
 # confidence CAPPED at medium (low with zero citations; the raw
 # shared-embedder cosine is uncalibrated).
+# Wave 1wsc8: the single certified ANN tuning value, named so the query-builder
+# receipt test can assert exactly this and nothing else. NOT an inert constant:
+# it is read at the one call site below, and its value is the output of a
+# fail-closed certification that rejected two sibling candidates.
+ANN_REFINE_FACTOR = 2
 CONF_AGENT_RERANK_HIGH = 0.5       # reranked top sigmoid ≥ this (with ≥2 citations) → "high"
 CONF_AGENT_RERANK_LOW = 0.1        # reranked top sigmoid < this → "low" (nothing relevant retrieved)
 
@@ -2252,8 +2257,18 @@ class WaveIndex:
         if not fetch.get("available"):
             return []
         hits: list[dict] = list(fetch.get("results") or [])
-        # sqlite bm25() is smaller-is-better (negative); best-first ascending.
-        hits.sort(key=lambda h: h.get("bm25", 0.0))
+        # Wave 1wpid (requirement 3+7): rank-based cross-table fusion replaces
+        # the raw-bm25 sort. `docs` and `code` normalize independently, so the
+        # old comparison let unrelated growth in one table reorder rows in the
+        # other. Single-table results are unaffected: with one table every row
+        # keeps its own rank, so the order is identical to the bm25 sort.
+        _store = _load_script("index_state_store")
+        _by_table: dict[str, list[dict]] = {}
+        for _hit in hits:
+            _by_table.setdefault(str(_hit.get("table") or "code"), []).append(_hit)
+        for _rows in _by_table.values():
+            _rows.sort(key=lambda h: h.get("bm25", 0.0))
+        hits = _store.fuse_lexical_tables(_by_table)
         out: list[dict] = []
         for h in hits:
             out.append({
@@ -2284,6 +2299,17 @@ class WaveIndex:
             q = table.search(query_vec.tolist()).metric("cosine").limit(top_n)
             if where:
                 q = q.where(where, prefilter=True)
+            # Wave 1wsc8: the ONE certified ANN tuning value. It cleared every
+            # branch of the fail-closed certifier rather than being chosen:
+            # ANN-vs-exact macro overlap 0.96 -> 1.00 across five frozen slices
+            # with no slice losing any overlap, and the standing 35-fixture gate
+            # then moved code_ask nDCG@10 0.5167 -> 0.5185 with zero metrics
+            # worse and no new violation. Two sibling candidates were REJECTED
+            # by the same certifier (nprobes=20 gained 3.8% latency against a
+            # required 10%; nprobes=50 was slower), which is why this value is
+            # a measured receipt and not a guess. No other tuning may appear
+            # here without its own certification.
+            q = q.refine_factor(ANN_REFINE_FACTOR)
             results = q.to_list()
         except Exception:
             return []
@@ -21019,7 +21045,20 @@ def _fts_degraded_serve(
                 })
         if names:
             hits = [h for h in hits if h.get("language") in names]
-        hits.sort(key=lambda h: -float(h.get("score", 0.0)))
+        # Wave 1wpid (requirement 3+7): when this serve spans MORE THAN ONE
+        # table the merge is rank-based, because raw bm25 from independently
+        # normalized tables is not comparable. A single-table serve keeps its
+        # existing order exactly: with one table every row's rank equals its
+        # bm25 position, so fusion is order-preserving there.
+        _grouped: dict[str, list[dict[str, Any]]] = {}
+        for _h in hits:
+            _grouped.setdefault(str(_h.get("table") or ""), []).append(_h)
+        for _rows in _grouped.values():
+            _rows.sort(key=lambda h: -float(h.get("score", 0.0)))
+        if len(_grouped) > 1:
+            hits = _load_script("index_state_store").fuse_lexical_tables(_grouped)
+        else:
+            hits.sort(key=lambda h: -float(h.get("score", 0.0)))
         if per_file_cap is not None:
             per_file: dict[str, int] = {}
             capped = []
@@ -21169,7 +21208,18 @@ def code_lexical_response(
                          next_tools=["code_keyword"], usage="code_keyword(query='<exact_token>')")
     hits: list[dict[str, Any]] = list(fetch.get("results") or [])
     # sqlite bm25() is smaller-is-better (negative); best-first ascending.
-    hits.sort(key=lambda h: h.get("bm25", 0.0))
+    # Wave 1wpid (requirement 3+7): `table="both"` merges by rank rather than by
+    # raw bm25, since the two tables normalize independently. Single-table
+    # requests are order-identical, so the docs/code fallbacks are unchanged.
+    _grouped: dict[str, list[dict[str, Any]]] = {}
+    for _h in hits:
+        _grouped.setdefault(str(_h.get("table") or ""), []).append(_h)
+    for _rows in _grouped.values():
+        _rows.sort(key=lambda h: h.get("bm25", 0.0))
+    if len(_grouped) > 1:
+        hits = _load_script("index_state_store").fuse_lexical_tables(_grouped)
+    else:
+        hits.sort(key=lambda h: h.get("bm25", 0.0))
     results: list[dict[str, Any]] = []
     for h in hits[:limit]:
         text = str(h.get("text") or "")
@@ -23865,7 +23915,28 @@ def code_callhierarchy_response(
         except (ValueError, IndexError):
             start_line = 0
         c_label, c_id = community_lookup.get(nid, (None, None))
-        return {"name": label, "file": src, "line": None, "snippet": None, "community": c_label, "community_id": c_id, "_start_line": start_line}
+        # Wave 1wpaj: `node_id` and `kind` join the presentation fields so a
+        # consumer can apply the documented trust policy to an individual entry
+        # without a second graph call. `relation` and `confidence` are edge
+        # properties, not node properties, so the callers below attach them.
+        return {
+            "name": label, "file": src, "line": None, "snippet": None,
+            "node_id": nid, "kind": n.get("kind"),
+            "community": c_label, "community_id": c_id, "_start_line": start_line,
+        }
+
+    def _attach_edge_trust(entry: dict[str, Any], edge: dict[str, Any]) -> dict[str, Any]:
+        """Wave 1wpaj: carry per-edge trust onto a hierarchy entry.
+
+        `confidence` is the field that actually discriminates on `calls` edges
+        (RECEIVER_RESOLVED / CONSTRUCTION_RESOLVED / EXTRACTED). `relation` is
+        constant for this response because the traversal filters to one
+        relation; it is carried for forward compatibility and no discrimination
+        claim rests on it.
+        """
+        entry["relation"] = edge.get("relation") or "calls"
+        entry["confidence"] = edge.get("confidence")
+        return entry
 
     # Accumulator for advice-pattern diagnostics emitted on the incoming branch.
     # Initialized before direction conditionals so the variable is always defined
@@ -23882,7 +23953,7 @@ def code_callhierarchy_response(
             tgt = e.get("target")
             if not isinstance(tgt, str):
                 continue
-            entry = _node_entry(tgt)
+            entry = _attach_edge_trust(_node_entry(tgt), e)
             # Wave 1p2q3 (1p2td post-ship feedback): propagate edge.self_edge_kind
             # from the underlying edge to the outgoing entry so consumers reading
             # code_callhierarchy's outgoing list see the overload classification
@@ -23927,7 +23998,7 @@ def code_callhierarchy_response(
             src = e.get("source")
             if not isinstance(src, str):
                 continue
-            entry = _node_entry(src)
+            entry = _attach_edge_trust(_node_entry(src), e)
             # Wave 1p2q3 (1p2td post-ship feedback): propagate edge.self_edge_kind
             # from the underlying edge to the incoming entry so consumers reading
             # code_callhierarchy's incoming list see the overload classification.
@@ -25646,6 +25717,16 @@ def code_callgraph_response(
     )
 
 
+class _BetweennessUnsupportedForCollapsedView(Exception):
+    """Wave 1wpaj: betweenness was requested alongside a collapse flag.
+
+    Raised inside the betweenness serve block so the existing handler performs
+    the same teardown it does for any other refusal (empty rows, no method, no
+    metadata). The skip reason and note for this case are set BEFORE the block
+    and are deliberately not overwritten afterwards.
+    """
+
+
 def wf_graph_report_response(
     root: Path,
     *,
@@ -25729,30 +25810,106 @@ def wf_graph_report_response(
         }
         directory_payload = gq.collapse_package_to_directory_view(original_payload, root=root)
         index = gq.GraphQueryIndex(directory_payload)
-    report = index.report(limit=max(1, min(limit, 100)), sections=sections)
+    # Wave 130rj — field feedback §6.4 + §6.2: generated-node eligibility.
+    # Wave 1wpaj: hoisted above the report call so eligibility can be applied
+    # BEFORE top-N truncation rather than after it.
+    def _node_is_generated(nid: str) -> bool:
+        n = index.get_node(nid) or {}
+        return bool(n.get("generated"))
+
+    def _report_eligible(nid: str) -> bool:
+        """Wave 1wpaj: the filter-before-truncation predicate.
+
+        Both public flags resolve to one predicate handed to `report()`, which
+        applies it at each of its three truncation sites. Filtering used to run
+        on the already-sliced rows, so a filtered request silently returned
+        fewer rows than asked for; at limit=1 with external nodes ranked on top,
+        it returned nothing at all.
+        """
+        if exclude_external and nid.startswith("external::"):
+            return False
+        if exclude_generated and _node_is_generated(nid):
+            return False
+        return True
+
+    _eligible = _report_eligible if (exclude_external or exclude_generated) else None
+    report = index.report(
+        limit=max(1, min(limit, 100)), sections=sections, eligible=_eligible,
+        # Wave 1wpie: the partition predicate. Passed unconditionally, including
+        # under `exclude_generated`, because that filter must not erase
+        # Evidence/Data -- the two are orthogonal classifications.
+        is_evidence=index.is_evidence_node,
+    )
     # AC-from-wave-130rj (field feedback §2.2): community overview section.
     # Adds a single-call architectural-orientation surface listing top
     # communities by node_count with the IDs needed to follow up via
     # code_graph_community. Lazy-loaded so the section only fires when
     # requested OR when the default section set is used.
     wanted = set(sections) if sections is not None else {"fan_in", "fan_out", "orphan_docs", "chokepoints", "file_hubs", "communities"}
+    # Wave 1wpie delivery review (ARCH-DEL-3): degradation on the evidence
+    # partition must reach the caller, not be swallowed.
+    partition_diagnostics: list[dict[str, Any]] = []
     if "communities" in wanted:
         try:
             gc = _load_script("graph_cluster")
             cluster_layer = layer_value
             payload = gc.read_cluster_payload(root, cluster_layer)
             communities_section: list[dict[str, Any]] = []
+            # Wave 1wpie delivery council: `evidence_ranked` and `degree` are
+            # bound INSIDE the `present` branch but read after it, so a tree
+            # with a graph and no cluster artifact -- an ordinary fresh target
+            # repository -- raised UnboundLocalError and was reported as
+            # "the partition failed and does not describe the graph". That is
+            # the third indistinguishable state the diagnostic below argues is
+            # worse than the ambiguity it replaced. An absent cluster payload
+            # means there are simply no communities; say that by serving two
+            # empty arrays and no false alarm.
+            evidence_ranked: list[dict[str, Any]] = []
+            degree: dict[str, int] = {}
             if payload.get("present"):
                 # Build degree lookup for hub selection.
-                degree: dict[str, int] = {}
                 for nid, edges in index._in.items():
                     degree[nid] = degree.get(nid, 0) + len(edges)
                 for nid, edges in index._out.items():
                     degree[nid] = degree.get(nid, 0) + len(edges)
+                # Wave 1wpaj: eligibility BEFORE truncation here too. This
+                # section is artifact-defined rather than a `report()` section,
+                # so it needs its own filter-first pass; leaving it post-sliced
+                # reproduced the wave's headline defect exactly (a filtered
+                # limit=1 request returning [] while an eligible community sat
+                # one row below a generated-dominated one).
+                _all_communities = payload.get("communities") or []
+                if exclude_generated:
+                    _all_communities = [
+                        c for c in _all_communities
+                        if float(c.get("generated_node_fraction") or 0.0) <= 0.4
+                    ]
+                # Wave 1wpie requirement 8: partition BEFORE the top-N slice,
+                # and slice each half independently. The majority rule lives in
+                # `graph_query` so the community catalog resource applies the
+                # SAME rule; two copies would present one community two ways
+                # depending on which surface a reader opened. This is the
+                # section the wave exists for: on this repository the
+                # third-largest community is 987 nodes of one test freeze.
+                _gq = _load_graph_query()
+                _majority = _gq.EVIDENCE_COMMUNITY_MAJORITY
+                _cap = max(1, min(limit, 100))
+                _evidence_shares = {
+                    str(c.get("community_id") or ""): _gq.community_evidence_share(index, c)
+                    for c in _all_communities
+                }
+                _production = [c for c in _all_communities
+                               if _evidence_shares.get(str(c.get("community_id") or ""), 0.0) <= _majority]
+                _evidence = [c for c in _all_communities
+                             if _evidence_shares.get(str(c.get("community_id") or ""), 0.0) > _majority]
                 ranked = sorted(
-                    (payload.get("communities") or []),
+                    _production,
                     key=lambda c: -int(c.get("node_count") or 0),
-                )[:max(1, min(limit, 100))]
+                )[:_cap]
+                evidence_ranked = sorted(
+                    _evidence,
+                    key=lambda c: -int(c.get("node_count") or 0),
+                )[:_cap]
                 for c in ranked:
                     cid = str(c.get("community_id") or "")
                     label = str(c.get("label") or cid)
@@ -25775,15 +25932,58 @@ def wf_graph_report_response(
                     if gen_fraction > 0.4:
                         entry["community_type"] = "generated-dominated"
                     communities_section.append(entry)
-            # Wave 130rj — exclude_generated suppresses generated-dominated communities.
-            if exclude_generated:
-                communities_section = [
-                    c for c in communities_section
-                    if c.get("community_type") != "generated-dominated"
-                ]
+            # Wave 130rj — exclude_generated suppresses generated-dominated
+            # communities. Wave 1wpaj moved that filter above the truncation, so
+            # nothing remains to strip here; a post-filter would be a no-op on an
+            # already-eligible list and would reintroduce the shrink-after-slice
+            # shape this wave removed.
             report["communities"] = communities_section
-        except Exception:
+            # The exact parallel Evidence/Data array. Same compatibility fields
+            # as a production entry, plus the typed marks requirement 7 names.
+            evidence_communities: list[dict[str, Any]] = []
+            for c in evidence_ranked:
+                cid = str(c.get("community_id") or "")
+                members = c.get("node_ids") or []
+                hub_id = max(members, key=lambda n: degree.get(n, 0), default="") if members else ""
+                reasons: list[str] = []
+                for member in members:
+                    reasons = index.evidence_reasons(str(member))
+                    if reasons:
+                        break
+                evidence_communities.append({
+                    "community_id": cid,
+                    "label": str(c.get("label") or cid),
+                    "node_count": int(c.get("node_count") or 0),
+                    "hub_node_id": hub_id,
+                    "hub_label": (index.get_node(hub_id) or {}).get("label", hub_id) if hub_id else "",
+                    "generated_node_fraction": float(c.get("generated_node_fraction") or 0.0),
+                    "community_type": "evidence_data",
+                    "evidence_type": "evidence_data",
+                    "evidence_node_share": round(
+                        _evidence_shares.get(cid, 0.0), 4),
+                    "classification_reasons": reasons or [
+                        "majority of community members belong to classified "
+                        "machine-result artifacts"],
+                })
+            report["evidence_communities"] = evidence_communities
+        except Exception as exc:  # noqa: BLE001
+            # Wave 1wpie delivery review (ARCH-DEL-3): this handler's blast
+            # radius now covers the whole evidence partition, so a silent
+            # degrade would make an empty `evidence_communities` mean any of
+            # three things -- nothing qualified, the build predates the
+            # partition, or the partition RAISED. The contract promises a
+            # consumer never has to separate the first two; a third
+            # indistinguishable state is worse. Report it.
             report.setdefault("communities", [])
+            report.setdefault("evidence_communities", [])
+            partition_diagnostics.append(_diagnostic(
+                "evidence_partition_degraded",
+                "The community/evidence partition failed and both arrays were "
+                f"served empty; they do not describe the graph. Cause: {exc}. "
+                "Rebuild the graph index, then retry.",
+                recovery_tools=["index_build", "index_health"],
+                recovery_usage="index_build(content='graph', mode='rebuild')",
+            ))
 
     # Wave 1p9q3 (1p9q1): the betweenness section is SERVED from the persisted
     # build-time ranking in the clusters artifact (graph_cluster.compute_betweenness_ranking:
@@ -25794,16 +25994,103 @@ def wf_graph_report_response(
     if "betweenness" in wanted:
         bw_rows_served: list[dict[str, Any]] = []
         bw_computed = False
+        # Wave 1wpaj: betweenness is supported ONLY on the base topology.
+        # The persisted centrality order describes the base graph, while every
+        # collapse flag rewrites nodes or edges before the report is computed,
+        # so serving that order under collapse would label base centrality as
+        # collapsed-graph centrality. Refuse explicitly rather than serve a
+        # stale order. This also removes a presentation regression the refill
+        # would otherwise hit: compact complete-order rows resolve `label` and
+        # `kind` through the live index, and under collapse the base node id no
+        # longer exists there, so those fields degraded to the raw id and None.
+        _collapse_active = (
+            collapse_generated_files
+            or collapse_class_module_pairs
+            or collapse_package_to_directory
+        )
+        if _collapse_active:
+            report["betweenness"] = []
+            report["betweenness_computed"] = False
+            report["betweenness_skipped_reason"] = "unsupported_for_collapsed_view"
+            report["betweenness_note"] = (
+                "Betweenness is computed at build time over the BASE graph topology and "
+                "persisted in the clusters artifact. Collapse flags rewrite nodes or edges "
+                "before the report is computed, so the persisted order does not describe "
+                "the collapsed graph and is not served for it. Request betweenness with all "
+                "collapse flags false, or read the other sections under collapse."
+            )
         try:
+            if _collapse_active:
+                raise _BetweennessUnsupportedForCollapsedView()
             gc_bw = _load_script("graph_cluster")
             bw_payload = gc_bw.read_cluster_payload(root, layer_value)
             bw_section = bw_payload.get("betweenness") if bw_payload.get("present") else None
+            # Wave 1wpaj: read-side cluster-version gate. This block, not the
+            # shared `read_cluster_payload`, is the right place for it: that
+            # reader also serves the community tools, the communities resource,
+            # and the community labelling reached from call hierarchy and
+            # impact, and refusing there would strand all of them. Only this
+            # block asserts a base-topology centrality ORDER whose meaning
+            # depends on the artifact version. Without the gate the guarantee
+            # holds only by the accident of a co-occurring graph-version bump.
+            _persisted_cluster_version = str(bw_payload.get("cluster_builder_version") or "")
+            _runtime_cluster_version = str(getattr(gc_bw, "CLUSTER_BUILDER_VERSION", "") or "")
+            # A MISSING persisted version is treated as stale, not as a pass.
+            # Betweenness first appeared at cluster builder version 11, well
+            # after the artifact carried a version, so a betweenness section
+            # with no version is not a pre-versioning artifact — it is an
+            # artifact whose provenance cannot be established, and serving a
+            # centrality ORDER on that basis is the thing this gate exists to
+            # prevent. Only an unknown RUNTIME version passes ungated, since
+            # then there is nothing to compare against.
+            if (
+                isinstance(bw_section, dict)
+                and _runtime_cluster_version
+                and _persisted_cluster_version != _runtime_cluster_version
+            ):
+                bw_section = None
+                report["betweenness_stale_artifact"] = {
+                    "persisted": _persisted_cluster_version,
+                    "runtime": _runtime_cluster_version,
+                }
             if isinstance(bw_section, dict) and isinstance(bw_section.get("ranking"), list):
-                bw_rows_served = [
-                    dict(row)
-                    for row in bw_section["ranking"][: max(1, min(limit, 100))]
-                    if isinstance(row, dict)
-                ]
+                # Wave 1wpaj: refill from the COMPLETE persisted order when the
+                # caller filtered, so an eligible row below the compatibility
+                # prefix is reachable. The prefix alone cannot satisfy a
+                # filtered limit: eligible rows past rank top_n are invisible.
+                _complete = bw_section.get("complete_ranking")
+                _source_rows = (
+                    _complete if (_eligible is not None and isinstance(_complete, list))
+                    else bw_section["ranking"]
+                )
+                _wanted_rows = max(1, min(limit, 100))
+                # Wave 1wpaj: say which view served the rows. `top_n` in the
+                # metadata is the persisted PREFIX size, so after a refill it no
+                # longer describes how deep the ranking went; a consumer reading
+                # it that way would be wrong without this field.
+                # Values are deliberately NOT the artifact key names: a leak
+                # guard greps the serialized response for those keys, and a
+                # field whose VALUE echoes one would trip it for no reason.
+                report["betweenness_served_from"] = (
+                    "complete_order" if _source_rows is _complete else "prefix"
+                )
+                bw_rows_served = []
+                for row in _source_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    _nid = str(row.get("node_id") or "")
+                    if _eligible is not None and not _eligible(_nid):
+                        continue
+                    _served = dict(row)
+                    if "label" not in _served or "kind" not in _served:
+                        # Compact complete-order rows resolve their presentation
+                        # fields at serve time.
+                        _node = index.get_node(_nid) or {}
+                        _served.setdefault("label", _node.get("label", _nid))
+                        _served.setdefault("kind", _node.get("kind"))
+                    bw_rows_served.append(_served)
+                    if len(bw_rows_served) >= _wanted_rows:
+                        break
                 bw_metadata: dict[str, Any] = {
                     "node_count": int(bw_section.get("node_count") or 0),
                     "edge_count": int(bw_section.get("edge_count") or 0),
@@ -25823,43 +26110,57 @@ def wf_graph_report_response(
             bw_computed = False
             report.pop("betweenness_method", None)
             report.pop("betweenness_metadata", None)
+            # Wave 1wpaj delivery review: this key is assigned before the casts
+            # below it, so it has to be torn down here too. Leaving it behind
+            # produced a response that named a serving view while also saying
+            # the section was not served, which is the half-populated shape the
+            # comment above the casts exists to prevent.
+            report.pop("betweenness_served_from", None)
         report["betweenness"] = bw_rows_served
         report["betweenness_computed"] = bw_computed
-        if not bw_computed:
+        if not bw_computed and not _collapse_active:
             # Legacy clusters artifact (pre-build-time-betweenness, no section)
             # or no clusters artifact yet — graceful absent-section response,
             # not a crash; the next graph rebuild persists the section.
-            report["betweenness_skipped_reason"] = "betweenness_not_in_artifact"
+            # Wave 1wpaj: the vocabulary gains a stale-artifact reason so a
+            # version mismatch is reported as itself rather than as an absent
+            # section, which would read as "rebuild pending" for a payload that
+            # is present but describes a different graph. The collapsed case is
+            # handled above and is skipped here so its reason and note are not
+            # overwritten with the absent-section wording.
+            _stale = bool(report.get("betweenness_stale_artifact"))
+            report["betweenness_skipped_reason"] = (
+                "betweenness_artifact_stale" if _stale else "betweenness_not_in_artifact"
+            )
+            # Wave 1wpaj: the note has to match the reason. The stale case is a
+            # payload that IS present and describes a different graph, so the
+            # "this artifact predates the build-time pass" wording would be a
+            # wrong diagnosis even though its remedy happens to be right.
             report["betweenness_note"] = (
+                "Betweenness is computed at build time and persisted in the graph "
+                "clusters artifact; this artifact was written by a different cluster "
+                "builder version, so its ranking does not describe the current graph. "
+                "Rebuild the graph index (index_build(content='graph', "
+                "mode='rebuild')) to refresh it."
+                if _stale else
                 "Betweenness is computed at build time and persisted in the graph "
                 "clusters artifact; this artifact predates the build-time pass. "
                 "Rebuild the graph index (index_build(content='graph', "
                 "mode='rebuild')) to populate it."
             )
 
-    # Wave 130rj — field feedback §6.4 + §6.2: filter generated nodes out of
-    # fan_in/fan_out/chokepoints when exclude_generated=True; emit a
+    # Wave 130rj — field feedback §6.4 + §6.2: emit a
     # `betweenness_dominated_by_generated` warning when >50% of top-N
     # betweenness results are tagged generated.
-    def _node_is_generated(nid: str) -> bool:
-        n = index.get_node(nid) or {}
-        return bool(n.get("generated"))
-
-    if exclude_generated:
-        for section_name in ("fan_in", "fan_out", "chokepoints"):
-            rows = report.get(section_name)
-            if isinstance(rows, list):
-                report[section_name] = [
-                    row for row in rows
-                    if isinstance(row, dict) and not _node_is_generated(str(row.get("node_id") or ""))
-                ]
-        # Betweenness section uses the same node_id field.
-        bw = report.get("betweenness")
-        if isinstance(bw, list):
-            report["betweenness"] = [
-                row for row in bw
-                if isinstance(row, dict) and not _node_is_generated(str(row.get("node_id") or ""))
-            ]
+    # Wave 1wpaj: the fan_in/fan_out/chokepoints loop that used to live here is
+    # gone. Those sections come from `report()`, which now filters before it
+    # truncates, so post-filtering them would only re-shrink an already correct
+    # result. Betweenness is NOT a `report()` section — it is served from the
+    # cluster artifact below — so it keeps its post-filter.
+    # Wave 1wpaj: betweenness eligibility is applied at the source now, during
+    # the refill from the complete persisted order, so no post-filter remains.
+    # Post-filtering here would be a no-op on an already-eligible list and would
+    # reintroduce the shrink-after-slice shape this wave removed.
     # Wave 130rj (130tw) normalization note: `betweenness_computed` /
     # `betweenness_skipped_reason` are now set directly by the artifact-serving
     # block above (wave 1p9q3 / 1p9q1) — the dict-shaped inline diagnostics that
@@ -26203,15 +26504,9 @@ def wf_graph_report_response(
     # Wave 130rj (130tw): exclude_external filters external::* nodes from
     # the architectural-ranking sections. Independent of exclude_generated —
     # operators typically combine both for "show me MY code" orientation.
-    if exclude_external:
-        for _section_name in ("fan_in", "fan_out", "chokepoints", "file_hubs", "betweenness"):
-            _rows = report.get(_section_name)
-            if isinstance(_rows, list):
-                report[_section_name] = [
-                    _row for _row in _rows
-                    if isinstance(_row, dict)
-                    and not str(_row.get("node_id") or "").startswith("external::")
-                ]
+    # Wave 1wpaj: nothing remains to post-filter. The four `report()` sections
+    # are filtered before truncation inside that method, and betweenness is
+    # filtered during its refill from the complete persisted order.
 
     report["exclude_generated"] = exclude_generated
     report["exclude_external"] = exclude_external
@@ -26227,6 +26522,7 @@ def wf_graph_report_response(
         _response(
             "ok",
             report,
+            diagnostics=partition_diagnostics or None,
             next_tools=["code_callgraph", "code_impact"],
             usage="code_callgraph(symbol='path::symbol')",
         ),
@@ -26840,9 +27136,16 @@ def _apply_assessment_evidence_prior(
 
     adjusted_count = 0
     for result in results:
+        # Wave 1wscp (Requirement 9): a result with NO score is left alone.
+        # `(result.get("score") or 0.0) * weight` used to write `score: 0.0`
+        # onto a scoreless row, which is a synthetic score -- a number the
+        # ranker never produced, presented as if it had. Ordering is unchanged
+        # either way, because the sort already reads a missing score as 0.0.
+        if result.get("score") is None:
+            continue
         weight = _assessment_evidence_weight(result.get("path", ""), query)
         if weight != 1.0:
-            result["score"] = (result.get("score") or 0.0) * weight
+            result["score"] = result["score"] * weight
             adjusted_count += 1
     if adjusted_count:
         results.sort(key=lambda item: item.get("score") or 0.0, reverse=True)
@@ -27156,6 +27459,19 @@ def _is_enumeration_query(question: str) -> bool:
     return bool(_ENUMERATION_RE.search(q))
 
 
+# Wave 1wscp requirement 6: the constant-value routing contract's two halves.
+# BOTH must match, so "the value of a well-designed abstraction" (no upper-snake
+# token) and "MAX_RETRIES is used by the scheduler" (no value question) stay
+# explanatory.  The upper-snake shape requires at least one underscore and two
+# segments, so a bare acronym like `API` or a sentence-initial word cannot match.
+_CONSTANT_VALUE_QUERY_RE = re.compile(
+    r"\b(?:what(?:'s|\s+is|\s+are)?|current)\s+(?:the\s+)?(?:current\s+)?value\s+(?:of|is|for)\b"
+    r"|\bvalue\s+of\s+(?=[A-Z][A-Z0-9]*_)",
+    re.IGNORECASE,
+)
+_UPPER_SNAKE_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
+
+
 def _classify_question(question: str) -> str:
     """Return the public five-value heuristic question type."""
     q = question.lower()
@@ -27177,6 +27493,18 @@ def _classify_question(question: str) -> str:
     for sig in navigational_signals:
         if sig in q:
             return "navigational"
+    # Wave 1wscp requirement 6: the documented constant-value routing contract.
+    # "What is the value of MAX_RETRIES?" reads as explanatory because it opens
+    # with "what is", but the answer is one declaration at a known symbol, which
+    # is a navigational contract: it preserves the exact declaration at rank one
+    # and points the caller at `code_constants`.  Deliberately narrow -- it fires
+    # only when the question BOTH asks for a value AND names an upper-snake
+    # constant, so ordinary explanatory prose containing the word "value" is
+    # untouched.  Measured motivation: both standing constant-value fixtures
+    # classified explanatory against an expected navigational, with retrieval
+    # already perfect, which is adjudicated `classifier_contract_mismatch`.
+    if _CONSTANT_VALUE_QUERY_RE.search(question) and _UPPER_SNAKE_RE.search(question):
+        return "navigational"
     return "explanatory"
 
 
@@ -27193,16 +27521,94 @@ def _heuristic_confidence(citations: list[dict], reranked: bool = False) -> str:
     claimed without the cross-encoder. In lexical_fallback mode the caller further caps to "low"
     (BM25 exact-token ordering). Still coarse — the per-citation scores carry the fine signal.
     """
+    return _confidence_with_basis(citations, reranked)[0]
+
+
+# Wave 1wscp (requirement 5): the machine-readable bases a confidence band may
+# rest on.  Exposed publicly so a caller can tell WHY a band was claimed rather
+# than inferring it from the score list.
+SELECTION_REASON_DEFINITION = "definition"
+SELECTION_REASON_RERANKED = "reranked"
+SELECTION_REASON_VECTOR = "vector_similarity"
+SELECTION_REASON_LEXICAL = "lexical_bm25"
+SELECTION_REASON_KEYWORD = "keyword_pass"
+
+
+def _assign_selection_reasons(citations: list[dict], definition_boosted: list[str],
+                              *, reranked: bool, lexical_fallback: bool) -> None:
+    """Stamp each citation with why IT is in the list (wave 1wscp requirement 5).
+
+    Every value must be true of the citation it sits on, so the reasons are
+    derived from per-row evidence rather than from the response mode alone.
+    The ``definition`` reason is the strictest: a definition boost firing is not
+    enough, because the boost names a symbol and does not by itself prove which
+    row ended up carrying that symbol's declaration.  The row must ALSO name the
+    boosted symbol in its section breadcrumb or excerpt.  Without that check a
+    boost that promoted some other row would license an unearned exact-owner
+    confidence band on a weak lead.
+    """
+    boosted_symbols = [
+        label.split(":", 1)[1].strip()
+        for label in (definition_boosted or [])
+        if isinstance(label, str) and label.startswith("symbol:") and ":" in label
+    ]
+    for citation in citations:
+        reason = SELECTION_REASON_VECTOR
+        if lexical_fallback:
+            reason = SELECTION_REASON_LEXICAL
+        elif citation.get("kind") == "keyword":
+            reason = SELECTION_REASON_KEYWORD
+        elif reranked:
+            reason = SELECTION_REASON_RERANKED
+        if boosted_symbols:
+            haystack = f"{citation.get('section') or ''}\n{citation.get('excerpt') or ''}"
+            if any(symbol and symbol in haystack for symbol in boosted_symbols):
+                reason = SELECTION_REASON_DEFINITION
+        citation["selection_reason"] = reason
+
+
+CONFIDENCE_BASIS_SEMANTIC_LEAD = "semantic_lead"
+CONFIDENCE_BASIS_EXACT_OWNER = "exact_owner"
+CONFIDENCE_BASIS_NO_CITATIONS = "no_citations"
+CONFIDENCE_BASIS_UNRANKED = "unranked_similarity"
+CONFIDENCE_BASIS_LEXICAL_FALLBACK = "lexical_fallback"
+
+
+def _confidence_with_basis(citations: list[dict], reranked: bool = False,
+                           *, exact_owner: bool = False) -> tuple[str, str]:
+    """Confidence band plus the machine-readable basis it rests on.
+
+    Wave 1wscp requirement 5.  The band now describes the LEAD -- the citation
+    ``answer`` actually points at -- not the maximum score anywhere in the list.
+    Closed wave 1seaw demonstrated the failure this repairs: a weak rank-one
+    citation paired with envelope ``confidence="high"`` because some lower-ranked
+    row scored well.  A reader trusts the band as a statement about the evidence
+    they were handed first, so reading it off a row they may never look at is a
+    false claim about the wrong thing.
+
+    ``exact_owner`` is the documented exception.  When the lead was placed by
+    exact symbol resolution rather than by semantic similarity, its cross-encoder
+    score is not the relevant signal: the declaration IS the answer, and a low
+    semantic score against a short declaration chunk says nothing about
+    correctness.  That basis is reported explicitly so the high band is
+    auditable rather than unexplained.
+    """
     if not citations:
-        return "low"
+        return "low", CONFIDENCE_BASIS_NO_CITATIONS
     n = len(citations)
     if reranked:
-        top = max((c.get("score") or 0.0) for c in citations)
-        if n >= 2 and top >= CONF_AGENT_RERANK_HIGH:
-            return "high"
-        if top < CONF_AGENT_RERANK_LOW:
-            return "low"
-        return "medium"
+        # The LEAD's score, not the list maximum.
+        lead = citations[0].get("score") or 0.0
+        if exact_owner:
+            return "high", CONFIDENCE_BASIS_EXACT_OWNER
+        if n >= 2 and lead >= CONF_AGENT_RERANK_HIGH:
+            return "high", CONFIDENCE_BASIS_SEMANTIC_LEAD
+        if lead < CONF_AGENT_RERANK_LOW:
+            return "low", CONFIDENCE_BASIS_SEMANTIC_LEAD
+        return "medium", CONFIDENCE_BASIS_SEMANTIC_LEAD
+    return "medium", CONFIDENCE_BASIS_UNRANKED
+
+
     # Wave 1p66r: no-reranker path. The per-citation scores are raw cosines from the
     # single shared embedder, uncalibrated similarity rather than a calibrated
     # relevance band, so an absolute floor here is
@@ -27564,6 +27970,14 @@ def _code_ask_response_body(
     # No absolute floor in the no-reranker path: raw single-embedder cosine is
     # uncalibrated similarity, not a calibrated band (see `_heuristic_confidence`),
     # so the no-reranker confidence cap is the signal there.
+    # Wave 1wscp requirement 5: stamp every returned citation with why it is in
+    # the list, after the final ordering has settled so the reason describes the
+    # row's published position rather than an intermediate one.
+    _assign_selection_reasons(
+        citations, definition_boosted,
+        reranked=bool(combined_reranked),
+        lexical_fallback=search_mode == _MODE_LEXICAL_FALLBACK)
+
     if citations and combined_reranked:
         top_score = max((c.get("score") or 0.0) for c in citations)
         for c in citations:
@@ -27601,11 +28015,20 @@ def _code_ask_response_body(
             "set use an exact pass (code_keyword / code_references / code_pattern) or grep."
         )
 
-    confidence = _heuristic_confidence(citations, combined_reranked)
+    # Wave 1wscp requirement 5: the band describes the LEAD, and the basis it
+    # rests on is published rather than left for the caller to infer.  The
+    # exact-owner exception applies only when the LEAD ITSELF was placed by
+    # symbol resolution -- a definition boost that promoted some lower-ranked
+    # row does not license a high band for a weak lead.
+    _lead_selection = (citations[0].get("selection_reason") if citations else None)
+    _lead_is_exact_owner = _lead_selection == SELECTION_REASON_DEFINITION
+    confidence, confidence_basis = _confidence_with_basis(
+        citations, combined_reranked, exact_owner=_lead_is_exact_owner)
     # 1seaq: degraded (lexical-fallback) citations are exact-token matches,
     # not cross-encoder-ranked semantic recall — cap the confidence.
     if search_mode == "lexical_fallback" and confidence in ("high", "medium"):
         confidence = "low"
+        confidence_basis = CONFIDENCE_BASIS_LEXICAL_FALLBACK
 
     # Assemble answer text from top citations
     _infra_failure = fallback_reason in (_REASON_QUERY_FAILED, _REASON_STORE_ABSENT, _REASON_INDEX_NOT_READY)
@@ -27645,6 +28068,10 @@ def _code_ask_response_body(
         "answer": answer,
         "citations": citations,
         "confidence": confidence,
+        # Wave 1wscp requirement 5: the band is a public trust claim, so the
+        # basis it rests on ships with it rather than being inferable only by
+        # re-deriving the score list.
+        "confidence_basis": confidence_basis,
         "gaps": gaps,
         "index_freshness": index_freshness,
         "search_mode": search_mode,
@@ -30256,6 +30683,97 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
         pass
 
 
+def render_graph_communities_markdown(payload, index, gq) -> str:
+    """Markdown catalog of graph communities, Evidence/Data marked and last.
+
+    Extracted from the resource so the partition can be tested without
+    materialising a full graph and cluster artifact.
+    """
+    communities = payload.get("communities") or []
+    if not communities:
+        return "# Graph Communities\n\n*(no communities in cluster artifact)*\n"
+
+    # Wave 1wpie: this catalog is the surface AGENTS.md tells a reader to
+    # consult BEFORE code_graph_community, so presenting a machine-result
+    # community identically to an architectural one re-creates in the
+    # resource exactly the orientation problem the report fixed. Evidence
+    # communities stay listed -- requirement 7 makes their ids
+    # discoverable here -- but they are marked and ranked after production.
+    # The majority rule comes from graph_query so both surfaces agree.
+    shares: dict[str, float] = {}
+    if gq is not None and index is not None and index.present:
+        try:
+            shares = {
+                str(c.get("community_id") or ""): gq.community_evidence_share(index, c)
+                for c in communities
+            }
+        except Exception:
+            shares = {}
+    # With no shares there is nothing to classify, so an unreachable
+    # threshold keeps every community in the production list rather than
+    # silently marking them all as evidence.
+    majority = (getattr(gq, "EVIDENCE_COMMUNITY_MAJORITY", 0.5)
+                if shares else 1.1)
+
+    def _by_size(rows):
+        return sorted(rows, key=lambda c: -int(c.get("node_count") or 0))
+
+    production = _by_size([c for c in communities
+                           if shares.get(str(c.get("community_id") or ""), 0.0) <= majority])
+    evidence = _by_size([c for c in communities
+                         if shares.get(str(c.get("community_id") or ""), 0.0) > majority])
+
+    lines: list[str] = [f"# Graph Communities ({len(communities)} total)\n\n"]
+    if evidence:
+        lines.append(
+            f"{len(production)} architectural, {len(evidence)} Evidence/Data "
+            "(machine-result artifacts, listed last and marked).\n\n")
+
+    def _emit(c: dict, *, is_evidence: bool) -> None:
+        cid = str(c.get("community_id") or "")
+        if not cid:
+            return
+        label = str(c.get("label") or "?")
+        lines.append(f"## {label}\n\n")
+        lines.append(f"- **community_id:** `{cid}`\n")
+        lines.append(f"- **Nodes:** {int(c.get('node_count') or 0)}\n")
+        lines.append(f"- **Boundary nodes:** {int(c.get('boundary_node_count') or 0)}\n")
+        node_ids = c.get("node_ids") or []
+        if is_evidence:
+            lines.append("- **Type:** Evidence/Data (machine-result artifact, "
+                         "not an architectural domain)\n")
+            lines.append(
+                f"- **Evidence share:** {shares.get(cid, 0.0):.0%} of members\n")
+            reasons: list[str] = []
+            for member in node_ids:
+                reasons = index.evidence_reasons(str(member))
+                if reasons:
+                    break
+            if reasons:
+                lines.append(f"- **Why:** {'; '.join(reasons)}\n")
+        if index is not None and index.present:
+            ranked = sorted(
+                (
+                    (len(index._in.get(nid, [])) + len(index._out.get(nid, [])), nid)
+                    for nid in node_ids
+                ),
+                key=lambda x: -x[0],
+            )[:3]
+            if ranked:
+                lines.append("- **Top members:**\n")
+                for deg, nid in ranked:
+                    lines.append(f"  - `{nid}` (degree {deg})\n")
+        lines.append("\n")
+
+    for c in production:
+        _emit(c, is_evidence=False)
+    if evidence:
+        lines.append("---\n\n## Evidence/Data communities\n\n")
+        for c in evidence:
+            _emit(c, is_evidence=True)
+    return "".join(lines)
+
+
 def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     """Register tools and resources; resolve state via get_handler() for hot reload."""
     # Wave 1p2q3 (131hh): stash the FastMCP instance and register the post-rebuild
@@ -30874,6 +31392,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           `generated_node_fraction`; entries with `generated_node_fraction > 0.4` carry `community_type: "generated-dominated"`
         - betweenness_dominated_by_generated: true when >50% of top-N betweenness results are tagged generated
         - exclude_generated: echoes the requested filter flag
+        - evidence_communities / evidence_fan_in / evidence_fan_out / evidence_chokepoints /
+          evidence_file_hubs (wave 1wpie): the Evidence/Data half of each partitioned section.
+          Rows whose owning artifact is a classified MACHINE RESULT (it declares its own
+          producer/schema, or pairs a capture timestamp with a digest or run field) are moved
+          here BEFORE top-N selection, so they never consume a production ranking slot; the
+          `limit` then applies INDEPENDENTLY to each half. Each of the five arrays is PRESENT
+          AND EMPTY when nothing qualifies — including when its production section was not
+          requested — so "nothing qualified" is never confused with "this build predates the
+          partition". Entries keep their section's normal fields and add
+          `evidence_type: "evidence_data"` plus a non-empty `classification_reasons` list;
+          evidence-community entries also add `community_type: "evidence_data"`.
+          `exclude_generated` does NOT erase them (generated-ness and evidence-ness are
+          orthogonal), the community ids stay queryable through `code_graph_community`, and
+          cross-boundary edges are never discarded.
 
         Each ranking entry (fan_in, fan_out, chokepoints, file_hubs, betweenness) also carries collision
         diagnostic fields (wave 13129):
@@ -30899,9 +31431,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - ``orphan_docs_candidates_total`` — docs node pool considered before the
           ``doc_references_code`` filter.
         - ``betweenness_computed`` (bool, from wave 130rj) + ``betweenness_skipped_reason``
-          (when False) — since wave 1p9q3 the only skip reason is ``betweenness_not_in_artifact``
-          (legacy clusters artifact predating the build-time pass, or no clusters artifact yet;
-          rebuild the graph index to populate it — ``betweenness_note`` carries the recovery hint).
+          (when False). Three skip reasons exist: ``betweenness_not_in_artifact`` (legacy clusters
+          artifact predating the build-time pass, or no clusters artifact yet),
+          ``betweenness_artifact_stale`` (wave 1wpaj — the artifact's ``cluster_builder_version``
+          does not match runtime, or is absent, so its ranking describes a different graph;
+          ``betweenness_stale_artifact`` carries both versions), and
+          ``unsupported_for_collapsed_view`` (wave 1wpaj — betweenness was requested alongside a
+          collapse flag; the persisted order describes the BASE topology and is not served for a
+          collapsed graph). ``betweenness_note`` carries the matching recovery hint.
+        - ``betweenness_served_from`` (wave 1wpaj) — ``"prefix"`` when the compatibility top-N view
+          answered, ``"complete_order"`` when a filtered request refilled from the complete persisted
+          order. Read this rather than ``betweenness_metadata.top_n``, which is the prefix size and
+          does not describe how deep a refilled ranking went.
 
         When a section is ``[]`` AND ``<section>_candidates_total: 0``, the graph genuinely
         has nothing matching. When ``[]`` AND ``_candidates_total > 0``, the threshold filter
@@ -30915,15 +31456,29 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             limit: Max rows per ranking section (default 20).
             sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, file_hubs, betweenness, communities.
             exclude_generated: When True (wave 130rj), filters nodes tagged ``generated: true`` out of
-                fan_in/fan_out/chokepoints/betweenness/communities. The classifier covers Java and C#
-                generated-code conventions (multi-language follow-up tracked separately).
+                fan_in/fan_out/chokepoints/file_hubs/betweenness, and drops generated-dominated
+                communities. The classifier covers Java and C# generated-code conventions
+                (multi-language follow-up tracked separately). Wave 1wpaj CONTRACT CHANGE: this flag
+                did not reach ``file_hubs`` before that wave and now does, so an existing caller
+                passing it sees generated modules removed from that section for the first time.
             exclude_external: When True (wave 130rj — 130tw), filters ``external::*`` nodes (stdlib /
-                third-party library symbols) out of fan_in/fan_out/chokepoints/betweenness. Use for
-                "show me MY code" architectural orientation. Independent of ``exclude_generated`` —
+                third-party library symbols) out of fan_in/fan_out/chokepoints/file_hubs/betweenness.
+                Use for "show me MY code" architectural orientation. Independent of ``exclude_generated`` —
                 both can be set together to remove stdlib + machine-generated noise simultaneously.
                 Default False for backward compat (existing callers using fan_in as a dependency-density
                 signal still see external entries). The ``communities`` section is unaffected (external
                 nodes are not community members).
+
+                Wave 1wpaj: BOTH filters run BEFORE top-N truncation, in every section they reach.
+                Previously they ran on the already-truncated rows, so a filtered request could come
+                back shorter than the limit, or empty — at ``limit=1`` on a graph whose top row was
+                external, ``exclude_external=True`` returned nothing at all. Filtered ``betweenness``
+                refills from a complete persisted order rather than the compatibility prefix, so
+                ``betweenness_metadata.top_n`` is the prefix size and does NOT describe how deep the
+                served ranking went; read ``betweenness_served_from`` instead. Requesting
+                ``betweenness`` alongside any collapse flag returns
+                ``betweenness_skipped_reason: "unsupported_for_collapsed_view"`` — the persisted order
+                describes the base topology and is not served for a collapsed graph.
             collapse_generated_files: When True (wave 130rj — 130su), aggregates each generated
                 source file into a single file-node before computing report sections. Internal edges
                 within a generated file are dropped; cross-boundary edges have generated endpoints
@@ -33589,12 +34144,20 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - symbol: the queried symbol name
         - definition_file: path of the file where the symbol is defined (null if not found)
-        - outgoing: list of {name, file, line, snippet, community_id, community} — symbols called by
+        - outgoing: list of {name, file, line, snippet, node_id, kind, relation, confidence,
+          community_id, community} — symbols called by
           this symbol (when direction includes "outgoing"). ``community_id`` (wave 1316r) is the
           stable identifier of the caller's community, useful for grouping cross-cutting changes.
-        - incoming: list of {name, file, line, snippet, community_id, community} — symbols that call
+        - incoming: list of {name, file, line, snippet, node_id, kind, relation, confidence,
+          community_id, community} — symbols that call
           this symbol (when direction includes "incoming"). ``community_id`` is the stable
           community id of each caller (stable across graph rebuilds, unlike Leiden numbering).
+          Wave 1wpaj added ``node_id``, ``kind``, ``relation`` and ``confidence`` to BOTH lists so a
+          caller can apply the edge-trust policy to an individual entry without a second graph
+          call. ``confidence`` is the discriminating field (RECEIVER_RESOLVED /
+          CONSTRUCTION_RESOLVED / EXTRACTED); ``relation`` is constant for this response because
+          the traversal filters to one relation, and is carried for forward compatibility. NOTE the
+          ``context`` list below keeps its own older shape and does NOT carry ``confidence``.
         - external_outgoing_count, external_incoming_count: number of external (non-project) entries
           suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
         - supertypes: present when the symbol's class declares supertypes —
@@ -34209,7 +34772,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.resource(
         "wavefoundry://graph/communities",
         name="graph_communities",
-        description="Catalog of all graph communities — id, label, node count, boundary count, top members by degree.",
+        description=(
+            "Catalog of all graph communities — id, label, node count, boundary "
+            "count, top members by degree. Architectural communities first; "
+            "Evidence/Data communities (machine-result artifacts) last under "
+            "their own heading, marked with evidence share and reason."
+        ),
         mime_type="text/markdown",
     )
     def resource_graph_communities() -> str:
@@ -34226,45 +34794,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 "Cluster artifact not found. "
                 "Run `index_build(content='graph', mode='rebuild')` to build with clustering.\n"
             )
+        # Both bound BEFORE the try: a failed load must leave a defined name.
+        # An unbound-on-the-failure-path local is the exact shape that turned
+        # a missing cluster artifact into a crash earlier in this wave.
+        gq = None
+        index = None
         try:
             gq = _load_graph_query()
             index = gq.get_query_index(_root, layer="project")
         except Exception:
             index = None
-        communities = payload.get("communities") or []
-        if not communities:
-            return "# Graph Communities\n\n*(no communities in cluster artifact)*\n"
-        communities_sorted = sorted(
-            communities,
-            key=lambda c: -int(c.get("node_count") or 0),
-        )
-        lines: list[str] = [f"# Graph Communities ({len(communities_sorted)} total)\n\n"]
-        for c in communities_sorted:
-            cid = str(c.get("community_id") or "")
-            if not cid:
-                continue
-            label = str(c.get("label") or "?")
-            node_count = int(c.get("node_count") or 0)
-            boundary = int(c.get("boundary_node_count") or 0)
-            lines.append(f"## {label}\n\n")
-            lines.append(f"- **community_id:** `{cid}`\n")
-            lines.append(f"- **Nodes:** {node_count}\n")
-            lines.append(f"- **Boundary nodes:** {boundary}\n")
-            if index is not None and index.present:
-                node_ids = c.get("node_ids") or []
-                ranked = sorted(
-                    (
-                        (len(index._in.get(nid, [])) + len(index._out.get(nid, [])), nid)
-                        for nid in node_ids
-                    ),
-                    key=lambda x: -x[0],
-                )[:3]
-                if ranked:
-                    lines.append("- **Top members:**\n")
-                    for deg, nid in ranked:
-                        lines.append(f"  - `{nid}` (degree {deg})\n")
-            lines.append("\n")
-        return "".join(lines)
+        return render_graph_communities_markdown(payload, index, gq)
 
     @mcp.resource(
         "wavefoundry://codebase-map",

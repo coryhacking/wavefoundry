@@ -1,0 +1,41 @@
+{
+  "schema": "wavefoundry.lexical-ranking-fixtures/v1",
+  "evidence_role": "calibration",
+  "rows": {
+    "code": [
+      {"id": "cal-code-target", "path": "alpha/widget.py", "text": "widget handler alpha"},
+      {"id": "cal-code-n0", "path": "alpha/n0.py", "text": "unrelated code body zero"},
+      {"id": "cal-code-n1", "path": "alpha/n1.py", "text": "unrelated code body one"},
+      {"id": "cal-code-n2", "path": "alpha/n2.py", "text": "unrelated code body two"},
+      {"id": "cal-code-n3", "path": "alpha/n3.py", "text": "unrelated code body three"},
+      {"id": "cal-code-n4", "path": "alpha/n4.py", "text": "unrelated code body four"},
+      {"id": "cal-code-n5", "path": "alpha/n5.py", "text": "unrelated code body five"},
+      {"id": "cal-code-n6", "path": "alpha/n6.py", "text": "unrelated code body six"},
+      {"id": "cal-code-n7", "path": "alpha/n7.py", "text": "unrelated code body seven"},
+      {"id": "cal-code-n8", "path": "alpha/n8.py", "text": "unrelated code body eight"},
+      {"id": "cal-code-n9", "path": "alpha/n9.py", "text": "unrelated code body nine"},
+      {"id": "cal-code-n10", "path": "alpha/n10.py", "text": "unrelated code body ten"},
+      {"id": "cal-code-n11", "path": "alpha/n11.py", "text": "unrelated code body eleven"},
+      {"id": "cal-code-tail", "path": "alpha/tail.py", "text": "CALIBRATION_TAIL_SYMBOL = 1"}
+    ],
+    "docs": [
+      {"id": "cal-docs-rival", "path": "alpha/widget.md", "text": "widget handler alpha"}
+    ]
+  },
+  "cases": [
+    {
+      "id": "cal-cross-table-order",
+      "query": "widget handler",
+      "table": "both",
+      "relevant_ids": ["cal-code-target", "cal-docs-rival"],
+      "rationale": "Two equally relevant rows in separately normalized tables. The code row earns real inverse document frequency from its twelve non-matching neighbours while the docs row starts alone at zero, so the merged raw-BM25 order begins code-first. Growing the docs table with unrelated rows must not reverse them, because neither row's content changed."
+    },
+    {
+      "id": "cal-tail-identifier",
+      "query": "term0 term1 term2 term3 term4 term5 term6 term7 term8 term9 term10 term11 CALIBRATION_TAIL_SYMBOL",
+      "table": "code",
+      "relevant_ids": ["cal-code-tail"],
+      "rationale": "Twelve ordinary terms followed by one distinctive identifier. Positional truncation at the twelve-token safety cap discards the identifier before the query reaches FTS5, so this case currently misses. It is the calibration case a token-selection mechanism may be developed against."
+    }
+  ]
+}

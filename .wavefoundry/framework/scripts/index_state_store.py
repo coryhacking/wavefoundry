@@ -2465,6 +2465,44 @@ def reconcile_chunk_index(
     return result
 
 
+# Wave 1wpid (requirement 1): a term is DISTINCTIVE when its shape marks it as
+# an identifier rather than ordinary prose.  Deliberately shape-only -- no
+# stopword list and no corpus statistics -- because a stopword list is a tuning
+# surface that drifts against the corpus, while shape is stable and auditable.
+# Each clause names a real identifier convention: snake_case, camelCase or
+# PascalCase, SCREAMING_CASE and other all-caps tokens, dotted or double-colon
+# paths, and any token carrying a digit.
+# Weights are RANKED, not boolean.  A boolean rule cannot separate
+# `CALIBRATION_TAIL_SYMBOL` from `term0`: both merely "contain something
+# non-prose", so a filler token bearing a single trailing digit competes with a
+# real compound identifier for a slot.  Ranking makes the strong identifier
+# conventions outweigh the weak signal a bare digit carries, so the cap is
+# spent on the most distinctive terms rather than the first non-prose ones.
+_DISTINCTIVE_TERM_WEIGHTS = (
+    (re.compile(r"\w_\w"), 3),                 # snake_case / SCREAMING_SNAKE join
+    (re.compile(r"^[A-Z][A-Z0-9_]+$"), 2),     # ALLCAPS or SCREAMING_SNAKE whole
+    (re.compile(r"[a-z][A-Z]"), 2),            # camelCase / PascalCase interior
+    (re.compile(r"[.:]{1,2}\w"), 2),           # dotted.path or ns::symbol
+    (re.compile(r"\d"), 1),                    # a bare digit is the WEAKEST cue
+)
+
+
+def _distinctive_term_score(token: str) -> int:
+    """How identifier-shaped a token is; higher wins a scarce MATCH slot.
+
+    Shape-only by design: no stopword list and no corpus statistics, because a
+    stopword list is a tuning surface that drifts against the corpus while
+    shape is stable and auditable.
+    """
+    return sum(weight for pattern, weight in _DISTINCTIVE_TERM_WEIGHTS
+               if pattern.search(token))
+
+
+def _is_distinctive_term(token: str) -> bool:
+    """True when a token carries any identifier-shaped cue at all."""
+    return _distinctive_term_score(token) > 0
+
+
 def _fts_match_expression(query: str) -> str:
     """Build a safe FTS5 MATCH expression from arbitrary user query text.
 
@@ -2472,10 +2510,68 @@ def _fts_match_expression(query: str) -> str:
     FTS operators/syntax in the input are treated as literals; tokens are
     OR-joined for BM25 candidate recall. The expression itself is bound as a
     parameter — user text never reaches the SQL string.
+
+    Wave 1wpid (requirement 1): selection within the cap is DISTINCTIVENESS-
+    ordered, not positional.  The cap itself is unchanged and remains a safety
+    property, but keeping the first twelve whitespace tokens discarded a
+    distinctive identifier that happened to sit late in a natural-language
+    question -- measured on the calibration corpus, a query of twelve ordinary
+    terms followed by one indexed identifier scored Recall@10 of 0.0 because the
+    identifier never reached FTS5.  Selection is by distinctiveness; EMISSION
+    stays in the query's original order so the expression is deterministic and
+    a short query is byte-identical to its pre-change form.
     """
-    tokens = [t for t in query.split() if t][:FTS_QUERY_MAX_TOKENS]
+    tokens = [t for t in query.split() if t]
+    if len(tokens) > FTS_QUERY_MAX_TOKENS:
+        # Stable: most distinctive first, then earliest-first among equals.
+        by_value = sorted(
+            range(len(tokens)),
+            key=lambda i: (-_distinctive_term_score(tokens[i]), i),
+        )
+        tokens = [tokens[i] for i in sorted(by_value[:FTS_QUERY_MAX_TOKENS])]
     quoted = ['"' + t.replace('"', '""') + '"' for t in tokens]
     return " OR ".join(quoted)
+
+
+# Wave 1wpid (requirement 3): rank-based cross-table fusion.
+#
+# `docs` and `code` are SEPARATELY normalized FTS5 tables, so their raw bm25
+# values are not on a common scale and comparing them directly is a category
+# error.  Measured on the calibration corpus: with no change to either row's
+# content, adding 32 unrelated rows to the docs table moved a docs row from
+# bm25 -0.0 to -6.15 while the competing code row stayed at -4.24, reversing
+# their merged order.  Reciprocal-rank fusion uses each row's rank WITHIN its
+# own table, which is scale-free, so unrelated growth in one table cannot
+# reorder rows in another.
+#
+# The constant is the standard reciprocal-rank damping term.  It is not tuned
+# against this repository: any positive value preserves within-table order, and
+# the cross-table property this repairs holds for every choice, so there is no
+# corpus-fitted parameter here to drift.
+LEXICAL_FUSION_K = 60
+
+
+def fuse_lexical_tables(per_table: Mapping[str, Sequence[dict[str, Any]]],
+                        *, limit: Optional[int] = None) -> list[dict[str, Any]]:
+    """Merge per-table lexical hits by reciprocal rank, best-first.
+
+    Each row keeps its own ``bm25`` untouched so per-table diagnostics stay
+    observable (requirement 4); ranking uses ``fusion_score`` instead.  Ties
+    break on chunk id so the order is deterministic across runs.
+
+    Callers pass rows ALREADY ordered best-first within each table, which is
+    what ``fts_search`` returns.
+    """
+    fused: list[dict[str, Any]] = []
+    for table_name, rows in per_table.items():
+        for rank, row in enumerate(rows, start=1):
+            item = dict(row)
+            item.setdefault("table", table_name)
+            item["fusion_rank"] = rank
+            item["fusion_score"] = 1.0 / (LEXICAL_FUSION_K + rank)
+            fused.append(item)
+    fused.sort(key=lambda r: (-float(r["fusion_score"]), str(r.get("id", ""))))
+    return fused[:limit] if limit is not None else fused
 
 
 def fts_probe(index_dir: Path, table_name: str) -> bool:

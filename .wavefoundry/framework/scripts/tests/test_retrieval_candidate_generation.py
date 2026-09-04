@@ -1056,9 +1056,18 @@ ANN_TUNING_METHODS = ("nprobes", "minimum_nprobes", "maximum_nprobes", "refine_f
 
 @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
 class LanceQueryBuilderDefaultsTests(unittest.TestCase):
-    """AC-4: the installed Lance API, as production drives it, sets no ANN
-    tuning and therefore runs at the engine defaults; AC-5: the inert
-    constants are gone from both definition sites."""
+    """Wave 1wsc8 AC-4: production now carries EXACTLY ONE certified ANN tuning
+    value and nothing else.
+
+    This class previously asserted that no tuning was set at all, which was the
+    correct contract while nothing had been measured. Wave 1wsc8 certified
+    `refine_factor=2` against an exact-search reference (macro overlap
+    0.96 -> 1.00 across five frozen slices, no slice losing overlap) and then
+    against the standing 35-fixture gate (code_ask nDCG@10 0.5167 -> 0.5185,
+    zero metrics worse, no new violation). The same certifier REJECTED
+    nprobes=20 and nprobes=50. The contract therefore changes shape but not
+    strictness: exactly the certified method and value may appear, and every
+    unmeasured setting is still refused."""
 
     def setUp(self):
         self.srv = load_server()
@@ -1079,12 +1088,18 @@ class LanceQueryBuilderDefaultsTests(unittest.TestCase):
         captured: dict = {}
         out = self.srv.WaveIndex._lance_search(
             self._index(), _RecordingTable(table, invoked, captured), QUERY_VEC, 5, where="language = 'python'")
-        self.assertEqual(sorted(set(invoked)), ["limit", "metric", "to_list", "where"])
-        self.assertFalse(set(invoked) & set(ANN_TUNING_METHODS))
+        # Exactly the certified receipt rides along: refine_factor and nothing
+        # else from the tuning vocabulary.
+        self.assertEqual(sorted(set(invoked)),
+                         ["limit", "metric", "refine_factor", "to_list", "where"])
+        self.assertEqual({"refine_factor"}, set(invoked) & set(ANN_TUNING_METHODS),
+                         "only the certified method may appear")
         query = captured["builder"].to_query_object()
-        self.assertIsNone(query.minimum_nprobes)
-        self.assertIsNone(query.maximum_nprobes)
-        self.assertIsNone(query.refine_factor)
+        self.assertIsNone(query.minimum_nprobes, "nprobes was REJECTED by certification")
+        self.assertIsNone(query.maximum_nprobes, "nprobes was REJECTED by certification")
+        self.assertEqual(self.srv.ANN_REFINE_FACTOR, query.refine_factor)
+        self.assertEqual(2, self.srv.ANN_REFINE_FACTOR,
+                         "the certified VALUE is pinned, not just the method")
         self.assertEqual(query.limit, 5)
         self.assertEqual(query.distance_type, "cosine")
         self.assertEqual(query.filter, "language = 'python'")
@@ -1092,9 +1107,18 @@ class LanceQueryBuilderDefaultsTests(unittest.TestCase):
         self.assertEqual({r["language"] for r in out}, {"python"})
         self.assertEqual(len(out), 4, "the bounded window holds only eligible rows")
 
-    def test_indexed_table_plan_shows_the_engine_defaults(self):
-        """Executable proof of the documented defaults on an IVF_HNSW_SQ table:
-        20 probes (minimum and maximum) and no refine stage."""
+    def test_indexed_table_plan_shows_exactly_the_certified_receipt(self):
+        """Executable proof, read off the engine's own query plan, that
+        production runs the certified receipt and nothing more.
+
+        Wave 1wsc8. The plan must show three things at once: engine-default
+        probes (nprobes was REJECTED by certification, so it must remain
+        untouched at 20), a refine stage present (the certified
+        `refine_factor=2`), and an over-fetch of exactly twice the requested
+        limit, which is what that factor MEANS. Asserting the fetch arithmetic
+        is what makes this a value receipt rather than a method receipt: a
+        different factor would still produce a refine stage but a different
+        `k`."""
         import lancedb
         rng = np.random.default_rng(0)
         rows = [{"id": f"r{i}", "vector": rng.normal(size=16).astype("float32").tolist()} for i in range(2000)]
@@ -1107,11 +1131,23 @@ class LanceQueryBuilderDefaultsTests(unittest.TestCase):
         self.srv.WaveIndex._lance_search(self._index(), _RecordingTable(table, invoked, captured), np.array(rows[0]["vector"], dtype=np.float32), 5)
         plan = captured["builder"].explain_plan(verbose=True)
         self.assertIn("ANNSubIndex", plan)
+        # nprobes stays at the engine default: both nprobes candidates were
+        # rejected by the certifier, so touching it would be an unmeasured
+        # setting.
         self.assertRegex(plan, r"minimum_nprobes=20, maximum_nprobes=Some\(20\)")
-        self.assertNotIn("KNNVectorDistance", plan, "no refine stage runs (refine_factor is unset)")
+        # The certified refine stage runs...
+        self.assertIn("KNNVectorDistance", plan,
+                      "the certified refine_factor must produce a refine stage")
+        # ...and fetches exactly limit * refine_factor before re-scoring, which
+        # pins the VALUE and not merely the presence of the method.
+        self.assertRegex(plan, rf"ANNSubIndex: name=\w+, k={5 * self.srv.ANN_REFINE_FACTOR}\b")
+
+        # Control: an UNCERTIFIED setting changes the plan in a way production
+        # must never show, so the assertions above are not vacuously true.
         tuned = table.search(rows[0]["vector"]).metric("cosine").limit(5).nprobes(7).refine_factor(3).explain_plan(verbose=True)
         self.assertRegex(tuned, r"minimum_nprobes=7, maximum_nprobes=Some\(7\)")
-        self.assertIn("KNNVectorDistance", tuned, "the control shows what tuning would have changed")
+        self.assertNotRegex(plan, r"minimum_nprobes=7",
+                            "production must not carry the rejected nprobes value")
 
     def test_inert_constants_and_tuning_calls_are_absent_from_both_definition_sites(self):
         for name in ("server_impl.py", "indexer.py"):
@@ -1127,9 +1163,17 @@ class LanceQueryBuilderDefaultsTests(unittest.TestCase):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr in ANN_TUNING_METHODS
             ]
-            self.assertEqual(tuning_calls, [], name)
+            # Wave 1wsc8: exactly one certified call, in server_impl only.
+            expected = ["refine_factor"] if name == "server_impl.py" else []
+            self.assertEqual(tuning_calls, expected, name)
         self.assertFalse(hasattr(self.srv, "LANCEDB_NPROBES"))
         self.assertFalse(hasattr(self.srv, "LANCEDB_REFINE_FACTOR"))
+        # The certified constant is NOT inert: it is read at the single call
+        # site. An inert constant would be a setting nobody measured.
+        self.assertEqual(2, self.srv.ANN_REFINE_FACTOR)
+        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        self.assertIn("refine_factor(ANN_REFINE_FACTOR)", source,
+                      "the certified constant must be READ, not merely declared")
 
     def test_the_retirement_note_is_not_absorbed_into_the_reranker_chunk(self):
         """Delivery repair RED-DEL-3: the retirement note above sat directly on

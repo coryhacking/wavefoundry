@@ -4,7 +4,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "architecture_review_intent",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "Broad assessment language is not an exact-token lookup contract.",
         "code_search": "Raw code search does not expose the public question-classification contract.",
@@ -12,6 +15,7 @@
       },
       "expected_question_type": "assessment",
       "id": "architecture-review-calibration-gaps",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seas",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
@@ -60,7 +64,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "architecture_review_intent",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The paraphrase asks for synthesis and has no stable exact identifier.",
         "code_search": "Raw code search does not expose the public question-classification contract.",
@@ -68,6 +75,7 @@
       },
       "expected_question_type": "assessment",
       "id": "architecture-review-holdout-remediation",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seas",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
@@ -118,12 +126,16 @@
         "code_lexical",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "known_symbol_navigational",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "docs_search": "The query asks for the implementation definition of a code symbol."
       },
       "expected_question_type": "navigational",
       "id": "known-symbol-calibration-classifier",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seas",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
@@ -154,12 +166,16 @@
         "code_lexical",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "known_symbol_navigational",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "docs_search": "The requested artifact is a Python function definition, not documentation."
       },
       "expected_question_type": "navigational",
       "id": "known-symbol-holdout-build-state",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1sed6",
         "commit": "6bcac5f1",
@@ -191,12 +207,16 @@
         "code_lexical",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "constant_value_lookup",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "docs_search": "The current value is authoritative at the code declaration."
       },
       "expected_question_type": "navigational",
       "id": "constant-value-calibration-reranker",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1p4mf",
         "commit": "81bae0c1",
@@ -228,12 +248,16 @@
         "code_lexical",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "constant_value_lookup",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "docs_search": "The value is a current implementation constant and docs may lag it."
       },
       "expected_question_type": "navigational",
       "id": "constant-value-holdout-int8-revision",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1v453",
         "commit": "7c226333",
@@ -263,7 +287,10 @@
       "applicable_tools": [
         "code_lexical"
       ],
+      "authorship_class": "historical",
       "class": "exact_identifier_lexical",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_ask": "This fixture isolates the public exact-token retrieval contract rather than synthesis.",
         "code_search": "Semantic retrieval is unnecessary for a complete private constant identifier.",
@@ -271,6 +298,7 @@
       },
       "expected_question_type": "navigational",
       "id": "exact-identifier-calibration-query-cache-env",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "live-repository-evidence",
         "source": ".wavefoundry/framework/scripts/graph_query.py"
@@ -297,7 +325,10 @@
       "applicable_tools": [
         "code_lexical"
       ],
+      "authorship_class": "historical",
       "class": "exact_identifier_lexical",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_ask": "This case measures exact-token ranking directly, without the code_ask fusion layer.",
         "code_search": "The complete identifier already supplies the deterministic lexical key.",
@@ -305,6 +336,7 @@
       },
       "expected_question_type": "navigational",
       "id": "exact-identifier-holdout-const-suffix",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1p4mf",
         "commit": "81bae0c1",
@@ -332,7 +364,10 @@
       "applicable_tools": [
         "code_lexical"
       ],
+      "authorship_class": "historical",
       "class": "error_string_lookup",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_ask": "The diagnostic is quoted verbatim, so the exact lexical surface is the contract under test.",
         "code_search": "Semantic similarity is not required for an exact diagnostic literal.",
@@ -340,6 +375,7 @@
       },
       "expected_question_type": "navigational",
       "id": "error-string-calibration-build-lock",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "live-repository-evidence",
         "source": ".wavefoundry/framework/scripts/server_impl.py"
@@ -366,7 +402,10 @@
       "applicable_tools": [
         "code_lexical"
       ],
+      "authorship_class": "historical",
       "class": "error_string_lookup",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_ask": "The case intentionally evaluates direct lookup of a copied error prefix.",
         "code_search": "Exact-token retrieval is the narrowest compatible public contract.",
@@ -374,6 +413,7 @@
       },
       "expected_question_type": "navigational",
       "id": "error-string-holdout-index-not-ready",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "live-repository-evidence",
         "source": ".wavefoundry/framework/scripts/server_impl.py"
@@ -401,13 +441,17 @@
         "code_ask",
         "docs_search"
       ],
+      "authorship_class": "historical",
       "class": "enumeration",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The answer requires collecting a documented vocabulary rather than finding one exact token.",
         "code_search": "The public compatibility vocabulary is authoritative in the MCP tool specification."
       },
       "expected_question_type": "explanatory",
       "id": "enumeration-calibration-fallback-reasons",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seaq",
         "commit": "805ad8c8",
@@ -437,13 +481,17 @@
         "code_ask",
         "docs_search"
       ],
+      "authorship_class": "historical",
       "class": "enumeration",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The question asks for a set of lifecycle review lanes, not an identifier occurrence.",
         "code_search": "The required lane policy lives in contributor documentation."
       },
       "expected_question_type": "explanatory",
       "id": "enumeration-holdout-review-lanes",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "review-policy-live-contract",
         "source": "docs/contributing/review-and-evals.md"
@@ -486,10 +534,14 @@
         "code_search",
         "docs_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_ignore_manifest",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {},
       "expected_question_type": "artifact_anchored",
       "id": "direct-ignore-calibration-aiignore",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seas",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1seas-enh question-classifier-artifact-anchoring.md"
@@ -555,13 +607,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_ignore_manifest",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval for a manifest question.",
         "docs_search": "pyproject.toml is indexed as a code/config artifact and is itself the requested target."
       },
       "expected_question_type": "artifact_anchored",
       "id": "direct-manifest-holdout-project-metadata",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "live-repository-evidence",
         "source": "pyproject.toml"
@@ -589,7 +645,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "abstention",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "Raw lexical search has no confidence or abstention contract.",
         "code_search": "Raw code search returns ranked candidates and does not synthesize an abstention confidence.",
@@ -597,6 +656,7 @@
       },
       "expected_question_type": "explanatory",
       "id": "abstention-calibration-nonexistent-scheduler",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1sear",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1sear-enh golden-query-retrieval-eval-suite.md"
@@ -612,7 +672,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "abstention",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
         "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
@@ -620,6 +683,7 @@
       },
       "expected_question_type": "explanatory",
       "id": "abstention-holdout-nonexistent-payroll",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1sear",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/1sear-enh golden-query-retrieval-eval-suite.md"
@@ -634,13 +698,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The symptom deliberately omits the implementation identifiers needed by exact-token search.",
         "code_search": "code_ask is the agentic cross-source localization surface scored by this fixture.",
         "docs_search": "Documentation alone cannot identify the primary implementation fix."
       },
       "id": "agentic-calibration-aiignore-blank-growth",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1u725",
         "commit": "e21ceb11",
@@ -679,13 +747,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The problem statement describes behavior rather than quoting an exact implementation token.",
         "code_search": "The intended benchmark is cross-source issue-to-fix localization through code_ask.",
         "docs_search": "The primary expected hit is implementation code."
       },
       "id": "agentic-calibration-lexical-backfill",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seiz",
         "commit": "5313af5b",
@@ -724,13 +796,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The migration symptom is conceptual and spans multiple state fields.",
         "code_search": "The benchmark intentionally uses the cross-source agentic retrieval surface.",
         "docs_search": "The control-plane implementation is the primary answer."
       },
       "id": "agentic-calibration-sqlite-generation",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1sed6",
         "commit": "6bcac5f1",
@@ -769,13 +845,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The symptom contains no exact function or constant identifier.",
         "code_search": "The fixture scores the agentic code_ask localization path.",
         "docs_search": "The implementation behavior is primary and cannot be proven by prose alone."
       },
       "id": "agentic-calibration-int8-composition",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1v453",
         "commit": "7c226333",
@@ -814,13 +894,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The security symptom is phrased without the owning renderer symbol.",
         "code_search": "The fixture evaluates issue-to-fix fusion rather than a raw candidate list.",
         "docs_search": "The generated-config writer is the primary fix location."
       },
       "id": "agentic-calibration-mcp-inline-exec",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1v7a2",
         "commit": "7fe939bc",
@@ -859,13 +943,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The query is natural-language behavior, not an exact-token lookup.",
         "code_search": "The benchmark scores cross-source agentic localization through code_ask.",
         "docs_search": "The label extractor implementation is the primary answer."
       },
       "id": "agentic-holdout-diagram-labels",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1wl7v",
         "commit": "a584e873",
@@ -915,13 +1003,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The symptom omits the helper name and requires causal localization.",
         "code_search": "The benchmark uses code_ask to combine implementation and provenance.",
         "docs_search": "The file-descriptor isolation code is the primary fix."
       },
       "id": "agentic-holdout-native-stdout",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1p9io",
         "commit": "0e19c6f4",
@@ -971,13 +1063,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The symptom does not quote the managed-block identifiers.",
         "code_search": "The fixture evaluates issue-to-fix reasoning through code_ask.",
         "docs_search": "The renderer implementation is the primary fix."
       },
       "id": "agentic-holdout-gitignore-self-heal",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1p8vj",
         "commit": "a6905778",
@@ -1016,13 +1112,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The change description is semantic and does not require exact-token matching.",
         "code_search": "The fixture intentionally measures the cross-source agentic surface.",
         "docs_search": "The primary evidence is the source chunking implementation."
       },
       "id": "agentic-holdout-constant-chunks",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1p4mf",
         "commit": "81bae0c1",
@@ -1072,13 +1172,17 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "agentic_fix_localization",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The failure-mode description is semantic and spans multiple fallback branches.",
         "code_search": "The cross-index code_ask response is the public behavior under evaluation.",
         "docs_search": "The public response implementations are primary."
       },
       "id": "agentic-holdout-semantic-degradation",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaq",
         "commit": "805ad8c8",
@@ -1129,13 +1233,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "assessment_boundary_control",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "A natural-language mechanism question is not an exact-token lookup contract.",
         "docs_search": "The mechanism lives in code; raw docs search has no synthesis contract."
       },
       "expected_question_type": "explanatory",
       "id": "assessment-boundary-calibration-negative-explanatory-gap",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1176,13 +1284,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "assessment_boundary_control",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "A natural-language mechanism question is not an exact-token lookup contract.",
         "docs_search": "The mechanism lives in code; raw docs search has no synthesis contract."
       },
       "expected_question_type": "explanatory",
       "id": "assessment-boundary-holdout-negative-explanatory-gapfill",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1222,7 +1334,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "architecture_review_intent",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "Broad assessment language is not an exact-token lookup contract.",
         "code_search": "Raw code search does not expose the public question-classification contract.",
@@ -1230,6 +1345,7 @@
       },
       "expected_question_type": "assessment",
       "id": "architecture-review-holdout-offsubject-dashboard",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1290,7 +1406,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "abstention",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
         "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
@@ -1298,6 +1417,7 @@
       },
       "expected_question_type": "assessment",
       "id": "abstention-calibration-assessment-phrased",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1313,7 +1433,10 @@
       "applicable_tools": [
         "code_ask"
       ],
+      "authorship_class": "historical",
       "class": "abstention",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "Exact lexical retrieval does not promise semantic abstention.",
         "code_search": "Raw semantic code retrieval has no answer-confidence contract.",
@@ -1321,6 +1444,7 @@
       },
       "expected_question_type": "assessment",
       "id": "abstention-holdout-assessment-phrased",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1336,13 +1460,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_ignore_manifest",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
         "docs_search": "The renderer and the file are code artifacts; raw docs search has no synthesis contract."
       },
       "expected_question_type": "artifact_anchored",
       "id": "direct-named-file-calibration-aiignore-writer",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1382,13 +1510,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_ignore_manifest",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
         "docs_search": "The renderer and the file are code artifacts; raw docs search has no synthesis contract."
       },
       "expected_question_type": "artifact_anchored",
       "id": "direct-named-file-holdout-gitignore-renderer",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1428,13 +1560,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_path_anchored",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
       "excluded_tools": {
         "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
         "docs_search": "The named file is a code artifact and is itself the requested target."
       },
       "expected_question_type": "artifact_anchored",
       "id": "direct-path-calibration-retrieval-eval",
+      "mechanism_exposure": "exposed",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1474,13 +1610,17 @@
         "code_ask",
         "code_search"
       ],
+      "authorship_class": "historical",
       "class": "direct_path_anchored",
+      "consultation_status": "unknown",
+      "evidence_role": "regression_only",
       "excluded_tools": {
         "code_lexical": "The public lexical path searches file content and does not promise path-name retrieval.",
         "docs_search": "The named file is a code artifact and is itself the requested target."
       },
       "expected_question_type": "artifact_anchored",
       "id": "direct-path-holdout-docs-lint",
+      "mechanism_exposure": "unknown",
       "provenance": {
         "change_id": "1seaw-cycle-2",
         "source": "docs/waves/1seaw retrieval-intent-golden-queries/wave.md"
@@ -1569,5 +1709,5 @@
       }
     ]
   },
-  "schema": "wavefoundry.retrieval-eval-fixtures/v1"
+  "schema": "wavefoundry.retrieval-eval-fixtures/v2"
 }

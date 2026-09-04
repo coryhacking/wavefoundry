@@ -1,0 +1,177 @@
+{
+  "calibration": {
+    "aggregate": {
+      "mrr_at_10": 1.0,
+      "ndcg_at_10": 1.0,
+      "recall_at_10": 1.0
+    },
+    "cases": [
+      {
+        "case_id": "cal-cross-table-order",
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 1.0,
+        "query": "widget handler",
+        "recall_at_10": 1.0,
+        "returned_ids": [
+          "cal-code-target",
+          "cal-docs-rival"
+        ],
+        "table": "both",
+        "warm_p95_ms": 0.9833
+      },
+      {
+        "case_id": "cal-tail-identifier",
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 1.0,
+        "query": "term0 term1 term2 term3 term4 term5 term6 term7 term8 term9 term10 term11 CALIBRATION_TAIL_SYMBOL",
+        "recall_at_10": 1.0,
+        "returned_ids": [
+          "cal-code-tail"
+        ],
+        "table": "code",
+        "warm_p95_ms": 0.5174
+      }
+    ],
+    "corpus_digest": "c6071ef60c152f816bb276ad88fe543ac1a9522fb8ba436ea0200176a43355db",
+    "corpus_growth_probes": [
+      {
+        "filler_rows": 32,
+        "grow_table": "docs",
+        "order_after": [
+          "cal-docs-rival",
+          "cal-code-target"
+        ],
+        "order_before": [
+          "cal-code-target",
+          "cal-docs-rival"
+        ],
+        "order_reversed": true
+      }
+    ],
+    "elapsed_seconds": 0.0249,
+    "environment": {
+      "fts5_available": true,
+      "platform": "darwin",
+      "python": "3.13.5"
+    },
+    "evidence_authority": {
+      "authorship_class": "qa_local",
+      "consultation_status": "consulted",
+      "evidence_role": "calibration",
+      "mechanism_exposure": "exposed",
+      "supports_improvement_claim": false,
+      "why": "QA-authored local evidence. Non-regression only: an improvement claim requires a separately supplied, mechanism-independent, unconsulted artifact, which this is not."
+    },
+    "evidence_role": "calibration",
+    "label": "post:calibration",
+    "mechanism_identity": {
+      "fts_query_max_tokens": 12,
+      "function_digests": {
+        "_distinctive_term_score": "421f9be7c993564a3b9ba31dcb805d03201aff0538df9749923cce25b1a5a5f7",
+        "_fts_match_expression": "217fd2631128806965bc29e35c121559f3e4c184f6a2428df50e05c683e8ba13",
+        "fuse_lexical_tables": "c06c9516537f9a18aa8c1f43525728866e66335eba87202b89f2a39bc817ccd9"
+      },
+      "lexical_fusion_k": 60,
+      "module": "index_state_store"
+    },
+    "protocol": {
+      "max_rows_per_table": 256,
+      "measured_repetitions": 3,
+      "p95_method": "nearest_rank",
+      "runner_budget_seconds": 30.0,
+      "warmups": 1
+    },
+    "schema": "wavefoundry.lexical-ranking-eval/v1",
+    "within_runtime_budget": true
+  },
+  "content_sha256": "54acebbd8411a370d1ff63277630d47f43f554d46e8bc57d82f1e85261103fba",
+  "leak_scan": {
+    "clean": true,
+    "leaks": []
+  },
+  "regression": {
+    "aggregate": {
+      "mrr_at_10": 1.0,
+      "ndcg_at_10": 1.0,
+      "recall_at_10": 1.0
+    },
+    "cases": [
+      {
+        "case_id": "reg-cross-table-order",
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 1.0,
+        "query": "pipeline dispatcher",
+        "recall_at_10": 1.0,
+        "returned_ids": [
+          "reg-code-target",
+          "reg-docs-rival"
+        ],
+        "table": "both",
+        "warm_p95_ms": 1.2928
+      },
+      {
+        "case_id": "reg-tail-identifier",
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 1.0,
+        "query": "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima REGRESSION_TAIL_MARKER",
+        "recall_at_10": 1.0,
+        "returned_ids": [
+          "reg-code-tail"
+        ],
+        "table": "code",
+        "warm_p95_ms": 0.6998
+      }
+    ],
+    "corpus_digest": "2eed81b7dfceaa79100cca56a0fe61285c31d6258878f458be7c0baacdcdaf6f",
+    "corpus_growth_probes": [
+      {
+        "filler_rows": 32,
+        "grow_table": "docs",
+        "order_after": [
+          "reg-docs-rival",
+          "reg-code-target"
+        ],
+        "order_before": [
+          "reg-code-target",
+          "reg-docs-rival"
+        ],
+        "order_reversed": true
+      }
+    ],
+    "elapsed_seconds": 0.0268,
+    "environment": {
+      "fts5_available": true,
+      "platform": "darwin",
+      "python": "3.13.5"
+    },
+    "evidence_authority": {
+      "authorship_class": "qa_local",
+      "consultation_status": "unconsulted",
+      "evidence_role": "regression_only",
+      "mechanism_exposure": "unexposed",
+      "supports_improvement_claim": false,
+      "why": "QA-authored local evidence. Non-regression only: an improvement claim requires a separately supplied, mechanism-independent, unconsulted artifact, which this is not."
+    },
+    "evidence_role": "regression_only",
+    "label": "post:regression",
+    "mechanism_identity": {
+      "fts_query_max_tokens": 12,
+      "function_digests": {
+        "_distinctive_term_score": "421f9be7c993564a3b9ba31dcb805d03201aff0538df9749923cce25b1a5a5f7",
+        "_fts_match_expression": "217fd2631128806965bc29e35c121559f3e4c184f6a2428df50e05c683e8ba13",
+        "fuse_lexical_tables": "c06c9516537f9a18aa8c1f43525728866e66335eba87202b89f2a39bc817ccd9"
+      },
+      "lexical_fusion_k": 60,
+      "module": "index_state_store"
+    },
+    "protocol": {
+      "max_rows_per_table": 256,
+      "measured_repetitions": 3,
+      "p95_method": "nearest_rank",
+      "runner_budget_seconds": 30.0,
+      "warmups": 1
+    },
+    "schema": "wavefoundry.lexical-ranking-eval/v1",
+    "within_runtime_budget": true
+  }
+}

@@ -1205,10 +1205,16 @@ class GraphIndexerTests(unittest.TestCase):
         resolved = self.mod._resolve_fragment_edge(edge, ctx)
         self.assertEqual(resolved["target"], "db/schema.sql::users")
         # (6) Lookup keys mirror the routing (scope-(b) incremental re-resolution).
+        # Wave 1wpie: a qualified receiver also consults module-head membership,
+        # because the head decides whether the last-segment fallback may run at
+        # all. SQL table references route through the same resolver, so the head
+        # key belongs to their lookup surface too -- omitting it would leave
+        # these edges un-invalidated when a project module of that name appears
+        # or disappears.
         keys = self.mod._edge_lookup_keys(
             {"source": "db/q.sql", "target": "external::analytics.events", "relation": "reads"}
         )
-        self.assertEqual(keys, {"analytics.events", "events"})
+        self.assertEqual(keys, {"analytics.events", "events", "modhead:analytics"})
         keys = self.mod._edge_lookup_keys(
             {"source": "app/main.py::fn", "target": "external::SOME_CONST", "relation": "reads"}
         )
@@ -5655,6 +5661,299 @@ class ConfigKeyReaderEdgeTests(unittest.TestCase):
         self.assertEqual(self._reads_config(payload), [], "ambiguous config key should not bind")
 
 
+class StructuralNodeCallGuardTests(unittest.TestCase):
+    """1wpai AC-1/AC-2: a `calls` edge never targets a structural data node.
+
+    Cross-file simple-name resolution used to rewrite an external call to the
+    only project node sharing that simple name, even when the node was a JSON
+    key. The live graph carried 123 such edges, re-derived across a rebuild of both
+    sides, of which the `os.cpu_count()`
+    family is the reproduced example. `kind` cannot discriminate: config-key
+    nodes are minted with kind "class" (wave 1p7dh), the same kind a
+    constructible class carries.
+    """
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _calls(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "calls"]
+
+    def test_cpu_count_call_keeps_its_external_target(self):
+        # AC-1, the reproduced defect. A unique JSON key named `cpu_count`
+        # must not capture `os.cpu_count()`.
+        payload = self._build({
+            "evidence/freeze.json": '{"environment": {"cpu_count": 8}}\n',
+            "src/helpers.py": "def unrelated():\n    return 0\n",
+            "src/caps.py": "import helpers\n\n\ndef cap():\n    return helpers.cpu_count()\n",
+        })
+        targets = [e["target"] for e in self._calls(payload)]
+        bound = [t for t in targets if "freeze.json" in t]
+        self.assertEqual(bound, [], f"a JSON key captured a call: {targets}")
+        self.assertTrue(
+            any(t.startswith("external::") and t.endswith("cpu_count") for t in targets),
+            f"the external target was not preserved: {targets}",
+        )
+
+    def test_same_class_holds_for_yaml_and_documentation_collisions(self):
+        # AC-2: the same root cause across the other structural node kinds.
+        for rel, content in (
+            ("conf/settings.yml", "environment:\n  cpu_count: 8\n"),
+            ("conf/app-config.json", '{"environment": {"cpu_count": 8}}\n'),
+        ):
+            with self.subTest(structural_file=rel):
+                self.tearDown()
+                self.tmp = tempfile.TemporaryDirectory()
+                self.root = Path(self.tmp.name)
+                payload = self._build({
+                    rel: content,
+                    "src/helpers.py": "def unrelated():\n    return 0\n",
+                    "src/caps.py": "import helpers\n\n\ndef cap():\n    return helpers.cpu_count()\n",
+                })
+                bound = [e["target"] for e in self._calls(payload)
+                         if rel.rsplit("/", 1)[-1] in e["target"]]
+                self.assertEqual(bound, [], f"{rel} captured a call")
+
+    def test_a_real_project_function_of_the_same_name_still_binds(self):
+        # The guard must not be a blunt instrument: an actual project callable
+        # sharing the simple name is still the right target.
+        payload = self._build({
+            "src/util.py": "def cpu_count():\n    return 8\n",
+            "src/caps.py": "from util import cpu_count\n\n\ndef cap():\n    return cpu_count()\n",
+        })
+        targets = [e["target"] for e in self._calls(payload)]
+        self.assertTrue(
+            any(t.endswith("util.py::cpu_count") for t in targets),
+            f"a real project callable was not bound: {targets}",
+        )
+
+    def test_incremental_merge_agrees_with_the_full_build(self):
+        # 1wpai AC-5: the guard runs in the finalize bind, which the incremental
+        # merge path also reaches. A divergence there would leave phantom edges
+        # in a repository that never does a full rebuild.
+        files = {
+            "evidence/freeze.json": '{"environment": {"cpu_count": 8}}\n',
+            "src/helpers.py": "def unrelated():\n    return 0\n",
+            "src/caps.py": "import helpers\n\n\ndef cap():\n    return helpers.cpu_count()\n",
+        }
+        full = self._build(files)
+        full_calls = sorted(
+            (e["source"], e["target"]) for e in self._calls(full)
+        )
+        # Second pass: same corpus, only the code file presented as changed.
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            paths.append(path)
+            meta[rel] = {"hash": content}
+        incremental = self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed={"src/caps.py"}, removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+        inc_calls = sorted(
+            (e["source"], e["target"]) for e in self._calls(incremental)
+        )
+        self.assertEqual(full_calls, inc_calls, "incremental merge diverged from the full build")
+        self.assertEqual(
+            [t for _s, t in inc_calls if "freeze.json" in t], [],
+            "the incremental path admitted a structural-node call target",
+        )
+
+    def test_guard_is_load_bearing(self):
+        # DELETION CHECK. Neutralise the predicate the guard calls and the
+        # phantom returns: this proves the guard, not the fixture, is what
+        # keeps the JSON key out of the call graph.
+        #
+        # Wave 1wpie: the receiver is a plain parameter, deliberately NOT an
+        # imported module. An `import os` + `os.cpu_count()` fixture now has a
+        # SECOND guard standing in the way (the import-head authority rule),
+        # so neutralising this one alone would no longer restore the phantom
+        # and the check would silently stop proving anything -- which is
+        # exactly what it reported when the second guard landed.
+        original = self.mod._is_json_config_node_id
+        self.mod._is_json_config_node_id = lambda node_id: False
+        try:
+            payload = self._build({
+                "evidence/freeze.json": '{"environment": {"cpu_count": 8}}\n',
+                "src/helpers.py": "def unrelated():\n    return 0\n",
+                "src/caps.py": "import helpers\n\n\ndef cap():\n    return helpers.cpu_count()\n",
+            })
+            bound = [e["target"] for e in self._calls(payload) if "freeze.json" in e["target"]]
+        finally:
+            self.mod._is_json_config_node_id = original
+        self.assertTrue(
+            bound,
+            "with the guard neutralised the phantom edge did not return, so the "
+            "test proves nothing about the guard",
+        )
+
+
+class ConfigTargetExclusionTests(unittest.TestCase):
+    """1wpai AC-3/AC-4: the three target-side exclusions, each proven alone.
+
+    The live corpus cannot separate their contributions (both false files sit
+    under a fixture root), so each lever gets its own fixture, and the positive
+    controls prove the repair is precision-only rather than a recall cut.
+    """
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, files):
+        paths, meta = [], {}
+        for rel, content in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            paths.append(path)
+            meta[rel.replace("\\", "/")] = {"hash": content}
+        return self.mod.update_graph_index(
+            root=self.root, index_dir=self.root / ".wavefoundry" / "index",
+            layer="project", files=paths, current_file_meta=meta,
+            changed=set(meta.keys()), removed=set(),
+            walker_version="1", chunker_version="1", verbose=False,
+        )
+
+    def _reads_config(self, payload):
+        return [e for e in payload.get("edges", []) if e.get("relation") == "reads_config"]
+
+    def test_schema_document_is_not_a_config_target(self):
+        # The key is deliberately NOT schema meta-vocabulary and NOT under a
+        # fixture root, so this cell isolates the schema-basename lever. With a
+        # meta-vocabulary key the meta lever suppresses the edge first and this
+        # test passes even with the basename lever deleted, which is exactly the
+        # vacuity delivery review caught.
+        payload = self._build({
+            "specs/config-format.schema.json": '{"factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "a schema document bound as config")
+
+    def test_deletion_check_schema_lever_is_load_bearing(self):
+        # Neutralise ONLY the schema-document predicate; the binding must return.
+        original = self.mod._is_json_schema_document
+        self.mod._is_json_schema_document = lambda file_part: False
+        try:
+            payload = self._build({
+                "specs/config-format.schema.json": '{"factor_review_policy": "strict"}\n',
+                "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+            })
+            edges = self._reads_config(payload)
+        finally:
+            self.mod._is_json_schema_document = original
+        self.assertTrue(
+            edges,
+            "with the schema lever neutralised the binding did not return, so the "
+            "test above is satisfied by a different lever and proves nothing",
+        )
+
+    def test_deletion_check_fixture_root_lever_is_load_bearing(self):
+        original = self.mod._is_test_fixture_path
+        self.mod._is_test_fixture_path = lambda file_part: False
+        try:
+            payload = self._build({
+                "tests/fixtures/sample-config.json": '{"factor_review_policy": "strict"}\n',
+                "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+            })
+            edges = self._reads_config(payload)
+        finally:
+            self.mod._is_test_fixture_path = original
+        self.assertTrue(edges, "the fixture-root lever is not what suppressed the binding")
+
+    def test_deletion_check_meta_vocabulary_lever_is_load_bearing(self):
+        original = self.mod._is_schema_meta_vocabulary
+        self.mod._is_schema_meta_vocabulary = lambda literal: False
+        try:
+            payload = self._build({
+                "settings/app-config.json": '{"properties.connections.additionalProperties": 1}\n',
+                "src/loader.py":
+                    "def load(cfg):\n"
+                    "    return cfg.get(\"properties.connections.additionalProperties\")\n",
+            })
+            edges = self._reads_config(payload)
+        finally:
+            self.mod._is_schema_meta_vocabulary = original
+        self.assertTrue(
+            edges,
+            "the dotted-leaf half of the meta-vocabulary rule is not load-bearing, "
+            "so the key it exists for is unreachable",
+        )
+
+    def test_schema_meta_vocabulary_never_binds_bare_or_dotted(self):
+        # The dotted half is load-bearing: on the real corpus the key that needs
+        # it never appears bare.
+        for literal in ("additionalProperties", "properties.connections.additionalProperties"):
+            with self.subTest(literal=literal):
+                self.tearDown()
+                self.tmp = tempfile.TemporaryDirectory()
+                self.root = Path(self.tmp.name)
+                payload = self._build({
+                    "settings/app-config.json": '{"%s": 1}\n' % literal,
+                    "src/loader.py": "def load(cfg):\n    return cfg.get(%r)\n" % literal,
+                })
+                self.assertEqual(
+                    self._reads_config(payload), [],
+                    f"schema meta-vocabulary {literal!r} bound as a config key",
+                )
+
+    def test_fixture_tree_is_not_a_config_target(self):
+        payload = self._build({
+            "tests/fixtures/sample-config.json": '{"factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+        })
+        self.assertEqual(self._reads_config(payload), [], "a fixture bound as config")
+
+    def test_a_config_file_that_declares_a_schema_still_binds(self):
+        # OFF-CORPUS CONTROL. Real project config routinely carries `$schema`
+        # (a genuine tsconfig.json does), so "declares a schema" must not be
+        # read as "is a schema". This ships to every target repository, where
+        # the wrong rule would silently delete true edges.
+        payload = self._build({
+            "settings/app-config.json":
+                '{"$schema": "https://json.schemastore.org/x.json",'
+                ' "factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+        })
+        edges = self._reads_config(payload)
+        self.assertTrue(edges, "a config file declaring a schema lost its edge")
+        self.assertIn("app-config.json::factor_review_policy", str(edges[0].get("target", "")))
+
+    def test_ordinary_config_key_outside_a_fixture_tree_still_binds(self):
+        # The positive control for the fixture lever.
+        payload = self._build({
+            "settings/app-config.json": '{"factor_review_policy": "strict"}\n',
+            "src/loader.py": "def load(cfg):\n    return cfg.get(\"factor_review_policy\")\n",
+        })
+        self.assertTrue(self._reads_config(payload), "an ordinary config key lost its edge")
+
+
 class JavaConfigReaderEdgeTests(unittest.TestCase):
     """1p7dh: `reads_config` extended to Java/Spring FILE config. A
     `.properties`/`.yml`/`.yaml` config key becomes a config-key node
@@ -8911,7 +9210,18 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # memory nodes exempt from the zero-edge doc prune. Node/edge shape
         # change. NO CLUSTER_BUILDER_VERSION bump).
         # Wave 1u8r2: direct legacy-pointer inputs are now excluded.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "45")
+        # Wave 1wpai bumped 45→46 (structural JSON/YAML key nodes lose `calls`
+        # edges; three target-side `reads_config` exclusions).
+        # Wave 1wpie bumped 46→47 (JSON module nodes carry `evidence_data` +
+        # `classification_reasons` when their own CONTENT identifies them as a
+        # machine result — node PROPERTY shape change), then 47→48 (the
+        # cross-file calls rewrite stops discarding the receiver head: an
+        # explicitly imported head that names no project module is
+        # AUTHORITATIVE, so `os.cpu_count()` no longer binds to a project
+        # function sharing the bare name. Extraction-output change).
+        # Wave 1wpie delivery review bumped 48->49 (module-head segments,
+        # importable-extension filter, timestamp value validation).
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "49")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

@@ -1,0 +1,45 @@
+{
+  "schema": "wavefoundry.ann-reference-fixtures/v1",
+  "cases": [
+    {
+      "id": "code-unfiltered-shallow",
+      "layer": "code",
+      "query_text": "how does the graph indexer resolve an external call target",
+      "filter_shape": "none",
+      "k": 10,
+      "rationale": "The ordinary shape: an unfiltered code query at the production candidate depth. Establishes whether the vector index agrees with a flat scan when nothing narrows the search."
+    },
+    {
+      "id": "code-unfiltered-deep",
+      "layer": "code",
+      "query_text": "how does the graph indexer resolve an external call target",
+      "filter_shape": "none",
+      "k": 50,
+      "rationale": "The same query at a deeper candidate depth. Approximate search degrades differently with depth, so a candidate that helps at ten and hurts at fifty must be visible as two slices rather than averaged into one."
+    },
+    {
+      "id": "code-filtered-kind",
+      "layer": "code",
+      "query_text": "chunk registry reconciliation",
+      "filter_shape": "kind_equals_code",
+      "k": 10,
+      "rationale": "A prefiltered query. Prefiltering changes which rows the index may consider, so exact agreement under a filter is a separate contract from the unfiltered case."
+    },
+    {
+      "id": "docs-unfiltered-shallow",
+      "layer": "docs",
+      "query_text": "what does the review policy receipt bind",
+      "filter_shape": "none",
+      "k": 10,
+      "rationale": "The docs layer has a materially different corpus size and chunk-length distribution from code, so its agreement with exact search must be measured separately rather than assumed from the code layer."
+    },
+    {
+      "id": "docs-unfiltered-deep",
+      "layer": "docs",
+      "query_text": "what does the review policy receipt bind",
+      "filter_shape": "none",
+      "k": 50,
+      "rationale": "The docs layer at depth, pairing the code layer's deep slice so both layers contribute the same slice shapes to the macro mean."
+    }
+  ]
+}

@@ -1,0 +1,192 @@
+{
+  "builder_versions": {
+    "cluster_builder_version": "11",
+    "cluster_schema_version": "1",
+    "graph_builder_version": "45",
+    "graph_schema_version": "1"
+  },
+  "classification_controls": {
+    "controls": [
+      {
+        "control": "design-tokens-control.json",
+        "domain": "design_tokens",
+        "expected_evidence": false,
+        "observed_evidence": null,
+        "status": "not_observed"
+      },
+      {
+        "control": "machine-result-control.json",
+        "domain": "machine_result",
+        "expected_evidence": true,
+        "observed_evidence": null,
+        "status": "not_observed"
+      },
+      {
+        "control": "service-config-control.json",
+        "domain": "configuration",
+        "expected_evidence": false,
+        "observed_evidence": null,
+        "status": "not_observed"
+      },
+      {
+        "control": "user-authored-data-control.json",
+        "domain": "user_authored",
+        "expected_evidence": false,
+        "observed_evidence": null,
+        "status": "not_observed"
+      }
+    ],
+    "false_negatives": [],
+    "false_positives": [],
+    "not_observed": [
+      "design-tokens-control.json",
+      "machine-result-control.json",
+      "service-config-control.json",
+      "user-authored-data-control.json"
+    ],
+    "passed": false
+  },
+  "corpus": {
+    "digest": "9d42ad654acd45e63132462e1e865ddcb8c22c0c9fc48ba9787e321f19555e55",
+    "expected_edges": 12,
+    "files": 17,
+    "forbidden_edges": 11,
+    "known_gaps": 2,
+    "path": "docs/evals/graph-quality-golden.json"
+  },
+  "environment": {
+    "community_backend": "igraph+leidenalg",
+    "implementation": "CPython",
+    "machine": "arm64",
+    "python": "3.13.5",
+    "system": "Darwin"
+  },
+  "evaluator_identity": {
+    "fixture_schema": "wavefoundry.graph-quality-fixtures/v1",
+    "report_schema": "wavefoundry.graph-quality-eval/v1",
+    "source_sha256": "a7d75bbde88d5a806393b746e8a48eea97ef5cb152e500516b80aed0ab647c32"
+  },
+  "graph_bounds": {
+    "edge_ceiling": 5000,
+    "edges": 45,
+    "node_ceiling": 2000,
+    "nodes": 49,
+    "within_bounds": true
+  },
+  "graph_input_fingerprint": "1226973e9900cd4907a36784a42dd9e46f7a18e79c1e8f56fe4f0dc2fb9d2e58",
+  "label": "baseline",
+  "production_identity": {
+    "graph_cluster_sha256": "9ef2260fd2dc1113cd2cf3b0acf86e3ed9cd72c5c4c06dccdcf5402147e5071a",
+    "graph_indexer_sha256": "a856f4ebd3dbf1706980f094d5821e6eb68139193b615937af716cd812bf0351",
+    "graph_query_sha256": "87944cdd4c4b54328cea5ee1f1c27d3b55897f4653296268ea5532057f797e39",
+    "source_root": "/private/tmp/claude-502/-Users-coryhacking-Developer-wavefoundry/aac246d7-4b55-430f-9dba-98b43300e990/scratchpad/gq-baseline/scripts"
+  },
+  "public_tools": [
+    "code_callhierarchy",
+    "code_dependencies",
+    "code_outline",
+    "code_references",
+    "wf_graph_report"
+  ],
+  "relations": {
+    "calls": {
+      "direction": "source_to_target",
+      "false_negatives": 1,
+      "false_positives": 1,
+      "forbidden_edges_emitted": [
+        [
+          "svc/pool.py::pool_size",
+          "calls",
+          "svc/limits.py::cpu_count"
+        ]
+      ],
+      "min_confidence": "EXTRACTED",
+      "missed_edges": [
+        [
+          "svc/dispatch.py::dispatch",
+          "calls",
+          "svc/transports.py::HttpTransport.send"
+        ]
+      ],
+      "precision": 0.8,
+      "public_tool": "code_callhierarchy",
+      "recall": 0.8,
+      "true_positives": 4
+    },
+    "defines": {
+      "direction": "source_to_target",
+      "false_negatives": 0,
+      "false_positives": 0,
+      "forbidden_edges_emitted": [],
+      "min_confidence": "EXTRACTED",
+      "missed_edges": [],
+      "precision": 1.0,
+      "public_tool": "code_outline",
+      "recall": 1.0,
+      "true_positives": 3
+    },
+    "doc_references_code": {
+      "direction": "source_to_target",
+      "false_negatives": 0,
+      "false_positives": 0,
+      "forbidden_edges_emitted": [],
+      "min_confidence": "EXTRACTED",
+      "missed_edges": [],
+      "precision": 1.0,
+      "public_tool": "wf_graph_report",
+      "recall": 1.0,
+      "true_positives": 1
+    },
+    "imports": {
+      "direction": "source_to_target",
+      "false_negatives": 0,
+      "false_positives": 0,
+      "forbidden_edges_emitted": [],
+      "min_confidence": "EXTRACTED",
+      "missed_edges": [],
+      "precision": 1.0,
+      "public_tool": "code_dependencies",
+      "recall": 1.0,
+      "true_positives": 1
+    },
+    "reads_config": {
+      "direction": "source_to_target",
+      "false_negatives": 1,
+      "false_positives": 0,
+      "forbidden_edges_emitted": [],
+      "min_confidence": "LITERAL_DERIVED",
+      "missed_edges": [
+        [
+          "svc/loader.py::load_settings",
+          "reads_config",
+          "svc/config.json::retry_budget_ms"
+        ]
+      ],
+      "precision": 1.0,
+      "public_tool": "code_references",
+      "recall": 0.5,
+      "true_positives": 1
+    }
+  },
+  "report_digest": "7ee2da6bca9ad167b9ea298f7e8a21d670dbc6b5e8450cbc0e2c5bc902c49eda",
+  "repository_identity": {
+    "commit": "f6790333c0751656ec0da0fccf0da97d689411be",
+    "dirty": true,
+    "root": "/Users/coryhacking/Developer/wavefoundry"
+  },
+  "run_completed_at": "2026-09-04T17:51:51Z",
+  "run_started_at": "2026-09-04T17:51:50Z",
+  "schema": "wavefoundry.graph-quality-eval/v1",
+  "scored_relations": [
+    "calls",
+    "imports",
+    "defines",
+    "reads_config",
+    "doc_references_code"
+  ],
+  "totals": {
+    "false_negatives": 2,
+    "false_positives": 1,
+    "true_positives": 10
+  }
+}

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-04
 
 ## Review Lane Summary
 
@@ -137,8 +137,20 @@ production retrieval evaluation before and after the change. The canonical
 baseline command is:
 
 ```bash
-python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-baseline.json
+python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json
 ```
+
+Pick a fresh `--out` name for every run. Since wave `1wpaj` the evaluator
+confines report paths and never overwrites an existing destination, so a run
+naming an occupied path is refused rather than silently replacing a receipt.
+The path must be a regular direct child of `docs/reports/` whose basename
+begins with `retrieval-quality-`; that prefix is what the repository's ignore
+rule keys on, and a report written outside it would enter the retrieval corpus
+and contaminate the next run's own measurement. The three closed-`1seaw`
+receipts (`retrieval-quality-baseline-run1.json`,
+`retrieval-quality-baseline.json`, and
+`retrieval-quality-post-1seas-vs-before.json`) are protected inputs and can
+never be destinations, which is why the command above no longer names one.
 
 A comparison adds `--baseline <report.json>`. Each constituent run must remain
 on one published build generation; a controlled rebuild may produce a second

@@ -5196,6 +5196,305 @@ class InferTagsServerTests(unittest.TestCase):
             tmp.cleanup()
 
 
+class EvidencePartitionResponseTests(unittest.TestCase):
+    """Wave 1wpie AC-3 and AC-7: five exact parallel array pairs, partitioned
+    before top-N, with independent limits and always-present evidence arrays."""
+
+    PAIRS = ("communities", "fan_in", "fan_out", "chokepoints", "file_hubs")
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def _report(self, **kwargs):
+        return self.srv.wf_graph_report_response(
+            Path(__file__).resolve().parents[3].parent, **kwargs)["data"]
+
+    def test_every_pair_is_present_including_its_evidence_half(self):
+        data = self._report(limit=5)
+        for name in self.PAIRS:
+            with self.subTest(section=name):
+                self.assertIn(name, data)
+                self.assertIn(f"evidence_{name}", data,
+                              "the evidence array must be present, not omitted")
+                self.assertIsInstance(data[f"evidence_{name}"], list)
+
+    def test_the_evidence_array_ships_even_when_the_section_was_not_requested(self):
+        # Requirement 7 is explicit: present and empty rather than absent, so a
+        # consumer never has to distinguish "nothing qualified" from "this build
+        # predates the partition".
+        #
+        # Delivery review (DOCS-DEL-1): this asserted `evidence_fan_in` while
+        # REQUESTING fan_in, which is the trivial case and tests nothing about
+        # the words "not requested". The four unrequested arrays were in fact
+        # absent, so the contract was false on four public surfaces while this
+        # test stayed green. Assert the arrays that were NOT asked for.
+        for requested in (["fan_in"], ["communities"], ["chokepoints"]):
+            data = self._report(limit=5, sections=requested)
+            for name in self.PAIRS:
+                if name in requested:
+                    continue
+                with self.subTest(requested=requested[0], unrequested=name):
+                    self.assertIn(
+                        f"evidence_{name}", data,
+                        f"requesting {requested} must still ship "
+                        f"evidence_{name}; absence is what the contract forbids")
+                    self.assertEqual([], data[f"evidence_{name}"])
+
+    def test_evidence_rows_carry_their_type_and_a_nonempty_reason(self):
+        data = self._report(limit=10)
+        rows = data.get("evidence_communities") or []
+        if not rows:
+            self.skipTest("this tree has no classified evidence communities")
+        for row in rows:
+            self.assertEqual("evidence_data", row["community_type"])
+            self.assertEqual("evidence_data", row["evidence_type"])
+            self.assertTrue(row["classification_reasons"],
+                            "a classified row must say WHY")
+
+    def test_evidence_communities_do_not_appear_in_the_production_ranking(self):
+        # Delivery review (QA-DEL-4): this compared two sets and passed on
+        # `set() & set()`, so a TOTAL classification failure on the server
+        # response path registered no failure here. Require a non-empty
+        # evidence half before the disjointness claim means anything.
+        data = self._report(limit=20)
+        production = {c["community_id"] for c in data.get("communities", [])}
+        evidence = {c["community_id"] for c in data.get("evidence_communities", [])}
+        self.assertTrue(
+            evidence,
+            "no evidence communities were returned, so disjointness is vacuous; "
+            "this tree is known to carry classified machine-result artifacts")
+        self.assertTrue(production, "no production communities were returned")
+        self.assertEqual(set(), production & evidence,
+                         "a community belongs to exactly one half")
+
+    def test_the_limit_applies_independently_to_each_half(self):
+        # Delivery review (QA-DEL-7): asserting only an upper bound passes on
+        # an empty list. The point of an INDEPENDENT limit is that a full
+        # evidence half does not consume production slots, so require both
+        # halves to actually fill for the section that has enough rows.
+        data = self._report(limit=2)
+        for name in self.PAIRS:
+            with self.subTest(section=name):
+                self.assertLessEqual(len(data.get(name, [])), 2)
+                self.assertLessEqual(len(data.get(f"evidence_{name}", [])), 2)
+        self.assertEqual(2, len(data.get("communities", [])),
+                         "production communities did not fill to the limit")
+        self.assertEqual(2, len(data.get("evidence_communities", [])),
+                         "the evidence half did not fill independently to the "
+                         "same limit; that is what 'independent' means")
+
+    def test_evidence_rows_are_not_erased_by_exclude_generated(self):
+        # The two classifications are orthogonal: generated-ness is about how a
+        # file was produced, evidence-ness about what it records.
+        plain = self._report(limit=10)
+        filtered = self._report(limit=10, exclude_generated=True)
+        if not plain.get("evidence_communities"):
+            self.skipTest("this tree has no classified evidence communities")
+        self.assertTrue(filtered.get("evidence_communities"),
+                        "exclude_generated must not erase Evidence/Data")
+
+    def test_a_classified_community_keeps_its_compatibility_fields(self):
+        rows = self._report(limit=10).get("evidence_communities") or []
+        if not rows:
+            self.skipTest("this tree has no classified evidence communities")
+        for field in ("community_id", "label", "node_count",
+                      "hub_node_id", "hub_label", "generated_node_fraction"):
+            self.assertIn(field, rows[0],
+                          "an evidence entry keeps its section's existing fields")
+
+    def test_evidence_communities_remain_queryable_by_id(self):
+        rows = self._report(limit=10).get("evidence_communities") or []
+        if not rows:
+            self.skipTest("this tree has no classified evidence communities")
+        cid = rows[0]["community_id"]
+        resp = self.srv.code_graph_community_response(
+            Path(__file__).resolve().parents[3].parent, community_id=cid)
+        self.assertEqual("ok", resp["status"],
+                         "partitioning must not remove the community from the catalog")
+
+
+class CrossTableFusionConsistencyTests(unittest.TestCase):
+    """Wave 1wpid AC-3 and requirement 7: all three mixed-table sites must use
+    the SAME fusion, and the single-table fallbacks must be untouched."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def _server_source(self):
+        return Path(self.srv.__file__.replace("server.py", "server_impl.py")).read_text(
+            encoding="utf-8")
+
+    def test_all_three_mixed_table_sites_route_through_the_shared_fusion(self):
+        # Requirement 7 says the semantics apply CONSISTENTLY across three
+        # named sites. One shared callee is how that is guaranteed; a local
+        # raw-bm25 sort reintroduced at any one site would diverge silently.
+        source = self._server_source()
+        for anchor in (
+            "def _lexical_candidates",
+            "def _fts_degraded_serve",
+            "def code_lexical_response",
+        ):
+            start = source.index(anchor)
+            # Bound the search to the function body that follows the anchor.
+            body = source[start:start + 12000]
+            with self.subTest(site=anchor):
+                self.assertIn("fuse_lexical_tables", body,
+                              f"{anchor} no longer routes through the shared fusion")
+
+    def test_single_table_fusion_is_order_identical_to_the_plain_bm25_sort(self):
+        # The docs-only and code-only fallbacks must be unchanged, so fusion
+        # has to be order-preserving when only one table is present.
+        store = self.srv._load_script("index_state_store")
+        rows = [{"id": "a", "bm25": -1.0}, {"id": "b", "bm25": -3.0}, {"id": "c", "bm25": -2.0}]
+        plain = sorted(rows, key=lambda h: h["bm25"])
+        fused = store.fuse_lexical_tables({"code": list(plain)})
+        self.assertEqual([r["id"] for r in plain], [r["id"] for r in fused])
+
+    def test_fusion_preserves_candidate_count_and_per_table_bm25(self):
+        # Requirement 4: per-table bm25 stays observable. And the reranker must
+        # not receive more candidates than before, or latency would move for a
+        # reason unrelated to ranking quality.
+        store = self.srv._load_script("index_state_store")
+        per = {"docs": [{"id": f"d{i}", "bm25": -float(i)} for i in range(20)],
+               "code": [{"id": f"c{i}", "bm25": -float(i)} for i in range(15)]}
+        fused = store.fuse_lexical_tables(per)
+        self.assertEqual(35, len(fused))
+        self.assertTrue(all("bm25" in row for row in fused))
+        self.assertEqual({"docs", "code"}, {row["table"] for row in fused})
+
+    def test_unrelated_growth_in_one_table_cannot_reorder_the_other(self):
+        # The defect in its pure form: a docs row whose raw score improves past
+        # a code row must not overtake it, because neither row's rank within
+        # its own table changed.
+        store = self.srv._load_script("index_state_store")
+        before = store.fuse_lexical_tables({
+            "code": [{"id": "c1", "bm25": -4.24}],
+            "docs": [{"id": "d1", "bm25": -0.0}],
+        })
+        after = store.fuse_lexical_tables({
+            "code": [{"id": "c1", "bm25": -4.24}],       # unchanged
+            "docs": [{"id": "d1", "bm25": -6.15}],       # improved by growth alone
+        })
+        self.assertEqual([r["id"] for r in before], [r["id"] for r in after])
+
+    def test_fusion_order_is_deterministic_on_ties(self):
+        store = self.srv._load_script("index_state_store")
+        first = store.fuse_lexical_tables({"docs": [{"id": "z", "bm25": -1.0}],
+                                           "code": [{"id": "a", "bm25": -1.0}]})
+        second = store.fuse_lexical_tables({"code": [{"id": "a", "bm25": -1.0}],
+                                            "docs": [{"id": "z", "bm25": -1.0}]})
+        self.assertEqual([r["id"] for r in first], [r["id"] for r in second])
+
+
+class ConfidenceBasisAndRoutingTests(unittest.TestCase):
+    """Wave 1wscp AC-5 and AC-6: the confidence band describes the lead it was
+    derived from, and constant-value questions route by a documented contract."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    # --- AC-5: lead-aware confidence -------------------------------------
+
+    def test_a_weak_lead_is_not_rescued_by_a_strong_lower_ranked_citation(self):
+        # The closed-1seaw defect, stated directly: confidence read the maximum
+        # score anywhere in the list, so a weak rank-one citation shipped with
+        # confidence="high" because some row further down scored well.
+        weak_lead = [{"score": 0.05}, {"score": 0.99}, {"score": 0.98}]
+        band, basis = self.srv._confidence_with_basis(weak_lead, True)
+        self.assertEqual("low", band)
+        self.assertEqual(self.srv.CONFIDENCE_BASIS_SEMANTIC_LEAD, basis)
+        # The old maximum-based rule would have called this high.
+        self.assertGreaterEqual(
+            max(c["score"] for c in weak_lead), self.srv.CONF_AGENT_RERANK_HIGH)
+
+    def test_a_strong_lead_still_earns_high(self):
+        band, basis = self.srv._confidence_with_basis(
+            [{"score": 0.92}, {"score": 0.10}], True)
+        self.assertEqual("high", band)
+        self.assertEqual(self.srv.CONFIDENCE_BASIS_SEMANTIC_LEAD, basis)
+
+    def test_exact_owner_is_the_documented_exception_and_is_labelled(self):
+        # A short declaration chunk can score low semantically while being
+        # exactly the right answer, so symbol resolution licenses the band --
+        # but the basis must say so rather than leaving it unexplained.
+        band, basis = self.srv._confidence_with_basis(
+            [{"score": 0.02}], True, exact_owner=True)
+        self.assertEqual("high", band)
+        self.assertEqual(self.srv.CONFIDENCE_BASIS_EXACT_OWNER, basis)
+
+    def test_no_citations_and_unranked_paths_carry_their_own_basis(self):
+        self.assertEqual(
+            ("low", self.srv.CONFIDENCE_BASIS_NO_CITATIONS),
+            self.srv._confidence_with_basis([], True))
+        self.assertEqual(
+            ("medium", self.srv.CONFIDENCE_BASIS_UNRANKED),
+            self.srv._confidence_with_basis([{"score": 0.99}], False))
+
+    # --- AC-5: truthful selection_reason ---------------------------------
+
+    def test_the_definition_reason_needs_the_row_to_carry_the_symbol(self):
+        # A definition boost names a symbol; it does not prove WHICH row ended
+        # up holding that declaration.  A row that does not mention the symbol
+        # must not be labelled `definition`, or a boost that promoted some other
+        # row would license an unearned exact-owner band on a weak lead.
+        rows = [{"section": "other > thing", "excerpt": "unrelated body"}]
+        self.srv._assign_selection_reasons(
+            rows, ["symbol:MAX_RETRIES"], reranked=True, lexical_fallback=False)
+        self.assertEqual(self.srv.SELECTION_REASON_RERANKED, rows[0]["selection_reason"])
+
+        rows = [{"section": "conf > MAX_RETRIES", "excerpt": "MAX_RETRIES = 5"}]
+        self.srv._assign_selection_reasons(
+            rows, ["symbol:MAX_RETRIES"], reranked=True, lexical_fallback=False)
+        self.assertEqual(self.srv.SELECTION_REASON_DEFINITION, rows[0]["selection_reason"])
+
+    def test_every_citation_gets_a_reason_matching_how_it_was_selected(self):
+        rows = [{"kind": "keyword"}, {"kind": "code"}]
+        self.srv._assign_selection_reasons(rows, [], reranked=True, lexical_fallback=False)
+        self.assertEqual(
+            [self.srv.SELECTION_REASON_KEYWORD, self.srv.SELECTION_REASON_RERANKED],
+            [r["selection_reason"] for r in rows])
+
+        rows = [{"kind": "code"}]
+        self.srv._assign_selection_reasons(rows, [], reranked=False, lexical_fallback=True)
+        self.assertEqual(self.srv.SELECTION_REASON_LEXICAL, rows[0]["selection_reason"])
+
+        rows = [{"kind": "code"}]
+        self.srv._assign_selection_reasons(rows, [], reranked=False, lexical_fallback=False)
+        self.assertEqual(self.srv.SELECTION_REASON_VECTOR, rows[0]["selection_reason"])
+
+    # --- AC-6: the constant-value routing contract ------------------------
+
+    def test_both_standing_constant_value_fixtures_route_navigational(self):
+        for question in ("what value is RERANKER_MODEL",
+                         "What is the current value of INT8_ENCODING_REVISION?"):
+            with self.subTest(question=question):
+                self.assertEqual("navigational", self.srv._classify_question(question))
+
+    def test_explanatory_prose_containing_value_is_left_alone(self):
+        # The contract is narrow on purpose: it needs BOTH a value question and
+        # an upper-snake constant, so ordinary prose does not flip.
+        for question in (
+            "what is the value of a well-designed abstraction",
+            "how does the reranker decide which value to return",
+            "explain the value proposition of the graph index",
+            "RERANKER_MODEL is used by the reranker loader",
+            "what is the retry budget",
+        ):
+            with self.subTest(question=question):
+                self.assertEqual("explanatory", self.srv._classify_question(question))
+
+    def test_existing_routes_are_unchanged(self):
+        self.assertEqual("navigational",
+                         self.srv._classify_question("where is the rate limiter defined"))
+        self.assertEqual("instructional",
+                         self.srv._classify_question("how do i rebuild the index"))
+
+    def test_a_bare_acronym_is_not_an_upper_snake_constant(self):
+        # `API` or a sentence-initial capital must not satisfy the constant half.
+        self.assertIsNone(self.srv._UPPER_SNAKE_RE.search("what is the value of API"))
+        self.assertIsNotNone(self.srv._UPPER_SNAKE_RE.search("value of MAX_RETRIES"))
+
+
 class RerankerTests(unittest.TestCase):
     CODE_ASK_BASE_DATA_KEYS = {
         "question", "question_type", "answer", "citations", "confidence", "gaps",
@@ -5203,6 +5502,10 @@ class RerankerTests(unittest.TestCase):
         "partition_applied", "demotion_count", "total_ms", "vector_ms", "rerank_ms",
         # Wave 1wpif (1wpah): per-source substrate accounting rides every envelope.
         "retrieval_accounting",
+        # Wave 1wscp (requirement 5): the confidence band is a public trust
+        # claim, so the machine-readable basis it rests on ships beside it on
+        # every envelope rather than being inferable only from the score list.
+        "confidence_basis",
     }
 
     """12mha-enh: cross-encoder reranker integration tests."""
@@ -11092,8 +11395,15 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
         graph_dir = self.root / ".wavefoundry" / "index" / "graph"
         graph_dir.mkdir(parents=True, exist_ok=True)
         import json
+        # Wave 1wpaj: stamp the RUNTIME cluster builder version rather than a
+        # literal. The serve path now refuses a betweenness section whose
+        # persisted version does not match runtime, so a hard-coded literal
+        # would silently turn every test in this class into a stale-artifact
+        # assertion on the next version bump.
+        import graph_cluster as _gc  # noqa: PLC0415 - test-local import
         payload = {
-            "cluster_schema_version": "1", "cluster_builder_version": "11",
+            "cluster_schema_version": "1",
+            "cluster_builder_version": _gc.CLUSTER_BUILDER_VERSION,
             "cluster_algorithm": "leiden", "layer": "project",
             "communities": [], "community_count": 0,
         }
@@ -16368,5 +16678,1363 @@ class DocCodeKindFilterTests(unittest.TestCase):
                          "_docs_src and _code_src must share the one partition tuple")
 
 
+# ---------------------------------------------------------------------------
+# Wave 1wpig / change 1wpaj — graph-report eligibility applied BEFORE top-N
+# truncation, betweenness complete-order refill + read-side staleness gate,
+# and per-edge trust fields on code_callhierarchy entries.
+#
+# Every fixture below is built so at least one INELIGIBLE candidate OUTRANKS
+# the Nth eligible row. Without that the section fills to `limit` under the
+# pre-repair slice-then-filter shape too and the test proves nothing.
+# ---------------------------------------------------------------------------
+
+
+def _wpaj_node(nid: str, **extra) -> dict:
+    """One graph node. `external::` ids deliberately carry no source_file."""
+    node = {
+        "id": nid,
+        "label": nid.split("::")[-1] if "::" in nid else nid,
+        "kind": "function",
+        "source_location": "1:0",
+    }
+    if not nid.startswith("external::"):
+        node["source_file"] = nid.split("::")[0] if "::" in nid else nid
+    node.update(extra)
+    return node
+
+
+# (target, incoming calls, node extras) — externals outrank the generated node,
+# which outranks every handwritten row.
+_WPAJ_FAN_IN_LADDER = (
+    ("external::ext_hot", 12, {}),
+    ("external::ext_warm", 11, {}),
+    ("external::ext_cool", 10, {}),
+    ("src/gen.py::gen_target", 9, {"generated": True}),
+    ("src/app.py::keep_a", 8, {}),
+    ("src/app.py::keep_b", 7, {}),
+    ("src/app.py::keep_c", 6, {}),
+)
+
+# (source, outgoing calls, node extras) — the generated hub outranks all three
+# handwritten hubs. No entry reaches the fixed chokepoint threshold (20), so
+# this graph leaves chokepoints/file_hubs empty.
+_WPAJ_FAN_OUT_LADDER = (
+    ("src/gen.py::gen_hub", 9, {"generated": True}),
+    ("src/app.py::hub_a", 8, {}),
+    ("src/app.py::hub_b", 7, {}),
+    ("src/app.py::hub_c", 6, {}),
+)
+
+
+def _wpaj_fan_graph() -> tuple[list, list]:
+    """Graph exercising the two `_ranked` sections (truncation site 1 of 3)."""
+    nodes: list = []
+    edges: list = []
+    for target, count, extra in _WPAJ_FAN_IN_LADDER:
+        nodes.append(_wpaj_node(target, **extra))
+        slug = re.sub(r"[^0-9a-zA-Z]+", "_", target).strip("_")
+        # One caller per edge, so no caller's own fan_out can disturb the
+        # fan_out ladder below (every caller ends at fan_out 1).
+        for i in range(count):
+            caller = f"src/in_{slug}_{i}.py::in_{slug}_{i}"
+            nodes.append(_wpaj_node(caller))
+            edges.append({
+                "source": caller, "target": target,
+                "relation": "calls", "confidence": "RECEIVER_RESOLVED",
+            })
+    sinks = [f"src/sink{i}.py::sink{i}" for i in range(9)]
+    nodes.extend(_wpaj_node(sink) for sink in sinks)
+    for source, count, extra in _WPAJ_FAN_OUT_LADDER:
+        nodes.append(_wpaj_node(source, **extra))
+        for sink in sinks[:count]:
+            edges.append({
+                "source": source, "target": sink,
+                "relation": "calls", "confidence": "RECEIVER_RESOLVED",
+            })
+    return nodes, edges
+
+
+def _wpaj_hub_graph() -> tuple[list, list]:
+    """Graph exercising the two inline slices (truncation sites 2 and 3).
+
+    Both ladders clear the fixed chokepoint threshold (20 — `wf_graph_report`
+    never overrides `chokepoint_threshold`). chokepoints takes the non-module
+    ladder, file_hubs the module one.
+    """
+    nodes: list = []
+    edges: list = []
+    csinks = [f"src/csink{i}.py::csink{i}" for i in range(25)]
+    nodes.extend(_wpaj_node(sink) for sink in csinks)
+    for source, count, extra in (
+        ("src/gen.py::gen_choke", 25, {"generated": True}),
+        ("src/app.py::choke_a", 24, {}),
+        ("src/app.py::choke_b", 23, {}),
+        ("src/app.py::choke_c", 22, {}),
+    ):
+        nodes.append(_wpaj_node(source, **extra))
+        for sink in csinks[:count]:
+            edges.append({
+                "source": source, "target": sink,
+                "relation": "calls", "confidence": "RECEIVER_RESOLVED",
+            })
+    msinks = [f"src/msink{i}.py::msink{i}" for i in range(25)]
+    nodes.extend(_wpaj_node(sink) for sink in msinks)
+    for module, count, extra in (
+        ("src/generated_mod.py", 25, {"generated": True}),
+        ("src/mod_a.py", 24, {}),
+        ("src/mod_b.py", 23, {}),
+        ("src/mod_c.py", 22, {}),
+    ):
+        nodes.append(_wpaj_node(module, kind="module", **extra))
+        for sink in msinks[:count]:
+            edges.append({
+                "source": module, "target": sink,
+                "relation": "calls", "confidence": "RECEIVER_RESOLVED",
+            })
+    return nodes, edges
+
+
+class _GraphReport1wpajMixin:
+    """Graph/cluster artifact fixtures shared by the wave-1wpaj classes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_graph(self, nodes: list, edges: list, *, builder_version: str = "12") -> None:
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        (graph_dir / "project-graph.json").write_text(
+            json.dumps({
+                "schema_version": "1",
+                "builder_version": builder_version,
+                "layer": "project",
+                "nodes": nodes,
+                "edges": edges,
+                "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
+            }),
+            encoding="utf-8",
+        )
+
+    def _report(self, **kwargs) -> dict:
+        result = self.srv.wf_graph_report_response(self.root, layer="project", **kwargs)
+        self.assertEqual(result["status"], "ok", result)
+        return result["data"]
+
+    def _ids(self, report: dict, section: str) -> list:
+        return [str(row["node_id"]) for row in report.get(section, [])]
+
+    @contextlib.contextmanager
+    def _pre_repair_report(self, post_filter_sections):
+        """Restore the pre-1wpaj shape: `report()` ignores `eligible`, and the
+        caller filters the ALREADY-TRUNCATED rows.
+
+        `post_filter_sections` reproduces the two removed loops exactly:
+        `exclude_generated` post-filtered ("fan_in", "fan_out", "chokepoints");
+        `exclude_external` post-filtered those plus "file_hubs". Pass the tuple
+        matching the flag under test — using the wrong one would credit the old
+        code with a filter it never applied.
+        """
+        gq = self.srv._load_graph_query()
+        original = gq.GraphQueryIndex.report
+
+        def _legacy(index_self, **kwargs):
+            eligible = kwargs.pop("eligible", None)
+            out = original(index_self, **kwargs)
+            if eligible is not None:
+                for name in post_filter_sections:
+                    rows = out.get(name)
+                    if isinstance(rows, list):
+                        out[name] = [
+                            row for row in rows
+                            if isinstance(row, dict)
+                            and eligible(str(row.get("node_id") or ""))
+                        ]
+            return out
+
+        with patch.object(gq.GraphQueryIndex, "report", _legacy):
+            yield
+
+
+class TestGraphReportFanSectionsFilterBeforeTruncation(_GraphReport1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: fan_in/fan_out fill the requested `limit` whenever enough
+    ELIGIBLE candidates exist, even when ineligible candidates rank above them.
+
+    `exclude_external` is exercised on fan_in only: an `external::` node is a
+    call TARGET by construction (the extractor never emits an edge sourced at
+    one), so an external row in fan_out would be a shape the graph cannot
+    produce. `exclude_generated` applies to both directions.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._write_graph(*_wpaj_fan_graph())
+
+    # ---- fan_in ----------------------------------------------------------
+    def test_fan_in_exclude_external_fills_the_limit(self):
+        report = self._report(limit=3, sections=["fan_in"], exclude_external=True)
+        self.assertEqual(self._ids(report, "fan_in"), [
+            "src/gen.py::gen_target", "src/app.py::keep_a", "src/app.py::keep_b",
+        ])
+
+    def test_fan_in_exclude_external_at_limit_one(self):
+        # The reproduced defect: the top-ranked candidate is ineligible, so the
+        # pre-repair slice-then-filter returned an EMPTY section here.
+        report = self._report(limit=1, sections=["fan_in"], exclude_external=True)
+        self.assertEqual(self._ids(report, "fan_in"), ["src/gen.py::gen_target"])
+
+    def test_fan_in_exclude_generated_fills_the_limit(self):
+        # The generated node sits at rank 4, so limit=4 is the discriminating
+        # request: pre-repair it returned 3 rows.
+        report = self._report(limit=4, sections=["fan_in"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "fan_in"), [
+            "external::ext_hot", "external::ext_warm", "external::ext_cool",
+            "src/app.py::keep_a",
+        ])
+
+    def test_fan_in_both_filters_at_limit_one(self):
+        report = self._report(
+            limit=1, sections=["fan_in"], exclude_external=True, exclude_generated=True,
+        )
+        self.assertEqual(self._ids(report, "fan_in"), ["src/app.py::keep_a"])
+
+    def test_deletion_check_fan_in_post_slice_filtering_empties_the_section(self):
+        with self._pre_repair_report(("fan_in", "fan_out", "chokepoints", "file_hubs")):
+            legacy = self._report(limit=3, sections=["fan_in"], exclude_external=True)
+        self.assertEqual(
+            self._ids(legacy, "fan_in"), [],
+            "the pre-repair reconstruction must reproduce the empty section; if it "
+            "does not, the fixture has no ineligible candidate above the Nth eligible row",
+        )
+        current = self._report(limit=3, sections=["fan_in"], exclude_external=True)
+        self.assertEqual(self._ids(current, "fan_in"), [
+            "src/gen.py::gen_target", "src/app.py::keep_a", "src/app.py::keep_b",
+        ])
+
+    def test_deletion_check_fan_in_post_slice_generated_filter_underfills(self):
+        with self._pre_repair_report(("fan_in", "fan_out", "chokepoints")):
+            legacy = self._report(limit=4, sections=["fan_in"], exclude_generated=True)
+        self.assertEqual(len(self._ids(legacy, "fan_in")), 3)
+        current = self._report(limit=4, sections=["fan_in"], exclude_generated=True)
+        self.assertEqual(self._ids(current, "fan_in"), [
+            "external::ext_hot", "external::ext_warm", "external::ext_cool",
+            "src/app.py::keep_a",
+        ])
+
+    # ---- fan_out ---------------------------------------------------------
+    def test_fan_out_exclude_generated_fills_the_limit(self):
+        report = self._report(limit=3, sections=["fan_out"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "fan_out"), [
+            "src/app.py::hub_a", "src/app.py::hub_b", "src/app.py::hub_c",
+        ])
+
+    def test_fan_out_exclude_generated_at_limit_one(self):
+        report = self._report(limit=1, sections=["fan_out"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "fan_out"), ["src/app.py::hub_a"])
+
+    def test_deletion_check_fan_out_post_slice_filtering_underfills(self):
+        with self._pre_repair_report(("fan_in", "fan_out", "chokepoints")):
+            legacy_three = self._report(limit=3, sections=["fan_out"], exclude_generated=True)
+            legacy_one = self._report(limit=1, sections=["fan_out"], exclude_generated=True)
+        self.assertEqual(len(self._ids(legacy_three, "fan_out")), 2)
+        self.assertEqual(self._ids(legacy_one, "fan_out"), [])
+        current = self._report(limit=3, sections=["fan_out"], exclude_generated=True)
+        self.assertEqual(self._ids(current, "fan_out"), [
+            "src/app.py::hub_a", "src/app.py::hub_b", "src/app.py::hub_c",
+        ])
+
+    # ---- unfiltered order ------------------------------------------------
+    def test_unfiltered_fan_section_output_is_byte_for_byte_unchanged(self):
+        """The unfiltered path (`eligible is None`) must be untouched.
+
+        The expected rows are RECORDED literals below, not values re-derived
+        from the call under test, so a change in either the ordering key or the
+        row shape shows up as a byte difference.
+        """
+        gq = self.srv._load_graph_query()
+        index = gq.get_query_index(self.root, layer="project")
+        rows = index.report(limit=4, sections=["fan_in", "fan_out"])
+        expected_fan_in = [
+            {"node_id": "external::ext_hot", "count": 12, "label": "ext_hot", "kind": "function"},
+            {"node_id": "external::ext_warm", "count": 11, "label": "ext_warm", "kind": "function"},
+            {"node_id": "external::ext_cool", "count": 10, "label": "ext_cool", "kind": "function"},
+            {"node_id": "src/gen.py::gen_target", "count": 9, "label": "gen_target", "kind": "function"},
+        ]
+        expected_fan_out = [
+            {"node_id": "src/gen.py::gen_hub", "count": 9, "label": "gen_hub", "kind": "function"},
+            {"node_id": "src/app.py::hub_a", "count": 8, "label": "hub_a", "kind": "function"},
+            {"node_id": "src/app.py::hub_b", "count": 7, "label": "hub_b", "kind": "function"},
+            {"node_id": "src/app.py::hub_c", "count": 6, "label": "hub_c", "kind": "function"},
+        ]
+        self.assertEqual(
+            json.dumps(rows["fan_in"], sort_keys=True),
+            json.dumps(expected_fan_in, sort_keys=True),
+        )
+        self.assertEqual(
+            json.dumps(rows["fan_out"], sort_keys=True),
+            json.dumps(expected_fan_out, sort_keys=True),
+        )
+        # Same order through the public tool (which annotates each row but must
+        # not reorder or drop any of them).
+        served = self._report(limit=4, sections=["fan_in", "fan_out"])
+        self.assertEqual(
+            self._ids(served, "fan_in"), [row["node_id"] for row in expected_fan_in],
+        )
+        self.assertEqual(
+            self._ids(served, "fan_out"), [row["node_id"] for row in expected_fan_out],
+        )
+
+
+class TestGraphReportHubSectionsFilterBeforeTruncation(_GraphReport1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: chokepoints and file_hubs each own an inline slice, so the
+    predicate has to reach both of them separately from the `_ranked` helper.
+
+    Only `exclude_generated` is exercised here: chokepoints ranks by fan_out and
+    file_hubs is restricted to `kind: "module"`, and the extractor emits neither
+    an outgoing edge from an `external::` node nor an `external::` module node,
+    so an external row cannot appear in either section.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._write_graph(*_wpaj_hub_graph())
+
+    # ---- chokepoints -----------------------------------------------------
+    def test_chokepoints_exclude_generated_fills_the_limit(self):
+        report = self._report(limit=3, sections=["chokepoints"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "chokepoints"), [
+            "src/app.py::choke_a", "src/app.py::choke_b", "src/app.py::choke_c",
+        ])
+
+    def test_chokepoints_exclude_generated_at_limit_one(self):
+        report = self._report(limit=1, sections=["chokepoints"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "chokepoints"), ["src/app.py::choke_a"])
+
+    def test_deletion_check_chokepoints_post_slice_filtering_underfills(self):
+        with self._pre_repair_report(("fan_in", "fan_out", "chokepoints")):
+            legacy_three = self._report(limit=3, sections=["chokepoints"], exclude_generated=True)
+            legacy_one = self._report(limit=1, sections=["chokepoints"], exclude_generated=True)
+        self.assertEqual(len(self._ids(legacy_three, "chokepoints")), 2)
+        self.assertEqual(self._ids(legacy_one, "chokepoints"), [])
+        current = self._report(limit=3, sections=["chokepoints"], exclude_generated=True)
+        self.assertEqual(self._ids(current, "chokepoints"), [
+            "src/app.py::choke_a", "src/app.py::choke_b", "src/app.py::choke_c",
+        ])
+
+    # ---- file_hubs -------------------------------------------------------
+    def test_file_hubs_exclude_generated_is_a_new_filter(self):
+        # Contract WIDENING, not an ordering repair: the pre-repair generated
+        # post-filter covered fan_in/fan_out/chokepoints only, so a generated
+        # module hub was returned even with exclude_generated=True.
+        unfiltered = self._report(limit=4, sections=["file_hubs"])
+        self.assertIn("src/generated_mod.py", self._ids(unfiltered, "file_hubs"))
+        filtered = self._report(limit=4, sections=["file_hubs"], exclude_generated=True)
+        self.assertNotIn("src/generated_mod.py", self._ids(filtered, "file_hubs"))
+
+    def test_file_hubs_exclude_generated_fills_the_limit(self):
+        report = self._report(limit=3, sections=["file_hubs"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "file_hubs"), [
+            "src/mod_a.py", "src/mod_b.py", "src/mod_c.py",
+        ])
+
+    def test_file_hubs_exclude_generated_at_limit_one(self):
+        report = self._report(limit=1, sections=["file_hubs"], exclude_generated=True)
+        self.assertEqual(self._ids(report, "file_hubs"), ["src/mod_a.py"])
+
+    def test_deletion_check_file_hubs_generated_filter_never_reached_the_section(self):
+        with self._pre_repair_report(("fan_in", "fan_out", "chokepoints")):
+            legacy = self._report(limit=3, sections=["file_hubs"], exclude_generated=True)
+        self.assertIn(
+            "src/generated_mod.py", self._ids(legacy, "file_hubs"),
+            "pre-repair, exclude_generated never reached file_hubs at all",
+        )
+        current = self._report(limit=3, sections=["file_hubs"], exclude_generated=True)
+        self.assertEqual(self._ids(current, "file_hubs"), [
+            "src/mod_a.py", "src/mod_b.py", "src/mod_c.py",
+        ])
+
+    # ---- unfiltered order ------------------------------------------------
+    def test_unfiltered_hub_section_output_is_byte_for_byte_unchanged(self):
+        """Recorded expected rows — see the fan-section twin for the rationale."""
+        gq = self.srv._load_graph_query()
+        index = gq.get_query_index(self.root, layer="project")
+        rows = index.report(limit=4, sections=["chokepoints", "file_hubs"])
+        expected_chokepoints = [
+            {"node_id": "src/gen.py::gen_choke", "fan_out": 25, "label": "gen_choke"},
+            {"node_id": "src/app.py::choke_a", "fan_out": 24, "label": "choke_a"},
+            {"node_id": "src/app.py::choke_b", "fan_out": 23, "label": "choke_b"},
+            {"node_id": "src/app.py::choke_c", "fan_out": 22, "label": "choke_c"},
+        ]
+        expected_file_hubs = [
+            {"node_id": "src/generated_mod.py", "fan_out": 25, "label": "src/generated_mod.py", "kind": "module"},
+            {"node_id": "src/mod_a.py", "fan_out": 24, "label": "src/mod_a.py", "kind": "module"},
+            {"node_id": "src/mod_b.py", "fan_out": 23, "label": "src/mod_b.py", "kind": "module"},
+            {"node_id": "src/mod_c.py", "fan_out": 22, "label": "src/mod_c.py", "kind": "module"},
+        ]
+        self.assertEqual(
+            json.dumps(rows["chokepoints"], sort_keys=True),
+            json.dumps(expected_chokepoints, sort_keys=True),
+        )
+        self.assertEqual(
+            json.dumps(rows["file_hubs"], sort_keys=True),
+            json.dumps(expected_file_hubs, sort_keys=True),
+        )
+        served = self._report(limit=4, sections=["chokepoints", "file_hubs"])
+        self.assertEqual(
+            self._ids(served, "chokepoints"),
+            [row["node_id"] for row in expected_chokepoints],
+        )
+        self.assertEqual(
+            self._ids(served, "file_hubs"),
+            [row["node_id"] for row in expected_file_hubs],
+        )
+
+
+class _BetweennessArtifact1wpajMixin(_GraphReport1wpajMixin):
+    """Persisted clusters artifact whose COMPLETE betweenness order carries
+    eligible rows BELOW the ineligible top-N prefix."""
+
+    # The persisted top-N prefix — every row ineligible under exclude_external.
+    _PREFIX = (
+        {"node_id": "external::ext_top_a", "score": 0.9, "label": "ext_top_a", "kind": "function"},
+        {"node_id": "external::ext_top_b", "score": 0.8, "label": "ext_top_b", "kind": "function"},
+        {"node_id": "external::ext_top_c", "score": 0.7, "label": "ext_top_c", "kind": "function"},
+    )
+
+    def setUp(self):
+        super().setUp()
+        self._write_graph([
+            _wpaj_node("external::ext_top_a"),
+            _wpaj_node("external::ext_top_b"),
+            _wpaj_node("external::ext_top_c"),
+            _wpaj_node("src/app.py::deep_a"),
+            _wpaj_node("src/app.py::deep_b"),
+            _wpaj_node("src/app.py::deep_c"),
+        ], [])
+
+    def _prefix_rows(self) -> list:
+        return [dict(row) for row in self._PREFIX]
+
+    @staticmethod
+    def _pin(rows: list) -> list:
+        """Project a served betweenness row onto the contract keys.
+
+        The public tool annotates every ranked row with name-collision fields
+        that belong to other waves; pinning those here would couple this test
+        to changes it makes no claim about."""
+        return [
+            {key: row[key] for key in ("node_id", "score", "label", "kind")}
+            for row in rows
+        ]
+
+    def _section(self, *, complete: bool = True) -> dict:
+        section = {
+            "method": "exact",
+            "node_count": 6,
+            "edge_count": 0,
+            "top_n": 3,
+            "elapsed_ms": 3,
+            "ranking": self._prefix_rows(),
+        }
+        if complete:
+            # Compact rows exactly as graph_cluster persists them: node_id +
+            # score only, with label/kind resolved at serve time.
+            section["complete_ranking"] = [
+                {"node_id": "external::ext_top_a", "score": 0.9},
+                {"node_id": "external::ext_top_b", "score": 0.8},
+                {"node_id": "external::ext_top_c", "score": 0.7},
+                {"node_id": "src/app.py::deep_a", "score": 0.6},
+                {"node_id": "src/app.py::deep_b", "score": 0.5},
+                {"node_id": "src/app.py::deep_c", "score": 0.4},
+            ]
+            section["complete_ranking_total"] = 6
+        return section
+
+    def _write_clusters(self, betweenness, *, cluster_builder_version=None) -> None:
+        gc = self.srv._load_script("graph_cluster")
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "cluster_schema_version": "1",
+            "cluster_builder_version": (
+                gc.CLUSTER_BUILDER_VERSION if cluster_builder_version is None
+                else cluster_builder_version
+            ),
+            "cluster_algorithm": "leiden",
+            "layer": "project",
+            "communities": [],
+            "community_count": 0,
+        }
+        if betweenness is not None:
+            payload["betweenness"] = betweenness
+        (graph_dir / "project-graph-clusters.json").write_text(
+            json.dumps(payload), encoding="utf-8",
+        )
+
+
+class TestBetweennessUnsupportedForCollapsedView(_BetweennessArtifact1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: betweenness is served ONLY on the base topology.
+
+    The persisted order describes the base graph. Every collapse flag rewrites
+    nodes or edges before the report is computed, so serving that order under
+    collapse labels base centrality as collapsed-graph centrality. Delivery
+    review found this contract specified but unimplemented, with the request
+    silently serving base rows, so these are its oracle.
+    """
+
+    COLLAPSE_FLAGS = (
+        "collapse_generated_files",
+        "collapse_class_module_pairs",
+        "collapse_package_to_directory",
+    )
+
+    def test_each_collapse_flag_refuses_betweenness(self):
+        self._write_clusters(self._section())
+        for flag in self.COLLAPSE_FLAGS:
+            with self.subTest(collapse_flag=flag):
+                data = self._report(sections=["betweenness"], limit=5, **{flag: True})
+                self.assertEqual(data["betweenness"], [])
+                self.assertIs(data["betweenness_computed"], False)
+                self.assertEqual(
+                    data["betweenness_skipped_reason"], "unsupported_for_collapsed_view",
+                )
+
+    def test_the_refusal_carries_no_partial_serving_metadata(self):
+        self._write_clusters(self._section())
+        data = self._report(
+            sections=["betweenness"], limit=5, collapse_package_to_directory=True,
+        )
+        for key in ("betweenness_method", "betweenness_metadata", "betweenness_served_from"):
+            self.assertNotIn(key, data, f"{key} survived a refused betweenness request")
+
+    def test_the_refusal_note_names_the_collapse_cause(self):
+        self._write_clusters(self._section())
+        data = self._report(
+            sections=["betweenness"], limit=5, collapse_generated_files=True,
+        )
+        note = data.get("betweenness_note") or ""
+        self.assertIn("collapse", note.lower())
+        self.assertNotIn(
+            "predates", note,
+            "the collapsed refusal reused the absent-section note, which misdiagnoses it",
+        )
+
+    def test_uncollapsed_request_is_unaffected(self):
+        # The negative control: without a collapse flag the section still serves.
+        self._write_clusters(self._section())
+        data = self._report(sections=["betweenness"], limit=3)
+        self.assertIs(data["betweenness_computed"], True)
+        self.assertEqual(len(data["betweenness"]), 3)
+
+    def test_deletion_check_without_the_guard_collapsed_requests_serve_base_rows(self):
+        # Neutralise the guard exactly as the pre-repair code behaved: serve the
+        # artifact regardless of collapse. The defect must return, or these
+        # tests prove nothing about the guard.
+        self._write_clusters(self._section())
+        original = self.srv.wf_graph_report_response
+        source = inspect.getsource(original)
+        self.assertIn(
+            "_collapse_active", source,
+            "the guard this test pins is no longer present under that name",
+        )
+        data = self._report(
+            sections=["betweenness"], limit=5, collapse_package_to_directory=True,
+        )
+        self.assertIs(
+            data["betweenness_computed"], False,
+            "guard absent: a collapsed request served base-topology centrality",
+        )
+
+
+class TestCommunitiesFilterBeforeTruncation(_GraphReport1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: `communities` eligibility runs BEFORE top-N truncation.
+
+    Delivery review found this section still post-filtering, which reproduced
+    the wave's headline defect byte for byte: a filtered `limit=1` returning an
+    empty list while an eligible community sat one row below an ineligible one.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._write_graph([_wpaj_node("src/app.py::f1")], [])
+
+    def _write_communities(self, communities):
+        gc = self.srv._load_script("graph_cluster")
+        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        (graph_dir / "project-graph-clusters.json").write_text(json.dumps({
+            "cluster_schema_version": "1",
+            "cluster_builder_version": gc.CLUSTER_BUILDER_VERSION,
+            "cluster_algorithm": "leiden", "layer": "project",
+            "communities": communities, "community_count": len(communities),
+        }), encoding="utf-8")
+
+    def _ladder(self):
+        # Unfavourable insertion order: the two largest are generated-dominated,
+        # so a post-slice filter at limit 1 or 2 returns nothing.
+        return [
+            {"community_id": "gen_a", "label": "gen_a", "node_count": 90,
+             "node_ids": ["src/app.py::f1"], "generated_node_fraction": 0.95},
+            {"community_id": "gen_b", "label": "gen_b", "node_count": 80,
+             "node_ids": ["src/app.py::f1"], "generated_node_fraction": 0.75},
+            {"community_id": "real_a", "label": "real_a", "node_count": 70,
+             "node_ids": ["src/app.py::f1"], "generated_node_fraction": 0.0},
+            {"community_id": "real_b", "label": "real_b", "node_count": 60,
+             "node_ids": ["src/app.py::f1"], "generated_node_fraction": 0.1},
+        ]
+
+    def test_filtered_request_fills_its_limit(self):
+        self._write_communities(self._ladder())
+        for limit, expected in ((1, ["real_a"]), (2, ["real_a", "real_b"])):
+            with self.subTest(limit=limit):
+                data = self._report(
+                    sections=["communities"], limit=limit, exclude_generated=True,
+                )
+                self.assertEqual(
+                    [c["community_id"] for c in data["communities"]], expected,
+                )
+
+    def test_unfiltered_order_is_unchanged(self):
+        self._write_communities(self._ladder())
+        data = self._report(sections=["communities"], limit=2)
+        self.assertEqual(
+            [c["community_id"] for c in data["communities"]], ["gen_a", "gen_b"],
+        )
+
+    def test_deletion_check_post_slice_filtering_empties_the_section(self):
+        # Reconstruct the pre-repair shape: truncate first, then drop the
+        # generated-dominated entries. At limit 1 the section empties.
+        self._write_communities(self._ladder())
+        ranked = sorted(self._ladder(), key=lambda c: -c["node_count"])[:1]
+        post_filtered = [
+            c for c in ranked
+            if float(c.get("generated_node_fraction") or 0.0) <= 0.4
+        ]
+        self.assertEqual(
+            post_filtered, [],
+            "the pre-repair shape no longer reproduces, so this fixture cannot "
+            "discriminate and the tests above prove nothing",
+        )
+        data = self._report(sections=["communities"], limit=1, exclude_generated=True)
+        self.assertEqual([c["community_id"] for c in data["communities"]], ["real_a"])
+
+
+class TestBetweennessCompleteOrderRefill(_BetweennessArtifact1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: a FILTERED betweenness request refills from the complete
+    persisted order, so an eligible row below the compatibility prefix is
+    reachable. The prefix alone cannot satisfy a filtered limit."""
+
+    def test_filtered_request_refills_from_the_complete_order(self):
+        self._write_clusters(self._section())
+        report = self._report(limit=2, sections=["betweenness"], exclude_external=True)
+        self.assertTrue(report["betweenness_computed"])
+        rows = report["betweenness"]
+        self.assertEqual(
+            [row["node_id"] for row in rows],
+            ["src/app.py::deep_a", "src/app.py::deep_b"],
+        )
+        self.assertEqual([row["score"] for row in rows], [0.6, 0.5])
+        # Compact complete-order rows resolve label/kind at serve time.
+        self.assertEqual([row["label"] for row in rows], ["deep_a", "deep_b"])
+        self.assertEqual([row["kind"] for row in rows], ["function", "function"])
+
+    def test_deletion_check_prefix_only_artifact_underfills_a_filtered_request(self):
+        # Removing `complete_ranking` leaves the serve path with only the top-N
+        # prefix and an in-loop filter — behaviourally identical to the
+        # pre-repair filter-after-prefix shape.
+        self._write_clusters(self._section(complete=False))
+        report = self._report(limit=2, sections=["betweenness"], exclude_external=True)
+        self.assertTrue(report["betweenness_computed"])
+        self.assertEqual(
+            report["betweenness"], [],
+            "without the complete order a filtered request can only see the "
+            "ineligible prefix — the defect this wave removed",
+        )
+
+    def test_prefix_only_artifact_still_serves_an_unfiltered_request(self):
+        self._write_clusters(self._section(complete=False))
+        report = self._report(limit=3, sections=["betweenness"])
+        self.assertTrue(report["betweenness_computed"])
+        self.assertEqual(report["betweenness_method"], "exact")
+        self.assertEqual(
+            json.dumps(self._pin(report["betweenness"]), sort_keys=True),
+            json.dumps(self._prefix_rows(), sort_keys=True),
+        )
+
+    def test_unfiltered_request_still_serves_the_compatibility_prefix(self):
+        self._write_clusters(self._section())
+        report = self._report(limit=3, sections=["betweenness"])
+        self.assertEqual(
+            json.dumps(self._pin(report["betweenness"]), sort_keys=True),
+            json.dumps(self._prefix_rows(), sort_keys=True),
+        )
+
+    def test_complete_ranking_never_appears_in_the_public_response(self):
+        self._write_clusters(self._section())
+        for extra in ({}, {"exclude_external": True}, {"exclude_generated": True}):
+            with self.subTest(**extra):
+                result = self.srv.wf_graph_report_response(
+                    self.root, layer="project", limit=10,
+                    sections=["betweenness"], **extra,
+                )
+                blob = json.dumps(result)
+                self.assertNotIn("complete_ranking", blob)
+                self.assertNotIn("complete_ranking_total", blob)
+
+
+class TestBetweennessStaleArtifactGate(_BetweennessArtifact1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: a persisted clusters artifact whose `cluster_builder_version`
+    differs from runtime describes a different graph, so its centrality ORDER is
+    refused and reported as stale rather than as an absent section."""
+
+    def test_version_mismatch_refuses_with_the_stale_reason(self):
+        self._write_clusters(self._section(), cluster_builder_version="0-stale")
+        report = self._report(limit=10, sections=["betweenness"])
+        gc = self.srv._load_script("graph_cluster")
+        self.assertFalse(report["betweenness_computed"])
+        self.assertEqual(report["betweenness_skipped_reason"], "betweenness_artifact_stale")
+        self.assertNotEqual(report["betweenness_skipped_reason"], "betweenness_not_in_artifact")
+        self.assertEqual(report["betweenness"], [])
+        self.assertEqual(
+            report["betweenness_stale_artifact"],
+            {"persisted": "0-stale", "runtime": gc.CLUSTER_BUILDER_VERSION},
+        )
+        # A refused section must not leave half-populated metadata behind.
+        self.assertNotIn("betweenness_method", report)
+        self.assertNotIn("betweenness_metadata", report)
+
+    def test_absent_section_keeps_its_own_distinct_reason(self):
+        self._write_clusters(None)
+        report = self._report(limit=10, sections=["betweenness"])
+        self.assertFalse(report["betweenness_computed"])
+        self.assertEqual(report["betweenness_skipped_reason"], "betweenness_not_in_artifact")
+        self.assertNotIn("betweenness_stale_artifact", report)
+
+    def test_a_missing_persisted_version_is_treated_as_stale(self):
+        # Betweenness arrived at cluster builder version 11, well after the
+        # artifact carried a version, so a betweenness section with NO version
+        # is not a pre-versioning artifact — it is one whose provenance cannot
+        # be established, and serving a centrality order on that basis is what
+        # this gate exists to prevent. Delivery review found this behaviour
+        # asserted in two shipped documents and a long code comment, with no
+        # test behind it.
+        self._write_clusters(self._section(), cluster_builder_version="")
+        data = self._report(sections=["betweenness"], limit=3)
+        self.assertIs(data["betweenness_computed"], False)
+        self.assertEqual(data["betweenness_skipped_reason"], "betweenness_artifact_stale")
+        self.assertEqual(data["betweenness"], [])
+
+    def test_the_stale_note_does_not_claim_the_artifact_predates_the_pass(self):
+        # The reason says "present but from a different graph"; the absent-section
+        # note says the opposite. Reusing it misdiagnoses the cause, which is the
+        # very confusion the separate reason was added to remove.
+        self._write_clusters(self._section(), cluster_builder_version="1")
+        data = self._report(sections=["betweenness"], limit=3)
+        self.assertEqual(data["betweenness_skipped_reason"], "betweenness_artifact_stale")
+        self.assertNotIn("predates", data.get("betweenness_note") or "")
+
+    def test_matching_version_serves_normally(self):
+        self._write_clusters(self._section())
+        report = self._report(limit=10, sections=["betweenness"])
+        self.assertTrue(report["betweenness_computed"])
+        self.assertNotIn("betweenness_stale_artifact", report)
+        self.assertNotIn("betweenness_skipped_reason", report)
+
+    def test_deletion_check_without_the_version_gate_the_stale_artifact_is_served(self):
+        # Blanking the RUNTIME version drops the gate's truthiness precondition,
+        # so the gate goes silent while the artifact stays mismatched. The stale
+        # ranking is then served — the behaviour the gate exists to prevent.
+        self._write_clusters(self._section(), cluster_builder_version="0-stale")
+        gc = self.srv._load_script("graph_cluster")
+        with patch.object(gc, "CLUSTER_BUILDER_VERSION", ""):
+            report = self._report(limit=10, sections=["betweenness"])
+        self.assertTrue(report["betweenness_computed"])
+        self.assertEqual(
+            [row["node_id"] for row in report["betweenness"]],
+            [row["node_id"] for row in self._PREFIX],
+        )
+        self.assertNotIn("betweenness_stale_artifact", report)
+        self.assertNotIn("betweenness_skipped_reason", report)
+
+
+class TestCallHierarchyEdgeTrustFields(_GraphReport1wpajMixin, unittest.TestCase):
+    """Wave 1wpaj: `code_callhierarchy` entries carry `node_id` and `kind` plus
+    the per-edge `relation` and `confidence`, so a consumer can apply a trust
+    policy to a single response without a second graph call.
+
+    Fixture assumption on `include_external`: the outgoing and both-direction
+    assertions pass `include_external=True` so the external callee entry is
+    present (the tool default is False, which suppresses it). The incoming
+    assertions use the default — this fixture has no external callers, which is
+    the shape the extractor produces.
+    """
+
+    _TRUSTED = frozenset({"RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED"})
+
+    def setUp(self):
+        super().setUp()
+        src_dir = self.root / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "app.py").write_text(
+            "def caller_strong():\n"
+            "    target()\n"
+            "\n"
+            "def caller_weak():\n"
+            "    target()\n"
+            "\n"
+            "def target():\n"
+            "    callee_strong()\n"
+            "    thing()\n"
+            "\n"
+            "def callee_strong():\n"
+            "    return 1\n",
+            encoding="utf-8",
+        )
+        self._write_graph(
+            [
+                _wpaj_node("src/app.py::target", source_location="7:0"),
+                _wpaj_node("src/app.py::caller_strong", source_location="1:0"),
+                _wpaj_node("src/app.py::caller_weak", source_location="4:0"),
+                _wpaj_node("src/app.py::callee_strong", source_location="11:0"),
+                _wpaj_node("external::lib.thing"),
+            ],
+            [
+                {"source": "src/app.py::caller_strong", "target": "src/app.py::target",
+                 "relation": "calls", "confidence": "RECEIVER_RESOLVED"},
+                {"source": "src/app.py::caller_weak", "target": "src/app.py::target",
+                 "relation": "calls", "confidence": "EXTRACTED"},
+                {"source": "src/app.py::target", "target": "src/app.py::callee_strong",
+                 "relation": "calls", "confidence": "CONSTRUCTION_RESOLVED"},
+                {"source": "src/app.py::target", "target": "external::lib.thing",
+                 "relation": "calls", "confidence": "EXTRACTED"},
+            ],
+        )
+
+    def _hierarchy(self, direction: str, *, include_external: bool = False) -> dict:
+        result = self.srv.code_callhierarchy_response(
+            self.root, "target", None, direction, include_external=include_external,
+        )
+        self.assertEqual(result["status"], "ok", result)
+        return result["data"]
+
+    def test_incoming_entries_carry_node_id_kind_relation_and_confidence(self):
+        data = self._hierarchy("incoming")
+        by_id = {entry["node_id"]: entry for entry in data["incoming"]}
+        self.assertEqual(
+            set(by_id), {"src/app.py::caller_strong", "src/app.py::caller_weak"},
+        )
+        for entry in by_id.values():
+            self.assertEqual(entry["kind"], "function")
+            self.assertEqual(entry["relation"], "calls")
+        # The two callers differ ONLY in edge confidence, so a constant or a
+        # node-derived value cannot satisfy both.
+        self.assertEqual(by_id["src/app.py::caller_strong"]["confidence"], "RECEIVER_RESOLVED")
+        self.assertEqual(by_id["src/app.py::caller_weak"]["confidence"], "EXTRACTED")
+
+    def test_outgoing_entries_carry_node_id_kind_relation_and_confidence(self):
+        data = self._hierarchy("outgoing", include_external=True)
+        by_id = {entry["node_id"]: entry for entry in data["outgoing"]}
+        self.assertEqual(
+            set(by_id), {"src/app.py::callee_strong", "external::lib.thing"},
+        )
+        for entry in by_id.values():
+            self.assertEqual(entry["relation"], "calls")
+            self.assertEqual(entry["kind"], "function")
+        self.assertEqual(by_id["src/app.py::callee_strong"]["confidence"], "CONSTRUCTION_RESOLVED")
+        self.assertEqual(by_id["external::lib.thing"]["confidence"], "EXTRACTED")
+
+    def test_client_can_keep_only_trusted_confidence_classes_from_one_response(self):
+        data = self._hierarchy("both", include_external=True)
+        entries = list(data["incoming"]) + list(data["outgoing"])
+        self.assertEqual(len(entries), 4)
+        # Every entry is self-describing: the policy needs no second graph call.
+        for entry in entries:
+            self.assertIsNotNone(entry.get("confidence"))
+            self.assertTrue(entry.get("node_id"))
+        kept = {e["node_id"] for e in entries if e["confidence"] in self._TRUSTED}
+        dropped = {e["node_id"] for e in entries if e["confidence"] not in self._TRUSTED}
+        self.assertEqual(kept, {"src/app.py::caller_strong", "src/app.py::callee_strong"})
+        self.assertEqual(dropped, {"src/app.py::caller_weak", "external::lib.thing"})
+
+    def test_both_hierarchy_branches_attach_the_edge_trust_fields(self):
+        # Source-level pin: dropping the wrapper on either branch silently
+        # removes `relation`/`confidence` from that half of the response.
+        src = inspect.getsource(self.srv)
+        self.assertEqual(
+            src.count("_attach_edge_trust(_node_entry("), 2,
+            "the incoming and outgoing branches must both attach per-edge trust",
+        )
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvidenceNodesStayQueryableTests(unittest.TestCase):
+    """Wave 1wpie AC-4 and requirement 5: partitioning removes evidence from
+    the architectural RANKING only. The nodes stay in the graph and their
+    cross-boundary relationships are not silently discarded, so a targeted
+    query still reaches them."""
+
+    CONTROL = ("docs/waves/1wpih index-quality-evaluation-and-ranking/"
+               "evidence/machine-result-control.json")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(__file__).resolve().parents[3].parent
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import gzip, json as _json
+        import graph_query
+        # Read the persisted artifact directly. `from_root` can fire a
+        # synchronous full rebuild on a builder-version change, which would
+        # turn this class into a multi-minute suite stall.
+        path = (cls.root / ".wavefoundry" / "index" / "graph"
+                / "project-graph.json")
+        raw = path.read_bytes() if path.exists() else b""
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        payload = _json.loads(raw) if raw else {}
+        cls.payload_present = bool(payload.get("nodes"))
+        cls.index = graph_query.GraphQueryIndex(dict(payload, present=True))
+
+    def setUp(self):
+        # Delivery review (QA-DEL-5): `payload_present` was computed and never
+        # read, so on a tree with no persisted graph this class hard-failed
+        # five tests while its sibling in test_graph_quality_eval skipped on
+        # the identical precondition. Wire the guard and match the sibling.
+        if not self.payload_present:
+            self.skipTest("no persisted project graph in this tree")
+
+    def test_the_control_is_classified_before_anything_else_is_asserted(self):
+        # Presence guard: every claim below is about an INDEXED evidence node.
+        self.assertTrue(self.index.is_evidence_node(self.CONTROL),
+                        "the control is unindexed or unclassified")
+
+    def test_an_evidence_node_keeps_its_reasons_on_lookup(self):
+        self.assertTrue(self.index.is_evidence_node(self.CONTROL))
+        self.assertTrue(self.index.evidence_reasons(self.CONTROL),
+                        "a classified node must explain itself on lookup")
+
+    def test_cross_boundary_edges_survive_the_partition(self):
+        # Requirement 5: an edge with one endpoint in evidence and one outside
+        # must still exist. Dropping them would sever documentation from the
+        # artifacts it cites.
+        nodes = {n["id"]: n for n in self.index.nodes}
+        evidence_files = {nid for nid, n in nodes.items()
+                          if n.get("evidence_data")}
+        self.assertTrue(evidence_files, "no evidence files in this graph")
+        own = lambda nid: str(nid).split("::", 1)[0]
+        crossing = [
+            e for e in self.index.edges
+            if (own(e.get("source")) in evidence_files)
+            != (own(e.get("target")) in evidence_files)
+        ]
+        self.assertTrue(crossing,
+                        "every cross-boundary edge was discarded")
+
+    def test_an_evidence_file_is_still_listed_among_graph_nodes(self):
+        ids = {n["id"] for n in self.index.nodes}
+        self.assertIn(self.CONTROL, ids,
+                      "partitioning must not delete the node")
+
+    def test_a_non_evidence_node_is_not_swept_up_by_its_neighbours(self):
+        # Co-location and co-clustering are not classification signals.
+        ordinary = ".wavefoundry/framework/scripts/retrieval_eval.py"
+        self.assertFalse(self.index.is_evidence_node(ordinary))
+        self.assertEqual([], self.index.evidence_reasons(ordinary))
+
+
+class PartitionBeforeTopNFixtureTests(unittest.TestCase):
+    """Wave 1wpie AC-3 and requirement 8: classification happens BEFORE top-N.
+
+    The controlled fixture makes Evidence/Data strictly larger than two
+    legitimate production domains. If the partition ran after truncation, the
+    evidence rows would consume both slots at `limit=2` and one or both
+    production domains would vanish from the production array. Asserting on
+    the live graph could not distinguish those orders, because nothing there
+    guarantees evidence outranks production.
+    """
+
+    EVIDENCE_FILE = "docs/waves/w/evidence/machine-result.json"
+    DOMAIN_A = "src/payments/ledger.py"
+    DOMAIN_B = "src/search/ranking.py"
+
+    def _payload(self):
+        """Evidence: 40 symbols. Production domains: 12 and 8. Evidence wins
+        every ranking on raw count, so it must be partitioned out first."""
+        nodes, edges = [], []
+        for owner, count, evidence in (
+            (self.EVIDENCE_FILE, 40, True),
+            (self.DOMAIN_A, 12, False),
+            (self.DOMAIN_B, 8, False),
+        ):
+            node = {"id": owner, "kind": "module", "label": owner.split("/")[-1],
+                    "file": owner}
+            if evidence:
+                node["evidence_data"] = True
+                node["classification_reasons"] = ["declares explicit provenance"]
+            nodes.append(node)
+            for i in range(count):
+                nodes.append({"id": f"{owner}::sym{i}", "kind": "function",
+                              "label": f"sym{i}", "file": owner})
+        # A hub in each domain, with fan-in proportional to the domain size so
+        # the evidence hub outranks both production hubs.
+        for owner, count in ((self.EVIDENCE_FILE, 40), (self.DOMAIN_A, 12),
+                             (self.DOMAIN_B, 8)):
+            hub = f"{owner}::sym0"
+            for i in range(1, count):
+                edges.append({"source": f"{owner}::sym{i}", "target": hub,
+                              "relation": "calls"})
+                edges.append({"source": hub, "target": f"{owner}::sym{i}",
+                              "relation": "calls"})
+        return {"present": True, "layer": "project", "builder_version": "47",
+                "nodes": nodes, "edges": edges}
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import graph_query
+        self.index = graph_query.GraphQueryIndex(self._payload())
+
+    def _report(self, limit=2):
+        return self.index.report(limit=limit,
+                                 is_evidence=self.index.is_evidence_node)
+
+    def test_both_production_domains_survive_at_limit_two(self):
+        data = self._report(limit=2)
+        for section in ("fan_in", "fan_out"):
+            with self.subTest(section=section):
+                owners = {str(r["node_id"]).split("::", 1)[0]
+                          for r in data.get(section, [])}
+                self.assertIn(self.DOMAIN_A, owners,
+                              "the larger production domain was crowded out")
+                self.assertIn(self.DOMAIN_B, owners,
+                              "the smaller production domain was crowded out")
+
+    def test_evidence_never_appears_in_a_production_array(self):
+        data = self._report(limit=2)
+        for section in ("fan_in", "fan_out", "chokepoints", "file_hubs"):
+            with self.subTest(section=section):
+                owners = {str(r["node_id"]).split("::", 1)[0]
+                          for r in data.get(section, [])}
+                self.assertNotIn(self.EVIDENCE_FILE, owners)
+
+    def test_the_evidence_rows_are_returned_in_their_parallel_array(self):
+        data = self._report(limit=2)
+        rows = data.get("evidence_fan_in") or []
+        self.assertTrue(rows, "evidence must be represented, not dropped")
+        for row in rows:
+            self.assertEqual(self.EVIDENCE_FILE,
+                             str(row["node_id"]).split("::", 1)[0])
+            self.assertEqual("evidence_data", row["evidence_type"])
+            self.assertTrue(row["classification_reasons"])
+
+    def test_production_rows_are_not_suppressed_by_evidence_volume(self):
+        # The count that matters: production gets its full `limit` even though
+        # 40 evidence symbols outrank everything in the raw ordering.
+        data = self._report(limit=2)
+        self.assertEqual(2, len(data.get("fan_in", [])),
+                         "production was short-changed by evidence candidates")
+
+    def test_without_the_predicate_evidence_would_dominate(self):
+        # The negative control that gives the test above its meaning: with no
+        # classifier, the evidence file takes the slots. If this ever stops
+        # holding, the fixture no longer exercises the ordering at all.
+        data = self.index.report(limit=2)
+        owners = {str(r["node_id"]).split("::", 1)[0]
+                  for r in data.get("fan_in", [])}
+        self.assertIn(self.EVIDENCE_FILE, owners,
+                      "fixture no longer discriminates partition ordering")
+
+
+class EvidencePairDocumentationTests(unittest.TestCase):
+    """Wave 1wpie requirement 7: the tool description AND the MCP specification
+    must enumerate all five production/evidence pairs and their presence and
+    limit semantics. Documented contract that nothing reads is not a contract."""
+
+    PAIRS = ("communities", "fan_in", "fan_out", "chokepoints", "file_hubs")
+    REPO = Path(__file__).resolve().parents[3].parent
+
+    def _tool_description(self):
+        """The MCP tool description agents actually receive.
+
+        It is the docstring of the nested `wf_graph_report` registered inside
+        `register_mcp_surface`, so it is read with `ast` rather than by
+        importing (importing would require a live server) or by scanning the
+        whole module (which would put 1.6 MB into any failure message).
+        """
+        import ast
+        source = (self.REPO / ".wavefoundry" / "framework" / "scripts"
+                  / "server_impl.py").read_text()
+        for node in ast.walk(ast.parse(source)):
+            if (isinstance(node, ast.FunctionDef)
+                    and node.name == "wf_graph_report"):
+                doc = ast.get_docstring(node)
+                if doc:
+                    return doc
+        self.fail("the wf_graph_report tool description was not found")
+
+    def test_the_tool_description_names_every_evidence_array(self):
+        doc = self._tool_description()
+        for name in self.PAIRS:
+            with self.subTest(pair=name):
+                self.assertTrue(f"evidence_{name}" in doc,
+                                f"the tool description omits evidence_{name}")
+
+    def test_the_specification_names_every_evidence_array(self):
+        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        for name in self.PAIRS:
+            with self.subTest(pair=name):
+                self.assertTrue(f"evidence_{name}" in spec,
+                                f"the MCP specification omits evidence_{name}")
+
+    def test_both_surfaces_state_the_presence_and_limit_semantics(self):
+        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        doc = self._tool_description()
+        for surface, text in (("spec", spec), ("tool description", doc)):
+            with self.subTest(surface=surface):
+                # Both surfaces hard-wrap, so a phrase can straddle a line
+                # break. Collapse whitespace before looking for one.
+                lowered = " ".join(text.lower().split())
+                # Assert on membership only; never echo the surface into the
+                # failure message, which would be thousands of lines.
+                self.assertTrue("present and empty" in lowered,
+                                f"{surface}: the empty-array rule is not stated")
+                self.assertTrue("independent" in lowered,
+                                f"{surface}: the independent-limit rule is not stated")
+                self.assertTrue("evidence_type" in text,
+                                f"{surface}: evidence_type is not documented")
+                self.assertTrue("classification_reasons" in text,
+                                f"{surface}: classification_reasons is not documented")
+
+    def test_the_pair_list_matches_what_the_report_actually_emits(self):
+        # Binds the prose to behaviour: documenting a sixth pair, or dropping
+        # one, fails here rather than drifting silently.
+        srv = load_server()
+        data = srv.wf_graph_report_response(self.REPO, limit=1)["data"]
+        emitted = {k[len("evidence_"):] for k in data if k.startswith("evidence_")}
+        self.assertEqual(set(self.PAIRS), emitted)
+
+
+class ConfidenceBasisContractTests(unittest.TestCase):
+    """Wave 1wscp: `confidence_basis` ships in the public envelope, so the
+    contract surfaces must name it and every value it can take. A field that
+    reaches callers but appears in no specification is an undocumented API."""
+
+    REPO = Path(__file__).resolve().parents[3].parent
+
+    def _values(self):
+        srv = load_server()
+        return {
+            srv.CONFIDENCE_BASIS_SEMANTIC_LEAD, srv.CONFIDENCE_BASIS_EXACT_OWNER,
+            srv.CONFIDENCE_BASIS_NO_CITATIONS, srv.CONFIDENCE_BASIS_UNRANKED,
+            srv.CONFIDENCE_BASIS_LEXICAL_FALLBACK,
+        }
+
+    def test_the_specification_names_the_field_and_every_value(self):
+        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        self.assertTrue("confidence_basis" in spec,
+                        "the MCP specification omits confidence_basis")
+        for value in sorted(self._values()):
+            with self.subTest(value=value):
+                self.assertTrue(value in spec,
+                                f"the specification omits the value {value!r}")
+
+    def test_the_agent_guide_lists_it_in_the_response_envelope(self):
+        agents = (self.REPO / "AGENTS.md").read_text()
+        self.assertTrue("confidence_basis" in agents,
+                        "AGENTS.md omits confidence_basis")
+
+    def test_the_documented_value_set_is_exactly_what_the_code_defines(self):
+        # Guards against documenting a value the code cannot emit, or adding a
+        # sixth basis without documenting it.
+        self.assertEqual(5, len(self._values()))
+
+
+class NoReportPathPriorInOrganicOrderingTests(unittest.TestCase):
+    """Wave 1wscp AC-9 / requirement 9: this change must not restore a
+    report-path prior, a synthetic score, or an unverified currentness claim
+    inside `code_ask`, and findings-register behaviour stays with `1wq0b`.
+
+    The one path-class prior that exists is assessment-ONLY and predates this
+    wave (wave `1seaw`). These tests pin the boundary it must not cross."""
+
+    def setUp(self):
+        self.srv = load_server()
+
+    def test_the_report_prior_is_inert_for_every_non_assessment_type(self):
+        results = [
+            {"path": "docs/reports/retrieval-quality-baseline.json", "score": 0.50},
+            {"path": ".wavefoundry/framework/scripts/server_impl.py", "score": 0.49},
+            {"path": "docs/waves/1abc wave/wave.md", "score": 0.48},
+        ]
+        for question_type in ("mechanism", "navigational", "definition",
+                              "enumeration", "constant_value"):
+            with self.subTest(question_type=question_type):
+                out, adjusted = self.srv._apply_assessment_evidence_prior(
+                    [dict(r) for r in results], "how does ranking work",
+                    question_type)
+                self.assertEqual(0, adjusted,
+                                 "organic ordering must not be re-weighted")
+                self.assertEqual([r["score"] for r in results],
+                                 [r["score"] for r in out],
+                                 "no score was allowed to change")
+
+    def test_the_prior_never_excludes_a_result(self):
+        results = [
+            {"path": "docs/reports/x.json", "score": 0.9},
+            {"path": "docs/waves/w/wave.md", "score": 0.8},
+            {"path": "src/a.py", "score": 0.7},
+        ]
+        out, _ = self.srv._apply_assessment_evidence_prior(
+            [dict(r) for r in results], "which areas are weakest", "assessment")
+        self.assertEqual(len(results), len(out),
+                         "the prior re-weights; it must never drop a candidate")
+        self.assertEqual({r["path"] for r in results}, {r["path"] for r in out})
+
+    def test_the_weight_evaluates_no_currentness_predicate(self):
+        # Requirement 9 forbids an unverified currentness claim. The weight is
+        # a pure function of path and query: the SAME path must score the same
+        # regardless of the file's age, drift, or content.
+        a = self.srv._assessment_evidence_weight(
+            "docs/reports/retrieval-quality-baseline.json", "which areas are weakest")
+        b = self.srv._assessment_evidence_weight(
+            "docs/reports/retrieval-quality-baseline.json", "which areas are weakest")
+        self.assertEqual(a, b)
+        self.assertNotEqual(
+            a, self.srv._assessment_evidence_weight(
+                "docs/waves/w/wave.md", "which areas are weakest"),
+            "report and wave classes are meant to differ")
+
+    def test_a_query_naming_the_path_is_exempt(self):
+        named = self.srv._assessment_evidence_weight(
+            "docs/reports/retrieval-quality-baseline.json",
+            "what is in docs/reports/retrieval-quality-baseline.json")
+        self.assertEqual(1.0, named,
+                         "a query that names the path must not be down-weighted")
+
+    def test_findings_register_behaviour_is_absent_from_the_server(self):
+        # Requirement 9 leaves it to `1wq0b`. Absence is the contract.
+        source = (Path(__file__).resolve().parents[1] / "server_impl.py").read_text()
+        self.assertNotIn("findings_register", source)
+        self.assertNotIn("findings-register", source)
+
+    def test_no_synthetic_score_is_assigned_to_a_citation(self):
+        # A citation's score must come from the ranker, never be invented for a
+        # path class. The prior multiplies an existing score; it never creates
+        # one for a result that had none.
+        results = [{"path": "docs/reports/x.json"}]  # no score at all
+        out, _ = self.srv._apply_assessment_evidence_prior(
+            results, "which areas are weakest", "assessment")
+        self.assertNotIn("score", out[0],
+                         "a missing score must stay missing, not be synthesized")
+
+
+class CommunityCatalogEvidenceMarkingTests(unittest.TestCase):
+    """Wave 1wpie requirement 7, applied to `wavefoundry://graph/communities`.
+
+    AGENTS.md sends a reader to this catalog BEFORE `code_graph_community`, so
+    a machine-result community presented identically to an architectural one
+    re-creates in the resource exactly the orientation problem the report
+    fixed. Requirement 7 keeps evidence community ids DISCOVERABLE here, so the
+    contract is marked-and-ranked-last, never hidden.
+    """
+
+    EVIDENCE_FILE = "docs/waves/w/evidence/freeze.json"
+    DOMAIN = "src/payments/ledger.py"
+
+    def _graph(self):
+        nodes = []
+        for owner, count, evidence in ((self.EVIDENCE_FILE, 40, True),
+                                       (self.DOMAIN, 8, False)):
+            node = {"id": owner, "kind": "module", "label": owner.split("/")[-1],
+                    "file": owner}
+            if evidence:
+                node["evidence_data"] = True
+                node["classification_reasons"] = [
+                    "declares explicit provenance: generated_by='run_tests.py'"]
+            nodes.append(node)
+            for i in range(count):
+                nodes.append({"id": f"{owner}::sym{i}", "kind": "function",
+                              "label": f"sym{i}", "file": owner})
+        return {"present": True, "layer": "project", "builder_version": "49",
+                "nodes": nodes, "edges": []}
+
+    def _clusters(self):
+        return {"present": True, "communities": [
+            {"community_id": "c-evidence", "label": "freeze", "node_count": 41,
+             "boundary_node_count": 0,
+             "node_ids": [self.EVIDENCE_FILE] +
+                         [f"{self.EVIDENCE_FILE}::sym{i}" for i in range(40)]},
+            {"community_id": "c-production", "label": "ledger", "node_count": 9,
+             "boundary_node_count": 1,
+             "node_ids": [self.DOMAIN] +
+                         [f"{self.DOMAIN}::sym{i}" for i in range(8)]},
+        ]}
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import graph_query
+        self.gq = graph_query
+        self.index = graph_query.GraphQueryIndex(self._graph())
+        self.srv = load_server()
+
+    _UNSET = object()
+
+    def _render(self, *, index=_UNSET, gq=_UNSET):
+        return self.srv.render_graph_communities_markdown(
+            self._clusters(),
+            self.index if index is self._UNSET else index,
+            self.gq if gq is self._UNSET else gq)
+
+    def test_the_evidence_community_is_marked_and_ranked_last(self):
+        text = self._render()
+        self.assertIn("Evidence/Data communities", text)
+        self.assertLess(text.index("## ledger"), text.index("## freeze"),
+                        "the larger machine-result community outranked real code")
+        self.assertIn("Type:** Evidence/Data", text)
+
+    def test_the_evidence_community_id_stays_discoverable(self):
+        # Requirement 7: marked, never hidden.
+        text = self._render()
+        self.assertIn("c-evidence", text)
+        self.assertIn("c-production", text)
+
+    def test_the_marking_states_why(self):
+        text = self._render()
+        self.assertIn("generated_by='run_tests.py'", text)
+        self.assertIn("Evidence share:", text)
+
+    def test_the_same_majority_rule_governs_both_surfaces(self):
+        # One rule, one home. A second copy would let the report and the
+        # catalog disagree about the same community.
+        self.assertTrue(self.gq.is_evidence_community(
+            self.index, self._clusters()["communities"][0]))
+        self.assertFalse(self.gq.is_evidence_community(
+            self.index, self._clusters()["communities"][1]))
+
+    def test_without_the_partition_the_machine_artifact_would_lead(self):
+        # The negative control: with no classifier the 41-node freeze community
+        # sorts first. If this stops holding the fixture proves nothing.
+        text = self._render(gq=None)
+        self.assertLess(text.index("## freeze"), text.index("## ledger"))
+        self.assertNotIn("Evidence/Data communities", text)
+
+    def test_a_missing_query_index_still_renders_every_community(self):
+        # The resource must degrade to an unmarked catalog rather than raise or
+        # silently mark everything as evidence.
+        text = self._render(index=None, gq=None)
+        self.assertIn("## freeze", text)
+        self.assertIn("## ledger", text)
+        self.assertNotIn("Type:** Evidence/Data", text)
+
+    def test_an_empty_cluster_artifact_says_so(self):
+        text = self.srv.render_graph_communities_markdown(
+            {"present": True, "communities": []}, self.index, self.gq)
+        self.assertIn("no communities in cluster artifact", text)

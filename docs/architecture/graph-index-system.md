@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-27
+Last verified: 2026-09-04
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"38"` (wave `1p9qi`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"48"` (wave `1wpie`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -64,6 +64,71 @@ Three boolean annotations are written directly onto module-level node dicts duri
 | `is_entry_point` | Module imported by nothing external but has outgoing edges |
 | `dead_code_risk` | Module whose symbols are never externally called or imported |
 | `is_chokepoint` | Articulation point in the undirected executable subgraph (requires `igraph`) |
+
+### Evidence/Data classification (wave 1wpie)
+
+JSON module nodes may additionally carry two fields, written by
+`classify_evidence_payload()` in `graph_indexer.py`:
+
+| Field | Meaning |
+|---|---|
+| `evidence_data` | `true` when the artifact's own CONTENT identifies it as a machine result |
+| `classification_reasons` | Non-empty list naming which signal fired; surfaced in the public response |
+
+**The classification is content-only.** Two independent routes qualify:
+
+1. **Explicit provenance** — the artifact names its own producer or schema
+   (`schema`, `generated_by`, `producer`).
+2. **A machine-run signature** — a capture timestamp (`captured_at`,
+   `generated_at`, `recorded_at`, `ran_at`, or any `*_at` key) paired with
+   either a digest/fingerprint field or a run/command field. Each half alone is
+   ordinary: plenty of hand-authored documents carry a date, and plenty carry a
+   checksum. Only the pair says machine run.
+
+Nothing is inferred from file extension, path prefix, size, repeated-key shape,
+or co-clustering with an evaluator source file. That is what makes the rule
+invariant under moving or renaming an artifact, and it is why
+`retrieval_eval.py` stays ordinary framework code even when it clusters
+alongside the reports it writes.
+
+The flag is stamped on the FILE node. A symbol inside a classified artifact
+inherits it through `GraphQueryIndex.is_evidence_node()`, which resolves by
+owning file: a JSON artifact's key nodes are evidence because their file is,
+not because anything was inferred about each key.
+
+**Fidelity tier.** Precision is chosen over recall. A false positive evicts
+real architecture from a production ranking, while a false negative merely
+leaves an artifact where it already was. The measured baseline is zero false
+positives across the legitimate configuration, schema, design-token, and
+user-authored controls, with deliberately partial node-weighted recall.
+
+### Evidence-community semantics
+
+`wf_graph_report` partitions **before** top-N selection, so evidence rows never
+consume production ranking slots. Five sections have an exact parallel array:
+
+| Production array | Evidence array |
+|---|---|
+| `communities` | `evidence_communities` |
+| `fan_in` | `evidence_fan_in` |
+| `fan_out` | `evidence_fan_out` |
+| `chokepoints` | `evidence_chokepoints` |
+| `file_hubs` | `evidence_file_hubs` |
+
+Contract points:
+
+- The evidence array is **present and empty** when nothing qualifies, even when
+  its production section was not requested. A consumer never has to distinguish
+  "nothing qualified" from "this build predates the partition".
+- The public `limit` applies **independently** to each half.
+- Evidence entries keep their section's existing fields and additionally carry
+  `evidence_type="evidence_data"` plus non-empty `classification_reasons`;
+  evidence-community entries also carry `community_type="evidence_data"`.
+- `exclude_generated` does not erase Evidence/Data. The two classifications are
+  orthogonal: generated-ness is about how a file was produced, evidence-ness
+  about what it records.
+- Evidence community ids stay discoverable in the catalog and queryable through
+  `code_graph_community`, and cross-boundary edges are never discarded.
 
 ### Node Kinds
 
@@ -129,10 +194,10 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "45"   # 45: 1u8r2 excludes retired memory-pointer residue from direct graph extraction; 44: 1ro44 added memory nodes and memory-target edges (see the constant's in-code changelog for the full history)
+GRAPH_BUILDER_VERSION = "46"   # 46: 1wpai removes phantom structural-node call edges and adds three target-side reads_config exclusions; 45: 1u8r2 excludes retired memory-pointer residue from direct graph extraction; 44: 1ro44 added memory nodes and memory-target edges (see the constant's in-code changelog for the full history)
 ```
 
-The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "11"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
+The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "12"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
 
 A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected when the session opens the per-file state store (`GraphStateStore.ensure_current()`, wave `1p9q2`): any version-key mismatch resets the whole store (file records + merge sidecar), `_load_state()` then reports an empty `files` set, and `update_graph_index()` expands the changed set to the full corpus.
 
@@ -160,6 +225,18 @@ Three strategies are selected by file type (`graph_indexer.py:1621-1654`):
 - **Constructor assignments → `CONSTRUCTION_RESOLVED`.** `x = Foo()` locals, `self.attr = Foo()` attributes, and module-global constructions. On agreement with an annotation, the annotation (stronger) wins → `RECEIVER_RESOLVED`.
 
 The bind is gated **unique-match-or-drop**: `{receiver_type}.{method}` must resolve to exactly one project node that actually defines the method. There is **no inheritance/MRO walk** (a method inherited from a base class is not resolved), conflicting reassignment demotes (no bind), and a `getattr(...)` / non-class-factory / star-imported / shadowed receiver does not bind. A typed-receiver CROSS-FILE bind emits `external::{Type}.{method}` WITH its resolution confidence and relies on the finalize cross-file rewrite to swap the target onto the real project node (preserving the confidence). **Honesty rule (wave `1p9q8`):** when that target never binds a project node — the method is absent from the resolved class, or the receiver type is an ambiguous cross-file same-name twin — the edge stays `external::` and is downgraded to `EXTRACTED` in the finalize pass (`_downgrade_unresolved_typed_calls`); `RECEIVER_RESOLVED` means "bound to a receiver-typed project node", so an unresolved external target must not carry it. This pass runs on the FINAL edge map for every `calls` edge, not just Python's: it also honests-out Java's `super.`/`staticorinherited#` markers (see the inheritance-model decision note above) when the finalize inheritance pass cannot bind them to a unique project supertype definer — those refusal paths re-emit a dotted `external::` target while keeping the marker's `RECEIVER_RESOLVED` confidence, which was itself a pre-existing over-claim on a genuinely-unresolved (e.g. library-superclass) target.
+
+**Relation-compatible target resolution (wave `1wpai`).** Cross-file simple-name rewriting used to accept the only project node sharing a simple name, whatever that node was, so an external call could be captured by a JSON key. On this repository that produced 123 phantom `calls` edges — `os.cpu_count()` bound to a wave-evidence `cpu_count` key being the reproduced example — and the dominant family fused production code with evidence keys into a publicly ranked community.
+
+The rule is exactly one predicate and deliberately nothing more: **a `calls` edge SHALL NOT target any node satisfying `_is_json_config_node_id`**. The guard sits immediately before the single return of `_resolve_external_call_target`, which has ten branches that assign a resolved target, so a per-branch guard would be ten edits and miss some; returning `None` leaves the original external target intact. `kind` cannot be the discriminator — config-key nodes are minted with kind `class` (wave `1p7dh`), exactly what a constructible class carries — and node records carry no language or origin field. No additional classifier is introduced, because the module's two path-keyed classifiers both invert: one returns nothing for Python and would delete every Python call edge, the other contains the data extensions and would admit every phantom. Measured on the pre-repair graph (builder version 45) the predicate was exactly separating: it matched every structural-node call target and none of the 17,143 Python and JavaScript targets. Re-derived across a rebuild of BOTH sides, the structural-node call population is 123 before and 0 after; 115 is the earlier planning-time count and is superseded. Structural nodes remain available to the relations that legitimately target them (`defines`, `doc_references_code`, `reads_config`), which run through different resolvers.
+
+**Config-read provenance (wave `1wpai`).** `reads_config` binding stays **target-side**: the existing triple gate (`_is_config_file_path`, `_config_literal_is_distinctive`, unique-match) is sufficient provenance and is what produces every true edge. Three recall-safe exclusions were added to it:
+
+- a **JSON Schema document**, identified by a `*.schema.json` basename, is not a config instance. A `$schema` key is deliberately *not* used as the signal — real project config routinely declares one, and the reproduced false-set fixture is a `tsconfig.json` carrying a schemastore reference, so "declares a schema" must not be read as "is a schema" in the repositories this ships to;
+- **JSON Schema meta-vocabulary keys** never bind, bare or as a dotted leaf segment. The dotted half is load-bearing: `additionalProperties` appears in the live false set only as the leaf of a dotted path;
+- a path in a **test-fixture tree** is not a config target. The segment list is exact and worth reading rather than inferring, because it ships: `fixtures`, `__fixtures__`, `testdata`, `tests`, `test`. A target repository holding a genuine config under `test/resources/` or `tests/config/` loses those edges, which is the deliberate trade.
+
+Loader provenance (Spring `@Value` / `Environment.getProperty`, or a receiver from a modeled `json.load`-family call) is **additive, never necessary**. Requiring it would have deleted the live true population: those reads are generic `.get` calls on receivers one to three frames from loaders calling `json.loads` on a string, and a large share are read by test functions with no loader in the chain at all. Post-rebuild the false family is 0. The true population is not merely retained but larger: measured across a rebuild of both sides it moves from 102 to 134 edges, because removing the fixture copy from the config-target index leaves 13 previously ambiguous literals with a single candidate, so they bind for the first time. Thirteen literals produce more than thirteen edges because a literal binds once per reading site, which is why the population moves by 32 rather than 13. The exclusions are therefore recall-safe in the strong sense that no true edge is lost, but the change is NOT purely subtractive on this relation, and a census that counts only false removals and true retentions is structurally blind to the edges it creates. Re-derive both populations from their predicates rather than trusting a planning-time count.
 
 **JS/TS without tree-sitter** (`graph_indexer.py:1406-1419`): Regex `_JS_CALL_RE` scans each line. Fires only when the tree-sitter grammar is unavailable.
 
@@ -294,6 +371,10 @@ Iterates `self.edges` once, counting only `relation == "calls"` edges, then comp
 > Wave `1p4ww` removed the `cross_layer` section (project×framework boundary edges) and the
 > `load_union()` merge along with the framework graph layer. There is one project graph.
 
+**Eligibility runs before truncation (wave `1wpaj`).** `report()` takes an `eligible` predicate and applies it to the candidate universe *before* each top-N slice. The server builds that predicate from the public `exclude_external` / `exclude_generated` flags and passes it down; the post-slice filter loops that used to live in `wf_graph_report_response` are gone. Previously filtering ran on already-truncated rows, so a filtered request silently returned fewer rows than asked for whenever ineligible candidates outranked eligible ones — on this repository a project-only `fan_in` at `limit=1` returned `[]` and at `limit=10` returned a single row, because the unfiltered head is dominated by `external::` nodes and the first ten hold only one project row.
+
+The predicate must arrive inside the method because the ranked sections truncate at **three** separate sites: the shared ranking helper (serving `fan_in` and `fan_out`), plus a separate inline slice in each of `chokepoints` and `file_hubs`. Filtering in the helper alone repairs only the two fan sections. `orphan_docs` has a fourth slice that the predicate deliberately does not reach — it is an unranked diagnostic set of doc nodes, which carry neither the `external::` prefix nor the generated flag. One contract widening rides along: `exclude_generated` never reached `file_hubs` before and now does. The `*_candidates_total` diagnostics remain counts of the *unfiltered* candidate universe.
+
 ### Server-process query cache (wave `1p9q3`)
 
 Inside the long-lived MCP server, graph tools obtain the constructed index through `graph_query.get_query_index(root, layer="project")` rather than a fresh `GraphQueryIndex.from_root()` per call. The accessor holds a single-entry, module-level cache per `(resolved root, layer)`, validated on every access against the payload file's `(st_mtime_ns, st_size)`; construction and replacement run under `_QUERY_INDEX_CACHE_LOCK` (single-flight — concurrent tool calls never observe a half-built index); the in-query version-rebuild path and `server_impl`'s inline graph refresh invalidate explicitly (covering same-stat rewrites in-process); per-call diagnostics ride an O(1) slot-copy view so the shared cached index is never mutated. `WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE=1` restores load-per-call. Stat-keying is safe because all artifact writes are atomic (temp + `os.replace`, wave `1p9q3`). CLI/offline consumers (dashboard, `gen_codebase_map.py`) still construct per run — the cache is server-process-internal.
@@ -306,7 +387,7 @@ Inside the long-lived MCP server, graph tools obtain the constructed index throu
 
 ```
 CLUSTER_SCHEMA_VERSION  = "1"
-CLUSTER_BUILDER_VERSION = "11"   # 10: 1p65m seeded-RNG determinism + grab-bag split; 11: 1p9q3 build-time betweenness section + input_fingerprint key
+CLUSTER_BUILDER_VERSION = "12"   # 12: 1wpaj adds the complete betweenness order; 10: 1p65m seeded-RNG determinism + grab-bag split; 11: 1p9q3 build-time betweenness section + input_fingerprint key
 ```
 
 ### Input Projection (`graph_cluster.py:319-348`)
@@ -449,6 +530,10 @@ Loads the cluster artifact via `_load_cluster_lookup()` / `graph_cluster.read_cl
 ### `wf_graph_report_response()`
 
 Obtains the index via `get_query_index(root, layer=layer_value)` (cached; see the query-cache section), calls `index.report(limit=max(1, min(limit, 100)), sections=sections)`. Limit is clamped to `[1, 100]`. Defaults to all five standard sections when `sections=None`. The `betweenness` section (opt-in via `sections=["betweenness"]`) is **served from the ranking persisted at build time** in the clusters artifact (`graph_cluster.compute_betweenness_ranking()`, wave `1p9q3`): a size-tiered computation over the directed calls-only subgraph — exact igraph betweenness below `BETWEENNESS_EXACT_MAX_NODES` (default 25,000), bounded-path `cutoff` approximation below `BETWEENNESS_CUTOFF_MAX_NODES` (default 100,000), and a deterministic degree/fan-out fallback above that or when igraph is unavailable (all thresholds env-overridable via `WAVEFOUNDRY_GRAPH_BETWEENNESS_*`). The response surfaces `betweenness_method` and `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable). There is no per-query computation and no graph-size cap; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` with a rebuild hint until the next graph rebuild.
+
+**Complete persisted order and the read-side version gate (wave `1wpaj`).** The artifact now carries `complete_ranking` — the complete deterministic positive-score order in compact `node_id`/`score` rows — plus `complete_ranking_total`, beside the unchanged top-N `ranking` prefix that old consumers read. A *filtered* betweenness request refills from the complete order and resolves presentation fields at serve time; an unfiltered request still serves the prefix. The prefix alone cannot satisfy a filtered limit, because eligible rows below rank `top_n` are unreachable from it. On this repository the prefix holds 200 rows against a complete order of 2,173. The enlarged artifact is parsed by every consumer of `read_cluster_payload`, which has no cache and no partial read, so call hierarchy, impact, the community tools, the communities resource, and the report's communities section each pay the parse increment for a field they never read; measured, that is a fraction of a percent of those calls. `complete_ranking` is internal and never appears in a public response; `betweenness_served_from` reports which view answered, because `betweenness_metadata.top_n` describes the prefix size rather than how deep the served ranking went.
+
+Betweenness is served only on the base topology: a request carrying any collapse flag is refused with `betweenness_skipped_reason: "unsupported_for_collapsed_view"` rather than served from the base order, which is a behaviour reversal against the pre-wave code. The serve path gates on the persisted `cluster_builder_version`: a mismatch against runtime, **or a missing persisted version**, refuses the section with `betweenness_skipped_reason: "betweenness_artifact_stale"` and a `betweenness_stale_artifact` object, distinct from the absent-section reason. Betweenness arrived at cluster builder version 11, well after the artifact carried a version, so an unversioned betweenness section is not a pre-versioning artifact but one whose provenance cannot be established. The gate lives in this block rather than in `read_cluster_payload`, whose other consumers — the community tools, the communities resource, and the community labelling reached from call hierarchy and impact — would be stranded by a refusal there; only this block asserts a base-topology centrality *order* whose meaning depends on the artifact version.
 
 ### `_scan_all_call_sites_in_file()` (`server_impl.py:9373-9426`)
 

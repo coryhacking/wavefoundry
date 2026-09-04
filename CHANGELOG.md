@@ -10,6 +10,63 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Machine evidence no longer crowds real architecture out of the graph report.** On this
+  repository the third-largest community was 987 nodes of a single archived test-timing artifact,
+  ranked alongside genuine code domains. `wf_graph_report` now classifies an artifact as a machine
+  result from its own CONTENT, either explicit producer/schema provenance or a capture timestamp
+  paired with a digest or a run field, and partitions those rows out BEFORE top-N selection. Five
+  sections gain an exact parallel array: `communities`, `fan_in`, `fan_out`, `chokepoints`, and
+  `file_hubs`. The evidence array is present and empty when nothing qualifies, including when its
+  production section was not requested, so a consumer never has to tell "nothing qualified" from "an
+  older build". The public `limit` applies independently to each half, `exclude_generated` does not
+  erase evidence rows because the two classifications are orthogonal, and the communities stay
+  queryable through `code_graph_community` with cross-boundary edges intact. Nothing is inferred
+  from extension, path, size, key shape, or co-clustering, which is what keeps the rule invariant
+  under moving or renaming a file. The `wavefoundry://graph/communities` catalog applies the same rule
+  from the same place: architectural communities come first, Evidence/Data communities are listed last
+  under their own heading with their evidence share and the reason they were classified, and their ids
+  stay discoverable and queryable. That surface matters because `AGENTS.md` and the exploration seeds
+  send a reader there before `code_graph_community`, so a machine artifact presented as an architectural
+  domain would have survived exactly where orientation starts. Wave
+  `1wpih index-quality-evaluation-and-ranking` / change `1wpie`.
+
+- **Graph fidelity is measured instead of assumed.** `graph_quality_eval.py` scores a committed
+  mixed-language corpus through a frozen relation-to-public-tool matrix, reporting per-relation true
+  positives, false positives, and false negatives across `calls`, `imports`, `defines`,
+  `reads_config`, and `doc_references_code`. Every scored relation must carry both an expected edge
+  and a forbidden opportunity or the corpus is refused at load, because a relation with only one
+  side scores vacuously. Recall gaps are declared rather than hidden: each entry in `known_gaps`
+  names an edge the extractor does not currently produce and the evidence that isolated it, and the
+  suite asserts the declared set equals the actual miss set exactly, so both a new miss and a
+  repaired one force the list to be revisited. The runner writes an identity-bound baseline/post
+  report pair: corpus digest, evaluator source, the extraction and query sources actually loaded,
+  builder and schema versions, the graph input fingerprint, repository provenance, and environment.
+  Evaluator identity and production identity are recorded separately, because the normal comparison
+  is one instrument reading two productions and a single combined digest would hide exactly the
+  difference being measured. A pair whose corpus or instrument moved reports the delta as
+  unattributable rather than presenting it as a quality change. Wave `1wpih` / change `1wpie`.
+
+- **`code_ask` says why its confidence is what it is.** The envelope carries `confidence_basis`
+  alongside `confidence`: `semantic_lead`, `exact_owner`, `no_citations`, `unranked_similarity`, or
+  `lexical_fallback`. It reads the LEAD citation rather than the best score anywhere in the set, so
+  a strong result buried at rank seven no longer flatters the answer the response actually opens
+  with. Wave `1wpih` / change `1wscp`.
+
+- **A standing measurement sequence cannot quietly grow.** Checkpoint runs of the retrieval gate are
+  now bounded in code rather than by discipline: nine named slots, each usable once, with
+  per-invocation and cumulative ceilings on time, report bytes, and public calls. Every refusal
+  names which ceiling it hit. Two properties are deliberate. Failed attempts consume budget, because
+  a run that burned the time and the calls spent what the cap exists to bound and excluding them
+  would let unfavourable runs be discarded. A damaged ledger fails closed rather than reading as an
+  empty list, since "no budget consumed" is the most dangerous way to misread a corrupt record.
+  Wave `1wpih` / change `1wscp`.
+
+- **Approximate vector search is certified against exact search before it ships.** `ann_reference_eval.py`
+  measures approximate retrieval against a `bypass_vector_index()` exact reference over fixed slices,
+  requiring a quality gain, or neutrality inside a declared band with a real latency win, before a
+  tuning value is adopted. The report binds evaluator, production, and environment identity, and a
+  report whose bindings do not verify is refused rather than read. Wave `1wpih` / change `1wsc8`.
+
 - **Acceptance criteria you can actually mark.** A criterion asserting repository-wide state, most
   often "the full framework test suite passes", measures the tree at a moment in time rather than
   the change, so marking it depends on timing and on other people's work. Seed
@@ -61,6 +118,21 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `1wur7` / change `1wuui`.
 
 ### Changed
+
+- **Lexical results from different tables are merged by rank, not by raw score.** BM25 is normalized
+  per table, so concatenating `fts_code` and `fts_docs` hits let unrelated growth in one table
+  reorder the other. Merging now uses reciprocal rank, which is scale-free, while each row keeps its
+  own `bm25` so per-table diagnostics stay observable. This removes the defect structurally instead
+  of compensating for it, and introduces no corpus-fitted constant that could drift. The standing
+  corpus moved with it, `code_lexical` recall at 10 from 0.389 to 0.500 and nDCG at 10 from 0.255 to
+  0.410 across the wave, but that corpus holds nine cases and no gain-eligible fixture, so those
+  figures are recorded as non-regression evidence rather than as a measured improvement claim. The
+  reason to prefer rank fusion is structural, not the deltas. Wave `1wpih` / change `1wpid`.
+
+- **Long queries keep their most distinctive terms.** The full-text match expression is capped, and
+  the cap used to take whichever terms came first, so a rare compound identifier could be dropped in
+  favour of common words. Terms are now selected by distinctiveness, with snake_case compounds
+  weighted highest, and emitted in their original order. Wave `1wpih` / change `1wpid`.
 
 - **A controlled rebuild no longer invalidates evaluator comparisons.** The repository root, index
   directory, and store path bind every comparison kind, but the state-store file's device and inode
@@ -135,6 +207,115 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   injection but lets reranked evidence lead. Unnamed ignore files, lockfiles, dependency manifests,
   and generated agent surfaces carry a bounded low-information down-weight, never an exclusion.
   Wave `1seaw` / change `1seas`.
+
+
+### Fixed
+
+> **Upgrading:** this release moves two builder versions, the graph builder and the cluster builder. Until a
+> repository rebuilds its graph index, `wf_graph_report(sections=["betweenness"])` returns
+> `betweenness_artifact_stale` where it previously served rows, because the persisted centrality artifact was
+> written by the older cluster builder and its ranking no longer describes the current graph. Run
+> `index_build(content="graph", mode="rebuild")`, or simply let the next graph build run: the reuse gate
+> falls through to a full recompute on a version mismatch, so it self-heals. Reload the MCP server after
+> upgrading, since a server still running the previous code reports the older builder version and will
+> disagree with the rebuilt artifact.
+>
+> The graph builder moves twice more in this release, so the same rebuild is what makes the new behaviour
+> appear. JSON artifacts only carry their Evidence/Data classification once they have been re-extracted,
+> which means `wf_graph_report` returns empty evidence arrays on a pre-upgrade graph even where machine
+> results exist. External-call resolution also changes, so a repository that never rebuilds keeps the
+> phantom edges described under Fixed.
+
+- **An imported third-party call no longer binds to an unrelated project function.** When a
+  qualified external target had no exact match, cross-file resolution fell back to the last segment
+  alone, so `sqlite3.connect()` in `context_efficiency.py` became a call to `App.connect` in
+  `dashboard.js`, a JavaScript method reached from Python. The receiver
+  head is now authoritative whenever the source file explicitly imported it and the import names a
+  module outside the project, the same principle the Go package-qualified branch already applied.
+  The guard is deliberately narrow: an unimported head still falls back as before, and an imported
+  head naming a project module also still falls back, so `from svc import loader` followed by
+  `loader.load_settings()` keeps binding. Measured by rebuilding the whole repository graph on both
+  sides, this removed 123 wrong edges out of 69,313, every sampled one flagrantly false: besides the
+  cross-language bind above, `accel_embedder.py` calling `onnx.load()` reached a fake defined inside
+  a test class, and `cli_stdio.py` calling `sys.stdout.fileno()` reached a test helper. This
+  population is DISJOINT from the similarly sized one in the `1wpig` entry below: that fix stopped
+  `calls` edges targeting structural JSON and YAML data nodes, while this one stops them targeting
+  project FUNCTIONS through an explicitly imported external receiver. The two were measured across
+  different builder versions and neither count includes the other. Wave `1wpih` / change `1wpie`.
+
+- **The assessment prior stops inventing scores.** Re-weighting multiplied `result.get("score") or
+  0.0`, which wrote `score: 0.0` onto a row the ranker never scored, presenting a number as if it
+  had been produced. Rows without a score are now left alone. Ordering is unchanged either way,
+  because the sort already reads a missing score as zero. Wave `1wpih` / change `1wscp`.
+
+- **The call graph no longer claims your code calls a JSON key.** Cross-file name resolution
+  rewrote an external call to the only project node sharing that simple name, whatever kind of node
+  it was, so `os.cpu_count()` bound to a wave-evidence field named `cpu_count`. On this repository
+  that produced 123 phantom call edges, and the largest family fused production code with evidence
+  keys into a publicly ranked community. A `calls` edge can no longer target a structural JSON or
+  YAML node. Node kind cannot make that distinction, since config keys are minted with the same kind
+  a constructible class carries, so the rule names one predicate and adds no classifier. Wave
+  `1wpig graph-correctness-and-trust-contracts` / change `1wpai`.
+
+- **Config-read edges stop binding to schemas and test fixtures.** A JSON Schema document is no
+  longer a config target, schema keywords no longer bind whether written bare or as a dotted leaf,
+  and paths in a fixture tree are excluded. Declaring a schema is deliberately not treated as being
+  one, because real project config files carry that key. Loader provenance stays additive rather than
+  required: demanding it would have deleted the true population, whose reads are ordinary dictionary
+  lookups several frames from any loader. Measured across a rebuild of both sides, false bindings
+  went 64 to 0 while true bindings went 102 to 134, the increase because removing the fixture copy
+  left previously ambiguous keys with a single candidate. Wave `1wpig` / change `1wpai`.
+
+- **A filtered graph report returns as many rows as you asked for.** Filters ran on the already
+  truncated rows, so a project-only request came back short, or empty. On this repository `fan_in`
+  at `limit=1` returned nothing and at `limit=10` returned a single row. Eligibility now runs before
+  truncation at every ranked section, including communities. Filtered centrality refills from a
+  complete persisted order rather than the compatibility prefix, so `betweenness_metadata.top_n` no
+  longer describes how deep the ranking went and `betweenness_served_from` says which view answered.
+  Two contract changes ride along: the generated filter now reaches `file_hubs`, and centrality
+  requested alongside a collapse flag is refused rather than served from the base topology. Wave
+  `1wpig` / change `1wpaj`.
+
+- **Call hierarchy entries carry their own trust evidence.** Incoming and outgoing entries now expose
+  node identity, kind, relation, and confidence, so a caller can keep only trusted attribution
+  classes from one response instead of making a second graph call. Wave `1wpig` / change `1wpaj`.
+
+- **A stale centrality artifact is refused instead of served.** The betweenness serve path gates on
+  the persisted cluster builder version and reports a mismatch, or a missing version, as its own skip
+  reason rather than as an absent section. Wave `1wpig` / change `1wpaj`.
+
+
+- **A citation's line range now contains the text it quotes.** Table row-group parts were all
+  anchored at the table head, so every part after the first cited the header's lines, and a
+  generated `-L{n}` id could collide with one the chunker emitted natively. Ranges are now
+  splice-aware absolute coordinates carried per part, ids are resolved against the full original id
+  multiset at the file boundary, and rst/adoc preambles carry per-line numbers. A census over the
+  whole repository corpus reports zero wrong ranges and zero duplicate ids, against 150 collision
+  groups on the same tree before the fix. `CHUNKER_VERSION` moves to 41. Wave
+  `1wpif index-content-and-retrieval-correctness` / change `1wngv`.
+
+- **A damaged lexical index heals itself, and a query it cannot serve says so.** The FTS probe is
+  now part of ordinary reconciliation and of serving. `code_lexical`, the hybrid lexical half, and
+  the degraded fallbacks all serve through one chokepoint that checks a keyed integrity digest
+  cached per completed epoch, so a corrupted or out-of-parity table returns a typed `query_failed`
+  with a bounded, path-sanitized detail instead of quietly returning nothing. Healing executes only
+  under the build lock through the ordinary rebuild path, leaving the query path free of store
+  writes, and health payloads carry per-table parity state. Wave `1wpif` / change `1wpag`.
+
+- **A busy index no longer costs you the state store.** Opening or rebuilding the store treated any
+  database error as corruption and answered by deleting and recreating the file, so an ordinary lock
+  wait during a concurrent rebuild destroyed a healthy store. Only a missing table, missing column,
+  or unknown schema version now resets and retries; a lock or busy error is durably logged and
+  re-raised with the store untouched. Wave `1wpif` / change `1wpag`.
+
+- **Filters and per-file caps stop discarding candidates.** A language filter resolves through one
+  allowlist and pushes down into both Lance and FTS, per-file caps refill over a bounded window
+  sequence without re-querying an exhausted source, and every merge seam keys on the chunk id rather
+  than on `(path, lines)`, so a lexical twin sharing coordinates is no longer mislabeled or dropped.
+  `code_search` and `code_ask` report `retrieval_accounting` with substrate queries and examined rows
+  against the stated ceiling, and an unknown language exits with zero rounds naming the language.
+  The inert ANN tuning constants are retired with the defaults actually in force documented in their
+  place. Wave `1wpif` / change `1wpah`.
 
 
 ## [1.21.0] - 2026-08-29
