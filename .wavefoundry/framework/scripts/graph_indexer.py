@@ -11092,6 +11092,7 @@ class GraphIndexSession:
         chunker_version: str,
         verbose: bool = False,
         state: dict[str, Any] | None = None,
+        unreadable_dirs: set[str] | None = None,
     ) -> None:
         if layer not in GRAPH_FILENAMES:
             raise ValueError(f"Unsupported graph layer: {layer}")
@@ -11103,6 +11104,9 @@ class GraphIndexSession:
         self.verbose = verbose
         self.walker_version = walker_version
         self.chunker_version = chunker_version
+        # Wave 1x54z (1u8o3): directories the indexer's walk could not read
+        # this build; their known paths count as current in the merge's prune.
+        self.unreadable_dirs: set[str] = set(unreadable_dirs or ())
         # Wave 1p9q3 (1p9q2): `state_path` is the LEGACY monolithic JSON state
         # (discarded one-time when the store opens); the live state is the
         # per-file SQLite store at `store_path`.
@@ -11149,6 +11153,17 @@ class GraphIndexSession:
             ignored = _gitignored_paths(root)
             if ignored:
                 self._current_paths -= ignored
+        # Wave 1x54z (1u8o3): a known path under a directory the walk could
+        # not read this build is carried forward as current, so a doc
+        # re-extracted during the outage still resolves its links into the
+        # shadowed subtree instead of dropping those edges until its next
+        # edit (the prune in `finalize` widens the same set).
+        if self.unreadable_dirs:
+            self._current_paths |= {
+                rel
+                for rel in (self._state.get("files") or {})
+                if _path_under_unreadable(rel, self.unreadable_dirs)
+            }
 
     def _ensure_store(self) -> GraphStateStore:
         """Open (once) the per-file SQLite state store for this session.
@@ -13761,6 +13776,20 @@ class GraphIndexSession:
 
         current_paths = set(self._current_paths)
         known_paths = store.paths_with_hashes()
+        # Wave 1x54z (1u8o3): a known path under a directory the walk could
+        # not read this build is not gone, it is unseen. It counts as current
+        # so the known-minus-current prune below keeps its rows and edges, and
+        # it is never re-extracted here (it is in no pending set), which is
+        # what the indexer's carry-forward does for its own state. Without
+        # this the graph lost the subtree on a build-path run during the
+        # outage and, because recovery is a stat-cache hit, never got it back
+        # (delivery review CODE-DEL-1 / QA-DEL-1 / RED-DEL-1).
+        shadowed_paths = {
+            rel for rel in known_paths if _path_under_unreadable(rel, self.unreadable_dirs)
+        }
+        if shadowed_paths:
+            current_paths |= shadowed_paths
+            stats["files_shadowed"] = len(shadowed_paths)
 
         # Files that existed in the prior graph state but are gone now (deleted
         # or renamed away). Edges from surviving files into these paths are
@@ -13929,6 +13958,15 @@ class GraphIndexSession:
         if changed_code_symbols:
             for rel, entry in _artifacts_view().items():
                 if entry.get("kind") not in {"doc", "seed", "memory"}:
+                    continue
+                # Wave 1x54z (1u8o3): a doc under a directory the walk could
+                # not read this build keeps its stored artifact. Touching it
+                # here raises under a real permission outage (`Path.exists`
+                # on a child of a mode-000 directory raises EACCES rather
+                # than returning False), and an ENOENT would drop its record
+                # while its store row stays. Its symbol edges refresh when the
+                # doc is next re-scanned.
+                if _path_under_unreadable(rel, self.unreadable_dirs):
                     continue
                 mentioned = set(entry.get("mentioned_symbols") or [])
                 if mentioned.intersection(changed_code_symbols):
@@ -15155,6 +15193,24 @@ def _extract_artifact_for_worker(args: tuple) -> tuple[str, dict | None]:
     return rel_path, session.pending_code.get(rel_path)
 
 
+def _path_under_unreadable(rel: str, unreadable_dirs: "set[str] | None") -> bool:
+    """True when ``rel`` sits under a directory the indexer's walk reported it
+    could not read (wave 1x54z / 1u8o3). ``"."`` shadows every path; otherwise a
+    normalized prefix match on the root-relative directory. Mirrors
+    ``indexer._shadowed_by_unreadable``; the two modules do not import each
+    other's helpers."""
+    if not unreadable_dirs:
+        return False
+    rel = rel.replace("\\", "/")
+    for d in unreadable_dirs:
+        if d == ".":
+            return True
+        d = d.replace("\\", "/").rstrip("/")
+        if rel == d or rel.startswith(d + "/"):
+            return True
+    return False
+
+
 def update_graph_index(
     *,
     root: Path,
@@ -15167,6 +15223,7 @@ def update_graph_index(
     walker_version: str,
     chunker_version: str,
     verbose: bool = False,
+    unreadable_dirs: set[str] | None = None,
 ) -> dict[str, Any]:
     # Wave 1p2q3 (1p2tz post-ship-3 perf): the lru caches on path resolvers
     # (`_probe_ts_alias_target_cached`, `_resolve_relative_ts_import_cached`)
@@ -15188,6 +15245,7 @@ def update_graph_index(
         walker_version=walker_version,
         chunker_version=chunker_version,
         verbose=verbose,
+        unreadable_dirs=unreadable_dirs,
     )
     changed_set = {str(rel).replace("\\", "/") for rel in changed}
     removed_set = {str(rel).replace("\\", "/") for rel in removed}
@@ -15547,6 +15605,7 @@ def retire_orphaned_graph_paths(
     walker_version: str,
     chunker_version: str,
     verbose: bool = False,
+    unreadable_dirs: set[str] | None = None,
 ) -> dict[str, Any]:
     """Retire graph store rows for paths outside the current corpus (1u8nz).
 
@@ -15559,7 +15618,9 @@ def retire_orphaned_graph_paths(
     routing through the merge keeps every surface consistent by construction.
 
     Absence semantics inherit merge parity: any path not in the passed
-    ``files`` walk (deleted, or present but out of scope) is pruned. The
+    ``files`` walk (deleted, or present but out of scope) is pruned, except a
+    path under a directory the walk reported it could not read
+    (``unreadable_dirs``, wave 1x54z), which the merge counts as current. The
     caller gates the invocation on its per-path absence classification and
     mass-removal circuit breaker, so an unreadable path never reaches this
     function as the sole trigger.
@@ -15582,6 +15643,7 @@ def retire_orphaned_graph_paths(
         walker_version=walker_version,
         chunker_version=chunker_version,
         verbose=verbose,
+        unreadable_dirs=unreadable_dirs,
     )
 
 

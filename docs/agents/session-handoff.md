@@ -6,6 +6,54 @@ Last verified: 2026-09-04
 
 ## Current State
 
+Wave `1x54z eligibility-reap-absence-guards` (change
+`1u8o3-debt eligibility-reap-mass-removal-hazard`) is CLOSED and COMMITTED
+(2026-09-04, operator instruction "close the wave and commit" after the
+delivery review summary). Delivery review: five independent actors (code, QA
+and architecture lanes, the red-team fixed seat, the security-reviewer
+rotating seat) over three repair cycles recorded 34 findings in
+`events.jsonl`; every actionable one repaired and reverified by its own lane
+in fresh context, four parked with plans (`1x550`, `1x5pc`, and the
+pre-existing `files=` seam); the cycle-2 convergence checkpoint covers all 34;
+lane approvals, `wave-council-delivery` and `operator-signoff` recorded on
+receipt `review-policy-18a29b1998f994797eb8`; the whole suite green (8,442
+tests across 74 files, receipt proven); docs lint clean; gate CLOSED. The
+running MCP server still holds the pre-wave indexer modules until it is
+reloaded (`wf_reload_mcp`) or restarted. No wave is OPEN. Parked plans for the
+next planning pass: `1x551` (surface reap deferral and preservation through
+`index_build_status` and `index_health`), `1x5pc` (fragment edges to absent
+nodes at payload assembly), `1x550` (non-git secrets candidate walk), `1x4om`
+(scanner guard skips invisible at close).
+
+What landed: `walk_repo` collects the directories `os.walk` could not scan
+(keyword-only `unreadable_dirs`, stderr line naming the root as the repository
+root); change detection carries the prior bookkeeping entry forward for every
+previously indexed path under such a directory and withholds it from the
+removal set; the graph merge (`GraphIndexSession(unreadable_dirs=...)`) counts
+those known paths as current at the prune, carries them in the session's
+current-path set for link and memory-target resolution, and skips them in the
+impacted-docs rescan (under a real mode-000 outage `Path.exists` raises
+EACCES on Python 3.13), at the ordinary merge and at
+`retire_orphaned_graph_paths`, while a full rebuild passes none; the Lance
+eligibility reap classifies stranded candidates through the stat seam
+(collector-shadowed paths are unreadable without a stat) and applies the
+`1u8nz` breaker over the absent candidates only; the orphan reconcile shares
+the walk report; the build result carries `stranded_reap_deferred` and
+`stranded_reap_preserved` at both seams (Python result only: no registered
+tool relays it, plan `1x551`). Tests: `EligibilityReapAbsenceGuardTests` (21)
+in `test_indexer.py`, with a faithful mode-000 fixture (`_mode_000_children`);
+every guard fails a named test when deleted. Recorded boundaries: a
+first-time mass absence with no walk error is still deleted by the write path
+at the build seam; a full rebuild during an outage drops the subtree
+everywhere; the explicit `files=` seam is walk-free; a preserved doc's stored
+artifact stays stale until it is next re-scanned (plan `1x5pc` covers the
+dangling fragment edge a later merge can re-emit).
+
+Wave `1x4ol index-build-cost-and-scanner-bounds` is CLOSED and COMMITTED
+(2026-09-04, `8a9fa245`): graph rebuild 203 s to 52 s, isolated secrets full
+scan 198.8 s to 18.2 s, zero findings both sides, no time bound added. Parked
+plan `1x4om` (scanner guard skips invisible at close) remains in `docs/plans/`.
+
 Wave `1wybs review-churn-follow-ups` is CLOSED (2026-09-02). It shipped the
 three `1wuju` follow-ups: the Serialization Points token grammar for both
 declaration forms in seeds `170`/`040`/`160`, both plan templates, and the
@@ -371,6 +419,9 @@ plans.
 ## Current Session
 
 **Active wave:** *(none)*
+(2026-09-04) — see Current State above.
+
+**Previous session state:** *(none active)*
 (2026-09-02) — Serialization Points token-grammar guidance across seeds and
 templates, the evaluator-edit baseline policy with its drift disclosure, and
 the verdict-gap and install-audit hardening. Framework and seed gates are

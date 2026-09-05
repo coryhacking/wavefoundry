@@ -6611,5 +6611,723 @@ class DiagramCorpusMembershipTests(unittest.TestCase):
         self.assertIn("real-graph.dot", walked)
 
 
+class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
+    """Wave 1x54z (1u8o3): the Lance eligibility reap classifies every
+    stranded candidate before deleting it (``unreadable`` preserves the rows
+    AND the layer hashes; ``absent`` and ``present`` reap exactly as before)
+    and carries the ``1u8nz`` mass-removal breaker, at the zero-change
+    preflight and at the build-path seam alike. Injection at the seams
+    (``os.scandir`` for the walk, ``_orphan_path_stat`` for classification),
+    never ``chmod``, which is vacuous under root and flaky across platforms.
+
+    Red-first (recorded in the change doc's Progress Log): on the pre-fix
+    tree the first build under a denied directory reaped every row of the
+    subtree and dropped its layer hashes, and the recovery build re-embedded
+    the subtree from scratch."""
+
+    _FILES = {
+        "src/app.py": "def app():\n    return 1\n",
+        "docs/guide.md": "## Guide\n\nKeep me around.\n",
+        "vault/a.py": "def vault_a():\n    return 1\n",
+        "vault/b.py": "def vault_b():\n    return 2\n",
+        "vault/notes.md": "## Vault\n\nBehind a permissions incident.\n",
+    }
+    _VAULT = ("vault/a.py", "vault/b.py", "vault/notes.md")
+
+    def _seed(self):
+        _make_repo(self.root, self._FILES)
+        self._run_build(full=True)
+
+    def _rows(self, table: str) -> dict[str, set[str]]:
+        out: dict[str, set[str]] = {}
+        for row in _read_index_chunks(self.index_dir, table):
+            out.setdefault(row["path"], set()).add(row["id"])
+        return out
+
+    def _vault_state(self) -> dict:
+        docs, code = self._rows("docs"), self._rows("code")
+        layer_docs = self.iss.layer_hashes(self.index_dir, "docs") or {}
+        layer_code = self.iss.layer_hashes(self.index_dir, "code") or {}
+        return {
+            "rows": {p: (docs.get(p, set()) | code.get(p, set())) for p in self._VAULT},
+            "hashes": {p: (layer_docs.get(p), layer_code.get(p)) for p in self._VAULT},
+        }
+
+    def _denied_scandir(self, rel_dir: str):
+        """Make ``os.walk`` lose ONE directory the way a permissions incident
+        does: ``scandir`` on it raises EACCES, everything else passes through."""
+        real_scandir = os.scandir
+        target = (self.root / rel_dir).resolve()
+
+        def denied(path=".", *args, **kwargs):
+            if not isinstance(path, int):
+                try:
+                    hit = Path(os.fsdecode(path)).resolve() == target
+                except (OSError, TypeError, ValueError):
+                    hit = False
+                if hit:
+                    raise PermissionError(13, "injected EACCES", os.fsdecode(path))
+            return real_scandir(path, *args, **kwargs)
+
+        return patch("os.scandir", new=denied)
+
+    @staticmethod
+    def _eacces_for(needle: str):
+        real_stat = os.stat
+
+        def inject(path):
+            if needle in str(path).replace("\\", "/"):
+                raise PermissionError(13, "injected EACCES", str(path))
+            return real_stat(path)
+
+        return inject
+
+    def _notes_repo(self, count: int = 10) -> dict[str, set[str]]:
+        files = {"src/app.py": self._FILES["src/app.py"]}
+        for i in range(count):
+            files[f"docs/note_{i}.md"] = f"## Note {i}\n\nBody of note {i}.\n"
+        _make_repo(self.root, files)
+        self._run_build(full=True)
+        return self._rows("docs")
+
+    def _strand_absent(self, paths: list[str]) -> None:
+        # 1p312 technique: the bookkeeping already dropped these paths and the
+        # files are gone from disk, so the walk sees no change and the build
+        # takes the zero-change seam; only the Lance rows (and layer hashes)
+        # remain, which is exactly what the preflight reap must judge.
+        meta = _read_meta_store(self.index_dir)
+        fm = meta.get("file_meta") or {}
+        for p in paths:
+            fm.pop(p, None)
+            (self.root / p).unlink()
+        meta["file_meta"] = fm
+        _seed_meta_store(self.index_dir, meta)
+
+    # --- AC-1 / Req 6: the walk case (the collector is load-bearing here) ---
+
+    def test_walk_dropped_subtree_is_preserved_and_recovers_without_reembed(self):
+        self._seed()
+        before = self._vault_state()
+        for p in self._VAULT:
+            self.assertTrue(before["rows"][p], f"precondition: {p} has Lance rows")
+            self.assertNotEqual(before["hashes"][p], (None, None), f"precondition: {p} has a layer hash")
+        err = io.StringIO()
+        with self._denied_scandir("vault"), redirect_stderr(err):
+            first = self._run_build(full=False)
+        self.assertNotIn("error", first, first)
+        self.assertEqual(
+            self._vault_state(), before,
+            "zero-change seam (the denial is the only change, so nothing is stale): "
+            "a walk-dropped subtree keeps its rows and layer hashes",
+        )
+        self.assertIn("unreadable", err.getvalue())
+        self.assertIn("vault", err.getvalue())
+        preserved = first.get("stranded_reap_preserved") or {}
+        self.assertEqual(preserved.get("code"), 2, "the envelope says the reap kept unconfirmed rows (SEC-DEL-1)")
+        self.assertGreaterEqual(preserved.get("docs", 0), 1)
+        # The omission repeats on the next build; so does the preservation.
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            second = self._run_build(full=False)
+        self.assertNotIn("error", second, second)
+        self.assertEqual(self._vault_state(), before)
+        # Recovery: readable again. Nothing re-embeds and nothing re-hashes.
+        with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as spy, \
+                redirect_stderr(io.StringIO()):
+            recovered = self._run_build(full=False)
+        self.assertIs(recovered.get("up_to_date"), True, recovered)
+        self.assertEqual(recovered.get("files_indexed"), 0)
+        self.assertEqual(self._vault_state(), before, "recovery: rows and hashes intact")
+        hashed = {str(c.args[0]).replace("\\", "/") for c in spy.call_args_list}
+        self.assertFalse(
+            any("vault/" in h for h in hashed),
+            f"recovery must treat the subtree as unchanged (stat cache), not re-hash it: {hashed}",
+        )
+
+    # --- AC-1 as written: EACCES injected at the stat seam, both seams ---
+
+    def test_stat_seam_eacces_preserves_at_the_zero_change_seam_and_recovers(self):
+        # The zero-change preflight is the one deletion path that judges rows
+        # the walk is silent about (bookkeeping already dropped them). At the
+        # build-path seam the incremental write deletes ``removed`` rows before
+        # the reap runs, and the only SILENT producer of a removal is the walk
+        # omission, which the collector neutralises at change detection (the
+        # walk-case test above). So the stat seam is exercised where it judges.
+        self._seed()
+        before = self._vault_state()
+        away = tempfile.TemporaryDirectory()
+        self.addCleanup(away.cleanup)
+        shutil.move(str(self.root / "vault"), str(Path(away.name) / "vault"))
+        meta = _read_meta_store(self.index_dir)
+        meta["file_meta"] = {k: v for k, v in (meta.get("file_meta") or {}).items()
+                             if not k.startswith("vault/")}
+        _seed_meta_store(self.index_dir, meta)
+        inject = self._eacces_for("vault/")
+        gen = self._generation()
+        err = io.StringIO()
+        with patch.object(self.bi, "_orphan_path_stat", side_effect=inject), redirect_stderr(err):
+            idle = self._run_build(full=False)
+        self.assertIs(idle.get("up_to_date"), True, idle)
+        self.assertEqual(idle.get("stranded_rows_reaped"), 0)
+        self.assertEqual(self._vault_state(), before, "zero-change seam: unreadable preserves rows and hashes")
+        self.assertEqual(self._generation(), gen, "nothing to reap: no epoch opened")
+        self.assertIn("preserved", err.getvalue())
+        self.assertIn("unreadable", err.getvalue())
+        # Recovery without the injection: nothing re-embeds.
+        shutil.move(str(Path(away.name) / "vault"), str(self.root / "vault"))
+        with redirect_stderr(io.StringIO()):
+            recovered = self._run_build(full=False)
+        self.assertIs(recovered.get("up_to_date"), True, recovered)
+        self.assertEqual(recovered.get("files_indexed"), 0)
+        self.assertEqual(self._vault_state(), before)
+
+    # --- AC-2: the breaker, both seams, both sides of the threshold ---
+
+    def test_breaker_defers_at_zero_change_preflight_and_execute_never_reaps_refused(self):
+        docs_before = self._notes_repo(10)
+        gone = [f"docs/note_{i}.md" for i in range(9)]
+        table_paths = len(docs_before)
+        self.assertGreaterEqual(len(gone), self.bi.ORPHAN_RECONCILE_BREAKER_MIN_ROWS)
+        self.assertGreater(len(gone), self.bi.ORPHAN_RECONCILE_BREAKER_FRACTION * table_paths,
+                           "non-vacuity: the fixture trips BOTH breaker legs")
+        self._strand_absent(gone)
+        gen = self._generation()
+        err = io.StringIO()
+        # The sidecar reconciliation (1u8nz) decides for itself at this seam
+        # and, in a non-git fixture, its secret-scan denominator depends on a
+        # scan-versus-Lance write race; neutralise it so the epoch assertion
+        # below is about the reap alone (the sidecars have their own tests).
+        empty_plan = {"file_freshness": set(), "secret_scan_cache": set(), "graph": set(),
+                      "deferred": {}, "stat_calls": 0}
+        with patch.object(self.bi, "_plan_orphan_store_reconcile", return_value=empty_plan), \
+                redirect_stderr(err):
+            result = self._run_build(full=False)
+        self.assertIs(result.get("up_to_date"), True, result)
+        self.assertEqual(result.get("stranded_rows_reaped"), 0)
+        self.assertEqual(self._rows("docs"), docs_before, "deferred: not one docs row reaped")
+        layer = self.iss.layer_hashes(self.index_dir, "docs") or {}
+        for p in gone:
+            self.assertIn(p, layer, "deferred: layer hashes untouched")
+        self.assertEqual(self._generation(), gen, "a fully deferred preflight opens no epoch")
+        self.assertIn("reaper DEFERRED", err.getvalue())
+        self.assertIn("docs", err.getvalue())
+        self.assertIn("mode='rebuild'", err.getvalue(), "the message names the remedy")
+        self.assertEqual(
+            result.get("stranded_reap_deferred"), {"docs": {"would_reap": 9, "table_paths": table_paths}},
+            "a deferred preflight is reported in the build result, not only on stderr",
+        )
+
+    def test_one_stranded_path_under_the_breaker_reaps_at_the_zero_change_seam(self):
+        docs_before = self._notes_repo(10)
+        self._strand_absent(["docs/note_0.md"])
+        with redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertGreater(result.get("stranded_rows_reaped", 0), 0)
+        after = self._rows("docs")
+        self.assertNotIn("docs/note_0.md", after)
+        self.assertEqual(set(after) | {"docs/note_0.md"}, set(docs_before))
+        self.assertNotIn("docs/note_0.md", self.iss.layer_hashes(self.index_dir, "docs") or {})
+
+    def test_breaker_defers_at_the_build_path_seam(self):
+        # Rows stranded by an earlier build (bookkeeping already dropped them,
+        # files gone) plus a real edit elsewhere: the ordinary build path runs
+        # and its reap must judge the 9 absent paths the same way.
+        docs_before = self._notes_repo(10)
+        gone = [f"docs/note_{i}.md" for i in range(9)]
+        self._strand_absent(gone)
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        self.assertIsNot(result.get("up_to_date"), True, "non-vacuity: this was a build-path run")
+        self.assertEqual(result.get("stranded_rows_reaped"), 0)
+        self.assertEqual(self._rows("docs"), docs_before, "deferred: not one docs row reaped")
+        layer = self.iss.layer_hashes(self.index_dir, "docs") or {}
+        for p in gone:
+            self.assertIn(p, layer, "deferred: layer hashes untouched at the build-path seam")
+        self.assertIn("reaper DEFERRED", err.getvalue())
+        self.assertEqual(result.get("stranded_reap_deferred", {}).get("docs", {}).get("would_reap"), 9,
+                         "the build-path result carries the deferral too")
+
+    def test_one_stranded_path_under_the_breaker_reaps_at_the_build_path_seam(self):
+        self._notes_repo(10)
+        self._strand_absent(["docs/note_0.md"])
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        with redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertIsNot(result.get("up_to_date"), True, "non-vacuity: this was a build-path run")
+        self.assertGreater(result.get("stranded_rows_reaped", 0), 0)
+        self.assertNotIn("docs/note_0.md", self._rows("docs"))
+        self.assertNotIn("docs/note_0.md", self.iss.layer_hashes(self.index_dir, "docs") or {})
+
+    # --- AC-3: the walk surfaces the directory; classification needs no stat ---
+
+    def test_walk_repo_surfaces_the_unreadable_directory(self):
+        _make_repo(self.root, self._FILES)
+        unreadable: set[str] = set()
+        with self._denied_scandir("vault"):
+            walked = {
+                str(p.relative_to(self.root)).replace("\\", "/")
+                for p in self.bi.walk_repo(self.root, respect_ignore=True, unreadable_dirs=unreadable)
+            }
+        self.assertEqual(unreadable, {"vault"})
+        self.assertFalse(any(p.startswith("vault/") for p in walked), walked)
+        self.assertIn("src/app.py", walked)
+        # The root itself unreadable: "." shadows every path and the walk is empty.
+        at_root: set[str] = set()
+        with self._denied_scandir("."):
+            walked_root = self.bi.walk_repo(self.root, respect_ignore=True, unreadable_dirs=at_root)
+        self.assertEqual(walked_root, [])
+        self.assertEqual(at_root, {"."})
+        # Without a collector the walk is unchanged (every existing caller).
+        with self._denied_scandir("vault"):
+            plain = self.bi.walk_repo(self.root, respect_ignore=True)
+        self.assertEqual({str(p.relative_to(self.root)).replace("\\", "/") for p in plain}, walked)
+
+    def test_candidate_under_a_surfaced_directory_classifies_unreadable_without_stat(self):
+        self._seed()
+        calls: list[str] = []
+        real_stat = os.stat
+
+        def spy(path):
+            calls.append(str(path).replace("\\", "/"))
+            return real_stat(path)
+
+        with patch.object(self.bi, "_orphan_path_stat", side_effect=spy):
+            plan = self.bi._reap_stranded_lance_rows(
+                self.index_dir,
+                {"src/app.py", "docs/guide.md"},
+                root=self.root,
+                tables=("docs", "code"),
+                plan_only=True,
+                unreadable_dirs={"vault"},
+            )
+        preserved = plan["preserved_by_table"]
+        self.assertEqual(preserved["code"], {"vault/a.py", "vault/b.py"})
+        self.assertEqual(preserved["docs"], {"vault/notes.md"})
+        planned = set().union(*plan["paths_by_table"].values())
+        self.assertFalse(any(p.startswith("vault/") for p in planned), planned)
+        self.assertFalse(any("vault/" in c for c in calls),
+                         f"no per-file stat under a surfaced directory: {calls}")
+
+    # --- AC-4: genuine deletion and scope departure are pinned unchanged ---
+
+    def test_genuine_deletion_and_scope_departure_still_reap_and_drop_hashes(self):
+        # Outcome pin, exactly as before this change: on the ordinary build
+        # path the incremental write already deletes ``removed`` rows before
+        # the reap runs, so the pin is on the result, not on the reap's count.
+        self._seed()
+        (self.root / "vault" / "a.py").unlink()                                   # absent
+        (self.root / ".gitignore").write_text("vault/b.py\n", encoding="utf-8")   # present, out of scope
+        with redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        code = self._rows("code")
+        self.assertNotIn("vault/a.py", code, "a genuinely deleted file still reaps")
+        self.assertNotIn("vault/b.py", code, "a scope-departed file still reaps")
+        layer = self.iss.layer_hashes(self.index_dir, "code") or {}
+        self.assertNotIn("vault/a.py", layer)
+        self.assertNotIn("vault/b.py", layer)
+        self.assertIn("vault/notes.md", self._rows("docs"), "an untouched sibling survives")
+
+    def test_reap_classifies_present_out_of_scope_and_absent_as_reapable(self):
+        # The reap's own classification through the real stat seam (no
+        # injection): a present path outside the eligible set (the narrowing
+        # case the reap exists for) and an absent one both plan for reaping;
+        # nothing is preserved or deferred. Delivery review QA-DEL-6 replaced
+        # an earlier version whose absent leg asserted nothing.
+        self._seed()
+        (self.root / "vault" / "a.py").unlink()                                   # absent
+        self.assertTrue((self.root / "vault" / "b.py").is_file())                 # present
+        eligible = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
+        eligible -= {"vault/a.py", "vault/b.py"}
+        with redirect_stderr(io.StringIO()):
+            plan = self.bi._reap_stranded_lance_rows(
+                self.index_dir, eligible, root=self.root, tables=("docs", "code"), plan_only=True,
+                eligible_by_table={"docs": eligible, "code": eligible},
+            )
+        self.assertIn("vault/a.py", plan["paths_by_table"]["code"], "absent reaps")
+        self.assertIn("vault/b.py", plan["paths_by_table"]["code"], "present-but-out-of-scope reaps")
+        self.assertEqual(plan["preserved_by_table"], {"docs": set(), "code": set()})
+        self.assertEqual(plan["deferred_by_table"], {})
+
+    # --- Delivery review round 1 (2026-09-04): the build-path seam and the guards it exposed ---
+
+    def test_walk_dropped_subtree_survives_a_build_path_run(self):
+        # CODE-DEL-1/2, QA-DEL-1/2, RED-DEL-1, ARCH-DEL-1: an unrelated edit
+        # during the outage takes the ordinary build path, where the
+        # incremental Lance write, the layer-hash commit, the bookkeeping
+        # write and the graph merge all run. Every store keeps the subtree,
+        # and the recovery is a stat-cache hit that re-hashes and re-extracts
+        # nothing. Pre-repair the graph lost the subtree here for good.
+        self._seed()
+        before = self._vault_state()
+        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        err = io.StringIO()
+        with self._denied_scandir("vault"), redirect_stderr(err):
+            outage = self._run_build(full=False)
+        self.assertNotIn("error", outage, outage)
+        self.assertIsNot(outage.get("up_to_date"), True, "non-vacuity: the edit made this a build-path run")
+        self.assertEqual(self._vault_state(), before, "build-path seam: rows and layer hashes kept")
+        preserved = outage.get("stranded_reap_preserved") or {}
+        self.assertEqual(preserved.get("code"), 2, "the build-path envelope reports the preserved paths (SEC-DEL-1)")
+        bookkeeping = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
+        self.assertTrue(set(self._VAULT) <= bookkeeping, "the bookkeeping carried the subtree forward")
+        self.assertTrue(
+            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"),
+            "the graph merge kept the shadowed subtree instead of pruning it on walk parity",
+        )
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._state_db(), "file_freshness"))
+        with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as spy, \
+                redirect_stderr(io.StringIO()):
+            recovered = self._run_build(full=False)
+        self.assertIs(recovered.get("up_to_date"), True, recovered)
+        hashed = {str(c.args[0]).replace("\\", "/") for c in spy.call_args_list}
+        self.assertFalse(any("vault/" in h for h in hashed), f"recovery re-hashed the subtree: {hashed}")
+        self.assertEqual(self._vault_state(), before)
+        self.assertTrue(
+            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"),
+            "recovery: the graph still holds the subtree",
+        )
+
+    def test_root_unreadable_is_a_loud_no_op_through_the_real_build(self):
+        # CODE-DEL-3: the root rule of the shadow helper, driven end to end.
+        self._seed()
+        before = self._vault_state()
+        keys_before = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
+        gen = self._generation()
+        err = io.StringIO()
+        with self._denied_scandir("."), redirect_stderr(err):
+            result = self._run_build(full=False)
+        self.assertIs(result.get("up_to_date"), True, result)
+        self.assertEqual(result.get("files_total"), 0)
+        self.assertEqual(self._vault_state(), before, "nothing reaped under a denied root")
+        self.assertEqual(set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys()), keys_before)
+        self.assertEqual(self._generation(), gen, "no epoch: a denied root is a loud no-op")
+        self.assertIn("unreadable", err.getvalue())
+
+    def test_shadow_prefix_is_a_directory_boundary(self):
+        # QA-DEL-4 / CODE-DEL-3: the boundary and the root rule, in both modules.
+        f = self.bi._shadowed_by_unreadable
+        self.assertTrue(f("vault/a.py", {"vault"}))
+        self.assertTrue(f("vault", {"vault"}))
+        self.assertTrue(f("vault/deep/x.py", {"vault/"}))
+        self.assertFalse(f("vaultx/a.py", {"vault"}), "a sibling directory is not shadowed")
+        self.assertFalse(f("src/vault/a.py", {"vault"}), "the prefix anchors at the root")
+        self.assertTrue(f("anything/at/all.py", {"."}), "the root shadows every path")
+        self.assertFalse(f("vault/a.py", set()))
+        self.assertFalse(f("vault/a.py", None))
+        g = self.bi._get_graph_indexer()._path_under_unreadable
+        self.assertTrue(g("vault/a.py", {"vault"}))
+        self.assertFalse(g("vaultx/a.py", {"vault"}))
+        self.assertTrue(g("x/y.py", {"."}))
+        self.assertFalse(g("vault/a.py", None))
+
+    def test_walk_error_without_a_filename_is_recorded_as_the_root(self):
+        # CODE-DEL-3: an unmappable scandir failure is recorded conservatively.
+        _make_repo(self.root, self._FILES)
+        real_scandir = os.scandir
+        target = self.root.resolve()
+
+        def denied(path=".", *args, **kwargs):
+            if not isinstance(path, int) and Path(os.fsdecode(path)).resolve() == target:
+                raise PermissionError(13, "injected EACCES with no filename")
+            return real_scandir(path, *args, **kwargs)
+
+        unreadable: set[str] = set()
+        with patch("os.scandir", new=denied):
+            walked = self.bi.walk_repo(self.root, respect_ignore=True, unreadable_dirs=unreadable)
+        self.assertEqual(walked, [])
+        self.assertEqual(unreadable, {"."}, "an unmappable failure is recorded as the root")
+
+    def _absent_plan_case(self, notes: int, gone: int):
+        # A fresh repository per case: ``notes`` docs, ``gone`` of them deleted
+        # from disk and dropped from the eligible set, then the plan-only reap.
+        # Returns (distinct docs paths in the table, the plan).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        index_dir = root / ".wavefoundry" / "index"
+        files = {"src/app.py": self._FILES["src/app.py"]}
+        for i in range(notes):
+            files[f"docs/note_{i}.md"] = f"## Note {i}\n\nBody of note {i}.\n"
+        _make_repo(root, files)
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            self.bi.build_index(root, full=True, content="all", verbose=False)
+        docs_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
+        gone_paths = [f"docs/note_{i}.md" for i in range(gone)]
+        for p in gone_paths:
+            (root / p).unlink()
+        eligible = docs_paths - set(gone_paths)
+        with redirect_stderr(io.StringIO()):
+            plan = self.bi._reap_stranded_lance_rows(
+                index_dir, eligible, root=root, tables=("docs",), plan_only=True,
+                eligible_by_table={"docs": eligible},
+            )
+        return len(docs_paths), plan
+
+    def test_breaker_thresholds_are_pinned_on_both_legs(self):
+        # QA-DEL-3: Requirement 2's shape, at least MIN_ROWS AND more than
+        # FRACTION, pinned at the boundary of each leg with absent candidates.
+        min_rows = self.bi.ORPHAN_RECONCILE_BREAKER_MIN_ROWS
+        fraction = self.bi.ORPHAN_RECONCILE_BREAKER_FRACTION
+        self.assertEqual((min_rows, fraction), (8, 0.5), "the cases below are shaped for the shipped constants")
+        # Exactly the floor, over half: defers (8 absent of 14 or 15 docs paths).
+        table_paths, plan = self._absent_plan_case(notes=14, gone=8)
+        self.assertGreaterEqual(8, min_rows)
+        self.assertGreater(8, fraction * table_paths, table_paths)
+        self.assertIn("docs", plan["deferred_by_table"], (table_paths, plan))
+        self.assertEqual(plan["paths_by_table"]["docs"], set())
+        # Over the floor, exactly half: reaps (8 absent of exactly 16 docs paths).
+        extra = table_paths - 14  # non-note docs rows the fixture indexes (e.g. the config)
+        table_paths, plan = self._absent_plan_case(notes=16 - extra, gone=8)
+        self.assertEqual(table_paths, 16, "fixture shape: the fraction leg is judged at exactly half")
+        self.assertEqual(plan["deferred_by_table"], {}, "half is not more than half")
+        self.assertEqual(len(plan["paths_by_table"]["docs"]), 8)
+        # Under the floor, over half: reaps (7 absent of 13 docs paths).
+        table_paths, plan = self._absent_plan_case(notes=13 - extra, gone=7)
+        self.assertEqual(table_paths, 13)
+        self.assertEqual(plan["deferred_by_table"], {}, "seven is under the floor")
+        self.assertEqual(len(plan["paths_by_table"]["docs"]), 7)
+
+    def _build_with_tests(self, *, full: bool, include_tests: bool) -> dict:
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
+            return self.bi.build_index(
+                self.root, full=full, content="all", include_tests=include_tests, verbose=False
+            )
+
+    def test_present_scope_departures_reap_whatever_their_count(self):
+        # RED-DEL-2: a stat-confirmed scope departure is positive evidence and
+        # never counts toward the breaker. At the reap: nine present paths
+        # outside the eligible set all plan for reaping. End to end: the
+        # include_tests narrowing reaps every test file (the pre-wave
+        # behaviour) instead of deferring for ever.
+        self._notes_repo(10)
+        eligible = set(self._rows("docs")) - {f"docs/note_{i}.md" for i in range(9)}
+        with redirect_stderr(io.StringIO()):
+            plan = self.bi._reap_stranded_lance_rows(
+                self.index_dir, eligible, root=self.root, tables=("docs",), plan_only=True,
+                eligible_by_table={"docs": eligible},
+            )
+        self.assertEqual(plan["deferred_by_table"], {})
+        self.assertEqual(plan["preserved_by_table"]["docs"], set())
+        self.assertEqual(plan["paths_by_table"]["docs"], {f"docs/note_{i}.md" for i in range(9)})
+        # End to end.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        files = {"src/app.py": self._FILES["src/app.py"], "src/util.py": "def util():\n    return 3\n"}
+        for i in range(10):
+            files[f"tests/test_t{i}.py"] = f"def test_t{i}():\n    assert True\n"
+        _make_repo(self.root, files)
+        with redirect_stderr(io.StringIO()):
+            self._build_with_tests(full=True, include_tests=True)
+        code_before = set(self._rows("code"))
+        self.assertEqual(sum(1 for p in code_before if p.startswith("tests/")), 10, code_before)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            result = self._build_with_tests(full=False, include_tests=False)
+        self.assertGreater(result.get("stranded_rows_reaped", 0), 0, result)
+        self.assertEqual(result.get("stranded_reap_deferred"), {})
+        self.assertNotIn("DEFERRED", err.getvalue())
+        after = set(self._rows("code"))
+        self.assertFalse(any(p.startswith("tests/") for p in after), after)
+        layer = self.iss.layer_hashes(self.index_dir, "code") or {}
+        self.assertFalse(any(p.startswith("tests/") for p in layer), "layer hashes dropped with the rows")
+
+    def test_orphan_reconcile_treats_shadowed_candidates_as_unreadable(self):
+        # RED-DEL-3: the sidecar and graph reconciliation shares the walk
+        # report, so the reap and the reconcile apply one policy to the same
+        # paths. At the plan: no stat under a surfaced directory and nothing
+        # planned for removal. End to end at the zero-change seam: the graph
+        # and freshness rows survive alongside the Lance rows.
+        self._seed()
+        meta = _read_meta_store(self.index_dir)
+        meta["file_meta"] = {k: v for k, v in (meta.get("file_meta") or {}).items()
+                             if not k.startswith("vault/")}
+        _seed_meta_store(self.index_dir, meta)
+        authority = set(meta["file_meta"].keys())
+        calls: list[str] = []
+        real_stat = os.stat
+
+        def spy(path):
+            calls.append(str(path).replace("\\", "/"))
+            return real_stat(path)
+
+        with patch.object(self.bi, "_orphan_path_stat", side_effect=spy):
+            plan = self.bi._plan_orphan_store_reconcile(
+                self.root, self.index_dir, authority, unreadable_dirs={"vault"}
+            )
+        for store in ("file_freshness", "secret_scan_cache", "graph"):
+            self.assertFalse(any(p.startswith("vault/") for p in plan[store]), (store, plan[store]))
+        self.assertFalse(any("vault/" in c for c in calls), calls)
+        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertIs(result.get("up_to_date"), True, result)
+        self.assertEqual(result.get("stranded_rows_reaped"), 0)
+        self.assertEqual(result.get("orphan_rows_reconciled", {}).get("graph"), 0)
+        self.assertEqual(self._sqlite_paths(self._graph_db(), "files"), graph_before)
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._state_db(), "file_freshness"))
+
+    def test_retirement_seam_keeps_the_shadowed_subtree(self):
+        # ARCH-RV1-1 / QA-RV1-1 / CODE-RV1-1: real residue (a path the graph
+        # store still knows whose file AND bookkeeping entry are gone) gives
+        # the graph reconcile a removable orphan, so retire_orphaned_graph_paths
+        # actually runs at the zero-change seam while vault/ is shadowed. The
+        # retirement must receive the walk report: the residue goes, the
+        # subtree stays, and recovery re-extracts nothing.
+        files = dict(self._FILES)
+        files["stale/gone.py"] = "def gone():\n    return 0\n"
+        _make_repo(self.root, files)
+        self._run_build(full=True)
+        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        self.assertIn("stale/gone.py", graph_before)
+        self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
+        self._strand_absent(["stale/gone.py"])
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        self.assertIs(result.get("up_to_date"), True, result)
+        retired = (result.get("orphan_rows_reconciled") or {}).get("graph")
+        self.assertGreaterEqual(retired or 0, 1, "non-vacuity: the retirement ran")
+        graph_after = self._sqlite_paths(self._graph_db(), "files")
+        self.assertNotIn("stale/gone.py", graph_after, "the residue was retired")
+        self.assertTrue(
+            set(self._VAULT) <= graph_after,
+            "retirement seam: the merge kept the shadowed subtree",
+        )
+        with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as mock_hash:
+            recovery = self._run_build(full=False)
+        self.assertIs(recovery.get("up_to_date"), True, recovery)
+        self.assertFalse(
+            any("vault" in str(c.args[0]) for c in mock_hash.call_args_list),
+            "recovery is a stat-cache hit for the preserved subtree",
+        )
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+
+    def test_full_rebuild_during_outage_drops_the_subtree_in_parity(self):
+        # ARCH-RV1-2 / CODE-RV1-1: the recorded boundary. A full rebuild passes
+        # no walk report to the graph merge, so the graph drops the subtree
+        # exactly as the Lance tables do (no store keeps rows the others lost),
+        # and the first readable build re-extracts and re-embeds it.
+        self._seed()
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            result = self._run_build(full=True)
+        self.assertNotIn("error", result, result)
+        lance = set(self._rows("code")) | set(self._rows("docs"))
+        self.assertFalse(any(p.startswith("vault/") for p in lance), lance)
+        graph_after = self._sqlite_paths(self._graph_db(), "files")
+        self.assertFalse(
+            any(p.startswith("vault/") for p in graph_after),
+            "graph parity with Lance on a full rebuild during the outage",
+        )
+        recovery = self._run_build(full=False)
+        self.assertEqual(recovery.get("files_indexed"), len(self._VAULT), recovery)
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        lance_after = set(self._rows("code")) | set(self._rows("docs"))
+        self.assertTrue(set(self._VAULT) <= lance_after, lance_after)
+
+    def _edges_from_guide_into_vault(self) -> set[tuple[str, str]]:
+        import gzip as _gzip
+        raw = (self.index_dir / "graph" / "project-graph.json").read_bytes()
+        if raw[:2] == b"\x1f\x8b":
+            raw = _gzip.decompress(raw)
+        payload = json.loads(raw.decode("utf-8"))
+        return {
+            (str(e.get("relation")), str(e.get("target")))
+            for e in payload.get("edges", [])
+            if "docs/guide.md" in str(e.get("source")) and "vault/" in str(e.get("target"))
+        }
+
+    def test_doc_edited_during_outage_keeps_its_link_edges_into_the_subtree(self):
+        # RED-RV1-1: a doc re-extracted while vault/ is unreadable resolves its
+        # links against the session's current-path set; that set must carry
+        # the shadowed known paths or the doc_references_doc edge into the
+        # subtree (the link to vault/notes.md) drops silently and, because
+        # recovery is a stat-cache hit, stays gone until the doc is edited
+        # again. The doc_references_code edge to vault/a.py resolves through
+        # the symbol matcher and survives either way; the set equality pins
+        # both relations by name.
+        files = dict(self._FILES)
+        files["docs/guide.md"] = "## Guide\n\nSee [the vault](../vault/notes.md) and `vault/a.py`.\n"
+        _make_repo(self.root, files)
+        with redirect_stderr(io.StringIO()):
+            self._run_build(full=True)
+        before = self._edges_from_guide_into_vault()
+        self.assertIn(("doc_references_doc", "vault/notes.md"), before)
+        self.assertIn(("doc_references_code", "vault/a.py"), before)
+        (self.root / "docs" / "guide.md").write_text(
+            "## Guide\n\nEdited. See [the vault](../vault/notes.md) and `vault/a.py`.\n",
+            encoding="utf-8",
+        )
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            outage = self._run_build(full=False)
+        self.assertNotIn("error", outage, outage)
+        self.assertIsNot(outage.get("up_to_date"), True, "the edit drives the build path")
+        self.assertEqual(
+            self._edges_from_guide_into_vault(), before,
+            "the edited doc keeps both edges into the shadowed subtree",
+        )
+        recovery = self._run_build(full=False)
+        self.assertIs(recovery.get("up_to_date"), True, recovery)
+        self.assertEqual(self._edges_from_guide_into_vault(), before)
+
+    def _mode_000_children(self, rel_dir: str):
+        """Model a mode-000 directory faithfully: ``scandir`` on it fails (the
+        walk loses it) AND ``stat`` on any child fails with EACCES, which is
+        what ``Path.exists`` / ``Path.stat`` see under a real permission
+        outage (``Path.exists`` re-raises EACCES rather than returning False)."""
+        real_stat = os.stat
+        needle = rel_dir.rstrip("/") + "/"
+
+        def denied_stat(path, *args, **kwargs):
+            if not isinstance(path, int) and needle in os.fsdecode(path).replace("\\", "/"):
+                raise PermissionError(13, "injected EACCES", os.fsdecode(path))
+            return real_stat(path, *args, **kwargs)
+
+        return patch("os.stat", new=denied_stat)
+
+    def test_symbol_rename_during_outage_leaves_the_shadowed_doc_untouched(self):
+        # ARCH-RV2-1: a shadowed doc whose cached mentions intersect a changed
+        # code symbol used to be re-scanned from disk by the merge's
+        # impacted-docs pass; under a real outage that stat raises and every
+        # build fails until recovery. The pass must skip shadowed records and
+        # keep their stored artifacts.
+        files = dict(self._FILES)
+        files["src/app.py"] = "def frobnicate_widget():\n    return 1\n"
+        files["vault/notes.md"] = "## Vault\n\nUses `frobnicate_widget` from the app.\n"
+        _make_repo(self.root, files)
+        with redirect_stderr(io.StringIO()):
+            self._run_build(full=True)
+        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
+        rows_before = self._vault_state()
+        (self.root / "src" / "app.py").write_text(
+            "def frobnicate_widget_v2():\n    return 1\n", encoding="utf-8"
+        )
+        with self._denied_scandir("vault"), self._mode_000_children("vault"), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        self.assertIsNot(result.get("up_to_date"), True, "the rename drives the build path")
+        self.assertEqual(result.get("stranded_reap_preserved"), {"docs": 1, "code": 2}, result)
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertEqual(self._vault_state(), rows_before, "the outage build touched nothing under vault")
+        recovery = self._run_build(full=False)
+        self.assertNotIn("error", recovery, recovery)
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertEqual(self._vault_state(), rows_before)
+
+
 if __name__ == "__main__":
     unittest.main()

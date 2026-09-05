@@ -936,18 +936,46 @@ def _filter_secret_scan_findings(files: list[Path], root: Path) -> list[Path]:
     ]
 
 
-def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
+def walk_repo(
+    root: Path,
+    *,
+    respect_ignore: bool = True,
+    unreadable_dirs: "set[str] | None" = None,
+) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
     Wave 1p5c4: files larger than the hard size cap (`indexing.max_file_bytes`, default 5 MB) are
     skipped entirely — a multi-GB blob (e.g. a SQL backup) would otherwise be read and
-    tree-sitter-parsed, spinning the indexer."""
+    tree-sitter-parsed, spinning the indexer.
+
+    Wave 1x54z (1u8o3): a directory ``os.walk`` cannot read is no longer dropped in
+    silence. ``os.walk``'s default ``onerror=None`` skips any directory whose ``scandir``
+    raises (permissions, EIO, a vanished mount), so every path under it simply vanishes
+    from the result and, to a caller reconciling stored state against the walk, reads as
+    deleted. The failures are collected through ``onerror`` instead: each affected
+    directory (root-relative, ``"."`` for the root itself) is added to ``unreadable_dirs``
+    when the caller passes a set, and the condition is printed to stderr either way, so a
+    consumer can tell "not walked" from "not there". The walk's FILTER logic is
+    unchanged (no ``WALKER_VERSION`` bump)."""
     ignore_patterns = _load_ignore_patterns(root) if respect_ignore else []
     max_file_bytes = _resolve_max_file_bytes(root)
     reinclude_names = _resolve_walk_reinclude_filenames(root)
     result: list[Path] = []
+    unreadable: set[str] = set()
 
-    for dirpath, dirnames, filenames in os.walk(root):
+    def _on_walk_error(exc: OSError) -> None:
+        raw = getattr(exc, "filename", None)
+        rel_failed: "str | None" = None
+        if raw is not None:
+            try:
+                rel_failed = str(Path(os.fsdecode(raw)).relative_to(root)).replace("\\", "/")
+            except (ValueError, TypeError):
+                rel_failed = None
+        # An unmappable failure is recorded as the root: the conservative reading
+        # (every stored path is under it) beats guessing which subtree was lost.
+        unreadable.add(rel_failed if rel_failed is not None else ".")
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_on_walk_error):
         dir_path = Path(dirpath)
         try:
             rel_dir = dir_path.relative_to(root)
@@ -1106,7 +1134,69 @@ def walk_repo(root: Path, *, respect_ignore: bool = True) -> list[Path]:
 
             result.append(path)
 
+    if unreadable:
+        if unreadable_dirs is not None:
+            unreadable_dirs.update(unreadable)
+        # Wave 1p9io posture: stderr, never stdout — walk_repo runs in-process
+        # from the MCP server where stdout is the JSON-RPC channel.
+        print(
+            f"build_index: walk skipped {len(unreadable)} unreadable director"
+            f"{'y' if len(unreadable) == 1 else 'ies'} (os.walk could not scan "
+            f"{'it' if len(unreadable) == 1 else 'them'}; paths under "
+            f"{'it' if len(unreadable) == 1 else 'them'} were NOT walked): "
+            + _describe_unreadable_dirs(unreadable),
+            file=sys.stderr,
+            flush=True,
+        )
     return sorted(result)
+
+
+def _shadowed_by_unreadable(rel: str, unreadable_dirs: "set[str] | None") -> bool:
+    """True when ``rel`` sits under a directory the walk reported unreadable
+    (wave 1x54z / 1u8o3). ``"."`` shadows every path; otherwise a normalized
+    prefix match on the root-relative directory."""
+    if not unreadable_dirs:
+        return False
+    for d in unreadable_dirs:
+        if d == ".":
+            return True
+        d = d.replace("\\", "/").rstrip("/")
+        if rel == d or rel.startswith(d + "/"):
+            return True
+    return False
+
+
+def _deferred_summary(deferred_by_table: "dict[str, dict] | None") -> dict:
+    """Build-result projection of the reap's deferral record (wave 1x54z,
+    delivery review RED-DEL-2): the per-table counts without the path sets,
+    so a build that deferred a reap never reports ``up_to_date`` silently."""
+    out: dict = {}
+    for table, entry in (deferred_by_table or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        out[table] = {
+            "would_reap": int(entry.get("would_reap", 0) or 0),
+            "table_paths": int(entry.get("table_paths", 0) or 0),
+        }
+    return out
+
+
+def _preserved_summary(preserved_by_table: "dict[str, set] | None") -> dict:
+    """Build-result projection of the reap's preserved (unreadable) paths per
+    table (wave 1x54z, delivery review SEC-DEL-1): counts only, so a build
+    that kept unconfirmed rows says so in its envelope."""
+    return {
+        table: len(paths)
+        for table, paths in (preserved_by_table or {}).items()
+        if paths
+    }
+
+
+def _describe_unreadable_dirs(unreadable_dirs: "set[str] | None") -> str:
+    """Operator-facing rendering of the walk's unreadable directories: the
+    root is named as such rather than printed as a bare dot (SEC-DEL-1)."""
+    names = sorted(unreadable_dirs or ())
+    return ", ".join("the repository root" if d == "." else d for d in names)
 
 
 # ---------------------------------------------------------------------------
@@ -2490,11 +2580,13 @@ def _reap_stranded_lance_rows(
     db_path: Path,
     eligible_paths: set[str],
     *,
+    root: Path,
     tables: tuple[str, ...] = ("docs", "code"),
     verbose: bool = False,
     eligible_by_table: "dict[str, set[str]] | None" = None,
     plan_only: bool = False,
     precomputed_stranded: "dict[str, set[str]] | None" = None,
+    unreadable_dirs: "set[str] | None" = None,
 ) -> dict:
     """Delete LanceDB rows whose ``path`` is not in the current eligible set.
 
@@ -2507,14 +2599,62 @@ def _reap_stranded_lance_rows(
 
     This reaper reconciles the *current* LanceDB row set against the *current*
     eligible set on every incremental update, regardless of meta state. It is
-    set-difference + a single batched DELETE per table — no file I/O for
-    ineligible paths.
+    set-difference + a single batched DELETE per table, plus (1u8o3) one
+    ``stat`` per stranded candidate the walk did not already explain.
 
-    Returns ``{"docs": N, "code": M, "total": N+M}`` row counts reaped per table.
+    Wave 1x54z (1u8o3) — absence guards. Every stranded candidate is classified
+    before it is deleted, through the seam the ``1u8nz`` orphan reconciliation
+    already uses (``_classify_orphan_path`` / ``_orphan_path_stat``):
+    ``absent`` (ENOENT/ENOTDIR) and ``present`` (on disk but out of scope, the
+    narrowing case this reap exists for) reap as before; ``unreadable`` (any
+    other OSError) preserves the rows AND, because callers clean layer state
+    only for what was reaped, the layer hashes. A candidate under a directory
+    the walk reported unreadable (``unreadable_dirs``, from ``walk_repo``) is
+    ``unreadable`` without a stat, and that is the correctness path rather than
+    a shortcut: a directory with search-but-no-read permission fails
+    ``scandir`` while ``stat`` on its children still succeeds, so stat-only
+    classification would read them as ``present`` and reap them as a scope
+    departure. The ``absent`` remainder then passes the ``1u8nz`` mass-removal
+    breaker, same constants, same unit (distinct paths): at least
+    ``ORPHAN_RECONCILE_BREAKER_MIN_ROWS`` absent paths AND more than
+    ``ORPHAN_RECONCILE_BREAKER_FRACTION`` of the table's distinct paths defers
+    those absent paths loudly, so a transiently invisible subtree (an
+    unmounted volume reads as ENOENT) cannot cascade into wholesale deletion
+    and a forced re-embed; ``present`` candidates never count toward the
+    breaker and reap whatever their number, because a stat-confirmed scope
+    departure is positive evidence, not transient invisibility (delivery
+    review RED-DEL-2). Both guards live in the scanning branch, which is what
+    the zero-change preflight (``plan_only=True``) and the build-path seam
+    run; the zero-change execute step replays the preflight's
+    ``paths_by_table`` (``precomputed_stranded``), so it cannot reap what the
+    plan refused. Boundary: at the build-path seam the incremental Lance write
+    deletes the ``removed`` set before this reap runs, so a first-time mass
+    absence with no walk error (an unmounted volume on its first build) is
+    removed there and never reaches the breaker; the breaker protects rows
+    whose bookkeeping an earlier build already dropped, at either seam.
+    Deferred rows stay searchable until newly indexed files dilute the
+    fraction under the breaker or the operator rebuilds once the volume is
+    readable again (``index_build(content='all', mode='rebuild')``; a rebuild
+    during the outage drops the subtree); the deferral is reported to the
+    caller as ``stranded_reap_deferred``. The same accepted posture as the
+    sidecar breaker, recorded in the change doc.
+
+    Returns ``{"docs": N, "code": M, "total": N+M, "paths_by_table": {...},
+    "preserved_by_table": {...}, "deferred_by_table": {...}}``: row counts
+    reaped per table, the distinct paths reaped (or planned), the distinct
+    paths preserved as unreadable, and per deferred table
+    ``{"would_reap", "table_paths", "paths"}``.
     """
     reaped: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
     reaped_paths: dict[str, set[str]] = {"docs": set(), "code": set()}
+    preserved_paths: dict[str, set[str]] = {"docs": set(), "code": set()}
+    deferred_by_table: dict[str, dict] = {}
     reaped["paths_by_table"] = reaped_paths
+    reaped["preserved_by_table"] = preserved_paths
+    reaped["deferred_by_table"] = deferred_by_table
+    # One classification per distinct candidate, shared across tables (the
+    # same path can hold rows in both), mirroring the 1u8nz reconciliation.
+    classification: dict[str, str] = {}
     if not (db_path / "docs.lance").is_dir() and not (db_path / "code.lance").is_dir():
         return reaped
     try:
@@ -2544,6 +2684,65 @@ def _reap_stranded_lance_rows(
                 if eligible_by_table is not None and table_name in eligible_by_table:
                     _eligible = eligible_by_table[table_name]
                 stranded = lance_paths - _eligible
+                if stranded:
+                    # 1u8o3 guard 1: classify before deleting; unreadable preserves.
+                    for rel in stranded:
+                        if rel in classification:
+                            continue
+                        if _shadowed_by_unreadable(rel, unreadable_dirs):
+                            classification[rel] = "unreadable"
+                        else:
+                            classification[rel] = _classify_orphan_path(root, rel)
+                    unreadable_here = {rel for rel in stranded if classification[rel] == "unreadable"}
+                    if unreadable_here:
+                        preserved_paths[table_name] = unreadable_here
+                        stranded = stranded - unreadable_here
+                        msg = (
+                            f"build_index: reaper {table_name} — preserved {len(unreadable_here)} "
+                            "unreadable path(s) (an unreadable parent directory or an IO error at "
+                            "the stat seam, not evidence of deletion); rows and layer hashes kept "
+                            "until the path is readable or provably gone"
+                        )
+                        print(msg, file=sys.stderr, flush=True)
+                        _store_log_safe(db_path, msg)
+                if stranded:
+                    # 1u8o3 guard 2: the 1u8nz mass-removal breaker, in distinct
+                    # paths, over the ABSENT candidates only (delivery review
+                    # RED-DEL-2). ``present`` is a stat-confirmed scope departure,
+                    # the case this reap exists for, and reaps whatever its
+                    # count; ``absent`` is the only class an unmounted volume or
+                    # a torn walk can produce in bulk, so it alone can trip the
+                    # breaker. A deferred table keeps its absent rows searchable
+                    # until the fraction dilutes or the operator rebuilds.
+                    absent_here = {rel for rel in stranded if classification[rel] == "absent"}
+                    table_paths = len(lance_paths)
+                    would_reap = len(absent_here)
+                    if (
+                        would_reap >= ORPHAN_RECONCILE_BREAKER_MIN_ROWS
+                        and would_reap > ORPHAN_RECONCILE_BREAKER_FRACTION * table_paths
+                    ):
+                        deferred_by_table[table_name] = {
+                            "would_reap": would_reap,
+                            "table_paths": table_paths,
+                            "paths": set(absent_here),
+                        }
+                        msg = (
+                            f"build_index: reaper DEFERRED for {table_name}: {would_reap} of "
+                            f"{table_paths} indexed path(s) are absent from disk, over the "
+                            f"mass-removal circuit breaker (>{ORPHAN_RECONCILE_BREAKER_FRACTION:.0%} "
+                            f"and >={ORPHAN_RECONCILE_BREAKER_MIN_ROWS}); their rows are kept this "
+                            "build so a transiently invisible subtree (an unmounted volume, a torn "
+                            "walk) cannot cascade into wholesale deletion and a forced re-embed, and "
+                            "they stay searchable until newly indexed files dilute the fraction "
+                            "under the breaker. If the paths really are gone, rebuild from the "
+                            "current corpus once every directory and volume is readable again: "
+                            "index_build(content='all', mode='rebuild') (a rebuild during the "
+                            "outage drops the subtree and re-embeds it on recovery). The deferral "
+                            "is reported as stranded_reap_deferred in the build result."
+                        )
+                        print(msg, file=sys.stderr, flush=True)
+                        _store_log_safe(db_path, msg)
+                        stranded = stranded - absent_here
             if not stranded:
                 continue
             if plan_only:
@@ -2660,12 +2859,18 @@ def _plan_orphan_store_reconcile(
     authority: set[str],
     *,
     verbose: bool = False,
+    unreadable_dirs: "set[str] | None" = None,
 ) -> dict:
     """Read-only reconciliation plan (no epoch, no mutation) for the orphan stores.
 
     ``authority`` is the same registry/walk state the Lance reap uses
-    (``current_file_meta`` keys: on-disk AND in-scope). Removal semantics per
-    store:
+    (``current_file_meta`` keys: on-disk AND in-scope, or, since wave 1x54z,
+    previously indexed and shadowed by a directory the walk could not read
+    this build, which change detection carries forward as unchanged). A
+    candidate under such a directory (``unreadable_dirs``, from ``walk_repo``)
+    classifies ``unreadable`` without a stat, so this plan and the Lance reap
+    apply one policy to the same paths (1x54z delivery review RED-DEL-3).
+    Removal semantics per store:
 
     - ``file_freshness`` and ``graph``: rows exist only for corpus paths, so a
       row outside the authority retires whether the file is deleted OR still
@@ -2703,9 +2908,13 @@ def _plan_orphan_store_reconcile(
     classification: dict[str, str] = {}
     for store, candidates in candidates_by_store.items():
         for rel in candidates:
-            if rel not in classification:
-                classification[rel] = _classify_orphan_path(root, rel)
-                plan["stat_calls"] += 1
+            if rel in classification:
+                continue
+            if _shadowed_by_unreadable(rel, unreadable_dirs):
+                classification[rel] = "unreadable"
+                continue
+            classification[rel] = _classify_orphan_path(root, rel)
+            plan["stat_calls"] += 1
     for store, candidates in candidates_by_store.items():
         allowed = ("absent",) if store == "secret_scan_cache" else ("absent", "present")
         removable = {rel for rel in candidates if classification[rel] in allowed}
@@ -2752,6 +2961,7 @@ def _execute_orphan_store_reconcile(
     graph_layer: str = "project",
     chunker_version: str = "",
     verbose: bool = False,
+    unreadable_dirs: "set[str] | None" = None,
 ) -> dict:
     """Execute a previously planned orphan-store reconciliation.
 
@@ -2799,6 +3009,7 @@ def _execute_orphan_store_reconcile(
                 current_file_meta=current_file_meta,
                 walker_version=WALKER_VERSION,
                 chunker_version=chunker_version,
+                unreadable_dirs=unreadable_dirs,
                 verbose=verbose,
             )
             if isinstance(payload, dict):
@@ -3992,6 +4203,7 @@ def _build_graph_artifacts(
     walker_version: str,
     chunker_version: str,
     verbose: bool = False,
+    unreadable_dirs: "set[str] | None" = None,
 ) -> dict[str, Any]:
     graph_indexer = _get_graph_indexer()
     graph_cluster = _get_graph_cluster()
@@ -4008,6 +4220,7 @@ def _build_graph_artifacts(
         removed=removed,
         walker_version=walker_version,
         chunker_version=chunker_version,
+        unreadable_dirs=unreadable_dirs,
         verbose=verbose,
     )
     if verbose:
@@ -4422,9 +4635,13 @@ def _build_index_locked(
     # (wave 1rsh9): drift repair must always read Lance, the authority.
     drifted: set[str] = set()
 
+    # Wave 1x54z (1u8o3): directories ``os.walk`` could not read this build
+    # (root-relative; empty on the explicit ``files=`` seam, which never walks).
+    _unreadable_dirs: set[str] = set()
+
     if files is None:
         # Walk repo
-        files = walk_repo(root, respect_ignore=respect_ignore)
+        files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=_unreadable_dirs)
         files = [path for path in files if not _is_relative_to(path, index_dir)]
         files = _filter_by_prefixes(files, root, include_prefixes)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
@@ -4582,6 +4799,33 @@ def _build_index_locked(
     else:
         # Incremental: use stat cache — only read files with changed mtime/size/inode
         current_file_meta, changed_broad, removed_broad = _detect_changes(files_for_meta, root, old_file_meta)
+        # Wave 1x54z (1u8o3): a path the walk could not SEE is not a removal.
+        # ``os.walk`` skips a directory whose ``scandir`` fails, so every path
+        # under it drops out of ``files_for_meta`` and would read as removed:
+        # the incremental write deletes its rows, the layer-hash commit drops
+        # its hash, the reap and the orphan reconcile lose it from their
+        # authority, the secrets ledger forgets its findings, and the next
+        # readable build re-embeds the whole subtree. Neutralise the omission
+        # at its source: carry the prior bookkeeping entry forward (it is what
+        # the stat cache would have confirmed) and take the path out of the
+        # removal set, so every downstream consumer sees "unchanged". The reap
+        # still receives ``_unreadable_dirs`` because its per-table eligibility
+        # is walk-derived and would otherwise strand these paths.
+        _walk_shadowed = {
+            rel for rel in removed_broad if _shadowed_by_unreadable(rel, _unreadable_dirs)
+        }
+        if _walk_shadowed:
+            removed_broad = removed_broad - _walk_shadowed
+            for _rel in _walk_shadowed:
+                current_file_meta[_rel] = old_file_meta[_rel]
+            _shadow_msg = (
+                f"build_index: {len(_walk_shadowed)} indexed path(s) sit under a directory the walk "
+                f"could not read ({_describe_unreadable_dirs(_unreadable_dirs)}); treating them as unchanged, "
+                "not removed: rows, layer hashes and bookkeeping are kept until the directory is "
+                "readable again"
+            )
+            print(_shadow_msg, file=sys.stderr, flush=True)
+            _store_log_safe(index_dir, _shadow_msg)
         # Wave 1p3b9 (1p399): drift detection. Cross-check `file_meta` against
         # Lance: paths claimed indexed in file_meta but with zero rows in any
         # Lance table are "drifted" — they need re-chunk + re-embed regardless
@@ -4763,12 +5007,16 @@ def _build_index_locked(
         _reap_plan = _reap_stranded_lance_rows(
             index_dir,
             set(current_file_meta.keys()),
+            root=root,
             tables=("docs", "code"),
             verbose=verbose,
             eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
             plan_only=True,
+            unreadable_dirs=_unreadable_dirs,
         )
         _planned_stranded = _reap_plan.get("paths_by_table", {})
+        _reap_deferred_summary = _deferred_summary(_reap_plan.get("deferred_by_table"))
+        _reap_preserved_summary = _preserved_summary(_reap_plan.get("preserved_by_table"))
         _needs_reap = any(_planned_stranded.get(k) for k in ("docs", "code"))
         # 1sbfj: an under-covered or cold derived chunk index must still heal
         # on zero-change builds — the field-retest scenario is upgrade-then-
@@ -4781,7 +5029,8 @@ def _build_index_locked(
         # survived forever (sidecars additionally leak on ordinary builds and
         # are reconciled at the build-path reap seam too).
         _orphan_plan = _plan_orphan_store_reconcile(
-            root, index_dir, set(current_file_meta.keys()), verbose=verbose
+            root, index_dir, set(current_file_meta.keys()), verbose=verbose,
+            unreadable_dirs=_unreadable_dirs,
         )
         _needs_orphan_reconcile = any(
             _orphan_plan.get(k) for k in _ORPHAN_RECONCILE_STORES
@@ -4836,6 +5085,8 @@ def _build_index_locked(
                 "up_to_date": True,
                 "stranded_rows_reaped": 0,
                 "stranded_rows_reaped_by_table": {"docs": 0, "code": 0, "total": 0},
+                "stranded_reap_deferred": _reap_deferred_summary,
+                "stranded_reap_preserved": _reap_preserved_summary,
                 "orphan_rows_reconciled": {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0},
             }
         if _epoch_dirty:
@@ -4887,11 +5138,14 @@ def _build_index_locked(
             reap_idle = _reap_stranded_lance_rows(
                 index_dir,
                 set(current_file_meta.keys()),
+                root=root,
                 tables=("docs", "code"),
                 verbose=verbose,
                 precomputed_stranded=_planned_stranded,
             )
             _reap_idle_paths = reap_idle.pop("paths_by_table", {})
+            reap_idle.pop("preserved_by_table", None)
+            reap_idle.pop("deferred_by_table", None)
             _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
         # 1u8nz: execute the orphan-store reconciliation INSIDE the epoch. A
         # removal-only pass is not a no-op: it opens and finalizes this epoch
@@ -4905,6 +5159,7 @@ def _build_index_locked(
                 files_for_graph=files_for_graph,
                 current_file_meta=current_file_meta,
                 graph_layer=graph_layer,
+                unreadable_dirs=_unreadable_dirs,
                 chunker_version=current_chunker_version,
                 verbose=verbose,
             )
@@ -4945,6 +5200,8 @@ def _build_index_locked(
             "up_to_date": True,
             "stranded_rows_reaped": reap_idle.get("total", 0),
             "stranded_rows_reaped_by_table": reap_idle,
+            "stranded_reap_deferred": _reap_deferred_summary,
+            "stranded_reap_preserved": _reap_preserved_summary,
             "orphan_rows_reconciled": _orphan_stats,
         }
 
@@ -5293,6 +5550,12 @@ def _build_index_locked(
                 current_file_meta=current_file_meta,
                 changed=changed_for_graph,
                 removed=removed,
+                # Wave 1x54z (1u8o3): on an incremental build the merge keeps
+                # known paths under a directory the walk could not read (they
+                # are carried forward as unchanged everywhere else); a FULL
+                # rebuild is a rebuild from the current corpus and drops them,
+                # in parity with the Lance tables.
+                unreadable_dirs=(_unreadable_dirs if not full else None),
                 walker_version=WALKER_VERSION,
                 chunker_version=current_chunker_version,
                 verbose=verbose,
@@ -5402,15 +5665,21 @@ def _build_index_locked(
     stranded_rows_reaped = 0
     stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
     orphan_rows_reconciled: dict[str, int] = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
+    _reap_deferred_build: dict = {}
+    _reap_preserved_build: dict = {}
     if not full:
         reap_result = _reap_stranded_lance_rows(
             lance_db_path,
             set(current_file_meta.keys()),
+            root=root,
             tables=("docs", "code"),
             verbose=verbose,
             eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
+            unreadable_dirs=_unreadable_dirs,
         )
         _reap_paths_by_table = reap_result.pop("paths_by_table", {})
+        _reap_preserved_build = _preserved_summary(reap_result.pop("preserved_by_table", None))
+        _reap_deferred_build = _deferred_summary(reap_result.pop("deferred_by_table", None))
         stranded_rows_reaped_by_table = reap_result
         stranded_rows_reaped = reap_result.get("total", 0)
         _cleanup_layer_state_for_reaped(index_dir, _reap_paths_by_table)
@@ -5420,7 +5689,8 @@ def _build_index_locked(
         # the sidecars (file_freshness / secret_scan_cache) are the stores
         # that leak on ordinary incrementals and get reconciled now.
         _orphan_plan_build = _plan_orphan_store_reconcile(
-            root, index_dir, set(current_file_meta.keys()), verbose=verbose
+            root, index_dir, set(current_file_meta.keys()), verbose=verbose,
+            unreadable_dirs=_unreadable_dirs,
         )
         if any(_orphan_plan_build.get(k) for k in _ORPHAN_RECONCILE_STORES):
             orphan_rows_reconciled = _execute_orphan_store_reconcile(
@@ -5430,6 +5700,7 @@ def _build_index_locked(
                 files_for_graph=files_for_graph,
                 current_file_meta=current_file_meta,
                 graph_layer=graph_layer,
+                unreadable_dirs=_unreadable_dirs,
                 chunker_version=current_chunker_version,
                 verbose=verbose,
             )
@@ -5558,6 +5829,8 @@ def _build_index_locked(
         "up_to_date": False,
         "stranded_rows_reaped": stranded_rows_reaped,
         "stranded_rows_reaped_by_table": stranded_rows_reaped_by_table,
+        "stranded_reap_deferred": _reap_deferred_build,
+        "stranded_reap_preserved": _reap_preserved_build,
         "orphan_rows_reconciled": orphan_rows_reconciled,
     }
     files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"

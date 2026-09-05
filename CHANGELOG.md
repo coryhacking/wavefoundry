@@ -237,6 +237,26 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A transiently unreadable directory no longer deletes its subtree from the index.** `os.walk` skips a
+  directory whose `scandir` fails (a permissions incident, an agent sandbox, a torn mount) without saying
+  so, and every path under it read as deleted to the build: the incremental write removed its rows, the
+  layer-hash commit dropped its hashes, the graph merge pruned its nodes, the eligibility reap took what
+  was left, and the next readable build re-embedded the whole subtree from scratch. The walk now reports
+  those directories, change detection treats the paths under them as unchanged (bookkeeping carried
+  forward, nothing removed), the graph merge keeps their nodes and edges (a doc re-extracted during the outage keeps its links into them, and a symbol change elsewhere does not rescan a doc inside the unreadable directory: its stored artifact stays as it was until the doc is next re-scanned), and the reap classifies every
+  stranded candidate before deleting it through the stat seam the orphan-store reconciliation already
+  uses, which now shares the walk's report: absent and out-of-scope paths reap exactly as before,
+  unreadable ones keep their rows and hashes, and a set of at least eight absent paths that is more than
+  half a table's distinct paths defers loudly, at the zero-change preflight and the build-path seam alike,
+  with the deferral and the preserved counts reported in the build result. Present-but-out-of-scope paths
+  never count toward the breaker, so a scope narrowing reaps whatever its size. While the directory is
+  unreadable its subtree is served as of the last readable build; a file modified or deleted inside it is
+  reconciled on the first readable build, and nothing else re-embeds. Two boundaries are recorded: at the
+  build-path seam the incremental write deletes a first-time mass absence (an unmounted volume on its
+  first build) before the reap can judge it, and a full rebuild during the outage rebuilds from the
+  current corpus and re-embeds the subtree on recovery, so the deferral message asks for the rebuild once
+  the volume is readable again. Wave `1x54z eligibility-reap-absence-guards` / change `1u8o3`.
+
 > **Upgrading:** this release moves two builder versions, the graph builder and the cluster builder. Until a
 > repository rebuilds its graph index, `wf_graph_report(sections=["betweenness"])` returns
 > `betweenness_artifact_stale` where it previously served rows, because the persisted centrality artifact was
