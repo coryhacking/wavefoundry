@@ -4240,6 +4240,7 @@ def _build_graph_artifacts(
     chunker_version: str,
     verbose: bool = False,
     unreadable_dirs: "set[str] | None" = None,
+    doc_link_repair_plan: "dict | None" = None,
 ) -> dict[str, Any]:
     graph_indexer = _get_graph_indexer()
     graph_cluster = _get_graph_cluster()
@@ -4258,6 +4259,7 @@ def _build_graph_artifacts(
         chunker_version=chunker_version,
         unreadable_dirs=unreadable_dirs,
         verbose=verbose,
+        **({"doc_link_repair_plan": doc_link_repair_plan} if doc_link_repair_plan is not None else {}),
     )
     if verbose:
         counts = graph_payload.get("counts") or {}
@@ -5084,6 +5086,63 @@ def _build_index_locked(
             return _build_failed_result(files, "index-state store module unavailable — refusing idle maintenance without the build epoch")
         _prior_state = _iss_epoch.read_build_state(index_dir)
         _epoch_dirty = not (_prior_state and _prior_state.get("status") == "complete")
+        # 1x8e1: an unchanged doc can still owe a link into a now-current
+        # target. Planning opens SQLite read-only; never create a graph
+        # session here, since dry runs bypass the lock. A real repair reuses
+        # this merge-state snapshot inside the existing build epoch.
+        _doc_link_plan = _get_graph_indexer().read_pending_doc_link_repairs(
+            index_dir=index_dir,
+            current_paths=files_for_graph_rel,
+            walker_version=WALKER_VERSION,
+            chunker_version=current_chunker_version,
+            layer=graph_layer,
+            unreadable_dirs=_unreadable_dirs,
+        )
+        _needs_graph_recovery = bool(_doc_link_plan and (
+            _doc_link_plan.get("pending_docs") or _doc_link_plan.get("rebuild_required")
+        ))
+        # 1x81w: this branch is also reached by the UNLOCKED public dry run.
+        # Finish read-only planning and return before drift reconciliation,
+        # lost-layer hash resets, or any idle-maintenance epoch/writer.
+        if dry_run:
+            _drift_state = "not_needed"
+            if _iss_epoch.has_drift_state(index_dir):
+                _drift_state, _head = _iss_epoch._git_authority(root)
+            _pending_maintenance = {
+                "drift_clear": _drift_state == _iss_epoch._GIT_AUTHORITY_NON_GIT,
+                "stranded_reap": _needs_reap,
+                "chunk_heal": _needs_heal,
+                "dirty_epoch": _epoch_dirty,
+                "orphan_reconcile": _needs_orphan_reconcile,
+                "graph_recovery": _needs_graph_recovery,
+            }
+            _pending = any(_pending_maintenance.values())
+            print(
+                "build_index: dry-run — "
+                + ("pending maintenance: " + ", ".join(
+                    key for key, needed in _pending_maintenance.items() if needed
+                ) if _pending else "index is up to date"),
+                file=sys.stderr, flush=True,
+            )
+            return {
+                "files_indexed": 0,
+                "files_total": len(files),
+                "up_to_date": not _pending,
+                "dry_run": True,
+                "pending_maintenance": _pending_maintenance,
+                "drift_probe": _drift_state,
+                "stranded_paths_pending": {
+                    k: len(_planned_stranded.get(k, ())) for k in ("docs", "code")
+                },
+                "orphan_paths_pending": {
+                    k: len(_orphan_plan.get(k, ())) for k in _ORPHAN_RECONCILE_STORES
+                },
+                "stranded_rows_reaped": 0,
+                "stranded_rows_reaped_by_table": {"docs": 0, "code": 0, "total": 0},
+                "stranded_reap_deferred": _reap_deferred_summary,
+                "stranded_reap_preserved": _reap_preserved_summary,
+                "orphan_rows_reconciled": {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0},
+            }
         # Round-4 re-review P1: the tail drift pass is skipped on this no-op
         # return, so an unchanged copied index — or a repo that lost .git with
         # no other edits — would keep serving stale git-derived drift. Reconcile
@@ -5113,7 +5172,7 @@ def _build_index_locked(
             return _build_failed_result(
                 files, f"no-op drift reconcile failed: {_exc}"
             )
-        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile:
+        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile and not _needs_graph_recovery:
             if verbose:
                 print("build_index: index is up to date", flush=True)
             # Wave 1x6ti (1x551): a deferral here opens no epoch, so the
@@ -5190,6 +5249,25 @@ def _build_index_locked(
             reap_idle.pop("preserved_by_table", None)
             reap_idle.pop("deferred_by_table", None)
             _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
+        _graph_orphans_reconciled = 0
+        if _needs_graph_recovery:
+            try:
+                _build_graph_artifacts(
+                    root=root, index_dir=index_dir, layer=graph_layer,
+                    files=files_for_graph, current_file_meta=current_file_meta,
+                    changed=changed_for_graph, removed=removed,
+                    walker_version=WALKER_VERSION,
+                    chunker_version=current_chunker_version,
+                    unreadable_dirs=_unreadable_dirs, verbose=verbose,
+                    doc_link_repair_plan=_doc_link_plan,
+                )
+            except Exception as exc:  # noqa: BLE001 - preserve dirty epoch for retry
+                return _build_failed_result(files, f"idle graph recovery failed: {exc}")
+            # The same merge already retires graph orphans. Reconcile only
+            # the sidecars below, preserving the existing planned-count result
+            # and avoiding a second graph merge over an outdated snapshot.
+            _graph_orphans_reconciled = len(_orphan_plan.get("graph") or ())
+            _orphan_plan = dict(_orphan_plan, graph=set())
         # 1u8nz: execute the orphan-store reconciliation INSIDE the epoch. A
         # removal-only pass is not a no-op: it opens and finalizes this epoch
         # (the generation advance is what publishes the removals to readers).
@@ -5206,14 +5284,16 @@ def _build_index_locked(
                 chunker_version=current_chunker_version,
                 verbose=verbose,
             )
+        _orphan_stats["graph"] += _graph_orphans_reconciled
         _idle_heal_stats: dict = {}
         if _needs_heal or _epoch_dirty or reap_idle.get("total", 0):
             _idle_heal_stats = _sync_chunk_derived_state(
                 index_dir, expected=bool(reap_idle.get("total", 0)), verbose=verbose
             )
-        if _epoch_dirty:
+        if _epoch_dirty or _needs_graph_recovery:
             # Refresh the walk-state bookkeeping under the recovery epoch: the
-            # crashed build never wrote its own, so the stat cache and
+            # crashed build never wrote its own; graph-only target additions
+            # also need their current walk recorded. The stat cache and
             # provenance scalars are re-recorded from the CURRENT walk merged
             # over the surviving snapshot scalars.
             _recovery_meta = {
@@ -5252,6 +5332,7 @@ def _build_index_locked(
             "stranded_reap_deferred": _reap_deferred_summary,
             "stranded_reap_preserved": _reap_preserved_summary,
             "orphan_rows_reconciled": _orphan_stats,
+            "graph_recovery_attempted": _needs_graph_recovery,
         }
 
     if dry_run:

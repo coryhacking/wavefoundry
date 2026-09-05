@@ -1,0 +1,2477 @@
+{
+  "packet.json": {
+    "wave_id": "1x5tq",
+    "phase": "delivery",
+    "change_ids": [
+      "1x8e1",
+      "1x81w"
+    ],
+    "trust_boundaries_touched": [
+      "unlocked zero-change dry-run versus lock/epoch-fenced store mutation",
+      "durable graph obligation and cached merge-state publication/recovery"
+    ],
+    "files_in_scope": [
+      ".wavefoundry/framework/scripts/graph_indexer.py",
+      ".wavefoundry/framework/scripts/indexer.py",
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py",
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py",
+      "docs/architecture/graph-index-system.md",
+      "docs/architecture/data-and-control-flow.md",
+      "docs/RELIABILITY.md",
+      "CHANGELOG.md",
+      "docs/reports/graph-quality-post.json",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md",
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md"
+    ],
+    "tree_fingerprint": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": "47f2226fa0c455e35be021dcea976a14a9a82dbb",
+      ".wavefoundry/framework/scripts/indexer.py": "31522d11edde88de5338420e4929d642975b082e",
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "e0f4979f472afc4d556fddbf0c7df7497174f5aa",
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8a03f6fde532217eaf5178637abb75b537ee8cee",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "ee493ae0184b9a3d2951e11ead4a8c63b771e9ac",
+      "docs/architecture/graph-index-system.md": "81c3e552be038a227f9abfbeddc0221222d3c785",
+      "docs/architecture/data-and-control-flow.md": "e5ae28fe73a701e906e0acb05e2def3b8eb3937f",
+      "docs/RELIABILITY.md": "61083084fa556a345471ebfb6c24cb4c79a3cdb5",
+      "CHANGELOG.md": "a294eb4d940f548df7c840db93462f2b11b97c23",
+      "docs/reports/graph-quality-post.json": "bc278b24a8c6716c6c993265018a3667640823d7",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": "64b2cb3fb4067009b3e802869dedb8b3d3390953",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": "4eba658a5815aa35f9dfb30d4b5550df7a897ac4",
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": "b1e09b095be4be9ef174880b961a70d1247bf4ee"
+    },
+    "time_budget": "180 seconds per specialist seat; report at budget with unrun checks explicit",
+    "sweep_rule": "Targeted tests per mutant; whole-file runs only for survivors. No whole framework suite in a lane. No edits to frozen paths.",
+    "architecture_refs": [
+      "docs/architecture/graph-index-system.md",
+      "docs/architecture/data-and-control-flow.md"
+    ],
+    "prior_artifacts": [
+      "docs/waves/1x5tq later-created-doc-link-targets/combined-readiness-review.md",
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md",
+      "/tmp/1x8e1-implementation/mutation-results.json",
+      "/tmp/1x5tq-caller-mutation-results.json",
+      "/tmp/1x5tq-framework-tests-final-frozen.log"
+    ],
+    "explicit_non_goals": [
+      "No commit or closure",
+      "No mutation of real project index during probes: use temporary fixtures",
+      "No broadening path semantics, semantic embedding or reap policy",
+      "No speculative backlog or hypothetical findings"
+    ],
+    "probe_budget": "Full combined risk envelope: 3-8 prioritized fixture families total, reuse parameterized fixtures; at most one partial failure/interleaving per changed boundary. Each specialist select 1-3 highest-value checks within its lane; keep finite.",
+    "python": "/Users/coryhacking/.wavefoundry/venv/bin/python -B",
+    "instructions": "MCP-first code exploration per seed020/guru; source outline then targeted reads. Existing tests are excluded from code_keyword index: use code_outline/code_read and record any scoped rg fallback. Findings need exact wf_review_event caller judgment/evidence/integrity objects; approvals need own fresh independent executed evidence and known-bad check, not inherited implementation results. No reviewer writes canonical ledger or edits frozen files."
+  },
+  "primer.json": {
+    "mode": "council-adversarial-primer",
+    "depth": "full",
+    "wave_id": "1x5tq",
+    "phase": "delivery",
+    "not_a_verdict": true,
+    "strongest_challenge": "The new idle repair gate may consume the durable unresolved-target obligation before publishing its repaired payload, then mistake the next unchanged retry for graph idleness. finalize commits a merge blob with the obligation cleared and payload_stat_state=pending before _write_json; read_pending_doc_link_repairs checks versions and merge shape but not payload binding. After an injected payload-write failure during idle repair, the next public build can see zero pending docs and rebuild_required=false even though the prior epoch is dirty. The dirty-epoch branch repairs bookkeeping and finalizes without dispatching graph unless _needs_graph_recovery is true. This is a code-grounded failure hypothesis, not an executed finding.",
+    "best_alternative": "Extend the existing read-only preflight to require publication proof before it can certify graph idleness: require bound payload_stat_state, matching summary/meta payload fingerprint, and the existing payload stat binding check through a read-only helper. Any unproven binding returns rebuild_required=true. Keep the single locked merge and existing full-merge recovery from retained rows. Add one public idle-repair fixture that fails graph payload publication after store.apply_build, closes the session, and retries unchanged; require the repaired edge, bound store, completed epoch, and no subsequent repair. This is better because it preserves the current selective work design while coupling obligation completion to published output. Cost: a payload stat probe on idle builds and conservative full re-merges after interrupted writes; no new journal or transaction system.",
+    "consequence_of_current_path": "If the hypothesis is confirmed, a formerly unresolved link can remain absent from the served graph indefinitely after a failed publication even though an unchanged retry returns up_to_date and clears the dirty epoch.",
+    "thinking_stances_applied": [
+      {
+        "stance": "adversarial",
+        "produced": "Interrupt exactly between graph store commit and payload publication during the newly introduced idle repair."
+      },
+      {
+        "stance": "constructive",
+        "produced": "Make the existing preflight certify publication binding, then reuse full-merge recovery from durable artifacts."
+      },
+      {
+        "stance": "simplicity",
+        "produced": "Prefer a shared read-only binding predicate over a second durable obligation ledger or unconditional graph work on all idle builds."
+      },
+      {
+        "stance": "first-principles",
+        "produced": "An obligation is complete only when the consumer-visible projection containing its edge is published; an empty pending set alone proves too little."
+      },
+      {
+        "stance": "analogical",
+        "produced": "Treat the merge blob as an outbox item: clearing delivery intent before acknowledging the published projection creates an at-most-once delivery gap."
+      }
+    ],
+    "primer_questions": [
+      "After failing _write_json for project-graph.json immediately after store.apply_build during an idle pending-link repair, does a fresh unchanged public build actually restore the edge and binding before finalizing the epoch? Show expected versus observed state, and a known-bad check.",
+      "Does every path certifying no pending graph work validate the same payload/meta/merge-state binding used by finalize, including cached-plan reuse and absent or malformed summaries? Identify the precise safe fallback and execute the highest-risk counterexample.",
+      "Does the unlocked dry-run remain observationally read-only when pending link repair coexists with dirty epoch or orphan work, and does the real retry perform exactly one graph merge under the lock and epoch while preserving failed/unreadable document obligations? Explain why the removed second doc scan cannot change the symbol matcher."
+    ],
+    "recommendation": "Assign the single publication-failure fixture to architecture or QA first; other seats explicitly answer the binding and read-only questions. If reproduced, route a bounded preflight repair and focused independent replay.",
+    "evidence_basis": [
+      ".wavefoundry/framework/scripts/graph_indexer.py:1634-1705 _pending_doc_link_repairs / _valid_doc_link_merge_state / read_pending_doc_link_repairs",
+      ".wavefoundry/framework/scripts/graph_indexer.py:13900-13947 cached-plan acquisition and finalize binding gates",
+      ".wavefoundry/framework/scripts/graph_indexer.py:15008-15047 store commit -> payload -> binding publication ordering",
+      ".wavefoundry/framework/scripts/indexer.py:5093-5103 idle graph-recovery decision",
+      ".wavefoundry/framework/scripts/indexer.py:5252-5265 graph dispatch is gated by _needs_graph_recovery",
+      ".wavefoundry/framework/scripts/indexer.py:5293-5316 dirty epoch can advance bookkeeping and finalize independently of graph repair",
+      "/tmp/1x5tq-delivery-round0/diff.patch: new tests cover failed doc reads, missing merge blob, version mismatch, and combined orphan/dirty recovery; they do not show a payload-publication failure after consuming the obligation."
+    ],
+    "confidence": "medium",
+    "evidence_classification": "Source-validated mechanism; failure behavior inferred, not executed.",
+    "limits": [
+      "No probes or full suite executed in primer; subsequent formal seat must reproduce before recording a blocking finding.",
+      "No frozen paths, real index, or review ledger edited.",
+      "No separate approval claim.",
+      "MCP code_outline and targeted code_read used for source validation; patch read from the frozen briefing artifact."
+    ]
+  },
+  "architecture.json": {
+    "seat": "architecture-reviewer",
+    "phase": "delivery",
+    "verdict": "blocking finding",
+    "strongest_challenge": "Confirmed by own execution: the durable obligation is consumed before consumer-visible projection publication and idle preflight omits publication proof.",
+    "boundaries_touched": [
+      "read-only idle preflight to locked epoch-fenced graph mutation",
+      "durable SQLite graph state to separately atomic JSON payload publication"
+    ],
+    "normative_source": "docs/architecture/graph-index-system.md:569-573 requires bound zero-change and loud full re-merge after publication mismatch.",
+    "primer_answers": {
+      "Q1": "No. Own publication-fault fixture observed missing edge and pending binding after a fresh graph-session public retry reported complete/up_to_date. See raw state and same-tree full-rebuild positive control. Retry reused the Python process, not the graph session.",
+      "Q2": "No. graph_indexer.py:1697 uses only merge shape/version, while finalize:13916 and 13943 checks _payload_binding_ok including bound marker, fingerprint, size and mtime. Cached plan metadata equality at 13904 does not repair omitted binding in outer idle preflight. Missing/malformed decoded merge_state yields rebuild_required=true through _valid_doc_link_merge_state; SQLite/open failures yield None and outer caller treats it as no work (source inference, not separate executed finding). Safe bounded repair is read-only shared publication proof and conservative rebuild_required when it cannot be proven, then existing locked full merge. Highest-risk pending-publication counterexample executed.",
+      "Q3": "Three own current IdleDocLinkRecoveryTests passed: failed document read recovers unchanged; pending nodeless link plus dirty epoch remains byte-identical in dry-run and repairs in one lock/epoch-fenced merge; pending link plus orphan reap remains read-only in preview and uses one merge. Deferred obligations preserved through failed reads in their setup. Removed second scan only rebuilt a code-symbol matcher after doc extraction; docs contribute no code symbols, so source-inferred matcher stability holds. Separate matcher mutation not run."
+    },
+    "mutation_table": [
+      {
+        "mechanism": "idle publication recovery",
+        "mutation": "raise OSError at graph payload write after store commit",
+        "expected": "fresh unchanged retry restores edge and binding before complete epoch",
+        "observed": "NOT RECOVERED: zero dispatches, edge absent, binding pending, complete epoch",
+        "oracle": "known-bad edge assertion FAIL; same-tree full public rebuild PASS"
+      },
+      {
+        "mechanism": "dirty epoch and pending target dry-run/recovery",
+        "mutation": "seed dirty epoch with retained obligation",
+        "expected": "byte-identical unlocked preview; one locked epoch-fenced merge",
+        "observed": "PASS via own targeted test"
+      },
+      {
+        "mechanism": "orphan and pending target recovery",
+        "mutation": "retire source while metadata no longer lists it",
+        "expected": "one graph merge; sidecar retirement; no second graph retirement",
+        "observed": "PASS via own targeted test"
+      }
+    ],
+    "fingerprint_check": {
+      "matches_packet": true,
+      "mismatches": {}
+    },
+    "limitations_unrun": "Public build_index used with real walker, graph session, SQLite/Lance stores and deterministic mock embedders; fresh GraphIndexSession and SQLite connections on retry, same Python process. No OS process-kill, disk-full hardware probe, broad suite, or separate missing/malformed-summary fixture; other summary cases source-inferred. No frozen paths, real index, or ledger changed.",
+    "caller_json": {
+      "wave_id": "1x5tq",
+      "event": "finding",
+      "actor": "architecture-reviewer",
+      "context_id": "1x5tq-delivery-round0-architecture-independent",
+      "mode": "create",
+      "finding_id": "ARCH-DEL-1",
+      "run_kind": "initial_delivery",
+      "cycle": 0,
+      "judgment": {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "public_contract",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only"
+      },
+      "evidence": {
+        "proposition": "An unchanged public retry after failed idle link-repair payload publication must publish the repaired graph and establish binding before reporting complete/up_to_date.",
+        "failure_condition": "A retained doc-link obligation becomes resolvable; its idle repair commits rows/merge_state then project-graph.json write raises OSError.",
+        "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize -> fresh unchanged indexer.build_index",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round0/architecture_probe.py",
+        "expected": "Next unchanged public build dispatches graph repair, restores docs/linker.md -> src/later.py doc_references_doc, establishes bound payload metadata, then completes epoch.",
+        "observed": "Injected write failed with failed=true and epoch building generation 2; committed merge state had no unresolved target and payload_stat_state=pending. Unchanged retry dispatched zero graph merges, returned up_to_date=true and graph_recovery_attempted=false, advanced epoch to complete generation 3, yet edge remained absent and binding pending. Same-tree full rebuild restored edge and bound state at complete generation 4. Three independent current targeted idle recovery tests passed with zero skips. After the isolated first pass, QA independently reviewed this architecture-owned publication execution trace and consented joint source/blocking ownership in qa-ack.json, supported by its own 16 baseline tests and two mutation controls. QA did not execute the publication-failure fixture; architecture remains the executing actor for this finding and its integrity attestations.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round0/architecture_probe_results.json",
+        "known_bad_detection_method": "focused-mutation: injected OSError only at project-graph.json publication after committed store.apply_build; expected edge assertion fails on unchanged public retry; same-tree supported full rebuild restores edge and bound state, proving the missing-edge oracle is non-vacuous.",
+        "limitations": "Public build_index used with real walker, graph session, SQLite/Lance stores and deterministic mock embedders; fresh GraphIndexSession and SQLite connections on retry, same Python process. No OS process-kill, disk-full hardware probe, broad suite, or separate missing/malformed-summary fixture; other summary cases source-inferred. No frozen paths, real index, or ledger changed.",
+        "safety_and_authorization": "Read-only review of frozen paths; fault injection and all generated stores in authorized /tmp/1x5tq-delivery-round0 fixtures only.",
+        "disposition_rationale": "do_now: directly executed supported-path public-contract violation of docs/architecture/graph-index-system.md:573 crash recovery guarantee and admitted durable-obligation repair. Newly added idle preflight certifies idleness from consumed obligation without the publication binding checked by finalize. This is correctness, no attacker or authority gain; first error detects the interruption but subsequent success hides persistent missing graph evidence."
+      },
+      "source_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "approval_recheck_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer",
+        "wave-council-delivery"
+      ],
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: injected OSError only at project-graph.json publication after committed store.apply_build; expected edge assertion fails on unchanged public retry; same-tree supported full rebuild restores edge and bound state, proving the missing-edge oracle is non-vacuous."
+      }
+    },
+    "approval": null,
+    "alternative_acknowledgment": "Accept rotating performance alternative: one shared pure read-only publication-binding predicate for preflight and cached reuse; require bound state, summary/meta fingerprint agreement, size/mtime binding; route unproven publication to existing locked full merge. Focused architecture and QA replay, with delivery council synthesis refreshed; no objective full-council restart trigger for restoration alone.",
+    "severity": "high"
+  },
+  "architecture_probe_results.json": {
+    "failed_build": {
+      "files_indexed": 0,
+      "files_total": 4,
+      "up_to_date": false,
+      "failed": true,
+      "failure": "idle graph recovery failed: architecture reviewer injected payload publication failure"
+    },
+    "after_failure": {
+      "epoch": {
+        "attempt_id": "f26cc54791f24e86a0dacefc61916c08",
+        "scope": "all:idle-maintenance",
+        "status": "building",
+        "generation": 2,
+        "started_at": 1788630054.276704,
+        "completed_at": null
+      },
+      "payload_stat_state": "pending",
+      "unresolved": null,
+      "edges": [
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+          "defines"
+        ],
+        [
+          "src/app.py",
+          "src/app.py::app",
+          "defines"
+        ],
+        [
+          "src/later.py",
+          "src/later.py::later",
+          "defines"
+        ]
+      ]
+    },
+    "retry": {
+      "files_indexed": 0,
+      "files_total": 4,
+      "up_to_date": true,
+      "stranded_rows_reaped": 0,
+      "stranded_rows_reaped_by_table": {
+        "docs": 0,
+        "code": 0,
+        "total": 0
+      },
+      "stranded_reap_deferred": {},
+      "stranded_reap_preserved": {},
+      "orphan_rows_reconciled": {
+        "file_freshness": 0,
+        "secret_scan_cache": 0,
+        "graph": 0
+      },
+      "graph_recovery_attempted": false
+    },
+    "retry_graph_dispatches": 0,
+    "after_retry": {
+      "epoch": {
+        "attempt_id": "f658f70c98834f0f98a7678d8639ec4e",
+        "scope": "all:idle-maintenance",
+        "status": "complete",
+        "generation": 3,
+        "started_at": 1788630054.329889,
+        "completed_at": 1788630054.340891
+      },
+      "payload_stat_state": "pending",
+      "unresolved": null,
+      "edges": [
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json",
+          "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+          "defines"
+        ],
+        [
+          "docs/workflow-config.json::lifecycle_id_policy",
+          "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+          "defines"
+        ],
+        [
+          "src/app.py",
+          "src/app.py::app",
+          "defines"
+        ],
+        [
+          "src/later.py",
+          "src/later.py::later",
+          "defines"
+        ]
+      ]
+    },
+    "normative_recovery_assertion": "FAIL: False != True",
+    "full_rebuild_control": {
+      "result": {
+        "files_indexed": 4,
+        "files_total": 4,
+        "doc_chunks": 2,
+        "code_chunks": 5,
+        "up_to_date": false,
+        "stranded_rows_reaped": 0,
+        "stranded_rows_reaped_by_table": {
+          "docs": 0,
+          "code": 0,
+          "total": 0
+        },
+        "stranded_reap_deferred": {},
+        "stranded_reap_preserved": {},
+        "orphan_rows_reconciled": {
+          "file_freshness": 0,
+          "secret_scan_cache": 0,
+          "graph": 0
+        }
+      },
+      "state": {
+        "epoch": {
+          "attempt_id": "86c80108a0074d12a5a7afa345a40f21",
+          "scope": "all:full",
+          "status": "complete",
+          "generation": 4,
+          "started_at": 1788630054.3577769,
+          "completed_at": 1788630054.467808
+        },
+        "payload_stat_state": "bound",
+        "unresolved": null,
+        "edges": [
+          [
+            "docs/linker.md",
+            "src/later.py",
+            "doc_references_doc"
+          ],
+          [
+            "docs/workflow-config.json",
+            "docs/workflow-config.json::lifecycle_id_policy",
+            "defines"
+          ],
+          [
+            "docs/workflow-config.json",
+            "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+            "defines"
+          ],
+          [
+            "docs/workflow-config.json",
+            "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+            "defines"
+          ],
+          [
+            "docs/workflow-config.json::lifecycle_id_policy",
+            "docs/workflow-config.json::lifecycle_id_policy.epoch_utc",
+            "defines"
+          ],
+          [
+            "docs/workflow-config.json::lifecycle_id_policy",
+            "docs/workflow-config.json::lifecycle_id_policy.hour_offset",
+            "defines"
+          ],
+          [
+            "src/app.py",
+            "src/app.py::app",
+            "defines"
+          ],
+          [
+            "src/later.py",
+            "src/later.py::later",
+            "defines"
+          ]
+        ]
+      },
+      "normative_edge_assertion": "PASS"
+    },
+    "known_bad_detected": true,
+    "targeted_tests": {
+      "run": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "fingerprint_mismatches": {}
+  },
+  "security.json": {
+    "role": "security-reviewer",
+    "verdict": "approved-with-notes",
+    "overall_severity": "none demonstrated",
+    "caller": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "security-reviewer",
+      "context_id": "1x5tq-delivery-security-independent-20260905-r0",
+      "mode": "dry_run",
+      "signoff_key": "security-reviewer",
+      "approval_phase": "delivery",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "observed": "Fresh combined dirty epoch + graph orphan + retained doc link passes. Unlocked public dry-run preserved complete persisted SQLite rows and artifact/Lance bytes. Public CLI retry reached exactly one graph merge under actual lock with epoch building; recovered doc edge after an injected prior read failure, removed graph/Lance orphan, completed generation, and subsequent unchanged retry neither dispatched graph nor advanced generation. Known-bad early-return bypass changed durable state and was rejected. All13 frozen hashes match before and after.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round0/security-probe-results.json",
+        "public_path": "indexer.build_index(root, content=\"all\", dry_run=True); indexer.main([\"--root\", fixture_root,\"--content\",\"all\"])",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round0/security-probe.py",
+        "expected": "Read-only unlocked preview; one fenced real recovery; preserved failed-read obligation; convergent next retry",
+        "known_bad_detection_method": "Process-local recompilation of _build_index_locked with only the idle dry_run early-return guard disabled; fresh same combined fixture detects changed persisted SQLite state by complete row/artifact snapshot equality before return. Baseline passes.",
+        "limitations": "Risk-selected F1 combined scenario executed using existing fixture helpers with new simultaneous dirty+orphan combination and added mutation snapshot assertion. Embedding mocked; real SQLite, Lance, graph, lock, epoch and public CLI used. No full suite, real index mutation, privilege-separated adversary, or publication-failure replay; architecture owns the latter. SQLite transient WAL/SHM bytes excluded while all persisted rows checked. Scoped rg over tests and briefing diff after MCP outline; no indexed-test assumption.",
+        "safety_and_authorization": "Temporary same-user operator-owned repository fixtures only; no external communication or new authority."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Process-local recompilation of _build_index_locked with only the idle dry_run early-return guard disabled; fresh same combined fixture detects changed persisted SQLite state by complete row/artifact snapshot equality before return. Baseline passes."
+      }
+    },
+    "findings": [],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Process-local recompilation of _build_index_locked with only the idle dry_run early-return guard disabled; fresh same combined fixture detects changed persisted SQLite state by complete row/artifact snapshot equality before return. Baseline passes."
+    },
+    "fresh_context": true,
+    "independent": true,
+    "threat_gate": {
+      "actor": "operator / same-user process / owned repository data",
+      "controlled_surface": "local graph store, current paths, docs and build request",
+      "supported_path": "public Python build and CLI",
+      "authority_delta": "none beyond operator authority",
+      "impact": "publication hypothesis is correctness/recovery, not evidenced adversarial escalation",
+      "promotion_trigger": "none introduced"
+    },
+    "security_summary": "Local path references normalize to corpus membership and do not directly read target content; no new external write/read tool or root authority. Document matcher retains re.escape for complex terms. No exploit chains identified. Existing operator-owned trust assumptions preserved.",
+    "strongest_challenge": {
+      "status": "source-validated; execution assigned to architecture",
+      "answer": "Credible correctness hypothesis: read_pending_doc_link_repairs checks version and merge shape but omits bound payload marker/stat/fingerprint equality. finalize checks these but caller can skip finalize when pending docs are empty. Dirty bookkeeping completion alone does not imply repaired payload publication. No claimed execution or blocking security finding from inference."
+    },
+    "primer_answers": [
+      {
+        "question": 1,
+        "status": "inferred; architecture owns exclusive failure replay",
+        "answer": "Source supports risk that unchanged retry skips graph once durable obligation is consumed, despite dirty epoch. I did not duplicate payload-write interruption. Expected repair requires published edge and bound state, not merely complete epoch."
+      },
+      {
+        "question": 2,
+        "status": "source-validated",
+        "answer": "No. Preflight 1697 uses _valid_doc_link_merge_state only; finalize 13916 requires _payload_binding_ok and 13944 compares merge fingerprint. Cached plan requires exact current store metadata at13904 and finalize rechecks binding. Missing/malformed merge summary asks rebuild via valid=false; unreadable store returns None, which makes no pending claim. Highest-risk publication counterexample belongs to architecture."
+      },
+      {
+        "question": 3,
+        "status": "executed for simultaneous dirty+orphan+pending link; matcher rationale source-validated",
+        "answer": "Yes in executed combined fixture: unchanged dry-run preserves persisted state; CLI retry makes exactly one locked merge in building epoch and recovers obligation retained through failed doc read. The removed second doc scan cannot change symbol matcher because _build_symbol_terms at13711-13713 consumes only code artifacts; rescanned artifacts are doc/seed/memory. Dedicated unreadable-directory replay not run in this seat."
+      }
+    ],
+    "mutation_table": [
+      {
+        "mutant": "disable idle dry_run return",
+        "location": "indexer._build_index_locked:5107 (process-local compiled function)",
+        "test": "security-probe.py combined dirty+orphan+link snapshot invariant",
+        "result": "killed: persisted SQLite epoch/state changed",
+        "runtime_seconds": 0.632,
+        "survivor": false
+      }
+    ],
+    "baseline_runtime_seconds": 1.717,
+    "hashes_before": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+      "docs/architecture/graph-index-system.md": true,
+      "docs/architecture/data-and-control-flow.md": true,
+      "docs/RELIABILITY.md": true,
+      "CHANGELOG.md": true,
+      "docs/reports/graph-quality-post.json": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+    },
+    "hashes_after": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+      "docs/architecture/graph-index-system.md": true,
+      "docs/architecture/data-and-control-flow.md": true,
+      "docs/RELIABILITY.md": true,
+      "CHANGELOG.md": true,
+      "docs/reports/graph-quality-post.json": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+    },
+    "limitations": "Risk-selected F1 combined scenario executed using existing fixture helpers with new simultaneous dirty+orphan combination and added mutation snapshot assertion. Embedding mocked; real SQLite, Lance, graph, lock, epoch and public CLI used. No full suite, real index mutation, privilege-separated adversary, or publication-failure replay; architecture owns the latter. SQLite transient WAL/SHM bytes excluded while all persisted rows checked. Scoped rg over tests and briefing diff after MCP outline; no indexed-test assumption.",
+    "alternative_weighing": "Pending rotating brief followup; primer proposed read-only publication proof is bounded and reuses existing recovery, with conservative rebuild cost. No code repair performed."
+  },
+  "qa.json": {
+    "seat": "qa-reviewer",
+    "verdict": "needs_more_evidence_on_publication_challenge",
+    "approval_caller": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "qa-reviewer",
+      "context_id": "1x5tq-delivery-round0-qa-independent-20260905",
+      "mode": "dry_run",
+      "signoff_key": "qa-reviewer",
+      "approval_phase": "delivery",
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      },
+      "evidence": {
+        "proposition": "Dry-run maintenance previews preserve durable state and report work; successful target appearance/deferred-read recovery restores exact promised edges and stops further repair.",
+        "failure_condition": "Any persisted preview mutation or missing exact node/edge after recoverable target creation.",
+        "public_path": "indexer.build_index / indexer.main; graph_indexer.update_graph_index via faithful _RepoDriver",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_graph_incremental_merge.LaterCreatedDocTargetTests test_indexer.DryRunIdleMaintenanceTests test_indexer.IdleDocLinkRecoveryTests -v (cwd .wavefoundry/framework/scripts/tests)",
+        "expected": "16 focused tests pass with no skips; gate deletion and retry-trigger deletion each fail an asserted invariant.",
+        "observed": "Own baseline: 16 tests, 8.450 seconds, zero failures/errors/skips. Own dryrun mutant fails snapshot equality; own retry mutant fails exact referring-node assertion in read/exists/directory cases.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round0/qa-probe.py; qa-mutations.json; unittest tool session 51000",
+        "known_bad_detection_method": "focused-mutation",
+        "limitations": [
+          "Publication interruption intentionally assigned to architecture; not executed by QA and remains unverified here. No unconditional whole-wave approval until challenge evidence weighed.",
+          "Full suite not rerun: independently inspected final frozen log showing 8478 tests, 3 skips, OK; this is artifact evidence, not own execution. Full docs validation claimed by change record, not independently rerun here.",
+          "Lance/SQLite production storage and lock/epoch real; embedding mocked with deterministic vectors. Graph differential oracle shares extractor; independently-read exact normative edges/node assertions mitigate common-mode parity risk.",
+          "SQLite snapshot compares all persisted rows and durable non-SQLite bytes; WAL/SHM transient byte identity not claimed. ResourceWarnings occurred but no test skipped.",
+          "MCP outlines and targeted reads used; scoped rg/sed for nonindexed tests and frozen diff. No repo mutations, real-index build, ledger write, fullsuite or publication failure injection."
+        ],
+        "safety_and_authorization": "Temporary fixtures and process-local monkeypatches only; no frozen path or real index writes.",
+        "disposition_rationale": "Observed admitted paths pass; retain overall signoff pending explicitly unverified publication challenge."
+      }
+    },
+    "approval_caller_status": "Prepared exact caller object for scoped executed evidence; do not record whole-lane approval until publication challenge resolved.",
+    "findings": [],
+    "strongest_challenge": {
+      "status": "inferred",
+      "answer": "Credible uncovered caller-level failure. read_pending_doc_link_repairs checks versions and structural summary validity at graph_indexer.py:1689-1697, while finalize additionally checks _payload_binding_ok at 13916/13945. Caller can skip finalize after consumed obligation; architecture must execute the assigned failure before finding classification."
+    },
+    "primer_questions": [
+      {
+        "question": 1,
+        "status": "unverified",
+        "answer": "Not executed by QA per single-injection ownership. Expected fresh retry must restore exact edge, binding and completed epoch; inferred caller skips graph when persisted pending_docs is empty even if publication is pending."
+      },
+      {
+        "question": 2,
+        "status": "mixed: executed and inferred",
+        "answer": "No: read-only preflight does not share finalize binding predicate. Missing merge blob and builder-version mismatch tests executed successfully: rebuild_required requests normal locked full recovery and cached missing sentinel avoids second blob read. Highest-risk partial-publication counterexample belongs to architecture and is unverified here."
+      },
+      {
+        "question": 3,
+        "status": "executed for state/dispatch; inferred for matcher proof",
+        "answer": "All dryrun branch tests passed, including dirty, drift, heal, orphan, reap, missing Lance plus dirty, healthy idle, CLI; combined pending-link+dirty and pending-link+orphan tests prove state identity, exactly one real lock/epoch-fenced graph merge, complete epoch, exact edge and no next-idle dispatch. Failed read/exists/directory obligations recover unchanged. Removed second scan does not change symbol matcher because doc extraction contributes no code symbols (diff source claim; no independent symbol-mutator probe within budget)."
+      }
+    ],
+    "ac_evidence": {
+      "1x8e1.AC-1": {
+        "status": "executed",
+        "tests": [
+          "LaterCreatedDocTargetTests.test_target_only_creation_then_unchanged_and_unrelated",
+          "LaterCreatedDocTargetTests.test_failed_or_unreadable_doc_retries_on_unchanged_recovery",
+          "IdleDocLinkRecoveryTests"
+        ],
+        "assertion": "Exact source docs/linker.md, requested target, doc_references_doc/EXTRACTED edge; doc node exists and node-less target absent; same graph as full oracle; reopened artifact+summary obligations. Publication-interruption limit remains."
+      },
+      "1x8e1.AC-2": {
+        "status": "executed",
+        "tests": [
+          "LaterCreatedDocTargetTests.test_target_only_creation_then_unchanged_and_unrelated",
+          "LaterCreatedDocTargetTests.test_read_only_preflight_reuses_blob_and_detects_version_mismatch"
+        ],
+        "assertion": "Never-present/resolved target scan count=0; zero-change state_reads/state_writes/blob_writes=0; duplicate blob load trap not reached."
+      },
+      "1x8e1.AC-3": {
+        "status": "mixed",
+        "tests": [
+          "16 own targeted tests",
+          "/tmp/1x5tq-framework-tests-final-frozen.log"
+        ],
+        "assertion": "Own 16 pass; independent log inspection confirms 8478/74 green with3 skips; docs lint not independently executed."
+      },
+      "1x81w.AC-1": {
+        "status": "executed",
+        "tests": [
+          "DryRunIdleMaintenanceTests",
+          "IdleDocLinkRecoveryTests"
+        ],
+        "assertion": "All persisted SQLite rows/generation/epoch and durable artifact/Lance bytes equal across unlocked dryrun."
+      },
+      "1x81w.AC-2": {
+        "status": "executed",
+        "tests": [
+          "DryRunIdleMaintenanceTests",
+          "IdleDocLinkRecoveryTests"
+        ],
+        "assertion": "Pending booleans, counts and CLI diagnostic contain required condition; healthy idle has no pending flags."
+      },
+      "1x81w.AC-3": {
+        "status": "executed",
+        "tests": [
+          "qa-remove-dryrun-gate"
+        ],
+        "assertion": "Deletion fails snapshot equality, 1 failure, 0 errors/skips."
+      }
+    },
+    "mutation_table": [
+      {
+        "mutant": "qa-remove-dryrun-gate",
+        "test": "test_indexer.DryRunIdleMaintenanceTests.test_dirty_epoch_dry_run_is_byte_identical_and_reports_recovery",
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "runtime": 1.4978195000439882,
+        "survivor": false
+      },
+      {
+        "mutant": "qa-disable-deferred-trigger",
+        "test": "test_graph_incremental_merge.LaterCreatedDocTargetTests.test_failed_or_unreadable_doc_retries_on_unchanged_recovery",
+        "tests": 1,
+        "failures": 3,
+        "errors": 0,
+        "skips": 0,
+        "runtime": 0.28145345801021904,
+        "survivor": false
+      }
+    ],
+    "limits": [
+      "Publication interruption intentionally assigned to architecture; not executed by QA and remains unverified here. No unconditional whole-wave approval until challenge evidence weighed.",
+      "Full suite not rerun: independently inspected final frozen log showing 8478 tests, 3 skips, OK; this is artifact evidence, not own execution. Full docs validation claimed by change record, not independently rerun here.",
+      "Lance/SQLite production storage and lock/epoch real; embedding mocked with deterministic vectors. Graph differential oracle shares extractor; independently-read exact normative edges/node assertions mitigate common-mode parity risk.",
+      "SQLite snapshot compares all persisted rows and durable non-SQLite bytes; WAL/SHM transient byte identity not claimed. ResourceWarnings occurred but no test skipped.",
+      "MCP outlines and targeted reads used; scoped rg/sed for nonindexed tests and frozen diff. No repo mutations, real-index build, ledger write, fullsuite or publication failure injection."
+    ],
+    "fingerprint_before": "qa-fingerprint-before.json: all13 matched",
+    "fingerprint_after": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": "47f2226fa0c455e35be021dcea976a14a9a82dbb",
+      ".wavefoundry/framework/scripts/indexer.py": "31522d11edde88de5338420e4929d642975b082e",
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "e0f4979f472afc4d556fddbf0c7df7497174f5aa",
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8a03f6fde532217eaf5178637abb75b537ee8cee",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "ee493ae0184b9a3d2951e11ead4a8c63b771e9ac",
+      "docs/architecture/graph-index-system.md": "81c3e552be038a227f9abfbeddc0221222d3c785",
+      "docs/architecture/data-and-control-flow.md": "e5ae28fe73a701e906e0acb05e2def3b8eb3937f",
+      "docs/RELIABILITY.md": "61083084fa556a345471ebfb6c24cb4c79a3cdb5",
+      "CHANGELOG.md": "a294eb4d940f548df7c840db93462f2b11b97c23",
+      "docs/reports/graph-quality-post.json": "bc278b24a8c6716c6c993265018a3667640823d7",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": "64b2cb3fb4067009b3e802869dedb8b3d3390953",
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": "4eba658a5815aa35f9dfb30d4b5550df7a897ac4",
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": "b1e09b095be4be9ef174880b961a70d1247bf4ee"
+    },
+    "best_alternative_acknowledgment": "Pending rotating challenge from coordinator; no other fixed-seat output read."
+  },
+  "qa-ack.json": {
+    "seat": "qa-reviewer",
+    "stage": "post-fixed challenge and rotating alternative acknowledgment",
+    "finding_id": "ARCH-DEL-1",
+    "verdict": "confirmed material correctness blocker; QA delivery approval withheld",
+    "severity": "high",
+    "source_lane_consent": {
+      "consent": true,
+      "source_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "approval_recheck_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer",
+        "wave-council-delivery"
+      ],
+      "reason": "QA independently read both admitted contracts, ran normal and deferred paths with known-bad tests, then reviewed architecture execution artifact and probe source. Missing exact required edge after an unchanged supported retry and falsely completed epoch violate durable-obligation behavior. QA owns normative correctness regression evidence and focused independent repair replay alongside architecture."
+    },
+    "judgment": {
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "material",
+      "containment": "detect_only"
+    },
+    "evidence_classification": {
+      "qa_own_executed": "16 focused baseline tests pass, zero skips; removed dryrun gate gives snapshot failure; disabled pending trigger gives three exact referring-node failures; qa.json/qa-mutations.json.",
+      "architecture_executed_qa_reviewed": "architecture_probe.py injects OSError solely at project-graph.json write; observes error and still-missing edge, then removes patch for ordinary retry. Raw results show zero graph dispatches, up_to_date true, epoch complete generation3, binding pending and edge still absent. Supported same-tree full rebuild restores exact edge, bound state, complete generation4.",
+      "not_claimed": "QA did not execute publication failure probe. Architecture remains executing actor for the combined typed finding and its integrity attestations. Sharing source-lane consent does not convert inherited execution into QA own execution."
+    },
+    "alternative_acknowledgment": {
+      "alternative": "Retain selective snapshot reuse; share finalize publication proof as a pure readonly predicate for preflight/cached reuse, require bound state, summary/meta fingerprint consistency and existing size/mtime binding, then route unproven state to existing locked full merge.",
+      "position": "accept as bounded preferred repair",
+      "reasoning": "Directly closes the false-idleness predicate without consuming new durable obligations or adding unconditional graph work. Reusing the existing publication proof prevents two subtly different definitions of completed graph output. Existing retained artifacts support conservative full merge after failure. One payload stat on ordinary idle is a proportional cost; full merge remains limited to unproven publication.",
+      "conditions": "Unknown/pending/mismatch must not be interpreted as no graph work; keep preview read-only and preserve one merge under existing lock/epoch. Reuse snapshot only when checked against current metadata. Add focused replay proving exact node/edge, bound publication, complete epoch and subsequent true idle."
+    },
+    "approval": null,
+    "prepared_approval_caller_disposition": "qa.json approval_caller remains WITHHELD; do not append it.",
+    "required_replay": "Fresh independent QA after repair must run assigned focused public interruption/retry regression and known-bad preflight variant, plus scoped dryrun/read-only and exact-edge controls affected by repair. Broaden only if changed boundary warrants it.",
+    "limitations": [
+      "Source-reviewed architecture probe uses same Python process with fresh graph sessions/connections; no process-kill claim.",
+      "Single publication injection owned by architecture, no duplicated probe.",
+      "No new tests/probes in acknowledgment; no frozen paths, canonical ledger or real index modified."
+    ]
+  },
+  "reality.json": {
+    "role": "reality-checker",
+    "context_id": "1x5tq-delivery-reality-round0",
+    "fresh_context": true,
+    "independent": true,
+    "verdict": "bounded checks pass; publication-binding challenge remains unverified by this seat, defer council approval pending architecture probe",
+    "findings": [],
+    "assumptions": [
+      {
+        "assumption": "Missing or malformed summary cannot certify idleness while a bound payload exists",
+        "status": "tested",
+        "result": "Both public unchanged builds dispatched one graph repair and restored exact edge and doc node; subsequent unchanged build dispatched none."
+      },
+      {
+        "assumption": "Dirty epoch and orphan maintenance preserve dry-run read-only behavior and share one locked graph repair",
+        "status": "tested",
+        "result": "Two selected public/CLI fixtures passed with durable snapshots, lock/epoch assertions, exact link and no repeated merge."
+      },
+      {
+        "assumption": "Valid shape implies publication proof",
+        "status": "source-refuted, operational effect not executed here",
+        "result": "read_pending_doc_link_repairs checks versions and shape only; finalize separately checks payload binding."
+      }
+    ],
+    "strongest_challenge": {
+      "status": "source-supported hypothesis, not own reproduced finding",
+      "response": "The caller may certify idleness from consumed obligations while publication is unbound. Preconditions and branch are visible at graph_indexer.py:1650-1702 and indexer.py:5093-5103. Architecture owns the single actual publication fault; no duplicate injection or imported fixed-seat result used."
+    },
+    "primer_answers": [
+      {
+        "question": 1,
+        "status": "not executed by this seat",
+        "answer": "Expected unchanged retry to restore edge, bind payload, complete epoch. Actual publication-fault behavior is reserved for architecture. My known-bad control only falsifies omission of summary recovery and must not be represented as that failure test."
+      },
+      {
+        "question": 2,
+        "status": "executed missing/malformed; source-validated binding mismatch",
+        "answer": "No: preflight shape/version validity omits payload binding, while finalize at13914-13947 checks _payload_binding_ok. Absent/malformed merge blobs safely set rebuild_required; independently executed public builds restored target edge and node, exactly one merge, then no-op. Cached-plan reuse compares metadata; that comparison alone does not establish payload binding."
+      },
+      {
+        "question": 3,
+        "status": "executed dirty and orphan separately; matcher rationale inferred",
+        "answer": "Both public selected fixtures passed: dry-run byte/epoch snapshots unchanged, real CLI one graph dispatch under lock and building epoch, exact edge restored after prior denied doc read, next build no dispatch. Dirty+orphan together not independently run. Removed scan matcher equivalence is not independently established by these probes; requires unchanged symbol-index inputs and preserved mentions matching predicate."
+      }
+    ],
+    "executed": [
+      {
+        "test": "test_nodeless_link_and_dirty_epoch_share_one_locked_recovery",
+        "passed": true,
+        "skips": [],
+        "errors": [],
+        "failures": [],
+        "runtime": 1.8814779580570757
+      },
+      {
+        "test": "test_pending_link_and_orphan_reap_share_one_graph_merge",
+        "passed": true,
+        "skips": [],
+        "errors": [],
+        "failures": [],
+        "runtime": 0.7625303340610117
+      },
+      {
+        "test": "missing",
+        "passed": true,
+        "graph_calls": 1,
+        "result_up_to_date": true,
+        "known_bad_detected": false,
+        "runtime": 0.5987698750104755
+      },
+      {
+        "test": "malformed",
+        "passed": true,
+        "graph_calls": 1,
+        "result_up_to_date": true,
+        "known_bad_detected": false,
+        "runtime": 0.6214692089706659
+      },
+      {
+        "test": "known_bad",
+        "passed": true,
+        "graph_calls": 0,
+        "result_up_to_date": true,
+        "known_bad_detected": true,
+        "runtime": 0.5895803329767659
+      }
+    ],
+    "mutation_table": [
+      {
+        "mutant": "force rebuild_required=false after missing merge summary",
+        "location": "process-local graph_indexer.read_pending_doc_link_repairs return",
+        "test": "reality-probe.py known_bad",
+        "result": "killed: expected one dispatch, observed zero",
+        "runtime_seconds": 0.5895803329767659,
+        "survivor": false
+      }
+    ],
+    "evidence": {
+      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round0/reality-probe.py",
+      "artifact": "/tmp/1x5tq-delivery-round0/reality-observed.json",
+      "public_path": "indexer.build_index and indexer.main -> real lock/epoch/store/graph; temporary repos; mock embedding vectors only",
+      "expected": "Missing/malformed summary: one graph dispatch, exact doc edge and node, complete epoch, no repeated graph dispatch. Known-bad suppressed dispatch must fail assertion.",
+      "observed": "All four baseline scenarios passed, no skips; known-bad zero dispatch detected. See per-probe times and counts.",
+      "limitations": "No publication fault, concurrent interleaving, combined dirty+orphan, builder migration, or full suite in this seat. Tested corrupt blob decodes as invalid; arbitrary schema corruption not enumerated. Existing test helpers reused after independent inspection and execution; implementation reports not proof."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Process-local patch falsely clears rebuild_required for missing merge blob; public unchanged build makes zero dispatches, rejected by required-one assertion."
+    },
+    "frozen_hash_check": {
+      "before": "all13 matched packet",
+      "after": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+        "docs/architecture/graph-index-system.md": true,
+        "docs/architecture/data-and-control-flow.md": true,
+        "docs/RELIABILITY.md": true,
+        "CHANGELOG.md": true,
+        "docs/reports/graph-quality-post.json": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+      },
+      "all_match": true
+    },
+    "retrieval": "MCP source/test outlines and targeted code_read; scoped rg test fallback disclosed because test index omitted. Root startup and specialist role read; no frozen/source/index/ledger edits."
+  },
+  "performance.json": {
+    "role": "performance-reviewer",
+    "verdict": "F4 efficiency checks pass; withhold whole-lane approval pending ARCH-DEL-1 reliability repair",
+    "approval_caller_status": "Exact caller provided for scoped executed evidence only; do not publish whole-lane approval until reliability blocker resolved.",
+    "caller": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "performance-reviewer",
+      "context_id": "1x5tq-delivery-performance-independent-20260905-r0",
+      "mode": "dry_run",
+      "signoff_key": "performance-reviewer",
+      "approval_phase": "delivery",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "observed": "200 docs +200 source files: absent-target idle46.7ms/zero doc scans, state reads/writes0; one-target snapshot repair51.7ms/exact doc edge/one doc scan, one row write, zero duplicate blob reads; preflight3.9ms; resolved idle44.0ms/zero scans; unrelated source edit53.3ms/zero doc scans. Known-bad unconditional pending selector rejected at200 scans. All13 packet hashes matched before/after. These scoped efficiency results do not clear independently reproduced ARCH-DEL-1 publication reliability finding.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round0/performance-observed.json",
+        "public_path": "graph_indexer.update_graph_index and read_pending_doc_link_repairs",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round0/performance-probe.py",
+        "expected": "Idle absent/resolved and unrelated source edit scan zero docs; target creation scans exactly one doc and serves exact EXTRACTED doc_references_doc edge; reused snapshot never rereads merge blob; idle artifact I/O counters zero.",
+        "known_bad_detection_method": "Process-local _pending_doc_link_repairs mutation marks all current docs pending; public update_graph_index on healthy 401-file idle scanned200 docs, failing required zero-scan assertion. Baseline matched0.",
+        "limitations": "One synthetic but realistic400\u2013401-file Python/docs corpus, local warm filesystem, single samples; no production percentile/peak-memory measurement or large-repo budget claim. Public graph/update API with actual SQLite and filesystem; faithful existing _RepoDriver supplies file set/hash metadata without outer walker, lock/epoch or embedding. Publication failure and dry-run exercised by other seats, not this seat. Proposed binding helper not implemented or benchmarked. MCP outline and targeted code_read used; scoped rg on excluded tests and frozen diff. No frozen edits, real-index builds, fullsuite or ledger writes.",
+        "safety_and_authorization": "All generated source/store fixtures and mutation process in authorized /tmp scratch; frozen repository files unchanged."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Process-local _pending_doc_link_repairs mutation marks all current docs pending; public update_graph_index on healthy 401-file idle scanned200 docs, failing required zero-scan assertion. Baseline matched0."
+      }
+    },
+    "findings": [],
+    "inherited_blocker": "ARCH-DEL-1 reproduced by architecture, not repeated or relabeled as own execution.",
+    "strongest_challenge": {
+      "status": "source-validated plus architecture executed evidence; no own publication fault",
+      "answer": "Selective work is worthwhile only when zero pending work also proves published output. Consuming the obligation before payload publication permits a false idle recovery and loses a required edge. Successful healthy-path locality does not offset this recovery bug."
+    },
+    "best_alternative": {
+      "choice": "Share a pure read-only publication-binding predicate between idle preflight and graph finalize/cached-plan validation, preserving selective snapshot reuse.",
+      "requirements": "Check bound marker, payload stat binding, summary/meta fingerprint agreement and merge format before certifying idleness. Unproven binding must request existing locked full-merge recovery. Revalidate cached plan metadata/binding within session.",
+      "versus_current": "Current efficient selector avoids unaffected rows/text, measured here, but preflight shape/version checks do not establish publication completion. One additional stat proof addresses the reproduced gap without weakening locality.",
+      "versus_unconditional_dispatch_or_merge": "Unconditional graph dispatch would reach finalize binding checks but pays session/store setup and payload read on every healthy idle; here public no-op graph calls cost44\u201347ms for401 files versus3.9ms preflight. These single-sample observations are not a measured end-to-end speedup. Unconditional full merge or all-doc rescan discards selectivity; known-bad control scanned200 docs.",
+      "versus_retry_ledger": "A separate durable retry ledger introduces new ownership, atomicity, replay and retirement rules for state already recoverable from retained artifacts and binding metadata. It is larger than required for ARCH-DEL-1. Reserve it for a demonstrated obligation that existing state cannot reconstruct; none shown here.",
+      "cost_and_limit": "Binding proof adds metadata comparisons and one payload stat, inferred not benchmarked. Preflight still decodes and scans the whole compressed merge blob, so work is not O(changed docs); artifact row/text I/O remains selective. Conservative rebuild after interrupted output is appropriate correctness cost."
+    },
+    "primer_answers": [
+      {
+        "question": 1,
+        "status": "architecture-owned executed evidence; not independently injected here",
+        "answer": "Architecture reports fresh unchanged retry made0 graph calls, completed epoch but left edge absent and binding pending; full rebuild repaired. Supports bounded shared predicate; keep blocker."
+      },
+      {
+        "question": 2,
+        "status": "source-validated; own healthy snapshot reuse executed",
+        "answer": "No: preflight1650\u20131702 only shape/version checks; finalize13769\u201313794 checks bound marker/stat and13944\u201313946 merge fingerprint equality. Cached-plan metadata equality13904 is necessary but not publication proof. Proposed fallback requests locked full merge whenever binding is unproven; malformed/missing state handled by other seats."
+      },
+      {
+        "question": 3,
+        "status": "other-seat evidence; own matcher-selectivity inference",
+        "answer": "Security reports combined dirty+orphan+pending dry-run persistence and one fenced retry passed. I did not repeat outer public build/lock checks. Own public graph probe scanned exactly one eligible doc and zero on unrelated source edit. Removing the duplicate document scan does not mutate code-derived symbol terms: docs emit no code-symbol definitions, so the initial matcher remains applicable; this is source reasoning, not exhaustive matcher equivalence proof."
+      }
+    ],
+    "observed": {
+      "rows": [
+        {
+          "name": "400-file absent-target idle",
+          "seconds": 0.046734040952287614,
+          "scans": 0,
+          "stats": {
+            "mode": "zero-change",
+            "files_changed": 0,
+            "files_removed": 0,
+            "symbols_invalidated": 0,
+            "edges_reresolved": 0,
+            "merge_ms": 3,
+            "state_reads": 0,
+            "state_writes": 0,
+            "blob_reads": 1,
+            "blob_writes": 0,
+            "blob_bytes": 0
+          }
+        },
+        {
+          "name": "401-file one-target snapshot repair",
+          "seconds": 0.0516675419639796,
+          "scans": 1,
+          "stats": {
+            "mode": "incremental",
+            "files_changed": 0,
+            "files_removed": 0,
+            "symbols_invalidated": 0,
+            "edges_reresolved": 1,
+            "edges_dropped_dangling": 0,
+            "merge_ms": 12,
+            "state_reads": 0,
+            "state_writes": 1,
+            "blob_reads": 0,
+            "blob_writes": 1,
+            "blob_bytes": 9645
+          }
+        },
+        {
+          "name": "401-file resolved idle",
+          "seconds": 0.04401574993971735,
+          "scans": 0,
+          "stats": {
+            "mode": "zero-change",
+            "files_changed": 0,
+            "files_removed": 0,
+            "symbols_invalidated": 0,
+            "edges_reresolved": 0,
+            "merge_ms": 4,
+            "state_reads": 0,
+            "state_writes": 0,
+            "blob_reads": 1,
+            "blob_writes": 0,
+            "blob_bytes": 0
+          }
+        },
+        {
+          "name": "401-file unrelated code change",
+          "seconds": 0.053293999982997775,
+          "scans": 0,
+          "stats": {
+            "mode": "incremental",
+            "files_changed": 1,
+            "files_removed": 0,
+            "symbols_invalidated": 5,
+            "edges_reresolved": 1,
+            "edges_dropped_dangling": 0,
+            "merge_ms": 12,
+            "state_reads": 0,
+            "state_writes": 1,
+            "blob_reads": 1,
+            "blob_writes": 1,
+            "blob_bytes": 9645
+          }
+        }
+      ],
+      "preflight_ms": 3.9158340077847242,
+      "mutation": {
+        "mutant": "force every current document pending",
+        "location": "process-local _pending_doc_link_repairs",
+        "test": "public update_graph_index on healthy 401-file idle",
+        "result": "killed",
+        "observed": "('known-bad unconditional doc rescan', 200, 0)",
+        "seconds": 0.06892412493471056,
+        "survivor": false
+      },
+      "before": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+        "docs/architecture/graph-index-system.md": true,
+        "docs/architecture/data-and-control-flow.md": true,
+        "docs/RELIABILITY.md": true,
+        "CHANGELOG.md": true,
+        "docs/reports/graph-quality-post.json": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+      },
+      "after": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+        "docs/architecture/graph-index-system.md": true,
+        "docs/architecture/data-and-control-flow.md": true,
+        "docs/RELIABILITY.md": true,
+        "CHANGELOG.md": true,
+        "docs/reports/graph-quality-post.json": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+      },
+      "all_match": true,
+      "skips": 0
+    },
+    "mutation_table": [
+      {
+        "mutant": "force every current document pending",
+        "location": "process-local _pending_doc_link_repairs",
+        "test": "public update_graph_index on healthy 401-file idle",
+        "result": "killed",
+        "observed": "('known-bad unconditional doc rescan', 200, 0)",
+        "seconds": 0.06892412493471056,
+        "survivor": false
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Process-local _pending_doc_link_repairs mutation marks all current docs pending; public update_graph_index on healthy 401-file idle scanned200 docs, failing required zero-scan assertion. Baseline matched0."
+    },
+    "fingerprint": {
+      "all13_before": true,
+      "all13_after": true
+    },
+    "limitations": "One synthetic but realistic400\u2013401-file Python/docs corpus, local warm filesystem, single samples; no production percentile/peak-memory measurement or large-repo budget claim. Public graph/update API with actual SQLite and filesystem; faithful existing _RepoDriver supplies file set/hash metadata without outer walker, lock/epoch or embedding. Publication failure and dry-run exercised by other seats, not this seat. Proposed binding helper not implemented or benchmarked. MCP outline and targeted code_read used; scoped rg on excluded tests and frozen diff. No frozen edits, real-index builds, fullsuite or ledger writes."
+  },
+  "performance-observed.json": {
+    "rows": [
+      {
+        "name": "400-file absent-target idle",
+        "seconds": 0.046734040952287614,
+        "scans": 0,
+        "stats": {
+          "mode": "zero-change",
+          "files_changed": 0,
+          "files_removed": 0,
+          "symbols_invalidated": 0,
+          "edges_reresolved": 0,
+          "merge_ms": 3,
+          "state_reads": 0,
+          "state_writes": 0,
+          "blob_reads": 1,
+          "blob_writes": 0,
+          "blob_bytes": 0
+        }
+      },
+      {
+        "name": "401-file one-target snapshot repair",
+        "seconds": 0.0516675419639796,
+        "scans": 1,
+        "stats": {
+          "mode": "incremental",
+          "files_changed": 0,
+          "files_removed": 0,
+          "symbols_invalidated": 0,
+          "edges_reresolved": 1,
+          "edges_dropped_dangling": 0,
+          "merge_ms": 12,
+          "state_reads": 0,
+          "state_writes": 1,
+          "blob_reads": 0,
+          "blob_writes": 1,
+          "blob_bytes": 9645
+        }
+      },
+      {
+        "name": "401-file resolved idle",
+        "seconds": 0.04401574993971735,
+        "scans": 0,
+        "stats": {
+          "mode": "zero-change",
+          "files_changed": 0,
+          "files_removed": 0,
+          "symbols_invalidated": 0,
+          "edges_reresolved": 0,
+          "merge_ms": 4,
+          "state_reads": 0,
+          "state_writes": 0,
+          "blob_reads": 1,
+          "blob_writes": 0,
+          "blob_bytes": 0
+        }
+      },
+      {
+        "name": "401-file unrelated code change",
+        "seconds": 0.053293999982997775,
+        "scans": 0,
+        "stats": {
+          "mode": "incremental",
+          "files_changed": 1,
+          "files_removed": 0,
+          "symbols_invalidated": 5,
+          "edges_reresolved": 1,
+          "edges_dropped_dangling": 0,
+          "merge_ms": 12,
+          "state_reads": 0,
+          "state_writes": 1,
+          "blob_reads": 1,
+          "blob_writes": 1,
+          "blob_bytes": 9645
+        }
+      }
+    ],
+    "preflight_ms": 3.9158340077847242,
+    "mutation": {
+      "mutant": "force every current document pending",
+      "location": "process-local _pending_doc_link_repairs",
+      "test": "public update_graph_index on healthy 401-file idle",
+      "result": "killed",
+      "observed": "('known-bad unconditional doc rescan', 200, 0)",
+      "seconds": 0.06892412493471056,
+      "survivor": false
+    },
+    "before": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+      "docs/architecture/graph-index-system.md": true,
+      "docs/architecture/data-and-control-flow.md": true,
+      "docs/RELIABILITY.md": true,
+      "CHANGELOG.md": true,
+      "docs/reports/graph-quality-post.json": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+    },
+    "after": {
+      ".wavefoundry/framework/scripts/graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+      "docs/architecture/graph-index-system.md": true,
+      "docs/architecture/data-and-control-flow.md": true,
+      "docs/RELIABILITY.md": true,
+      "CHANGELOG.md": true,
+      "docs/reports/graph-quality-post.json": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+      "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+    },
+    "all_match": true,
+    "skips": 0
+  },
+  "blind-synthesis.json": {
+    "wave_id": "1x5tq",
+    "phase": "delivery",
+    "synthesis_stage": "first blind merit synthesis",
+    "input": "/tmp/1x5tq-delivery-round0/blind-packet.json",
+    "identity_blind": true,
+    "verdict": "needs_revision",
+    "max_severity": "high",
+    "initial_aggregate": {
+      "seat_count": 5,
+      "seat_agreement": {
+        "classification": "mixed scoped verdicts; not independent unanimity",
+        "normalized_counts": {
+          "scoped_approval_with_notes": 1,
+          "withhold_or_needs_evidence": 3,
+          "blocking_finding": 1
+        },
+        "largest_normalized_group": {
+          "count": 3,
+          "total": 5,
+          "fraction": 0.6
+        },
+        "whole_delivery_approvals": 0
+      },
+      "original_verdicts": {
+        "Seat 1": "approved-with-notes within demonstrated scope",
+        "Seat 2": "F4 checks pass; whole-lane approval withheld pending reliability repair",
+        "Seat 3": "needs_more_evidence_on_publication_challenge",
+        "Seat 4": "bounded checks pass; council approval deferred pending publication probe",
+        "Seat 5": "blocking finding"
+      },
+      "caution": "The 3/5 modal group groups withholding for distinct reasons; it is not 60% support for one identical independent verdict. Seat 2 already cites shared blocker evidence, so five reports do not imply five independent reproductions."
+    },
+    "merit_assessment": {
+      "finding_count_after_deduplication": 1,
+      "reason": "A precise supported public-path fault injection establishes the missing recovery: after store commit and failed payload write, a fresh-session unchanged retry reports up_to_date and completes the epoch while the required edge is absent and publication binding remains pending. A same-tree full rebuild restores both, making the oracle non-vacuous. Passing normal-path, selective-work and dry-run controls do not falsify this different interrupted-publication trace.",
+      "deduplication": "All publication-binding concerns and acknowledgments describe ARCH-DEL-1, not separate bugs or independent reproductions. No demonstrated security exploit is merged into or inferred from this correctness defect.",
+      "severity_basis": "High material admitted public-contract recovery failure on a supported path. Initial interruption is detected, but subsequent success conceals the unrepaired projection. No attacker reachability or authority gain is claimed."
+    },
+    "surviving_blockers": [
+      {
+        "finding_id": "ARCH-DEL-1",
+        "severity": "high",
+        "disposition": "do_now",
+        "status": "blocking",
+        "executing_actor": "architecture-reviewer",
+        "source_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer",
+          "wave-council-delivery"
+        ],
+        "nonwaiver": "Required lane-attributed blocking authority is preserved. Neither scoped approvals nor synthesis convergence can waive it.",
+        "execution_attribution": "Architecture executed the publication fault/retry/full-rebuild trace. QA reviewed that evidence and accepted joint source/blocking ownership, supported by its own baseline and mutation controls; QA did not independently execute this publication fault.",
+        "mechanism": "Idle preflight certifies no work from empty pending targets and valid merge shape/version after obligation consumption, without proving that the repaired graph payload was published."
+      }
+    ],
+    "postchallenge_resolution": {
+      "bounded_challenges_completed": 1,
+      "convergence": "All five supplied acknowledgments accept the shared read-only publication-proof alternative and preserve the delivery blocker. This is convergence after sharing one executed counterexample, not initial independent unanimity.",
+      "scope_of_resolution": "The diagnostic disagreement is resolved; the implementation defect is not repaired and no approval is authorized by this synthesis."
+    },
+    "strongest_alternative": {
+      "recommendation": "Share a pure read-only publication-binding predicate across idle preflight, cached snapshot reuse, and finalize validation. Require bound marker, summary/meta fingerprint agreement, and existing payload size/mtime binding. Unknown, pending, missing or mismatched proof must route to the existing locked full-merge recovery.",
+      "why": "It makes completion depend on the consumer-visible projection and reuses retained artifacts and the existing lock/epoch recovery, while preserving healthy selective work.",
+      "alternatives_rejected": {
+        "unconditional_merge_or_dispatch": "Can reach recovery but adds graph work on healthy idle builds and weakens the intended selectivity without necessity.",
+        "new_durable_retry_ledger": "Adds a second persisted authority and crash-ordering obligations when retained artifacts already restore the graph."
+      },
+      "cost": "One payload stat plus comparisons is an inferred incremental cost, not a measured repaired-path result. Existing preflight decodes/scans the compressed merge blob, so do not claim O(changed docs)."
+    },
+    "focused_repair_and_replay": [
+      "Implement the shared proof and conservative failure behavior without mutating during unlocked preview; validate cached reuse against current metadata and binding.",
+      "Fresh independent architecture and QA replay must interrupt payload publication after store commit, retry unchanged through the public path, observe exactly one locked graph dispatch under building epoch, exact edge/doc-node restoration and bound payload before epoch completion.",
+      "A subsequent unchanged build must dispatch zero graph work and preserve epoch generation. A known-bad omission of binding proof must fail the exact recovery oracle.",
+      "Retain missing/malformed summary, version mismatch, failed/unreadable document, dirty/orphan and preview persistence controls affected by the repair; verify no extra merge or blob decode and measure the added idle proof cost.",
+      "Refresh delivery council synthesis after the required focused reviews clear the finding; efficiency approval remains withheld until its reliability condition is resolved."
+    ],
+    "restart_decision": {
+      "recommendation": "focused repair and affected-lane replay; no full council restart yet",
+      "full_restart_trigger": "An actual repair changes a load-bearing boundary, publication protocol, durable authority, or admitted behavioral scope beyond restoring the existing invariant."
+    },
+    "risks_and_unrun": [
+      "Only one seat executed the publication interruption, in the same Python process with fresh graph sessions and SQLite connections; no process-kill or disk-full hardware test.",
+      "Embedding vectors were deterministic mocks. Stores, walker, graph session, lock and epoch were real in the main public fixture.",
+      "No repair exists in this packet; its correctness, cached-plan behavior and incremental cost are unverified.",
+      "Full-suite green evidence is an inspected frozen log, not fresh execution by every seat; documentation validation was not independently rerun by the relevant seat.",
+      "Performance samples are one small synthetic warm corpus, not production percentiles or peak-memory proof.",
+      "Unreadable-store no-work behavior and arbitrary schema corruption remain source-inferred or unenumerated, not additional executed blocking findings.",
+      "Matcher stability follows unchanged code-symbol inputs by source reasoning; no separate matcher mutation proof. SQLite transient WAL/SHM byte identity was not claimed."
+    ],
+    "synthesis_integrity": "Read only the supplied anonymous packet. No role identity map, raw reports, implementation, probes, repository edits, canonical ledger writes, or additional evidence retrieval."
+  },
+  "council-final.json": {
+    "phase": "delivery",
+    "verdict": "needs_revision",
+    "seat_agreement_aggregate": {
+      "seat_agreement": "split",
+      "max_severity": "high"
+    },
+    "aggregate_basis": "Initial independent/scoped outputs differ: one scoped approval, three withheld/needs-evidence, one blocker. This satisfies split; no false initial unanimity. One bounded challenge resolved concern classification and all accept repair necessity; this later convergence uses shared evidence.",
+    "blind_synthesis": {
+      "wave_id": "1x5tq",
+      "phase": "delivery",
+      "synthesis_stage": "first blind merit synthesis",
+      "input": "/tmp/1x5tq-delivery-round0/blind-packet.json",
+      "identity_blind": true,
+      "verdict": "needs_revision",
+      "max_severity": "high",
+      "initial_aggregate": {
+        "seat_count": 5,
+        "seat_agreement": {
+          "classification": "mixed scoped verdicts; not independent unanimity",
+          "normalized_counts": {
+            "scoped_approval_with_notes": 1,
+            "withhold_or_needs_evidence": 3,
+            "blocking_finding": 1
+          },
+          "largest_normalized_group": {
+            "count": 3,
+            "total": 5,
+            "fraction": 0.6
+          },
+          "whole_delivery_approvals": 0
+        },
+        "original_verdicts": {
+          "Seat 1": "approved-with-notes within demonstrated scope",
+          "Seat 2": "F4 checks pass; whole-lane approval withheld pending reliability repair",
+          "Seat 3": "needs_more_evidence_on_publication_challenge",
+          "Seat 4": "bounded checks pass; council approval deferred pending publication probe",
+          "Seat 5": "blocking finding"
+        },
+        "caution": "The 3/5 modal group groups withholding for distinct reasons; it is not 60% support for one identical independent verdict. Seat 2 already cites shared blocker evidence, so five reports do not imply five independent reproductions."
+      },
+      "merit_assessment": {
+        "finding_count_after_deduplication": 1,
+        "reason": "A precise supported public-path fault injection establishes the missing recovery: after store commit and failed payload write, a fresh-session unchanged retry reports up_to_date and completes the epoch while the required edge is absent and publication binding remains pending. A same-tree full rebuild restores both, making the oracle non-vacuous. Passing normal-path, selective-work and dry-run controls do not falsify this different interrupted-publication trace.",
+        "deduplication": "All publication-binding concerns and acknowledgments describe ARCH-DEL-1, not separate bugs or independent reproductions. No demonstrated security exploit is merged into or inferred from this correctness defect.",
+        "severity_basis": "High material admitted public-contract recovery failure on a supported path. Initial interruption is detected, but subsequent success conceals the unrepaired projection. No attacker reachability or authority gain is claimed."
+      },
+      "surviving_blockers": [
+        {
+          "finding_id": "ARCH-DEL-1",
+          "severity": "high",
+          "disposition": "do_now",
+          "status": "blocking",
+          "executing_actor": "architecture-reviewer",
+          "source_lanes": [
+            "architecture-reviewer",
+            "qa-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "qa-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "qa-reviewer",
+            "wave-council-delivery"
+          ],
+          "nonwaiver": "Required lane-attributed blocking authority is preserved. Neither scoped approvals nor synthesis convergence can waive it.",
+          "execution_attribution": "Architecture executed the publication fault/retry/full-rebuild trace. QA reviewed that evidence and accepted joint source/blocking ownership, supported by its own baseline and mutation controls; QA did not independently execute this publication fault.",
+          "mechanism": "Idle preflight certifies no work from empty pending targets and valid merge shape/version after obligation consumption, without proving that the repaired graph payload was published."
+        }
+      ],
+      "postchallenge_resolution": {
+        "bounded_challenges_completed": 1,
+        "convergence": "All five supplied acknowledgments accept the shared read-only publication-proof alternative and preserve the delivery blocker. This is convergence after sharing one executed counterexample, not initial independent unanimity.",
+        "scope_of_resolution": "The diagnostic disagreement is resolved; the implementation defect is not repaired and no approval is authorized by this synthesis."
+      },
+      "strongest_alternative": {
+        "recommendation": "Share a pure read-only publication-binding predicate across idle preflight, cached snapshot reuse, and finalize validation. Require bound marker, summary/meta fingerprint agreement, and existing payload size/mtime binding. Unknown, pending, missing or mismatched proof must route to the existing locked full-merge recovery.",
+        "why": "It makes completion depend on the consumer-visible projection and reuses retained artifacts and the existing lock/epoch recovery, while preserving healthy selective work.",
+        "alternatives_rejected": {
+          "unconditional_merge_or_dispatch": "Can reach recovery but adds graph work on healthy idle builds and weakens the intended selectivity without necessity.",
+          "new_durable_retry_ledger": "Adds a second persisted authority and crash-ordering obligations when retained artifacts already restore the graph."
+        },
+        "cost": "One payload stat plus comparisons is an inferred incremental cost, not a measured repaired-path result. Existing preflight decodes/scans the compressed merge blob, so do not claim O(changed docs)."
+      },
+      "focused_repair_and_replay": [
+        "Implement the shared proof and conservative failure behavior without mutating during unlocked preview; validate cached reuse against current metadata and binding.",
+        "Fresh independent architecture and QA replay must interrupt payload publication after store commit, retry unchanged through the public path, observe exactly one locked graph dispatch under building epoch, exact edge/doc-node restoration and bound payload before epoch completion.",
+        "A subsequent unchanged build must dispatch zero graph work and preserve epoch generation. A known-bad omission of binding proof must fail the exact recovery oracle.",
+        "Retain missing/malformed summary, version mismatch, failed/unreadable document, dirty/orphan and preview persistence controls affected by the repair; verify no extra merge or blob decode and measure the added idle proof cost.",
+        "Refresh delivery council synthesis after the required focused reviews clear the finding; efficiency approval remains withheld until its reliability condition is resolved."
+      ],
+      "restart_decision": {
+        "recommendation": "focused repair and affected-lane replay; no full council restart yet",
+        "full_restart_trigger": "An actual repair changes a load-bearing boundary, publication protocol, durable authority, or admitted behavioral scope beyond restoring the existing invariant."
+      },
+      "risks_and_unrun": [
+        "Only one seat executed the publication interruption, in the same Python process with fresh graph sessions and SQLite connections; no process-kill or disk-full hardware test.",
+        "Embedding vectors were deterministic mocks. Stores, walker, graph session, lock and epoch were real in the main public fixture.",
+        "No repair exists in this packet; its correctness, cached-plan behavior and incremental cost are unverified.",
+        "Full-suite green evidence is an inspected frozen log, not fresh execution by every seat; documentation validation was not independently rerun by the relevant seat.",
+        "Performance samples are one small synthetic warm corpus, not production percentiles or peak-memory proof.",
+        "Unreadable-store no-work behavior and arbitrary schema corruption remain source-inferred or unenumerated, not additional executed blocking findings.",
+        "Matcher stability follows unchanged code-symbol inputs by source reasoning; no separate matcher mutation proof. SQLite transient WAL/SHM byte identity was not claimed."
+      ],
+      "synthesis_integrity": "Read only the supplied anonymous packet. No role identity map, raw reports, implementation, probes, repository edits, canonical ledger writes, or additional evidence retrieval."
+    },
+    "identity_restored_after_merit_pass": [
+      {
+        "label": "Seat 1",
+        "role": "security"
+      },
+      {
+        "label": "Seat 2",
+        "role": "performance"
+      },
+      {
+        "label": "Seat 3",
+        "role": "qa"
+      },
+      {
+        "label": "Seat 4",
+        "role": "reality"
+      },
+      {
+        "label": "Seat 5",
+        "role": "architecture"
+      }
+    ],
+    "report": "council-report.md",
+    "approvals": {
+      "architecture-reviewer": null,
+      "qa-reviewer": null,
+      "performance-reviewer": null,
+      "wave-council-delivery": null,
+      "security-reviewer": "security.json caller; root recorded separately"
+    },
+    "blocking_finding_caller": "architecture.json caller_json",
+    "freeze_released": true,
+    "final_fingerprint": "council-final-hashes.json all13 true"
+  },
+  "code-approval.json": {
+    "wave_id": "1x5tq",
+    "event": "approval",
+    "actor": "code-reviewer",
+    "context_id": "delivery-code-1x5tq-round0-independent",
+    "mode": "create",
+    "signoff_key": "code-reviewer",
+    "approval_phase": "delivery",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "proposition": "The selected public idle-build fixtures preserve persisted dry-run state and recover retained document-link obligations under the build lock/epoch in one graph merge.",
+      "failure_condition": "Persisted state changes during preview, or a retained obligation remains undispatched on unchanged recovery, or repair runs unlocked/outside its epoch or twice.",
+      "public_path": "indexer.build_index(dry_run=True) and indexer.main CLI entry with real temporary SQLite/Lance/graph stores",
+      "command_or_fixture": "Four tests listed in /tmp/1x5tq-delivery-round0/code-review.md; reproduce known-bad with /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round0/code-mutant.py",
+      "expected": "Preview retains persisted rows/artifacts and epoch; successful CLI recovery restores exact doc/edge once, under lock/building epoch; next idle call advances no generation.",
+      "observed": "Four selected tests passed without skips/errors. Own scratch idle-return mutation failed exact graph-dispatch assertion (0 != 1), one failure with no errors/skips. All 13 frozen hashes match before/after.",
+      "artifact_or_test_id": "/tmp/1x5tq-delivery-round0/code-review.md; /tmp/1x5tq-delivery-round0/code-baseline.log; /tmp/1x5tq-delivery-round0/code-mutant.py; /tmp/1x5tq-delivery-round0/code-mutant.log; /tmp/1x5tq-delivery-round0/code-hashes.json",
+      "known_bad_detection_method": "focused-mutation",
+      "limitations": "Bounded F1/F2 sample, not exhaustive guards/census/full suite. Other dry-run reasons, full oracle parity, unreadable-directory preservation, summary/version guards, and complexity not independently executed in this lane. Mock embeddings; transient WAL/SHM locking excluded from persisted-state assertions; local platform only.",
+      "safety_and_authorization": "Authorized independent delivery review; temporary test indexes and scratch/in-memory mutation only; no network, real project index mutation, frozen edits or ledger writes by reviewer."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation"
+    }
+  },
+  "repair_cycle_2": {
+    "packet.json": {
+      "wave_id": "1x5tq",
+      "phase": "delivery",
+      "change_ids": [
+        "1x8e1",
+        "1x81w"
+      ],
+      "trust_boundaries_touched": [
+        "unlocked zero-change dry-run versus lock/epoch-fenced store mutation",
+        "durable graph obligation and cached merge-state publication/recovery"
+      ],
+      "files_in_scope": [
+        ".wavefoundry/framework/scripts/graph_indexer.py",
+        ".wavefoundry/framework/scripts/indexer.py",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py",
+        "docs/architecture/graph-index-system.md",
+        "docs/architecture/data-and-control-flow.md",
+        "docs/RELIABILITY.md",
+        "CHANGELOG.md",
+        "docs/reports/graph-quality-post.json",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md",
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md"
+      ],
+      "tree_fingerprint": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "91c0262cd7c70915199818adcc41efb4917f8a61",
+        ".wavefoundry/framework/scripts/indexer.py": "31522d11edde88de5338420e4929d642975b082e",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "e0f4979f472afc4d556fddbf0c7df7497174f5aa",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8a03f6fde532217eaf5178637abb75b537ee8cee",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "3fbedd59f7277a261bdd222c3c3443bb0bea9823",
+        "docs/architecture/graph-index-system.md": "81c3e552be038a227f9abfbeddc0221222d3c785",
+        "docs/architecture/data-and-control-flow.md": "e5ae28fe73a701e906e0acb05e2def3b8eb3937f",
+        "docs/RELIABILITY.md": "61083084fa556a345471ebfb6c24cb4c79a3cdb5",
+        "CHANGELOG.md": "a294eb4d940f548df7c840db93462f2b11b97c23",
+        "docs/reports/graph-quality-post.json": "bc278b24a8c6716c6c993265018a3667640823d7",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": "1bc534a2b30707cf2f35441714bee9c80ef0df28",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": "4eba658a5815aa35f9dfb30d4b5550df7a897ac4",
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": "b1e09b095be4be9ef174880b961a70d1247bf4ee"
+      },
+      "time_budget": "180 seconds per fresh focused lane",
+      "sweep_rule": "Targeted tests per mutant; whole-file runs only for survivors. No whole framework suite in a lane. No edits to frozen paths.",
+      "architecture_refs": [
+        "docs/architecture/graph-index-system.md",
+        "docs/architecture/data-and-control-flow.md"
+      ],
+      "prior_artifacts": [
+        "docs/waves/1x5tq later-created-doc-link-targets/combined-readiness-review.md",
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md",
+        "/tmp/1x8e1-implementation/mutation-results.json",
+        "/tmp/1x5tq-caller-mutation-results.json",
+        "/tmp/1x5tq-framework-tests-final-frozen.log"
+      ],
+      "explicit_non_goals": [
+        "No commit or closure",
+        "No mutation of real project index during probes: use temporary fixtures",
+        "No broadening path semantics, semantic embedding or reap policy",
+        "No speculative backlog or hypothetical findings"
+      ],
+      "probe_budget": "Full combined risk envelope: 3-8 prioritized fixture families total, reuse parameterized fixtures; at most one partial failure/interleaving per changed boundary. Each specialist select 1-3 highest-value checks within its lane; keep finite.",
+      "python": "/Users/coryhacking/.wavefoundry/venv/bin/python -B",
+      "instructions": "MCP-first code exploration per seed020/guru; source outline then targeted reads. Existing tests are excluded from code_keyword index: use code_outline/code_read and record any scoped rg fallback. Findings need exact wf_review_event caller judgment/evidence/integrity objects; approvals need own fresh independent executed evidence and known-bad check, not inherited implementation results. No reviewer writes canonical ledger or edits frozen files.",
+      "round": 2,
+      "repair_summary": "ARCH-DEL-1: shared existing read-only payload stat/fingerprint predicate with preflight; enforce merge/meta fingerprint agreement before fast return. Existing locked fullmerge recovers interrupted publication. Two new public regressions (five cases); no changed publication order, authority, contract or builder format.",
+      "repair_files": [
+        ".wavefoundry/framework/scripts/graph_indexer.py",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py"
+      ],
+      "original_reproduction": "/tmp/1x5tq-delivery-round0/architecture_probe.py",
+      "original_finding": "/tmp/1x5tq-delivery-round0/architecture.json"
+    },
+    "architecture.json": {
+      "seat": "architecture-reviewer",
+      "phase": "delivery",
+      "verdict": "ARCH-DEL-1 repair verified; architecture delivery approved after chain clearance",
+      "boundaries_touched": [
+        "unlocked zero-change dry-run versus lock/epoch-fenced store mutation",
+        "durable graph obligation and cached merge-state publication/recovery"
+      ],
+      "source_validation": [
+        "MCP code_outline then targeted code_read of _payload_binding_fingerprint, read_pending_doc_link_repairs, GraphIndexSession._payload_binding_ok and GraphIndexSession.finalize; test_indexer IdleDocLinkRecoveryTests two new methods.",
+        "docs/architecture/graph-index-system.md crash-consistency paragraph remains accurate; same authority, ownership, format and publication order; repair strengthens idle admission and cached reuse only. No new doc or ADR requirement."
+      ],
+      "mutation_table": [
+        {
+          "mechanism": "publication recovery",
+          "mutation": "OSError at payload publication; own old-preflight wrapper",
+          "expected": "correct tree recovers once; old preflight fails missing-edge oracle",
+          "observed": "PASS; known bad detected"
+        },
+        {
+          "mechanism": "dry-run plus pending/dirty/orphan recovery",
+          "mutation": "original named adjacent fixture states",
+          "expected": "byte-identical lock-free preview; one locked recovery",
+          "observed": "three tests pass"
+        },
+        {
+          "mechanism": "publication binding",
+          "mutation": "missing payload, changed size, changed mtime, divergent summary fingerprint",
+          "expected": "read-only pending preview then one recovery; healthy idle stable epoch",
+          "observed": "all four cases pass"
+        }
+      ],
+      "fingerprint_check": {
+        "count": 13,
+        "before_matches": true,
+        "after_matches": true,
+        "mismatches": {}
+      },
+      "limitations_unrun": "Focused three-family review: original publication fault and old-preflight mutant; public dry-run/dirty/orphan adjacent controls; missing/size/mtime/summary-fingerprint binding controls. Real walker, SQLite/Lance stores and public build_index with deterministic mock embeddings; fresh graph sessions/connections but same-process retry. No OS kill, hardware disk-full, new race census or broad suite. Root owns full-suite verification. Original replay legacy known_bad_detected=false denotes repaired oracle PASS; separate own mutant supplies known-bad evidence. No frozen file, real project index or ledger mutation.",
+      "caller_json": {
+        "wave_id": "1x5tq",
+        "event": "finding",
+        "actor": "architecture-reviewer",
+        "context_id": "1x5tq-delivery-round2-architecture-independent",
+        "mode": "create",
+        "finding_id": "ARCH-DEL-1",
+        "run_kind": "reverification",
+        "cycle": 2,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "public_contract",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "detect_only",
+          "repair_execution_state": "completed"
+        },
+        "evidence": {
+          "proposition": "An unchanged public retry after failed idle link-repair payload publication must publish the repaired graph and establish binding before reporting complete/up_to_date.",
+          "failure_condition": "A retained doc-link obligation becomes resolvable; its idle repair commits rows/merge_state then project-graph.json write raises OSError.",
+          "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize -> fresh unchanged indexer.build_index",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/architecture-own/architecture_probe.py; also architecture-own/controls.py, ordering/architecture_probe.py and knownbad/architecture_probe.py",
+          "expected": "Next unchanged public build dispatches graph repair, restores docs/linker.md -> src/later.py doc_references_doc, establishes bound payload metadata, then completes epoch.",
+          "observed": "Own exact original OSError-after-store-commit reproduction: failure leaves epoch building, binding pending and consumed obligation; unchanged public retry dispatches graph once, restores link, binds payload and completes epoch. Own instrumented dispatch additionally asserts edge and bound metadata while epoch remains building, proving ordering before completion. Own three original adjacent tests and two new public regression methods (five publication/binding cases) pass without skips; previews remain byte-identical and lock-free, each real repair uses one dispatch, repaired healthy idle adds no epoch. Own old-preflight mutation fails the missing-edge oracle with zero dispatch and pending binding; full rebuild positive control passes. All 13 frozen hashes match packet before and after.",
+          "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/architecture-own/architecture_probe_results.json",
+          "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json.",
+          "limitations": "Focused three-family review: original publication fault and old-preflight mutant; public dry-run/dirty/orphan adjacent controls; missing/size/mtime/summary-fingerprint binding controls. Real walker, SQLite/Lance stores and public build_index with deterministic mock embeddings; fresh graph sessions/connections but same-process retry. No OS kill, hardware disk-full, new race census or broad suite. Root owns full-suite verification. Original replay legacy known_bad_detected=false denotes repaired oracle PASS; separate own mutant supplies known-bad evidence. No frozen file, real project index or ledger mutation.",
+          "safety_and_authorization": "All generated fixtures, process-local mutation and reports confined to authorized /tmp/1x5tq-delivery-round2/architecture-own; frozen repository files read-only.",
+          "disposition_rationale": "Original real admitted public-contract violation is repaired by shared read-only binding proof and cached summary/meta fingerprint agreement. Existing locked full-merge path restores publication before epoch completion. Architecture lane is cleared; QA remains independently required."
+        },
+        "source_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer",
+          "wave-council-delivery"
+        ],
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json."
+        }
+      },
+      "approval": {
+        "wave_id": "1x5tq",
+        "event": "approval",
+        "actor": "architecture-reviewer",
+        "context_id": "1x5tq-delivery-round2-architecture-independent",
+        "mode": "create",
+        "signoff_key": "architecture-reviewer",
+        "approval_phase": "delivery",
+        "evidence": {
+          "observed": "Own exact original OSError-after-store-commit reproduction: failure leaves epoch building, binding pending and consumed obligation; unchanged public retry dispatches graph once, restores link, binds payload and completes epoch. Own instrumented dispatch additionally asserts edge and bound metadata while epoch remains building, proving ordering before completion. Own three original adjacent tests and two new public regression methods (five publication/binding cases) pass without skips; previews remain byte-identical and lock-free, each real repair uses one dispatch, repaired healthy idle adds no epoch. Own old-preflight mutation fails the missing-edge oracle with zero dispatch and pending binding; full rebuild positive control passes. All 13 frozen hashes match packet before and after.",
+          "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/architecture-own/architecture_probe_results.json",
+          "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json.",
+          "limitations": "Focused three-family review: original publication fault and old-preflight mutant; public dry-run/dirty/orphan adjacent controls; missing/size/mtime/summary-fingerprint binding controls. Real walker, SQLite/Lance stores and public build_index with deterministic mock embeddings; fresh graph sessions/connections but same-process retry. No OS kill, hardware disk-full, new race census or broad suite. Root owns full-suite verification. Original replay legacy known_bad_detected=false denotes repaired oracle PASS; separate own mutant supplies known-bad evidence. No frozen file, real project index or ledger mutation."
+        },
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json."
+        }
+      }
+    },
+    "architecture-reverification.json": {
+      "wave_id": "1x5tq",
+      "event": "finding",
+      "actor": "architecture-reviewer",
+      "context_id": "1x5tq-delivery-round2-architecture-independent",
+      "mode": "create",
+      "finding_id": "ARCH-DEL-1",
+      "run_kind": "reverification",
+      "cycle": 2,
+      "judgment": {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "public_contract",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "repair_execution_state": "completed"
+      },
+      "evidence": {
+        "proposition": "An unchanged public retry after failed idle link-repair payload publication must publish the repaired graph and establish binding before reporting complete/up_to_date.",
+        "failure_condition": "A retained doc-link obligation becomes resolvable; its idle repair commits rows/merge_state then project-graph.json write raises OSError.",
+        "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize -> fresh unchanged indexer.build_index",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/architecture-own/architecture_probe.py; also architecture-own/controls.py, ordering/architecture_probe.py and knownbad/architecture_probe.py",
+        "expected": "Next unchanged public build dispatches graph repair, restores docs/linker.md -> src/later.py doc_references_doc, establishes bound payload metadata, then completes epoch.",
+        "observed": "Own exact original OSError-after-store-commit reproduction: failure leaves epoch building, binding pending and consumed obligation; unchanged public retry dispatches graph once, restores link, binds payload and completes epoch. Own instrumented dispatch additionally asserts edge and bound metadata while epoch remains building, proving ordering before completion. Own three original adjacent tests and two new public regression methods (five publication/binding cases) pass without skips; previews remain byte-identical and lock-free, each real repair uses one dispatch, repaired healthy idle adds no epoch. Own old-preflight mutation fails the missing-edge oracle with zero dispatch and pending binding; full rebuild positive control passes. All 13 frozen hashes match packet before and after.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/architecture-own/architecture_probe_results.json",
+        "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json.",
+        "limitations": "Focused three-family review: original publication fault and old-preflight mutant; public dry-run/dirty/orphan adjacent controls; missing/size/mtime/summary-fingerprint binding controls. Real walker, SQLite/Lance stores and public build_index with deterministic mock embeddings; fresh graph sessions/connections but same-process retry. No OS kill, hardware disk-full, new race census or broad suite. Root owns full-suite verification. Original replay legacy known_bad_detected=false denotes repaired oracle PASS; separate own mutant supplies known-bad evidence. No frozen file, real project index or ledger mutation.",
+        "safety_and_authorization": "All generated fixtures, process-local mutation and reports confined to authorized /tmp/1x5tq-delivery-round2/architecture-own; frozen repository files read-only.",
+        "disposition_rationale": "Original real admitted public-contract violation is repaired by shared read-only binding proof and cached summary/meta fingerprint agreement. Existing locked full-merge path restores publication before epoch completion. Architecture lane is cleared; QA remains independently required."
+      },
+      "source_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "qa-reviewer"
+      ],
+      "approval_recheck_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer",
+        "wave-council-delivery"
+      ],
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json."
+      }
+    },
+    "architecture-approval.json": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "architecture-reviewer",
+      "context_id": "1x5tq-delivery-round2-architecture-independent",
+      "mode": "create",
+      "signoff_key": "architecture-reviewer",
+      "approval_phase": "delivery",
+      "evidence": {
+        "observed": "Own exact original OSError-after-store-commit reproduction: failure leaves epoch building, binding pending and consumed obligation; unchanged public retry dispatches graph once, restores link, binds payload and completes epoch. Own instrumented dispatch additionally asserts edge and bound metadata while epoch remains building, proving ordering before completion. Own three original adjacent tests and two new public regression methods (five publication/binding cases) pass without skips; previews remain byte-identical and lock-free, each real repair uses one dispatch, repaired healthy idle adds no epoch. Own old-preflight mutation fails the missing-edge oracle with zero dispatch and pending binding; full rebuild positive control passes. All 13 frozen hashes match packet before and after.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/architecture-own/architecture_probe_results.json",
+        "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json.",
+        "limitations": "Focused three-family review: original publication fault and old-preflight mutant; public dry-run/dirty/orphan adjacent controls; missing/size/mtime/summary-fingerprint binding controls. Real walker, SQLite/Lance stores and public build_index with deterministic mock embeddings; fresh graph sessions/connections but same-process retry. No OS kill, hardware disk-full, new race census or broad suite. Root owns full-suite verification. Original replay legacy known_bad_detected=false denotes repaired oracle PASS; separate own mutant supplies known-bad evidence. No frozen file, real project index or ledger mutation."
+      },
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: own process-local old-preflight wrapper ignores publication binding while preserving summary validity; exact original OSError publication fixture then fails missing-edge assertion, retry dispatches zero with pending binding; restoring implementation and supported full rebuild pass. See architecture-own/knownbad/architecture_probe_results.json."
+      }
+    },
+    "qa.json": {
+      "seat": "qa-reviewer",
+      "phase": "delivery",
+      "verdict": "approve delivery; ARCH-DEL-1 repair independently verified",
+      "reverification_caller": {
+        "wave_id": "1x5tq",
+        "actor": "qa-reviewer",
+        "context_id": "1x5tq-delivery-round2-qa-independent-20260905",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions."
+        },
+        "evidence": {
+          "proposition": "After committed graph link repair is interrupted before project-graph.json publication, an unchanged public retry must restore the exact graph edge/node and bound publication before completing its epoch; dryrun remains read-only.",
+          "failure_condition": "Idle repair consumes durable unresolved target obligation then payload write raises OSError, or payload is missing/size-mismatched/mtime-mismatched/summary-fingerprint-mismatched.",
+          "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize; indexer.main CLI controls",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/qa-original-replay.py; unittest test_indexer.IdleDocLinkRecoveryTests test_indexer.DryRunIdleMaintenanceTests; unittest test_graph_incremental_merge.LaterCreatedDocTargetTests; qa-mutations.py",
+          "expected": "Publication replay PASS, one retry dispatch, exact docs/linker.md -> src/later.py doc_references_doc edge and doc node, bound metadata, complete epoch; all named adjacent controls pass with readonly dryrun and no next-idle work; known-bad mutations rejected.",
+          "observed": "Own adapted exact original reproduction PASS: after injected payload write failure, consumed obligation and pending binding; unchanged retry dispatches exactly 1, edge/node restored, metadata bound and epoch complete. Same-tree full build positive control PASS. Own 13 idle/dryrun tests pass in 14.894s (new 2 methods cover publication interruption plus missing/size/mtime/summary-fingerprint), own 5 LaterCreatedDocTargetTests pass in 7.717s, and original replay independently runs 3 existing idle controls. Zero skips/failures/errors on baseline. All three focused mutants rejected with failures 1/3/1 and zero errors/skips. Independently inspected current repaired-tree full runner log: 8480 tests/74 files, 3 skips, OK; fresh green receipt. Exact saved wf_validate_docs structured result passed with zero errors/warnings.",
+          "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/qa-original-replay-results.json; qa-focused.log; qa-graph-controls.log; qa-mutations.json; qa-fingerprint-before.json; qa-fingerprint-after.json; /tmp/1x5tq-delivery-repair-framework.log; /tmp/1x5tq-delivery-round2/docs-validation.json; .wavefoundry/framework/test-cache.json",
+          "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions.",
+          "limitations": "Fresh independent QA actor did not implement repair. Required orientation and original finding/reproduction used as challenge/reference, never as execution evidence.\nPublic build_index and CLI use real walker, graph sessions, SQLite/Lance and actual lock/epoch; deterministic mock embedders. Retry uses fresh graph session/connections in same Python process, no process-kill or hardware disk-full test.\nExact normative edge/node/EXTRACTED assertions supplement full-build oracle that shares extractor assumptions. No universal input-space or performance claim.\nSnapshots compare persisted SQLite rows and durable artifact/Lance bytes; transient reader-lock WAL/SHM bookkeeping not claimed byte-identical. ResourceWarnings occurred; zero skipped selected tests.\nScoped source outline and MCP targeted reads; scoped shell reads for prior scratch probes, logs and direct AC extraction. No frozen path, real index or ledger writes. All 13 frozen hashes match before and after.\nFull framework suite and docs validation executed by coordinator, not this lane. Independently inspected current repaired-tree /tmp/1x5tq-delivery-repair-framework.log: 8480 tests/74 files, 3 skips, OK in 206.302s; fresh receipt result=ok, inputs_hash=a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91. Independently inspected exact saved wf_validate_docs structured result /tmp/1x5tq-delivery-round2/docs-validation.json: passed=true, errors=[], warnings=[].",
+          "safety_and_authorization": "Disposable temporary fixture roots and process-local monkeypatches only; no frozen or real-index mutations, no ledger writes.",
+          "disposition_rationale": "Original admitted public-contract correctness finding is repaired in the executed interruption and named adjacent states. Retain original classification and set repair_execution_state completed; QA clears only its own lane after architecture clears first. No scope or AC changes."
+        },
+        "mode": "create",
+        "event": "finding",
+        "finding_id": "ARCH-DEL-1",
+        "run_kind": "reverification",
+        "cycle": 2,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "public_contract",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "detect_only",
+          "repair_execution_state": "completed"
+        },
+        "source_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "architecture-reviewer",
+          "qa-reviewer",
+          "wave-council-delivery"
+        ],
+        "review_boundaries_changed": []
+      },
+      "reverification_order": "Submit after architecture lane clears; root must derive current list if order changes.",
+      "approval_caller": {
+        "wave_id": "1x5tq",
+        "actor": "qa-reviewer",
+        "context_id": "1x5tq-delivery-round2-qa-independent-20260905",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions."
+        },
+        "evidence": {
+          "proposition": "All six admitted acceptance criteria have current concrete verification: exact durable doc-link recovery/selectivity, public dryrun nonmutation and reporting, known-bad gate detection, repaired publication recovery, and clean relevant/full verification boundary.",
+          "failure_condition": "Idle repair consumes durable unresolved target obligation then payload write raises OSError, or payload is missing/size-mismatched/mtime-mismatched/summary-fingerprint-mismatched.",
+          "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize; indexer.main CLI controls",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/qa-original-replay.py; unittest test_indexer.IdleDocLinkRecoveryTests test_indexer.DryRunIdleMaintenanceTests; unittest test_graph_incremental_merge.LaterCreatedDocTargetTests; qa-mutations.py",
+          "expected": "Publication replay PASS, one retry dispatch, exact docs/linker.md -> src/later.py doc_references_doc edge and doc node, bound metadata, complete epoch; all named adjacent controls pass with readonly dryrun and no next-idle work; known-bad mutations rejected.",
+          "observed": "Own adapted exact original reproduction PASS: after injected payload write failure, consumed obligation and pending binding; unchanged retry dispatches exactly 1, edge/node restored, metadata bound and epoch complete. Same-tree full build positive control PASS. Own 13 idle/dryrun tests pass in 14.894s (new 2 methods cover publication interruption plus missing/size/mtime/summary-fingerprint), own 5 LaterCreatedDocTargetTests pass in 7.717s, and original replay independently runs 3 existing idle controls. Zero skips/failures/errors on baseline. All three focused mutants rejected with failures 1/3/1 and zero errors/skips. Independently inspected current repaired-tree full runner log: 8480 tests/74 files, 3 skips, OK; fresh green receipt. Exact saved wf_validate_docs structured result passed with zero errors/warnings.",
+          "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/qa-original-replay-results.json; qa-focused.log; qa-graph-controls.log; qa-mutations.json; qa-fingerprint-before.json; qa-fingerprint-after.json; /tmp/1x5tq-delivery-repair-framework.log; /tmp/1x5tq-delivery-round2/docs-validation.json; .wavefoundry/framework/test-cache.json",
+          "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions.",
+          "limitations": "Fresh independent QA actor did not implement repair. Required orientation and original finding/reproduction used as challenge/reference, never as execution evidence.\nPublic build_index and CLI use real walker, graph sessions, SQLite/Lance and actual lock/epoch; deterministic mock embedders. Retry uses fresh graph session/connections in same Python process, no process-kill or hardware disk-full test.\nExact normative edge/node/EXTRACTED assertions supplement full-build oracle that shares extractor assumptions. No universal input-space or performance claim.\nSnapshots compare persisted SQLite rows and durable artifact/Lance bytes; transient reader-lock WAL/SHM bookkeeping not claimed byte-identical. ResourceWarnings occurred; zero skipped selected tests.\nScoped source outline and MCP targeted reads; scoped shell reads for prior scratch probes, logs and direct AC extraction. No frozen path, real index or ledger writes. All 13 frozen hashes match before and after.\nFull framework suite and docs validation executed by coordinator, not this lane. Independently inspected current repaired-tree /tmp/1x5tq-delivery-repair-framework.log: 8480 tests/74 files, 3 skips, OK in 206.302s; fresh receipt result=ok, inputs_hash=a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91. Independently inspected exact saved wf_validate_docs structured result /tmp/1x5tq-delivery-round2/docs-validation.json: passed=true, errors=[], warnings=[].",
+          "safety_and_authorization": "Disposable temporary fixture roots and process-local monkeypatches only; no frozen or real-index mutations, no ledger writes.",
+          "disposition_rationale": "Approve QA delivery after repaired finding terminalization. Each required AC independently mapped to own executable assertions or directly inspected current computational artifacts; no requirements narrowed and no deferrals introduced."
+        },
+        "mode": "create",
+        "event": "approval",
+        "signoff_key": "qa-reviewer",
+        "approval_phase": "delivery"
+      },
+      "approval_caller_status": "Eligible fresh independent QA delivery approval; submit separately after final blocking chain clears.",
+      "ac_evidence": {
+        "1x8e1.AC-1": {
+          "status": "executed",
+          "evidence": "Own LaterCreatedDocTargetTests exact edge/node/EXTRACTED + full oracle for noded/node-less, persisted artifact/summary reopen, target-only/unchanged/unrelated and read/exists/directory recovery; own original publication replay and all IdleDocLinkRecoveryTests."
+        },
+        "1x8e1.AC-2": {
+          "status": "executed",
+          "evidence": "Own target_only_creation test pins absent/resolved scan=0, state_reads/state_writes/blob_writes=0; preflight reuse/version control traps duplicate blob read; public next-idle dispatch traps and unchanged generation pass."
+        },
+        "1x8e1.AC-3": {
+          "status": "verified_own_focused_execution_and_current_boundary_artifacts",
+          "evidence": "Own 18 focused tests + 3 replay controls pass zero skips. Independently inspected current repaired-tree full runner log 8480/74 green, 3 skips, 206.302s; fresh result=ok receipt; exact saved wf_validate_docs passed=true without errors/warnings."
+        },
+        "1x81w.AC-1": {
+          "status": "executed",
+          "evidence": "Own all 8 DryRunIdleMaintenanceTests + 5 IdleDocLinkRecoveryTests: dirty, drift, heal, reap, orphan, missing-Lance/dirty, no-op, CLI and publication binding states preserve durable snapshots and epochs."
+        },
+        "1x81w.AC-2": {
+          "status": "executed",
+          "evidence": "Own pending maintenance flags/counts/CLI checks and no-op negative control pass; interrupted/missing/size/mtime/summary-fingerprint graph recovery previews report work."
+        },
+        "1x81w.AC-3": {
+          "status": "executed",
+          "evidence": "Own qa-remove-dryrun-gate process-local mutant: named dirty_epoch_dry_run test fails persisted snapshot equality, 1 failure 0 errors/skips."
+        }
+      },
+      "mutation_table": [
+        {
+          "mutant": "qa-remove-dryrun-gate",
+          "test": "test_indexer.DryRunIdleMaintenanceTests.test_dirty_epoch_dry_run_is_byte_identical_and_reports_recovery",
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "runtime": 8.089866041089408,
+          "survivor": false
+        },
+        {
+          "mutant": "qa-disable-deferred-trigger",
+          "test": "test_graph_incremental_merge.LaterCreatedDocTargetTests.test_failed_or_unreadable_doc_retries_on_unchanged_recovery",
+          "tests": 1,
+          "failures": 3,
+          "errors": 0,
+          "skips": 0,
+          "runtime": 1.3246291249524802,
+          "survivor": false
+        },
+        {
+          "mutant": "qa-remove-binding-preflight",
+          "test": "test_indexer.IdleDocLinkRecoveryTests.test_failed_payload_publication_recovers_on_unchanged_public_retry",
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "runtime": 4.489704333944246,
+          "survivor": false
+        }
+      ],
+      "fingerprint_before": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "91c0262cd7c70915199818adcc41efb4917f8a61",
+        ".wavefoundry/framework/scripts/indexer.py": "31522d11edde88de5338420e4929d642975b082e",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "e0f4979f472afc4d556fddbf0c7df7497174f5aa",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8a03f6fde532217eaf5178637abb75b537ee8cee",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "3fbedd59f7277a261bdd222c3c3443bb0bea9823",
+        "docs/architecture/graph-index-system.md": "81c3e552be038a227f9abfbeddc0221222d3c785",
+        "docs/architecture/data-and-control-flow.md": "e5ae28fe73a701e906e0acb05e2def3b8eb3937f",
+        "docs/RELIABILITY.md": "61083084fa556a345471ebfb6c24cb4c79a3cdb5",
+        "CHANGELOG.md": "a294eb4d940f548df7c840db93462f2b11b97c23",
+        "docs/reports/graph-quality-post.json": "bc278b24a8c6716c6c993265018a3667640823d7",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": "1bc534a2b30707cf2f35441714bee9c80ef0df28",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": "4eba658a5815aa35f9dfb30d4b5550df7a897ac4",
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": "b1e09b095be4be9ef174880b961a70d1247bf4ee"
+      },
+      "fingerprint_after": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "91c0262cd7c70915199818adcc41efb4917f8a61",
+        ".wavefoundry/framework/scripts/indexer.py": "31522d11edde88de5338420e4929d642975b082e",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "e0f4979f472afc4d556fddbf0c7df7497174f5aa",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8a03f6fde532217eaf5178637abb75b537ee8cee",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "3fbedd59f7277a261bdd222c3c3443bb0bea9823",
+        "docs/architecture/graph-index-system.md": "81c3e552be038a227f9abfbeddc0221222d3c785",
+        "docs/architecture/data-and-control-flow.md": "e5ae28fe73a701e906e0acb05e2def3b8eb3937f",
+        "docs/RELIABILITY.md": "61083084fa556a345471ebfb6c24cb4c79a3cdb5",
+        "CHANGELOG.md": "a294eb4d940f548df7c840db93462f2b11b97c23",
+        "docs/reports/graph-quality-post.json": "bc278b24a8c6716c6c993265018a3667640823d7",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": "1bc534a2b30707cf2f35441714bee9c80ef0df28",
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": "4eba658a5815aa35f9dfb30d4b5550df7a897ac4",
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": "b1e09b095be4be9ef174880b961a70d1247bf4ee"
+      },
+      "limitations": [
+        "Fresh independent QA actor did not implement repair. Required orientation and original finding/reproduction used as challenge/reference, never as execution evidence.",
+        "Public build_index and CLI use real walker, graph sessions, SQLite/Lance and actual lock/epoch; deterministic mock embedders. Retry uses fresh graph session/connections in same Python process, no process-kill or hardware disk-full test.",
+        "Exact normative edge/node/EXTRACTED assertions supplement full-build oracle that shares extractor assumptions. No universal input-space or performance claim.",
+        "Snapshots compare persisted SQLite rows and durable artifact/Lance bytes; transient reader-lock WAL/SHM bookkeeping not claimed byte-identical. ResourceWarnings occurred; zero skipped selected tests.",
+        "Scoped source outline and MCP targeted reads; scoped shell reads for prior scratch probes, logs and direct AC extraction. No frozen path, real index or ledger writes. All 13 frozen hashes match before and after.",
+        "Full framework suite and docs validation executed by coordinator, not this lane. Independently inspected current repaired-tree /tmp/1x5tq-delivery-repair-framework.log: 8480 tests/74 files, 3 skips, OK in 206.302s; fresh receipt result=ok, inputs_hash=a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91. Independently inspected exact saved wf_validate_docs structured result /tmp/1x5tq-delivery-round2/docs-validation.json: passed=true, errors=[], warnings=[]."
+      ]
+    },
+    "qa-reverification-caller.json": {
+      "wave_id": "1x5tq",
+      "actor": "qa-reviewer",
+      "context_id": "1x5tq-delivery-round2-qa-independent-20260905",
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions."
+      },
+      "evidence": {
+        "proposition": "After committed graph link repair is interrupted before project-graph.json publication, an unchanged public retry must restore the exact graph edge/node and bound publication before completing its epoch; dryrun remains read-only.",
+        "failure_condition": "Idle repair consumes durable unresolved target obligation then payload write raises OSError, or payload is missing/size-mismatched/mtime-mismatched/summary-fingerprint-mismatched.",
+        "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize; indexer.main CLI controls",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/qa-original-replay.py; unittest test_indexer.IdleDocLinkRecoveryTests test_indexer.DryRunIdleMaintenanceTests; unittest test_graph_incremental_merge.LaterCreatedDocTargetTests; qa-mutations.py",
+        "expected": "Publication replay PASS, one retry dispatch, exact docs/linker.md -> src/later.py doc_references_doc edge and doc node, bound metadata, complete epoch; all named adjacent controls pass with readonly dryrun and no next-idle work; known-bad mutations rejected.",
+        "observed": "Own adapted exact original reproduction PASS: after injected payload write failure, consumed obligation and pending binding; unchanged retry dispatches exactly 1, edge/node restored, metadata bound and epoch complete. Same-tree full build positive control PASS. Own 13 idle/dryrun tests pass in 14.894s (new 2 methods cover publication interruption plus missing/size/mtime/summary-fingerprint), own 5 LaterCreatedDocTargetTests pass in 7.717s, and original replay independently runs 3 existing idle controls. Zero skips/failures/errors on baseline. All three focused mutants rejected with failures 1/3/1 and zero errors/skips. Independently inspected current repaired-tree full runner log: 8480 tests/74 files, 3 skips, OK; fresh green receipt. Exact saved wf_validate_docs structured result passed with zero errors/warnings.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/qa-original-replay-results.json; qa-focused.log; qa-graph-controls.log; qa-mutations.json; qa-fingerprint-before.json; qa-fingerprint-after.json; /tmp/1x5tq-delivery-repair-framework.log; /tmp/1x5tq-delivery-round2/docs-validation.json; .wavefoundry/framework/test-cache.json",
+        "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions.",
+        "limitations": "Fresh independent QA actor did not implement repair. Required orientation and original finding/reproduction used as challenge/reference, never as execution evidence.\nPublic build_index and CLI use real walker, graph sessions, SQLite/Lance and actual lock/epoch; deterministic mock embedders. Retry uses fresh graph session/connections in same Python process, no process-kill or hardware disk-full test.\nExact normative edge/node/EXTRACTED assertions supplement full-build oracle that shares extractor assumptions. No universal input-space or performance claim.\nSnapshots compare persisted SQLite rows and durable artifact/Lance bytes; transient reader-lock WAL/SHM bookkeeping not claimed byte-identical. ResourceWarnings occurred; zero skipped selected tests.\nScoped source outline and MCP targeted reads; scoped shell reads for prior scratch probes, logs and direct AC extraction. No frozen path, real index or ledger writes. All 13 frozen hashes match before and after.\nFull framework suite and docs validation executed by coordinator, not this lane. Independently inspected current repaired-tree /tmp/1x5tq-delivery-repair-framework.log: 8480 tests/74 files, 3 skips, OK in 206.302s; fresh receipt result=ok, inputs_hash=a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91. Independently inspected exact saved wf_validate_docs structured result /tmp/1x5tq-delivery-round2/docs-validation.json: passed=true, errors=[], warnings=[].",
+        "safety_and_authorization": "Disposable temporary fixture roots and process-local monkeypatches only; no frozen or real-index mutations, no ledger writes.",
+        "disposition_rationale": "Original admitted public-contract correctness finding is repaired in the executed interruption and named adjacent states. Retain original classification and set repair_execution_state completed; QA clears only its own lane after architecture clears first. No scope or AC changes."
+      },
+      "mode": "create",
+      "event": "finding",
+      "finding_id": "ARCH-DEL-1",
+      "run_kind": "reverification",
+      "cycle": 2,
+      "judgment": {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "public_contract",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "repair_execution_state": "completed"
+      },
+      "source_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer"
+      ],
+      "blocking_required_lanes": [],
+      "approval_recheck_lanes": [
+        "architecture-reviewer",
+        "qa-reviewer",
+        "wave-council-delivery"
+      ],
+      "review_boundaries_changed": []
+    },
+    "qa-approval-caller.json": {
+      "wave_id": "1x5tq",
+      "actor": "qa-reviewer",
+      "context_id": "1x5tq-delivery-round2-qa-independent-20260905",
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions."
+      },
+      "evidence": {
+        "proposition": "All six admitted acceptance criteria have current concrete verification: exact durable doc-link recovery/selectivity, public dryrun nonmutation and reporting, known-bad gate detection, repaired publication recovery, and clean relevant/full verification boundary.",
+        "failure_condition": "Idle repair consumes durable unresolved target obligation then payload write raises OSError, or payload is missing/size-mismatched/mtime-mismatched/summary-fingerprint-mismatched.",
+        "public_path": "indexer.build_index(root, content=\"all\") -> idle graph repair -> GraphIndexSession.finalize; indexer.main CLI controls",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/qa-original-replay.py; unittest test_indexer.IdleDocLinkRecoveryTests test_indexer.DryRunIdleMaintenanceTests; unittest test_graph_incremental_merge.LaterCreatedDocTargetTests; qa-mutations.py",
+        "expected": "Publication replay PASS, one retry dispatch, exact docs/linker.md -> src/later.py doc_references_doc edge and doc node, bound metadata, complete epoch; all named adjacent controls pass with readonly dryrun and no next-idle work; known-bad mutations rejected.",
+        "observed": "Own adapted exact original reproduction PASS: after injected payload write failure, consumed obligation and pending binding; unchanged retry dispatches exactly 1, edge/node restored, metadata bound and epoch complete. Same-tree full build positive control PASS. Own 13 idle/dryrun tests pass in 14.894s (new 2 methods cover publication interruption plus missing/size/mtime/summary-fingerprint), own 5 LaterCreatedDocTargetTests pass in 7.717s, and original replay independently runs 3 existing idle controls. Zero skips/failures/errors on baseline. All three focused mutants rejected with failures 1/3/1 and zero errors/skips. Independently inspected current repaired-tree full runner log: 8480 tests/74 files, 3 skips, OK; fresh green receipt. Exact saved wf_validate_docs structured result passed with zero errors/warnings.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/qa-original-replay-results.json; qa-focused.log; qa-graph-controls.log; qa-mutations.json; qa-fingerprint-before.json; qa-fingerprint-after.json; /tmp/1x5tq-delivery-repair-framework.log; /tmp/1x5tq-delivery-round2/docs-validation.json; .wavefoundry/framework/test-cache.json",
+        "known_bad_detection_method": "focused-mutation: process-local deletion of read_pending_doc_link_repairs payload-binding preflight; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion, 1 failure and 0 errors/skips. Separate dryrun-gate and deferred-trigger mutants fail persisted-state and exact-node assertions.",
+        "limitations": "Fresh independent QA actor did not implement repair. Required orientation and original finding/reproduction used as challenge/reference, never as execution evidence.\nPublic build_index and CLI use real walker, graph sessions, SQLite/Lance and actual lock/epoch; deterministic mock embedders. Retry uses fresh graph session/connections in same Python process, no process-kill or hardware disk-full test.\nExact normative edge/node/EXTRACTED assertions supplement full-build oracle that shares extractor assumptions. No universal input-space or performance claim.\nSnapshots compare persisted SQLite rows and durable artifact/Lance bytes; transient reader-lock WAL/SHM bookkeeping not claimed byte-identical. ResourceWarnings occurred; zero skipped selected tests.\nScoped source outline and MCP targeted reads; scoped shell reads for prior scratch probes, logs and direct AC extraction. No frozen path, real index or ledger writes. All 13 frozen hashes match before and after.\nFull framework suite and docs validation executed by coordinator, not this lane. Independently inspected current repaired-tree /tmp/1x5tq-delivery-repair-framework.log: 8480 tests/74 files, 3 skips, OK in 206.302s; fresh receipt result=ok, inputs_hash=a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91. Independently inspected exact saved wf_validate_docs structured result /tmp/1x5tq-delivery-round2/docs-validation.json: passed=true, errors=[], warnings=[].",
+        "safety_and_authorization": "Disposable temporary fixture roots and process-local monkeypatches only; no frozen or real-index mutations, no ledger writes.",
+        "disposition_rationale": "Approve QA delivery after repaired finding terminalization. Each required AC independently mapped to own executable assertions or directly inspected current computational artifacts; no requirements narrowed and no deferrals introduced."
+      },
+      "mode": "create",
+      "event": "approval",
+      "signoff_key": "qa-reviewer",
+      "approval_phase": "delivery"
+    },
+    "performance.json": {
+      "role": "performance-reviewer",
+      "verdict": "Approved with notes",
+      "caller": {
+        "wave_id": "1x5tq",
+        "event": "approval",
+        "actor": "performance-reviewer",
+        "context_id": "1x5tq-delivery-performance-fresh-20260905-r2",
+        "mode": "dry_run",
+        "signoff_key": "performance-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "observed": "Fresh own 400-file idle: zero document scans and zero artifact row reads/writes/blob writes; 401-file target repair: exactly one doc scanned, exact EXTRACTED doc_references_doc edge, one row write, zero duplicate merge-blob reads. Resolved idle and unrelated source edit scan zero docs. Known-bad forced-all-doc scan rejected at 200 scans. Own interrupted-publication\u2192dry-run\u2192unchanged public retry regression ran 1 test in 2.554s, no skips: failed build consumes obligation with pending binding, preview preserves state, retry performs exactly one graph dispatch, restores exact edge/bound marker/complete epoch; next idle dispatches zero and preserves generation. All13 hashes match before and after both probes. Shared stat predicate mean12.54us over1000 local calls; preflight17.39ms, graph samples80.59\u201395.09ms, descriptive only.",
+          "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/performance-observed.json; /tmp/1x5tq-delivery-round2/performance-public-retry.log",
+          "public_path": "graph_indexer.update_graph_index / read_pending_doc_link_repairs; indexer.build_index via IdleDocLinkRecoveryTests",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/performance-probe.py; from scripts/tests: same Python -m unittest test_indexer.IdleDocLinkRecoveryTests.test_failed_payload_publication_recovers_on_unchanged_public_retry",
+          "expected": "Idle zero doc scans; one-target exactly one scan and exact edge; reuse plan no get_blob; interrupted publication recovers once through unchanged public build and returns to stable idle.",
+          "known_bad_detection_method": "focused-mutation: process-local _pending_doc_link_repairs forces every current document pending; own public update_graph_index idle probe scanned 200 docs and failed expected-zero assertion; baseline scanned zero.",
+          "limitations": "Finite 200-doc +200-source synthetic corpus, one added node-less target, local warm filesystem. Timing single samples with concurrent reviewer test activity; 1000 repeated helper calls measured mean only, no SLA or comparison against round0 and no production percentile/peak-memory claim. Graph fixture uses actual SQLite/filesystem and _RepoDriver metadata, bypassing outer walker; separate selected public build_index regression uses real store/lock/epoch and test embedding fixtures. Only one interruption point executed here; other repair conditions belong to other lanes. MCP outline then targeted code_read used; scoped rg only for excluded test names. No frozen edits, full suite, real index mutation, ledger write, closure or commit.",
+          "safety_and_authorization": "Only authorized temporary fixture files/stores, process-local mutation and read-only frozen-source reads; test temp directory under system writable temporary root."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: process-local _pending_doc_link_repairs forces every current document pending; own public update_graph_index idle probe scanned 200 docs and failed expected-zero assertion; baseline scanned zero."
+        }
+      },
+      "findings": [],
+      "complexity": "Idle preflight decodes/scans compressed merge summary O(summary bytes + retained targets), without document row/text I/O. Selective repair extracts only eligible doc; shared payload binding adds one O(1) stat plus metadata comparisons. Existing locked full-merge is the conservative interrupted-publication recovery cost.",
+      "observed": {
+        "binding_predicate_1000_sample_mean_us": 12.540875002741814,
+        "rows": [
+          {
+            "name": "400-file absent-target idle",
+            "seconds": 0.0937462089350447,
+            "scans": 0,
+            "stats": {
+              "mode": "zero-change",
+              "files_changed": 0,
+              "files_removed": 0,
+              "symbols_invalidated": 0,
+              "edges_reresolved": 0,
+              "merge_ms": 25,
+              "state_reads": 0,
+              "state_writes": 0,
+              "blob_reads": 1,
+              "blob_writes": 0,
+              "blob_bytes": 0
+            }
+          },
+          {
+            "name": "401-file one-target snapshot repair",
+            "seconds": 0.08058933296706527,
+            "scans": 1,
+            "stats": {
+              "mode": "incremental",
+              "files_changed": 0,
+              "files_removed": 0,
+              "symbols_invalidated": 0,
+              "edges_reresolved": 1,
+              "edges_dropped_dangling": 0,
+              "merge_ms": 13,
+              "state_reads": 0,
+              "state_writes": 1,
+              "blob_reads": 0,
+              "blob_writes": 1,
+              "blob_bytes": 9645
+            }
+          },
+          {
+            "name": "401-file resolved idle",
+            "seconds": 0.09509412501938641,
+            "scans": 0,
+            "stats": {
+              "mode": "zero-change",
+              "files_changed": 0,
+              "files_removed": 0,
+              "symbols_invalidated": 0,
+              "edges_reresolved": 0,
+              "merge_ms": 9,
+              "state_reads": 0,
+              "state_writes": 0,
+              "blob_reads": 1,
+              "blob_writes": 0,
+              "blob_bytes": 0
+            }
+          },
+          {
+            "name": "401-file unrelated code change",
+            "seconds": 0.0862894169986248,
+            "scans": 0,
+            "stats": {
+              "mode": "incremental",
+              "files_changed": 1,
+              "files_removed": 0,
+              "symbols_invalidated": 5,
+              "edges_reresolved": 1,
+              "edges_dropped_dangling": 0,
+              "merge_ms": 21,
+              "state_reads": 0,
+              "state_writes": 1,
+              "blob_reads": 1,
+              "blob_writes": 1,
+              "blob_bytes": 9645
+            }
+          }
+        ],
+        "preflight_ms": 17.387958010658622,
+        "mutation": {
+          "mutant": "force every current document pending",
+          "location": "process-local _pending_doc_link_repairs",
+          "test": "public update_graph_index on healthy 401-file idle",
+          "result": "killed",
+          "observed": "('known-bad unconditional doc rescan', 200, 0)",
+          "seconds": 0.14123708300758153,
+          "survivor": false
+        },
+        "before": {
+          ".wavefoundry/framework/scripts/graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+          "docs/architecture/graph-index-system.md": true,
+          "docs/architecture/data-and-control-flow.md": true,
+          "docs/RELIABILITY.md": true,
+          "CHANGELOG.md": true,
+          "docs/reports/graph-quality-post.json": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+        },
+        "after": {
+          ".wavefoundry/framework/scripts/graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+          "docs/architecture/graph-index-system.md": true,
+          "docs/architecture/data-and-control-flow.md": true,
+          "docs/RELIABILITY.md": true,
+          "CHANGELOG.md": true,
+          "docs/reports/graph-quality-post.json": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+        },
+        "all_match": true,
+        "skips": 0
+      },
+      "public_retry": {
+        "tests_run": 1,
+        "skips": 0,
+        "failures": 0,
+        "errors": 0,
+        "log": "/tmp/1x5tq-delivery-round2/performance-public-retry.log"
+      },
+      "fingerprint": {
+        "before": {
+          ".wavefoundry/framework/scripts/graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+          "docs/architecture/graph-index-system.md": true,
+          "docs/architecture/data-and-control-flow.md": true,
+          "docs/RELIABILITY.md": true,
+          "CHANGELOG.md": true,
+          "docs/reports/graph-quality-post.json": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+        },
+        "after_all_execution": {
+          ".wavefoundry/framework/scripts/graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+          ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+          ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+          "docs/architecture/graph-index-system.md": true,
+          "docs/architecture/data-and-control-flow.md": true,
+          "docs/RELIABILITY.md": true,
+          "CHANGELOG.md": true,
+          "docs/reports/graph-quality-post.json": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+          "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+        }
+      },
+      "limitations": "Finite 200-doc +200-source synthetic corpus, one added node-less target, local warm filesystem. Timing single samples with concurrent reviewer test activity; 1000 repeated helper calls measured mean only, no SLA or comparison against round0 and no production percentile/peak-memory claim. Graph fixture uses actual SQLite/filesystem and _RepoDriver metadata, bypassing outer walker; separate selected public build_index regression uses real store/lock/epoch and test embedding fixtures. Only one interruption point executed here; other repair conditions belong to other lanes. MCP outline then targeted code_read used; scoped rg only for excluded test names. No frozen edits, full suite, real index mutation, ledger write, closure or commit.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: process-local _pending_doc_link_repairs forces every current document pending; own public update_graph_index idle probe scanned 200 docs and failed expected-zero assertion; baseline scanned zero."
+      }
+    },
+    "performance-approval-caller.json": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "performance-reviewer",
+      "context_id": "1x5tq-delivery-performance-fresh-20260905-r2",
+      "mode": "dry_run",
+      "signoff_key": "performance-reviewer",
+      "approval_phase": "delivery",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "observed": "Fresh own 400-file idle: zero document scans and zero artifact row reads/writes/blob writes; 401-file target repair: exactly one doc scanned, exact EXTRACTED doc_references_doc edge, one row write, zero duplicate merge-blob reads. Resolved idle and unrelated source edit scan zero docs. Known-bad forced-all-doc scan rejected at 200 scans. Own interrupted-publication\u2192dry-run\u2192unchanged public retry regression ran 1 test in 2.554s, no skips: failed build consumes obligation with pending binding, preview preserves state, retry performs exactly one graph dispatch, restores exact edge/bound marker/complete epoch; next idle dispatches zero and preserves generation. All13 hashes match before and after both probes. Shared stat predicate mean12.54us over1000 local calls; preflight17.39ms, graph samples80.59\u201395.09ms, descriptive only.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/performance-observed.json; /tmp/1x5tq-delivery-round2/performance-public-retry.log",
+        "public_path": "graph_indexer.update_graph_index / read_pending_doc_link_repairs; indexer.build_index via IdleDocLinkRecoveryTests",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/performance-probe.py; from scripts/tests: same Python -m unittest test_indexer.IdleDocLinkRecoveryTests.test_failed_payload_publication_recovers_on_unchanged_public_retry",
+        "expected": "Idle zero doc scans; one-target exactly one scan and exact edge; reuse plan no get_blob; interrupted publication recovers once through unchanged public build and returns to stable idle.",
+        "known_bad_detection_method": "focused-mutation: process-local _pending_doc_link_repairs forces every current document pending; own public update_graph_index idle probe scanned 200 docs and failed expected-zero assertion; baseline scanned zero.",
+        "limitations": "Finite 200-doc +200-source synthetic corpus, one added node-less target, local warm filesystem. Timing single samples with concurrent reviewer test activity; 1000 repeated helper calls measured mean only, no SLA or comparison against round0 and no production percentile/peak-memory claim. Graph fixture uses actual SQLite/filesystem and _RepoDriver metadata, bypassing outer walker; separate selected public build_index regression uses real store/lock/epoch and test embedding fixtures. Only one interruption point executed here; other repair conditions belong to other lanes. MCP outline then targeted code_read used; scoped rg only for excluded test names. No frozen edits, full suite, real index mutation, ledger write, closure or commit.",
+        "safety_and_authorization": "Only authorized temporary fixture files/stores, process-local mutation and read-only frozen-source reads; test temp directory under system writable temporary root."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: process-local _pending_doc_link_repairs forces every current document pending; own public update_graph_index idle probe scanned 200 docs and failed expected-zero assertion; baseline scanned zero."
+      }
+    },
+    "council-final.json": {
+      "phase": "delivery",
+      "verdict": "approved",
+      "review_kind": "focused_postrepair_synthesis",
+      "finding_id": "ARCH-DEL-1",
+      "cycle": 2,
+      "full_restart_required": false,
+      "historical_seat_agreement_aggregate": {
+        "seat_agreement": "split",
+        "max_severity": "high"
+      },
+      "current_assessment": "Fresh affected-lane convergence after shared repair evidence; no material disagreement; not a five-seat independent unanimity claim.",
+      "approval": "council-approval-caller.json",
+      "report": "council-report.md",
+      "limits": "Focused postrepair synthesis extends completed round0 full council and anonymous first synthesis; no new five-seat council was run, no independent unanimity claimed. Moderator did not implement repair. Prior finding/seat reports are shared synthesis inputs, never substituted for own execution. Own tests use real public build_index/walker/SQLite/Lance/lock/epoch with deterministic mock embeddings; fresh sessions within one process, no hardware disk-full or process-kill test. Pre-completion ordering instrumentation belongs to architecture lane. Performance timing belongs to performance lane and is descriptive. Whole suite was executed by coordinator and its log inspected; docs validation is coordinator-reported. No frozen source/docs, real index, ledger, closure or commit writes."
+    },
+    "council-approval-caller.json": {
+      "wave_id": "1x5tq",
+      "event": "approval",
+      "actor": "wave-council",
+      "context_id": "1x5tq-delivery-round2-council-independent",
+      "mode": "create",
+      "signoff_key": "wave-council-delivery",
+      "approval_phase": "delivery",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "observed": "Own execution: 3 public IdleDocLinkRecoveryTests pass, 0 failures/errors/skips: failed publication then unchanged recovery; missing/size/mtime/summary-fingerprint binding census; node-less target plus dirty epoch. These assert byte-identical lock-free preview, exactly one real recovery dispatch, exact EXTRACTED link/doc node, bound metadata, complete epoch, and following idle with no graph dispatch or generation change. Own binding-omission mutant rejected with 1 assertion failure and 0 errors/skips. All13 packet hashes match after probes. Independently inspected source predicate, two production helper call sites via MCP code_references, and round0-to-round2 patch delta: no publication order, authority, contract, ownership or format change. Architecture and QA fresh replay/reverification approve repair; performance fresh approval clears reliability condition. Full runner inspected: 8480 tests/74files/3skips, OK in206.302s. Coordinator reports full wf_validate_docs clean.",
+        "artifact_or_test_id": "/tmp/1x5tq-delivery-round2/council-probe-results.json; council-baseline.log; council-knownbad.log; council-report.md",
+        "public_path": "indexer.build_index(root, content=\"all\") via IdleDocLinkRecoveryTests",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/1x5tq-delivery-round2/council-probe.py",
+        "expected": "Interrupted and unproven publication repairs through one locked public dispatch; dryrun remains unchanged; repaired idle is stable; known-bad binding omission rejected.",
+        "known_bad_detection_method": "focused-mutation: council own process-local removal of the publication-binding comparison from read_pending_doc_link_repairs; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion (1 failure, 0 errors/skips), while the unmodified test passes. See council-knownbad.log and council-probe.py.",
+        "limitations": "Focused postrepair synthesis extends completed round0 full council and anonymous first synthesis; no new five-seat council was run, no independent unanimity claimed. Moderator did not implement repair. Prior finding/seat reports are shared synthesis inputs, never substituted for own execution. Own tests use real public build_index/walker/SQLite/Lance/lock/epoch with deterministic mock embeddings; fresh sessions within one process, no hardware disk-full or process-kill test. Pre-completion ordering instrumentation belongs to architecture lane. Performance timing belongs to performance lane and is descriptive. Whole suite was executed by coordinator and its log inspected; docs validation is coordinator-reported. No frozen source/docs, real index, ledger, closure or commit writes.",
+        "safety_and_authorization": "Authorized temporary fixture roots and process-local mutant only; frozen source and real project index read-only."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: council own process-local removal of the publication-binding comparison from read_pending_doc_link_repairs; public test_failed_payload_publication_recovers_on_unchanged_public_retry fails pending_maintenance.graph_recovery assertion (1 failure, 0 errors/skips), while the unmodified test passes. See council-knownbad.log and council-probe.py."
+      }
+    },
+    "council-probe-results.json": {
+      "runs": [
+        {
+          "label": "baseline",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "successful": true
+        },
+        {
+          "label": "knownbad",
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "successful": false
+        }
+      ],
+      "frozen_hashes": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": true,
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": true,
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": true,
+        "docs/architecture/graph-index-system.md": true,
+        "docs/architecture/data-and-control-flow.md": true,
+        "docs/RELIABILITY.md": true,
+        "CHANGELOG.md": true,
+        "docs/reports/graph-quality-post.json": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x8e1-bug doc-link-into-later-created-target-never-gains-edge.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/1x81w-bug dry-run-reaches-zero-change-writes-unlocked.md": true,
+        "docs/waves/1x5tq later-created-doc-link-targets/smoke-tests.md": true
+      }
+    },
+    "docs-validation.json": {
+      "status": "ok",
+      "data": {
+        "passed": true,
+        "errors": [],
+        "warnings": [],
+        "output": "docs-lint: ok\n"
+      },
+      "diagnostics": [],
+      "next_tools": [
+        "wf_garden_docs"
+      ],
+      "usage": "wf_garden_docs()"
+    }
+  },
+  "final_framework_receipt": {
+    "inputs_hash": "a549e665607736b8b03d1b0f000d09e328f3189d5a98d3f978c3ebed3baabb91",
+    "ran_at": "2026-09-05T18:00:08.457408+00:00",
+    "test_count": 8480,
+    "result": "ok",
+    "durations_s": {
+      "test_accel_embedder.py": 0.887,
+      "test_agent_surface_integrity.py": 1.049,
+      "test_ann_reference_eval.py": 0.255,
+      "test_build_pack.py": 10.961,
+      "test_check_version.py": 0.078,
+      "test_chunker.py": 34.546,
+      "test_cli_stdio.py": 0.087,
+      "test_commit_provenance.py": 4.605,
+      "test_context_efficiency.py": 1.058,
+      "test_dashboard_server.py": 26.912,
+      "test_design_system_backfill.py": 0.188,
+      "test_design_system_governance_validators.py": 0.225,
+      "test_design_system_surface_validators.py": 0.248,
+      "test_design_system_validators.py": 0.505,
+      "test_design_token_build.py": 0.478,
+      "test_doc_drift.py": 26.797,
+      "test_docs_constants_lint.py": 3.09,
+      "test_docs_gardener.py": 0.302,
+      "test_docs_lint.py": 168.564,
+      "test_events_only_residue_census.py": 0.705,
+      "test_fts_lexical_layer.py": 4.117,
+      "test_fts_query_honesty.py": 3.874,
+      "test_gen_codebase_map.py": 1.404,
+      "test_graph_cluster.py": 0.763,
+      "test_graph_incremental_merge.py": 12.801,
+      "test_graph_indexer.py": 65.637,
+      "test_graph_quality_eval.py": 1.579,
+      "test_graph_query.py": 3.167,
+      "test_index_state_store.py": 5.155,
+      "test_indexer.py": 157.376,
+      "test_indexer_secrets_scope.py": 4.388,
+      "test_install_log_lib.py": 0.53,
+      "test_lexical_ranking_eval.py": 0.488,
+      "test_lifecycle_id.py": 0.766,
+      "test_lifecycle_mutation_lock.py": 1.342,
+      "test_memory_backfill.py": 4.213,
+      "test_memory_eval.py": 2.497,
+      "test_memory_records.py": 9.587,
+      "test_model_bundle.py": 0.934,
+      "test_per_area_agents_context.py": 0.938,
+      "test_perf_budget_policy.py": 0.057,
+      "test_prune_framework.py": 0.093,
+      "test_python_parse_diagnostics.py": 2.57,
+      "test_reconcile_scan.py": 1.843,
+      "test_render_agent_surfaces.py": 2.763,
+      "test_render_platform_surfaces.py": 3.041,
+      "test_retrieval_candidate_generation.py": 5.53,
+      "test_retrieval_eval.py": 2.373,
+      "test_review_evidence.py": 1.427,
+      "test_review_policy.py": 4.001,
+      "test_run_tests_cache.py": 0.59,
+      "test_run_tests_lock.py": 0.999,
+      "test_runtime_lock.py": 0.286,
+      "test_scan_secrets.py": 0.166,
+      "test_secret_scan_cache.py": 1.863,
+      "test_secrets_prefix_collapse.py": 150.347,
+      "test_secrets_validators.py": 4.637,
+      "test_server_context_efficiency.py": 3.762,
+      "test_server_startup_guards.py": 0.316,
+      "test_server_stdout_isolation.py": 0.093,
+      "test_server_tools.py": 139.96,
+      "test_server_tools_lifecycle.py": 137.409,
+      "test_server_tools_retrieval.py": 93.785,
+      "test_setup_index.py": 26.084,
+      "test_setup_wavefoundry.py": 2.684,
+      "test_shipped_reference_docs.py": 0.704,
+      "test_subprocess_util.py": 0.32,
+      "test_techdocs_audit_lib.py": 9.884,
+      "test_tree_sitter_cache.py": 0.075,
+      "test_upgrade_protocol.py": 7.202,
+      "test_upgrade_wavefoundry.py": 19.071,
+      "test_venv_bootstrap.py": 2.081,
+      "test_wave_gate.py": 0.079,
+      "test_wf_cli.py": 2.281
+    }
+  }
+}

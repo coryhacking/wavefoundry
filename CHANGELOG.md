@@ -248,6 +248,24 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Links to files created later recover without editing the referring document.** Graph
+  artifacts retain unresolved local targets and selectively retry when those paths become
+  current, including targets with no graph node. Failed reads keep the obligation for an
+  unchanged build; successful resolution stops repair rescans. Graph builder 51 refreshes
+  older fragments. Wave `1x5tq` / change `1x8e1`.
+
+- **Interrupted graph publication recovers on the next unchanged build.** A repair could
+  commit its resolved links before writing the graph payload, then lose its retry trigger
+  if publication failed. Idle planning now checks the same payload binding as graph
+  finalization, including the merge fingerprint and file size/mtime. Missing or unbound
+  payloads trigger the existing locked recovery; dry runs report that work without writing.
+  Wave `1x5tq` / change `1x8e1`, delivery finding `ARCH-DEL-1`.
+
+- **An idle dry run reports maintenance without executing it.** Drift clearing, reaping,
+  healing, dirty-epoch recovery, orphan reconciliation and pending graph repair are planned
+  before the unlocked dry-run return. Real idle graph repairs run under the build lock and
+  epoch. Wave `1x5tq` / change `1x81w`.
+
 - **The served graph no longer carries an edge to a node that does not exist.** When a doc that another
   doc linked to was deleted, the first build pruned the link edge, and the next build that did not touch
   the linking doc brought it back with no target node, where it stayed until a full rebuild; a doc left

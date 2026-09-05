@@ -9225,7 +9225,8 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # filter changes the served edge set, so persisted payloads that carry
         # a fragment's re-emitted edge into a deleted doc or a renamed symbol
         # must re-extract.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "50")
+        # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "51")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

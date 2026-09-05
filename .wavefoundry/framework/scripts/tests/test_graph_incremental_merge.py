@@ -1305,6 +1305,200 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
         self.assert_equivalent(incremental, oracle, "exempt endpoints")
 
 
+class LaterCreatedDocTargetTests(_IncrementalMergeBase):
+    DOC = "docs/linker.md"
+
+    def _stored_unresolved(self):
+        # A new connection after each build proves both representations survive
+        # session close, including a document pruned from the served graph.
+        store = self.mod.GraphStateStore(
+            self.driver.index_dir / self.mod.GRAPH_DIRNAME / self.mod.GRAPH_STORE_FILENAMES["project"],
+            layer="project", walker_version="1", chunker_version="1",
+        )
+        try:
+            artifact = store.get_record(self.DOC)["artifact"]
+            summary = store.get_blob("merge_state")["files"][self.DOC]
+            return artifact.get("unresolved_doc_targets", []), summary.get("unresolved_doc_targets", [])
+        finally:
+            store.close()
+
+    def _assert_link(self, payload, target, *, noded):
+        ids = {n["id"] for n in payload["nodes"]}
+        self.assertIn(self.DOC, ids)
+        self.assertEqual(target in ids, noded)
+        self.assertIn((self.DOC, target, "doc_references_doc", "EXTRACTED"), _edge_keys(payload))
+        self.assert_equivalent(payload, self.driver.build_oracle())
+
+    def test_target_only_creation_then_unchanged_and_unrelated(self):
+        from unittest.mock import patch
+        for target, body, reference, noded in (
+            ("src/later.py", "def later():\n    return 1\n", "[later](../src/later.py#part)", True),
+            ("assets/.gitignore", "cache/\n", "`/assets/.gitignore`", False),
+        ):
+            with self.subTest(target=target):
+                self.driver = _RepoDriver(self.mod, self.root / str(noded))
+                d = self.driver
+                d.write(self.DOC, reference + "\n")
+                first = d.build_incremental({self.DOC})
+                self.assertNotIn(self.DOC, {n["id"] for n in first["nodes"]})
+                self.assertEqual(self._stored_unresolved(), ([target], [target]))
+                d.write("other.py", "VALUE = 1\n")
+                with patch.object(self.mod.GraphIndexSession, "_extract_doc_artifact", autospec=True,
+                                  side_effect=self.mod.GraphIndexSession._extract_doc_artifact) as scan:
+                    d.build_incremental({"other.py"})
+                    idle = d.build_incremental(set())
+                self.assertEqual(scan.call_count, 0, "absent targets never trigger rescans")
+                self.assertEqual(self._stored_unresolved(), ([target], [target]))
+                self.assertEqual(idle["merge_stats"]["state_reads"], 0)
+                self.assertEqual(idle["merge_stats"]["state_writes"], 0)
+                self.assertEqual(idle["merge_stats"]["blob_writes"], 0)
+                d.write(target, body)
+                with patch.object(self.mod.GraphIndexSession, "_extract_doc_artifact", autospec=True,
+                                  side_effect=self.mod.GraphIndexSession._extract_doc_artifact) as scan:
+                    created = d.build_incremental({target})
+                self.assertEqual(scan.call_count, 1)
+                self._assert_link(created, target, noded=noded)
+                self.assertEqual(self._stored_unresolved(), ([], []))
+                with patch.object(self.mod.GraphIndexSession, "_extract_doc_artifact", autospec=True,
+                                  side_effect=self.mod.GraphIndexSession._extract_doc_artifact) as scan:
+                    unchanged = d.build_incremental(set())
+                self.assertEqual(scan.call_count, 0)
+                self._assert_link(unchanged, target, noded=noded)
+                with patch.object(self.mod.GraphIndexSession, "_extract_doc_artifact", autospec=True,
+                                  side_effect=self.mod.GraphIndexSession._extract_doc_artifact) as scan:
+                    d.write("other.py", "VALUE = 2\n")
+                    unrelated = d.build_incremental({"other.py"})
+                self.assertEqual(scan.call_count, 0, "resolved targets stop repair rescans")
+                self._assert_link(unrelated, target, noded=noded)
+
+    def test_failed_or_unreadable_doc_retries_on_unchanged_recovery(self):
+        from unittest.mock import patch
+        for failure in ("read", "exists", "directory"):
+            with self.subTest(failure=failure):
+                self.driver = _RepoDriver(self.mod, self.root / failure)
+                d = self.driver
+                target = "assets/.gitignore"
+                d.write(self.DOC, "[later](/assets/.gitignore)\n")
+                d.build_incremental({self.DOC})
+                d.write(target, "cache/\n")
+                if failure == "directory":
+                    outage = d.build_incremental({target}, unreadable_dirs={"docs"})
+                else:
+                    original = getattr(Path, "read_text" if failure == "read" else "exists")
+                    def fail_doc(path, *args, **kwargs):
+                        if path == d.root / self.DOC:
+                            raise PermissionError("injected unreadable document")
+                        return original(path, *args, **kwargs)
+                    with patch.object(Path, "read_text" if failure == "read" else "exists", fail_doc):
+                        outage = d.build_incremental({target})
+                self.assertNotIn(self.DOC, {n["id"] for n in outage["nodes"]})
+                self.assertEqual(self._stored_unresolved(), ([target], [target]))
+                recovered = d.build_incremental(set())
+                self._assert_link(recovered, target, noded=False)
+                self.assertEqual(self._stored_unresolved(), ([], []))
+
+    def test_candidates_keep_existing_normalization_and_exclusions(self):
+        d = self.driver
+        d.write(self.DOC, """[relative](later.md#part) [root](/assets/target.txt)
+[dot](./assets/dot.txt) [parent](../assets/parent.txt)
+[self](linker.md) [anchor](#part) [web](https://example.com/x.md)
+[mail](mailto:x@example.com) [ftp](ftp://example.com/x.md)
+`/assets/backtick.txt` `not a path.md` `plainword` `https://example.com/y.md`
+""")
+        d.build_incremental({self.DOC})
+        expected = sorted(["docs/later.md", "assets/target.txt", "assets/dot.txt",
+                           "assets/parent.txt", "assets/backtick.txt"])
+        self.assertEqual(self._stored_unresolved(), (expected, expected))
+        for target in expected:
+            d.write(target, "plain text\n")
+        payload = d.build_incremental(set(expected))
+        targets = {e["target"] for e in payload["edges"] if e["source"] == self.DOC
+                   and e["relation"] == "doc_references_doc"}
+        self.assertEqual(targets, set(expected))
+        self.assert_equivalent(payload, d.build_oracle())
+        self.assertEqual(self._stored_unresolved(), ([], []))
+
+    def test_read_only_preflight_reuses_blob_and_detects_version_mismatch(self):
+        from unittest.mock import patch
+        d = self.driver
+        target = "assets/.gitignore"
+        def preflight(**kwargs):
+            return self.mod.read_pending_doc_link_repairs(
+                index_dir=d.index_dir, current_paths=set(d.files),
+                walker_version="1", chunker_version="1", **kwargs,
+            )
+        self.assertIsNone(preflight())
+        self.assertFalse(d.index_dir.exists(), "read-only absence probe must not create state")
+        d.write(self.DOC, "[later](/assets/.gitignore)\n")
+        d.build_incremental({self.DOC})
+        self.assertEqual(preflight()["pending_docs"], [])
+        d.write(target, "cache/\n")
+        graph_dir = d.index_dir / self.mod.GRAPH_DIRNAME
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in graph_dir.iterdir()}
+        with patch.object(self.mod.GraphStateStore, "__init__", side_effect=AssertionError("mutating store open")):
+            plan = preflight()
+            self.assertEqual(preflight(unreadable_dirs={"docs"})["pending_docs"], [])
+        self.assertEqual(plan["pending_docs"], [self.DOC])
+        self.assertFalse(plan["rebuild_required"])
+        self.assertEqual(set(before), {p.name for p in graph_dir.iterdir()})
+        for p in graph_dir.iterdir():
+            # SQLite read transactions touch the SHM reader-lock mapping;
+            # durable database/WAL/payload contents and timestamps stay put.
+            if not p.name.endswith("-shm"):
+                self.assertEqual(before[p.name], (p.read_bytes(), p.stat().st_mtime_ns), p.name)
+        with patch.object(self.mod.GraphStateStore, "get_blob", side_effect=AssertionError("duplicate blob read")):
+            payload = self.mod.update_graph_index(
+                root=d.root, index_dir=d.index_dir, layer="project",
+                files=[d.root / rel for rel in d.files], current_file_meta=d._meta(),
+                changed=set(), removed=set(), walker_version="1", chunker_version="1",
+                doc_link_repair_plan=plan,
+            )
+        self._assert_link(payload, target, noded=False)
+        # A current-store plan cannot override the builder migration reset.
+        store_path = graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]
+        with sqlite3.connect(store_path) as conn:
+            conn.execute("UPDATE meta SET value='50' WHERE key='builder_version'")
+        mismatch = preflight()
+        self.assertTrue(mismatch["rebuild_required"])
+        self.assertIsNone(mismatch["merge_state"])
+        with patch.object(self.mod.GraphIndexSession, "_extract_doc_artifact", autospec=True,
+                          side_effect=self.mod.GraphIndexSession._extract_doc_artifact) as scan:
+            rebuilt = self.mod.update_graph_index(
+                root=d.root, index_dir=d.index_dir, layer="project",
+                files=[d.root / rel for rel in d.files], current_file_meta=d._meta(),
+                changed=set(), removed=set(), walker_version="1", chunker_version="1",
+                doc_link_repair_plan=mismatch,
+            )
+        self.assertEqual(scan.call_count, 1)
+        self.assertEqual(self.mod.read_state_builder_version(d.index_dir), self.mod.GRAPH_BUILDER_VERSION)
+        self._assert_link(rebuilt, target, noded=False)
+
+    def test_full_merge_recovery_uses_retained_artifact_obligation(self):
+        d = self.driver
+        target = "assets/.gitignore"
+        d.write(self.DOC, "[later](/assets/.gitignore)\n")
+        d.build_incremental({self.DOC})
+        graph_dir = d.index_dir / self.mod.GRAPH_DIRNAME
+        # Interrupted-state recovery still has the source artifact and a valid
+        # bound payload, but lacks the merge summary needed to prove idleness.
+        with sqlite3.connect(graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]) as conn:
+            conn.execute("DELETE FROM blobs WHERE key='merge_state'")
+        d.write(target, "cache/\n")
+        plan = self.mod.read_pending_doc_link_repairs(
+            index_dir=d.index_dir, current_paths=set(d.files),
+            walker_version="1", chunker_version="1",
+        )
+        self.assertTrue(plan["rebuild_required"])
+        recovered = self.mod.update_graph_index(
+            root=d.root, index_dir=d.index_dir, layer="project",
+            files=[d.root / rel for rel in d.files], current_file_meta=d._meta(),
+            changed=set(), removed=set(), walker_version="1", chunker_version="1",
+            doc_link_repair_plan=plan,
+        )
+        self._assert_link(recovered, target, noded=False)
+        self.assertEqual(self._stored_unresolved(), ([], []))
+
+
 class InheritanceEdgeIncrementalTests(_IncrementalMergeBase):
     """Wave 1p9qh (1p9qa): incremental soundness for the new `extends`/
     `implements` relations and the inherited-method output pass.

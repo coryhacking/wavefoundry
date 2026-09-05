@@ -10,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import sqlite3
 import types
 import textwrap
 import time
@@ -5239,6 +5240,344 @@ class LegacyConvergenceTests(_EpochBuildCase):
         self.assertTrue((self.index_dir / "meta.json").exists(),
                         "legacy JSON must not be removed before convergence")
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+
+class DryRunIdleMaintenanceTests(_EpochBuildCase):
+    """1x81w: the public unlocked preview never executes idle maintenance."""
+
+    def _seed(self):
+        _make_repo(self.root, {
+            "src/app.py": "def app():\n    return 1\n",
+            **{f"docs/note_{i}.md": f"## Note {i}\n\nBody {i}.\n" for i in range(10)},
+        })
+        self._run_build(full=True)
+
+    def _sql(self, statement, params=()):
+        import sqlite3
+        conn = sqlite3.connect(str(self.index_dir / "index-state.sqlite"))
+        try:
+            with conn:
+                conn.execute(statement, params)
+        finally:
+            conn.close()
+
+    def _snapshot(self):
+        import hashlib
+        import sqlite3
+        snapshot = {}
+        for p in self.index_dir.rglob("*"):
+            if not p.is_file() or p.name.endswith(("-wal", "-shm")):
+                continue
+            key = str(p.relative_to(self.index_dir))
+            if p.suffix == ".sqlite":
+                # SQLite read locks can change SHM bytes even in mode=ro.
+                # Compare every persisted row (including meta/epoch) instead;
+                # Lance and all other index artifacts remain byte comparisons.
+                conn = sqlite3.connect(p.as_uri() + "?mode=ro", uri=True)
+                try:
+                    snapshot[key] = tuple(conn.iterdump())
+                finally:
+                    conn.close()
+            else:
+                snapshot[key] = hashlib.sha256(p.read_bytes()).hexdigest()
+        return snapshot
+
+    def _preview(self, pending=None, content="all"):
+        before = self._snapshot()
+        epoch = self.iss.read_build_state(self.index_dir)
+        err = io.StringIO()
+        with patch.object(self.bi, "_index_build_lock", side_effect=AssertionError("preview took lock")), \
+                redirect_stderr(err):
+            result = self.bi.build_index(self.root, content=content, dry_run=True)
+        self.assertEqual(self._snapshot(), before, "dry-run changed an index file")
+        self.assertEqual(self.iss.read_build_state(self.index_dir), epoch)
+        self.assertTrue(result.get("dry_run"), result)
+        self.assertEqual(result.get("up_to_date"), pending is None, result)
+        if pending:
+            self.assertTrue(result["pending_maintenance"][pending], result)
+            self.assertIn(pending, err.getvalue())
+        else:
+            self.assertFalse(any(result["pending_maintenance"].values()), result)
+        return result
+
+    def test_dirty_epoch_dry_run_is_byte_identical_and_reports_recovery(self):
+        self._seed()
+        self.iss.begin_build_epoch(self.index_dir, "interrupted")
+        self._preview("dirty_epoch")
+
+    def test_drift_clear_dry_run_preserves_meta_and_reports_pending(self):
+        self._seed()
+        self._sql("INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
+                  (self.iss.META_DRIFT_FINGERPRINT, "stale-git-fingerprint"))
+        self.assertTrue(self.iss.has_drift_state(self.index_dir))
+        self._preview("drift_clear")
+        self._run_build()
+        self.assertFalse(self.iss.has_drift_state(self.index_dir))
+
+    def test_heal_dry_run_preserves_cold_store_and_reports_pending(self):
+        self._seed()
+        self._sql("INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
+                  (self.iss.META_CHUNK_INDEX_COLD, "1"))
+        self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
+        self._preview("chunk_heal")
+        self._run_build()
+        self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
+
+    def test_orphan_dry_run_preserves_sidecar_row_and_reports_count(self):
+        self._seed()
+        self._sql("INSERT INTO secret_scan_cache "
+                  "(path,content_hash,rules_fingerprint,scanned_at,clean,finding_refs) "
+                  "VALUES ('docs/phantom.md','x','y',0,1,'[]')")
+        result = self._preview("orphan_reconcile")
+        self.assertEqual(result["orphan_paths_pending"]["secret_scan_cache"], 1)
+        result = self._run_build()
+        self.assertEqual(result["orphan_rows_reconciled"]["secret_scan_cache"], 1)
+
+    def test_reap_dry_run_preserves_lance_and_reports_path_count(self):
+        self._seed()
+        meta = _read_meta_store(self.index_dir)
+        meta["file_meta"].pop("docs/note_0.md")
+        (self.root / "docs/note_0.md").unlink()
+        _seed_meta_store(self.index_dir, meta)
+        result = self._preview("stranded_reap")
+        self.assertEqual(result["stranded_paths_pending"]["docs"], 1)
+        result = self._run_build()
+        self.assertGreater(result["stranded_rows_reaped"], 0)
+
+    def test_missing_lance_dirty_preview_preserves_layer_hashes(self):
+        import shutil
+        self._seed()
+        self.iss.begin_build_epoch(self.index_dir, "interrupted")
+        shutil.rmtree(self.index_dir / "code.lance")
+        before = self.iss.layer_hashes(self.index_dir, "code")
+        self.assertTrue(before)
+        self._preview("dirty_epoch", content="graph")
+        self.assertEqual(self.iss.layer_hashes(self.index_dir, "code"), before)
+
+    def test_healthy_noop_dry_run_stays_byte_identical(self):
+        self._seed()
+        self._preview()
+
+    def test_cli_dry_run_reports_dirty_epoch_without_writing(self):
+        self._seed()
+        self.iss.begin_build_epoch(self.index_dir, "interrupted")
+        before = self._snapshot()
+        err = io.StringIO()
+        with redirect_stderr(err), \
+                patch.object(self.bi, "_enable_timestamped_stdio"), \
+                patch.object(self.bi, "_index_build_lock", side_effect=AssertionError("preview took lock")):
+            exit_code = self.bi.main(["--root", str(self.root), "--content", "all", "--dry-run"])
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._snapshot(), before)
+        self.assertIn("dirty_epoch", err.getvalue())
+
+
+class IdleDocLinkRecoveryTests(_EpochBuildCase):
+    """1x8e1/1x81w: exercise the real walk, idle caller, lock and graph store."""
+
+    _snapshot = DryRunIdleMaintenanceTests._snapshot
+
+    def _payload(self):
+        return self.bi._get_graph_indexer().read_json_artifact(
+            self.index_dir / "graph" / "project-graph.json", None)
+
+    def _assert_link(self, target, present):
+        payload = self._payload()
+        edges = {(e["source"], e["target"], e["relation"]) for e in payload["edges"]}
+        self.assertEqual(("docs/linker.md", target, "doc_references_doc") in edges, present)
+        self.assertEqual("docs/linker.md" in {n["id"] for n in payload["nodes"]}, present)
+        return payload
+
+    def _defer_link(self, target, *, orphan=False):
+        _make_repo(self.root, {
+            "src/app.py": "def app():\n    return 1\n",
+            "docs/linker.md": f"See [later](/{target}).\n",
+            **({"src/retired.py": "def retired(): return 0\n"} if orphan else {}),
+        })
+        self._run_build(full=True)
+        self._assert_link(target, False)
+        dest = self.root / target
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("def later():\n    return 2\n" if target.endswith(".py") else "cache/\n")
+        real_read = Path.read_text
+        denied_reads = []
+
+        def denied(path, *args, **kwargs):
+            if path == self.root / "docs/linker.md":
+                denied_reads.append(path)
+                raise PermissionError(13, "injected referring-doc read failure", str(path))
+            return real_read(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", new=denied):
+            self._run_build()
+        self.assertTrue(denied_reads, "precondition: target creation reached the referring-doc rescan")
+        self._assert_link(target, False)
+
+    def _exercise_recovery(self, target, *, dirty=False, orphan=False):
+        import contextlib
+        self._defer_link(target, orphan=orphan)
+        if orphan:
+            meta = _read_meta_store(self.index_dir)
+            meta["file_meta"].pop("src/retired.py")
+            (self.root / "src/retired.py").unlink()
+            _seed_meta_store(self.index_dir, meta)
+        if dirty:
+            self.iss.begin_build_epoch(self.index_dir, "interrupted-with-pending-link")
+        before = self._snapshot()
+        epoch = self.iss.read_build_state(self.index_dir)
+        with patch.object(self.bi, "_build_graph_artifacts", side_effect=AssertionError("dry-run graph mutation")), \
+                patch.object(self.bi, "_index_build_lock", side_effect=AssertionError("dry-run took lock")), \
+                redirect_stderr(io.StringIO()):
+            preview = self.bi.build_index(self.root, content="all", dry_run=True)
+        self.assertTrue(preview["dry_run"])
+        self.assertFalse(preview["up_to_date"])
+        self.assertTrue(preview["pending_maintenance"]["graph_recovery"])
+        self.assertEqual(preview["pending_maintenance"]["dirty_epoch"], dirty)
+        if orphan:
+            self.assertTrue(preview["pending_maintenance"]["orphan_reconcile"])
+            self.assertEqual(preview["orphan_paths_pending"]["graph"], 1)
+
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(self.iss.read_build_state(self.index_dir), epoch)
+
+        real_lock = self.bi._index_build_lock
+        real_graph = self.bi._build_graph_artifacts
+        lock_held = []
+
+        @contextlib.contextmanager
+        def checked_lock(*args, **kwargs):
+            with real_lock(*args, **kwargs):
+                lock_held.append(True)
+                try:
+                    yield
+                finally:
+                    lock_held.pop()
+
+        def checked_graph(**kwargs):
+            self.assertTrue(lock_held, "graph recovery must run under the public build lock")
+            self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "building")
+            self.assertIsNotNone(kwargs.get("doc_link_repair_plan"))
+            return real_graph(**kwargs)
+
+        with patch.object(self.bi, "_index_build_lock", new=checked_lock), \
+                patch.object(self.bi, "_build_graph_artifacts", side_effect=checked_graph) as graph, \
+                patch.object(self.bi._get_graph_indexer(), "retire_orphaned_graph_paths",
+                             side_effect=AssertionError("second graph merge after repair")) as retire, \
+                patch.object(self.bi, "_enable_timestamped_stdio"), \
+                redirect_stderr(io.StringIO()):
+            # Actual CLI entry, with the file changes already acknowledged by
+            # the previous build: only the retained per-doc obligation remains.
+            rc = self.bi.main(["--root", str(self.root), "--content", "all"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(graph.call_count, 1)
+        self.assertEqual(retire.call_count, 0)
+
+        payload = self._assert_link(target, True)
+        if orphan:
+            self.assertNotIn("src/retired.py", {n["id"] for n in payload["nodes"]})
+            self.assertNotIn("src/retired.py", {
+                row["path"] for row in _read_index_chunks(self.index_dir, "code")
+            })
+        if target.endswith(".gitignore"):
+            self.assertNotIn(target, {n["id"] for n in payload["nodes"]})
+        self.assertGreater(self._generation(), epoch["generation"])
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+        generation = self._generation()
+        with patch.object(self.bi, "_build_graph_artifacts", side_effect=AssertionError("resolved link re-dispatched")):
+            result = self._run_build()
+        self.assertTrue(result["up_to_date"])
+        self.assertEqual(self._generation(), generation)
+        self._assert_link(target, True)
+
+    def test_unchanged_public_recovery_after_failed_doc_read(self):
+        self._exercise_recovery("src/later.py")
+
+    def test_nodeless_link_and_dirty_epoch_share_one_locked_recovery(self):
+        self._exercise_recovery("assets/.gitignore", dirty=True)
+
+
+    def test_pending_link_and_orphan_reap_share_one_graph_merge(self):
+        self._exercise_recovery("src/later.py", orphan=True)
+
+    def _assert_publication_recovery(self, target):
+        gi = self.bi._get_graph_indexer()
+        before, epoch = self._snapshot(), self.iss.read_build_state(self.index_dir)
+        with patch.object(self.bi, "_build_graph_artifacts", side_effect=AssertionError("preview mutated graph")), \
+                patch.object(self.bi, "_index_build_lock", side_effect=AssertionError("preview took lock")), \
+                redirect_stderr(io.StringIO()):
+            preview = self.bi.build_index(self.root, content="all", dry_run=True)
+        self.assertTrue(preview["pending_maintenance"]["graph_recovery"])
+        self.assertFalse(preview["up_to_date"])
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(self.iss.read_build_state(self.index_dir), epoch)
+        with patch.object(self.bi, "_build_graph_artifacts", wraps=self.bi._build_graph_artifacts) as graph:
+            recovered = self._run_build()
+        self.assertTrue(recovered["graph_recovery_attempted"])
+        self.assertEqual(graph.call_count, 1)
+        payload = self._assert_link(target, True)
+        self.assertIn(("docs/linker.md", target, "doc_references_doc", "EXTRACTED"), {
+            (e["source"], e["target"], e["relation"], e.get("confidence")) for e in payload["edges"]
+        })
+        conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
+        try:
+            self.assertEqual(dict(conn.execute("SELECT key, value FROM meta"))["payload_stat_state"], "bound")
+        finally:
+            conn.close()
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+        generation = self._generation()
+        with patch.object(self.bi, "_build_graph_artifacts", side_effect=AssertionError("repaired binding re-dispatched")):
+            self.assertTrue(self._run_build()["up_to_date"])
+        self.assertEqual(self._generation(), generation)
+
+    def test_failed_payload_publication_recovers_on_unchanged_public_retry(self):
+        target = "src/later.py"
+        self._defer_link(target)
+        gi = self.bi._get_graph_indexer()
+        real_write = gi._write_json
+
+        def interrupted(path, *args, **kwargs):
+            if Path(path).name == "project-graph.json":
+                raise OSError("injected payload publication interruption")
+            return real_write(path, *args, **kwargs)
+
+        with patch.object(gi, "_write_json", side_effect=interrupted):
+            self.assertTrue(self._run_build()["failed"])
+        self._assert_link(target, False)
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "building")
+        conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
+        try:
+            summary = gi._decode_state_record(conn.execute("SELECT value FROM blobs WHERE key='merge_state'").fetchone()[0])
+            self.assertFalse(summary["files"]["docs/linker.md"].get("unresolved_doc_targets"))
+            self.assertEqual(dict(conn.execute("SELECT key, value FROM meta"))["payload_stat_state"], "pending")
+        finally:
+            conn.close()
+        self._assert_publication_recovery(target)
+
+    def test_unproven_payload_bindings_request_readonly_then_real_recovery(self):
+        target = "src/later.py"
+        self._defer_link(target)
+        self._run_build()
+        gi = self.bi._get_graph_indexer()
+        graph_path = self.index_dir / "graph" / "project-graph.json"
+        for fault in ("missing", "size", "mtime", "summary_fingerprint"):
+            with self.subTest(fault=fault):
+                if fault == "missing":
+                    graph_path.unlink()
+                elif fault == "size":
+                    graph_path.write_bytes(graph_path.read_bytes() + b" ")
+                elif fault == "mtime":
+                    st = graph_path.stat()
+                    os.utime(graph_path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+                else:
+                    conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
+                    try:
+                        summary = gi._decode_state_record(conn.execute("SELECT value FROM blobs WHERE key='merge_state'").fetchone()[0])
+                        summary["payload_fingerprint"] = "mismatched-summary"
+                        conn.execute("UPDATE blobs SET value=? WHERE key='merge_state'", (gi._encode_state_record(summary),))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                self._assert_publication_recovery(target)
 
 
 class EpochOrderingAndFaultTests(_EpochBuildCase):
