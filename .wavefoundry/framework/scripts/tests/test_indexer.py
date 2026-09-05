@@ -14,7 +14,7 @@ import types
 import textwrap
 import time
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -7327,6 +7327,171 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         self.assertNotIn("error", recovery, recovery)
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
         self.assertEqual(self._vault_state(), rows_before)
+
+    # --- Wave 1x6ti (1x551): the reap's deferral / preservation record ---
+
+    def _defer_zero_change(self) -> tuple[dict, int, int]:
+        """A zero-change build whose reap defers (the 1x54z breaker fixture);
+        returns (result, pre-build generation, table_paths)."""
+        docs_before = self._notes_repo(10)
+        gone = [f"docs/note_{i}.md" for i in range(9)]
+        self._strand_absent(gone)
+        gen = self._generation()
+        empty_plan = {"file_freshness": set(), "secret_scan_cache": set(), "graph": set(),
+                      "deferred": {}, "stat_calls": 0}
+        with patch.object(self.bi, "_plan_orphan_store_reconcile", return_value=empty_plan), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertEqual(
+            result.get("stranded_reap_deferred"), {"docs": {"would_reap": 9, "table_paths": len(docs_before)}},
+            "non-vacuity: the fixture must defer",
+        )
+        return result, gen, len(docs_before)
+
+    def _reap_record(self):
+        return self.iss.reap_state_for_index(self.index_dir)
+
+    def _raw_reap_meta(self):
+        """The raw meta value: the record must be REMOVED when neither map
+        applies, not left as an empty placeholder the reader happens to hide."""
+        store = self.iss.IndexStateStore(self.index_dir, read_only=True)
+        try:
+            return store.get_meta(self.iss.META_REAP_STATE)
+        finally:
+            store.close()
+
+    def test_deferred_zero_change_build_records_the_reap_state(self):
+        # AC-1 (red first): before the writer existed no record was written.
+        _, gen, table_paths = self._defer_zero_change()
+        rec = self._reap_record()
+        self.assertIsNotNone(rec, "a deferred zero-change build must leave a record in the store")
+        self.assertEqual(rec["deferred"], {"docs": {"would_reap": 9, "table_paths": table_paths}})
+        self.assertEqual(rec["preserved"], {})
+        self.assertEqual(rec["recorded_generation"], gen,
+                         "a deferral opens no epoch, so the stamp is the last completed build's generation")
+        self.assertIsInstance(rec["recorded_at"], (int, float))
+        self.assertGreater(rec["recorded_at"], 0)
+
+    def test_deferred_idle_maintenance_pass_records_the_reap_state_after_its_finalize(self):
+        # AC-1, the third summary-carrying return: a dirty epoch (a builder
+        # that died between fence and finalize) sends the zero-change build
+        # through idle maintenance, which opens and finalizes its own epoch;
+        # the record is written AFTER that finalize, so its stamp is the
+        # generation the idle pass published, one ahead of the pre-build one.
+        docs_before = self._notes_repo(10)
+        gone = [f"docs/note_{i}.md" for i in range(9)]
+        self._strand_absent(gone)
+        gen_before = self._generation()
+        self.iss.begin_build_epoch(self.index_dir, "all")  # leave the epoch `building`
+        empty_plan = {"file_freshness": set(), "secret_scan_cache": set(), "graph": set(),
+                      "deferred": {}, "stat_calls": 0}
+        with patch.object(self.bi, "_plan_orphan_store_reconcile", return_value=empty_plan), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertIs(result.get("up_to_date"), True, result)
+        self.assertEqual(
+            result.get("stranded_reap_deferred"), {"docs": {"would_reap": 9, "table_paths": len(docs_before)}},
+            "non-vacuity: the idle pass still defers",
+        )
+        self.assertEqual(self._generation(), gen_before + 1, "non-vacuity: the idle pass published an epoch")
+        rec = self._reap_record()
+        self.assertIsNotNone(rec, "the idle-maintenance return must leave a record")
+        self.assertEqual(rec["deferred"], {"docs": {"would_reap": 9, "table_paths": len(docs_before)}})
+        self.assertEqual(rec["recorded_generation"], gen_before + 1,
+                         "the idle-maintenance stamp is the generation its finalize published")
+
+    def test_reap_state_record_clears_on_the_next_clean_build(self):
+        # AC-1: restoring the stranded files makes the next build an ordinary
+        # build-path run where nothing is stranded, so the record is removed.
+        self._defer_zero_change()
+        self.assertIsNotNone(self._reap_record())
+        for i in range(9):
+            (self.root / "docs" / f"note_{i}.md").write_text(f"## Note {i}\n\nBody of note {i}.\n", encoding="utf-8")
+        with redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertEqual(result.get("stranded_reap_deferred"), {}, result)
+        self.assertEqual(result.get("stranded_reap_preserved"), {}, result)
+        self.assertIsNone(self._reap_record(), "a build that defers and preserves nothing removes the record")
+        self.assertIsNone(self._raw_reap_meta(), "the meta key itself is removed, not blanked")
+
+    def test_full_rebuild_clears_the_reap_state_record(self):
+        # AC-1: both reap seams sit behind `not full`; a full rebuild defers and
+        # preserves nothing and the diagnostic's own remedy is the rebuild.
+        self._defer_zero_change()
+        self.assertIsNotNone(self._reap_record())
+        with redirect_stderr(io.StringIO()):
+            result = self._run_build(full=True)
+        self.assertNotIn("error", result, result)
+        self.assertIsNone(self._reap_record(), "a full rebuild removes the record")
+        self.assertIsNone(self._raw_reap_meta(), "the meta key itself is removed, not blanked")
+
+    def test_dry_run_leaves_the_reap_state_record_untouched(self):
+        # AC-1: a dry run reaches the zero-change preflight unlocked (plan
+        # 1x81w); the writer skips it, so the record is byte-identical after.
+        self._defer_zero_change()
+        before = self._reap_record()
+        self.assertIsNotNone(before)
+        empty_plan = {"file_freshness": set(), "secret_scan_cache": set(), "graph": set(),
+                      "deferred": {}, "stat_calls": 0}
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]), \
+                patch.object(self.bi, "_plan_orphan_store_reconcile", return_value=empty_plan), \
+                redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+            self.bi.build_index(self.root, full=False, content="all", verbose=False, dry_run=True)
+        self.assertEqual(self._reap_record(), before, "a dry run must not touch the record")
+
+    def test_shadowed_build_path_run_records_preserved_counts_stamped_with_the_published_generation(self):
+        # AC-2: the build-path write lands after the epoch finalize, so the
+        # stamp is the generation that published the preserved rows; the
+        # recovery build preserves nothing and removes the record.
+        self._seed()
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
+            outage = self._run_build(full=False)
+        self.assertNotIn("error", outage, outage)
+        preserved = outage.get("stranded_reap_preserved") or {}
+        self.assertEqual(preserved.get("code"), 2, "non-vacuity: the build-path run preserved the subtree")
+        rec = self._reap_record()
+        self.assertIsNotNone(rec, "a preserving build-path run must leave a record")
+        self.assertEqual(rec["preserved"], preserved)
+        self.assertEqual(rec["deferred"], {})
+        self.assertEqual(rec["recorded_generation"], self._generation(),
+                         "the build-path stamp is the generation the finalize published")
+        with redirect_stderr(io.StringIO()):
+            recovered = self._run_build(full=False)
+        self.assertIs(recovered.get("up_to_date"), True, recovered)
+        self.assertIsNone(self._reap_record(), "recovery preserves nothing and removes the record")
+        self.assertIsNone(self._raw_reap_meta(), "the meta key itself is removed, not blanked")
+
+    def test_reap_state_write_failure_never_fails_the_build(self):
+        # AC-5: the indexer holds its own store module object, so the patch
+        # target is the class the writer instantiates.
+        import sqlite3 as _sqlite3
+        docs_before = self._notes_repo(10)
+        gone = [f"docs/note_{i}.md" for i in range(9)]
+        self._strand_absent(gone)
+        empty_plan = {"file_freshness": set(), "secret_scan_cache": set(), "graph": set(),
+                      "deferred": {}, "stat_calls": 0}
+        store_cls = self.bi._get_index_state_store().IndexStateStore
+
+        def boom(self_store, updates):
+            raise _sqlite3.OperationalError("database is locked (injected)")
+
+        with patch.object(store_cls, "set_meta", new=boom), \
+                patch.object(self.bi, "_plan_orphan_store_reconcile", return_value=empty_plan), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, "a visibility aid must never fail the build")
+        self.assertIs(result.get("up_to_date"), True, result)
+        self.assertEqual(
+            result.get("stranded_reap_deferred"), {"docs": {"would_reap": 9, "table_paths": len(docs_before)}},
+            "the build result still carries the summaries",
+        )
+        self.assertIsNone(self._reap_record(), "nothing was written")
+        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
+        self.assertIn("reap state", log_text)
+        self.assertIn("injected", log_text, "the store log names the failure")
 
 
 if __name__ == "__main__":

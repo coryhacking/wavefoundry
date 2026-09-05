@@ -10,6 +10,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A deferred or preserved eligibility reap is visible through the registered tools.** A build that
+  defers a mass-absent reap behind the breaker, or serves a walk-shadowed subtree as of its last
+  readable build, said so only in the Python build result and the logs; an agent running builds
+  through `index_build` could not see either state. The build now persists both summaries in the
+  index-state store, epoch-free, at every summary-carrying return (replaced on every build, removed
+  when neither applies and on a full rebuild, skipped on a dry run, never failing the build), and
+  `index_build_status` carries a `reap` block in every state while `index_health` carries the same
+  block and raises `stranded_reap_deferred` and `stranded_reap_preserved` with the remedy for each,
+  both surfaces reading the one record through one reader. Wave
+  `1x6ti reap-state-visibility-and-dangling-edges` / change `1x551`.
+
 - **A graph rebuild costs what the graph costs.** `index_build(content='graph', mode='rebuild')` took
   about 203 seconds on this repository, and 198.5 of them were a full secrets re-scan the graph had no
   reason to trigger: the build forwarded its own "rebuild the graph from scratch" flag to the scanner as
@@ -237,6 +248,20 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The served graph no longer carries an edge to a node that does not exist.** When a doc that another
+  doc linked to was deleted, the first build pruned the link edge, and the next build that did not touch
+  the linking doc brought it back with no target node, where it stayed until a full rebuild; a doc left
+  unread behind a permissions outage did the same with its mention of a symbol renamed during the
+  outage. The merge now drops, at payload assembly, every edge whose endpoint is neither a node, nor an
+  unresolved `external::` id, nor a current path of the build, nor (under a directory the walk could
+  not read this build) an endpoint whose edge the last published payload served, before the zero-edge doc prune, so an
+  incremental build serves the same edge set as a from-scratch build for both sequences and a doc whose
+  only link was deleted is pruned as a rebuild prunes it. Links to files the graph never nodes (a
+  `.gitignore`, a scan-excluded doc, a memory target into `docs/waves/`) are kept; a from-scratch
+  build of this repository with the filter in place dropped nothing and kept all six such edges. The
+  dropped count rides the merge line as `dangling: dropped=N`. The graph builder version advances so
+  persisted payloads re-extract. Wave `1x6ti reap-state-visibility-and-dangling-edges` / change `1x5pc`.
+
 - **A transiently unreadable directory no longer deletes its subtree from the index.** `os.walk` skips a
   directory whose `scandir` fails (a permissions incident, an agent sandbox, a torn mount) without saying
   so, and every path under it read as deleted to the build: the incremental write removed its rows, the
@@ -266,8 +291,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > upgrading, since a server still running the previous code reports the older builder version and will
 > disagree with the rebuilt artifact.
 >
-> The graph builder moves twice more in this release, so the same rebuild is what makes the new behaviour
-> appear. JSON artifacts only carry their Evidence/Data classification once they have been re-extracted,
+> The graph builder moves several more times in this release, so the same rebuild is what makes the new
+> behaviour appear, and the last of those moves clears the dangling edges described under Fixed: the first
+> graph query on a server running the new code re-extracts the graph synchronously in-process if no build
+> has run since the upgrade, so reload the server and let a build run before relying on graph latency. JSON artifacts only carry their Evidence/Data classification once they have been re-extracted,
 > which means `wf_graph_report` returns empty evidence arrays on a pre-upgrade graph even where machine
 > results exist. External-call resolution also changes, so a repository that never rebuilds keeps the
 > phantom edges described under Fixed.

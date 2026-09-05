@@ -2,7 +2,7 @@
   "builder_versions": {
     "cluster_builder_version": "13",
     "cluster_schema_version": "1",
-    "graph_builder_version": "49",
+    "graph_builder_version": "50",
     "graph_schema_version": "1"
   },
   "classification_controls": {
@@ -72,7 +72,7 @@
   "label": "post",
   "production_identity": {
     "graph_cluster_sha256": "dfcbd4f98d1677725296dda37179e623b612015dd119819826f66b4d47aa6d52",
-    "graph_indexer_sha256": "3c2e2ea01663d9bbef2f67de7bf88c8ce53742e294502486769ea6b0a398673c",
+    "graph_indexer_sha256": "373135521178a023a6969a4096840ab5b5148f584523a5cdb8fcc1d6e48df0e0",
     "graph_query_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6",
     "source_root": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts"
   },
@@ -157,14 +157,14 @@
       "true_positives": 1
     }
   },
-  "report_digest": "c52e02457fb9e5ac435c5a6c9a7109628e2af24332357f3a8ef93860f3985ee4",
+  "report_digest": "abe0431914fe4494a874afb49e9161818b5d7b7a1466fea9d6d8952856d2af19",
   "repository_identity": {
-    "commit": "f6790333c0751656ec0da0fccf0da97d689411be",
+    "commit": "83efb3d9924d9383a288cc9e2736c675281ebba8",
     "dirty": true,
     "root": "/Users/coryhacking/Developer/wavefoundry"
   },
-  "run_completed_at": "2026-09-04T17:51:51Z",
-  "run_started_at": "2026-09-04T17:51:51Z",
+  "run_completed_at": "2026-09-05T14:38:04Z",
+  "run_started_at": "2026-09-05T14:38:04Z",
   "schema": "wavefoundry.graph-quality-eval/v1",
   "scored_relations": [
     "calls",

@@ -81,22 +81,55 @@ class _RepoDriver:
             for rel, text in self.files.items()
         }
 
-    def _build(self, index_dir: Path, changed: set[str], removed: set[str]):
+    def _visible(self, rel: str, unreadable_dirs: set[str] | None) -> bool:
+        for d in unreadable_dirs or ():
+            d = d.rstrip("/")
+            if rel == d or rel.startswith(d + "/"):
+                return False
+        return True
+
+    def _build(
+        self,
+        index_dir: Path,
+        changed: set[str],
+        removed: set[str],
+        unreadable_dirs: set[str] | None = None,
+    ):
+        # Wave 1x6ti (1x5pc): `unreadable_dirs` models a walk outage the way
+        # the indexer's walk hands it to the session -- the shadowed subtree
+        # is absent from `files` and `current_file_meta` (the walk never saw
+        # it) and the directories are reported so the merge keeps the known
+        # rows as current instead of pruning them.
+        visible = {
+            rel: text
+            for rel, text in self.files.items()
+            if self._visible(rel, unreadable_dirs)
+        }
+        meta = {
+            rel: {"hash": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+            for rel, text in visible.items()
+        }
         return self.mod.update_graph_index(
             root=self.root,
             index_dir=index_dir,
             layer="project",
-            files=[self.root / rel for rel in sorted(self.files)],
-            current_file_meta=self._meta(),
+            files=[self.root / rel for rel in sorted(visible)],
+            current_file_meta=meta,
             changed=set(changed),
             removed=set(removed),
             walker_version="1",
             chunker_version="1",
             verbose=False,
+            unreadable_dirs=set(unreadable_dirs) if unreadable_dirs else None,
         )
 
-    def build_incremental(self, changed: set[str], removed: set[str] | None = None):
-        return self._build(self.index_dir, changed, removed or set())
+    def build_incremental(
+        self,
+        changed: set[str],
+        removed: set[str] | None = None,
+        unreadable_dirs: set[str] | None = None,
+    ):
+        return self._build(self.index_dir, changed, removed or set(), unreadable_dirs)
 
     def build_oracle(self):
         """From-scratch full rebuild of the SAME tree into a fresh index dir."""
@@ -986,8 +1019,290 @@ class BuildLogInstrumentationTests(unittest.TestCase):
             r"merge\[(incremental|full-merge|zero-change)\]: \d+\.\ds"
             r" \| delta: files=\d+ removed=\d+ symbols=\d+ edges_reresolved=\d+"
             r" \| state io: reads=\d+ writes=\d+"
-            r" \| sidecar: reads=\d+ writes=\d+ bytes=\d+",
+            r" \| sidecar: reads=\d+ writes=\d+ bytes=\d+"
+            r" \| dangling: dropped=\d+",
         )
+
+
+class DanglingEndpointFilterTests(_IncrementalMergeBase):
+    """Wave 1x6ti (1x5pc): every served edge's endpoints are a node, an
+    ``external::`` id, or a current path of the build.
+
+    The reverse-invalidation prune drops an edge into a removed endpoint for
+    exactly one build; the persisted per-file fragment keeps the edge and the
+    next unrelated merge re-emits it with no target node (RED-RV2-1 on the
+    deleted-doc variant, ARCH-RV3-1 on the shadowed-doc rename variant). The
+    assembly-time filter drops such edges before the zero-edge doc prune so
+    a doc whose only link was the deleted target is pruned exactly as a
+    from-scratch build prunes it. Current-path endpoints WITHOUT a node (a
+    link to a `.gitignore`, to a scan-excluded doc, a memory target into
+    `docs/waves/`) are evidence the graph carries today on both sides of the
+    differential, so their survival is pinned absolutely on both payloads.
+    """
+
+    _APP_V1 = "def app():\n    return 1\n"
+    _APP_V2 = "def app():\n    return 2\n"
+
+    def _seed_linked_docs(self) -> None:
+        d = self.driver
+        d.write("src/app.py", self._APP_V1)
+        d.write("docs/target.md", "## Target\n\nSome target text here.\n")
+        d.write("docs/linker.md", "## Linker\n\nSee [target](target.md) and [app](../src/app.py).\n")
+        d.write("docs/only.md", "## Only\n\nJust [target](target.md).\n")
+
+    @staticmethod
+    def _edges_into(payload, target: str):
+        return [e for e in payload.get("edges", []) if str(e.get("target") or "") == target]
+
+    @staticmethod
+    def _node_ids(payload) -> set[str]:
+        return {str(n.get("id") or "") for n in payload.get("nodes", [])}
+
+    def test_deleted_linked_doc_serves_no_edge_into_the_deleted_path(self):
+        """AC-1 / AC-2 (RED-RV2-1): link, delete the target, build, unrelated
+        edit, build -- no edge into the deleted path, and the payload equals a
+        from-scratch build's, including the prune of the doc whose ONLY link
+        was the deleted target."""
+        d = self.driver
+        self._seed_linked_docs()
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(
+            len(self._edges_into(first, "docs/target.md")), 2,
+            "fixture must carry both links into the target before deletion",
+        )
+        d.delete("docs/target.md")
+        after_delete = d.build_incremental(set(), removed={"docs/target.md"})
+        self.assertEqual(self._edges_into(after_delete, "docs/target.md"), [])
+        d.write("src/app.py", self._APP_V2)
+        after_unrelated = d.build_incremental({"src/app.py"})
+        self.assertEqual(
+            self._edges_into(after_unrelated, "docs/target.md"), [],
+            "the linking fragments must not re-emit the edge into the deleted doc",
+        )
+        self.assertNotIn(
+            "docs/only.md", self._node_ids(after_unrelated),
+            "a doc whose only link was the deleted target is a zero-edge doc and is pruned",
+        )
+        self.assert_equivalent(after_unrelated, d.build_oracle(), "after unrelated edit")
+
+    def test_link_into_a_node_less_file_under_an_unreadable_directory_survives_the_outage(self):
+        """Delivery review CODE-DEL-1: a doc link to a file the graph never
+        nodes (a `.gitignore`) inside a walk-shadowed subtree has no store row
+        to widen from; the 1x54z posture serves the subtree as of the last
+        readable build, so the edge must survive the outage build and the
+        zero-change recovery exactly as it did before the filter existed."""
+        d = self.driver
+        d.write("src/app.py", self._APP_V1)
+        d.write("vault/a.py", "def vault_a():\n    return 1\n")
+        d.write("vault/.gitignore", "*.tmp\n")
+        d.write("docs/gi.md", "## GI\n\nSee [ignore](../vault/.gitignore) and [a](../vault/a.py).\n")
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(
+            [e["source"] for e in self._edges_into(first, "vault/.gitignore")], ["docs/gi.md"],
+            "fixture must carry the node-less link before the outage",
+        )
+        self.assertNotIn("vault/.gitignore", self._node_ids(first), "the target stays node-less")
+        d.write("src/app.py", self._APP_V2)
+        outage = d.build_incremental({"src/app.py"}, unreadable_dirs={"vault"})
+        self.assertEqual(
+            [e["source"] for e in self._edges_into(outage, "vault/.gitignore")], ["docs/gi.md"],
+            "the outage build keeps the link into the shadowed node-less file",
+        )
+        self.assertEqual(outage["merge_stats"].get("edges_dropped_dangling"), 0)
+        self.assertIn("vault/a.py::vault_a", self._node_ids(outage), "the shadowed subtree is kept")
+        recovered = d.build_incremental(set())
+        self.assertEqual(
+            [e["source"] for e in self._edges_into(recovered, "vault/.gitignore")], ["docs/gi.md"],
+            "the zero-change recovery still serves the link",
+        )
+        self.assert_equivalent(recovered, d.build_oracle(), "after recovery")
+
+    def test_unrelated_outage_drops_stale_edges_and_respects_the_directory_boundary(self):
+        """Delivery review CODE-RV1-1 / QA-RV1-2: the unreadable-directory
+        exemption is local to endpoints under the reported directory. Two
+        deletions merged on a readable build leave stale fragments; an
+        unrelated outage (`vault` unreadable, while the stale targets live in
+        `docs/` and in the sibling `vault2/`) must still drop both re-emitted
+        edges: an over-broad exemption or a boundary-less prefix match keeps
+        them."""
+        d = self.driver
+        d.write("src/app.py", self._APP_V1)
+        d.write("vault/a.py", "def vault_a():\n    return 1\n")
+        d.write("vault2/gone.md", "## Gone\n\nSibling directory doc.\n")
+        d.write("docs/x.md", "## X\n\nSee [gone](../vault2/gone.md).\n")
+        d.write("docs/target.md", "## Target\n\nText.\n")
+        d.write("docs/linker.md", "## Linker\n\nSee [target](target.md).\n")
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(len(self._edges_into(first, "vault2/gone.md")), 1)
+        self.assertEqual(len(self._edges_into(first, "docs/target.md")), 1)
+        d.delete("vault2/gone.md")
+        d.delete("docs/target.md")
+        pruned = d.build_incremental(set(), removed={"vault2/gone.md", "docs/target.md"})
+        self.assertEqual(self._edges_into(pruned, "vault2/gone.md"), [])
+        self.assertEqual(self._edges_into(pruned, "docs/target.md"), [])
+        d.write("src/app.py", self._APP_V2)
+        outage = d.build_incremental({"src/app.py"}, unreadable_dirs={"vault"})
+        self.assertEqual(outage["merge_stats"].get("files_shadowed"), 1, "non-vacuity: the outage shadowed vault/a.py")
+        self.assertEqual(self._edges_into(outage, "vault2/gone.md"), [], "a sibling directory is not under the unreadable one")
+        self.assertEqual(self._edges_into(outage, "docs/target.md"), [], "an unrelated outage exempts nothing outside the directory")
+        self.assertEqual(outage["merge_stats"].get("edges_dropped_dangling"), 2)
+        self.assertIn("vault/a.py::vault_a", self._node_ids(outage))
+        # The boundary itself: a stale link into a node-less file under the
+        # SIBLING directory that the last published payload still serves
+        # (its delete-only build has no store row to merge and takes the
+        # zero-change fast path), so only the directory boundary decides.
+        d.write("vault2/.gitignore", "*.tmp\n")
+        d.write("docs/y.md", "## Y\n\nSee [ignore](../vault2/.gitignore).\n")
+        served = d.build_incremental({"vault2/.gitignore", "docs/y.md"})
+        self.assertEqual(len(self._edges_into(served, "vault2/.gitignore")), 1)
+        d.delete("vault2/.gitignore")
+        fast = d.build_incremental(set(), removed={"vault2/.gitignore"})
+        self.assertEqual(
+            len(self._edges_into(fast, "vault2/.gitignore")), 1,
+            "non-vacuity: the delete-only build of a node-less file takes the fast path and still serves the link",
+        )
+        d.write("src/app.py", self._APP_V1)
+        outage2 = d.build_incremental({"src/app.py"}, unreadable_dirs={"vault"})
+        self.assertEqual(
+            self._edges_into(outage2, "vault2/.gitignore"), [],
+            "vault2 is not under vault: the last-served stale link is dropped at the boundary",
+        )
+        # Three drops: the two stale fragments from the earlier deletions
+        # re-emit on every merge (dropped again), plus the sibling link.
+        self.assertEqual(outage2["merge_stats"].get("edges_dropped_dangling"), 3)
+
+    def test_outage_does_not_resurrect_an_edge_the_last_readable_build_dropped(self):
+        """Delivery review CODE-RV1-2 / QA-RV1-1: the exemption serves the
+        shadowed subtree AS OF THE LAST READABLE BUILD. A doc under `vault`
+        is deleted and the deletion merged (edge dropped, its only-link doc
+        pruned); the outage build must not resurrect the edge or the node
+        from the stale fragments, the zero-change recovery must not either,
+        and the next readable real-work build equals the oracle."""
+        d = self.driver
+        d.write("src/app.py", self._APP_V1)
+        d.write("vault/a.py", "def vault_a():\n    return 1\n")
+        d.write("vault/v.md", "## V\n\nA doc inside the vault.\n")
+        d.write("docs/gi.md", "## GI\n\nSee [v](../vault/v.md) and [a](../vault/a.py).\n")
+        d.write("docs/onlyv.md", "## Only\n\nJust [v](../vault/v.md).\n")
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(len(self._edges_into(first, "vault/v.md")), 2, "fixture must carry both links")
+        d.delete("vault/v.md")
+        merged = d.build_incremental(set(), removed={"vault/v.md"})
+        self.assertEqual(self._edges_into(merged, "vault/v.md"), [])
+        self.assertNotIn("docs/onlyv.md", self._node_ids(merged), "the only-link doc is pruned on the readable build")
+        d.write("src/app.py", self._APP_V2)
+        outage = d.build_incremental({"src/app.py"}, unreadable_dirs={"vault"})
+        self.assertEqual(
+            self._edges_into(outage, "vault/v.md"), [],
+            "the outage must not resurrect an edge the last readable build dropped",
+        )
+        self.assertNotIn("docs/onlyv.md", self._node_ids(outage))
+        self.assertEqual(outage["merge_stats"].get("edges_dropped_dangling"), 2)
+        self.assertIn("vault/a.py::vault_a", self._node_ids(outage), "the shadowed subtree itself is kept")
+        recovered = d.build_incremental(set())
+        self.assertEqual(self._edges_into(recovered, "vault/v.md"), [])
+        d.write("src/other.py", "def other():\n    return 3\n")
+        after = d.build_incremental({"src/other.py"})
+        self.assert_equivalent(after, d.build_oracle(), "readable real-work build after the outage")
+
+    def test_dropped_dangling_edges_are_counted_in_merge_stats(self):
+        """AC-5: the filter reports what it dropped; zero when nothing dangled."""
+        d = self.driver
+        self._seed_linked_docs()
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(first["merge_stats"].get("edges_dropped_dangling"), 0)
+        d.delete("docs/target.md")
+        after_delete = d.build_incremental(set(), removed={"docs/target.md"})
+        # The reverse-invalidation prune already removed this build's edges.
+        self.assertEqual(after_delete["merge_stats"].get("edges_dropped_dangling"), 0)
+        d.write("src/app.py", self._APP_V2)
+        after_unrelated = d.build_incremental({"src/app.py"})
+        self.assertEqual(
+            after_unrelated["merge_stats"].get("edges_dropped_dangling"), 2,
+            "both re-emitted fragment edges into the deleted doc are dropped and counted",
+        )
+
+    def test_shadowed_doc_rename_serves_no_edge_to_the_removed_symbol(self):
+        """AC-3 (ARCH-RV3-1): a symbol a shadowed doc mentions is renamed
+        during a walk outage; after recovery and an unrelated edit the payload
+        carries no edge to the removed symbol id and equals a from-scratch
+        build's."""
+        d = self.driver
+        d.write("src/app.py", "def frobnicate_widget():\n    return 1\n")
+        d.write("vault/notes.md", "## Vault\n\nUses `frobnicate_widget` from the app.\n")
+        d.write("vault/a.py", "def vault_a():\n    return 1\n")
+        first = d.build_incremental(set(d.files))
+        self.assertEqual(
+            [
+                e["source"]
+                for e in self._edges_into(first, "src/app.py::frobnicate_widget")
+                if e.get("relation") == "doc_references_code"
+            ],
+            ["vault/notes.md"],
+            "fixture must carry the doc mention edge before the rename",
+        )
+        d.write("src/app.py", "def frobnicate_widget_v2():\n    return 1\n")
+        outage = d.build_incremental({"src/app.py"}, unreadable_dirs={"vault"})
+        self.assertIn("vault/a.py::vault_a", self._node_ids(outage), "the shadowed subtree is kept")
+        self.assertEqual(self._edges_into(outage, "src/app.py::frobnicate_widget"), [])
+        recovered = d.build_incremental(set())
+        self.assertEqual(self._edges_into(recovered, "src/app.py::frobnicate_widget"), [])
+        d.write("src/other.py", "def other():\n    return 3\n")
+        after_unrelated = d.build_incremental({"src/other.py"})
+        self.assertEqual(
+            self._edges_into(after_unrelated, "src/app.py::frobnicate_widget"), [],
+            "the preserved fragment must not re-emit its edge to the removed symbol",
+        )
+        self.assert_equivalent(after_unrelated, d.build_oracle(), "after recovery and unrelated edit")
+
+    def test_external_and_node_less_current_path_endpoints_survive(self):
+        """AC-4: `external::` endpoints (an external supertype on `extends` and
+        `implements`, an unresolved call) and node-less current-path endpoints
+        (a link to `.gitignore`, a link to a scan-excluded doc, a memory
+        target into `docs/waves/`) survive the filter -- pinned as ABSOLUTE
+        presence assertions on BOTH payloads, because the differential is
+        blind to an exemption the oracle applies too."""
+        d = self.driver
+        d.write(
+            "com/x/Repo.java",
+            "package com.x;\nimport org.ext.BaseRepo;\n"
+            "public class Repo extends BaseRepo implements Runnable {\n"
+            "  public void run() { helper(); }\n}\n",
+        )
+        d.write(".gitignore", "*.pyc\n")
+        d.write("docs/waves/w.md", "## Wave\n\nexcluded from the doc scan.\n")
+        d.write("docs/gi.md", "## GI\n\nSee [ignore](../.gitignore) and [wave](waves/w.md).\n")
+        d.write(
+            "docs/agents/memory/mem-1.md",
+            "# Mem\n\n## Targets\n\n- `docs/waves/w.md`\n\n## Body\n\ntext\n",
+        )
+        incremental = d.build_incremental(set(d.files))
+        # An unrelated edit so the served payload is a re-emission of stored
+        # fragments, the path on which the filter runs against a stale map.
+        d.write("src/late.py", "def late():\n    return 0\n")
+        incremental = d.build_incremental({"src/late.py"})
+        oracle = d.build_oracle()
+        expected = {
+            ("com/x/Repo.java", "external::BaseRepo", "extends"),
+            ("com/x/Repo.java", "external::Runnable", "implements"),
+            ("com/x/Repo.java::Repo.run", "external::Repo.helper", "calls"),
+            ("docs/gi.md", ".gitignore", "doc_references_doc"),
+            ("docs/gi.md", "docs/waves/w.md", "doc_references_doc"),
+            ("docs/agents/memory/mem-1.md", "docs/waves/w.md", "memory_targets"),
+        }
+        for label, payload in (("incremental", incremental), ("oracle", oracle)):
+            ids = self._node_ids(payload)
+            keys = {
+                (str(e.get("source") or ""), str(e.get("target") or ""), str(e.get("relation") or ""))
+                for e in payload.get("edges", [])
+            }
+            self.assertTrue(
+                expected <= keys,
+                f"[{label}] missing exempt endpoint edges: {sorted(expected - keys)}",
+            )
+            for tgt in (".gitignore", "docs/waves/w.md"):
+                self.assertNotIn(tgt, ids, f"[{label}] {tgt} must stay node-less (the exemption is what keeps its edge)")
+        self.assert_equivalent(incremental, oracle, "exempt endpoints")
 
 
 class InheritanceEdgeIncrementalTests(_IncrementalMergeBase):

@@ -18038,3 +18038,187 @@ class CommunityCatalogEvidenceMarkingTests(unittest.TestCase):
         text = self.srv.render_graph_communities_markdown(
             {"present": True, "communities": []}, self.index, self.gq)
         self.assertIn("no communities in cluster artifact", text)
+
+
+class ReapStateSurfaceTests(unittest.TestCase):
+    """Wave 1x6ti (1x551): the eligibility reap's persisted deferral /
+    preservation record reaches the registered tools through one shared
+    reader (`reap_state_for_index`): `index_build_status` carries a `reap`
+    block in every state, `index_health` carries the block plus one
+    diagnostic per non-empty map, and both omit everything when no record
+    exists. Pre-fix neither tool surfaced either state (SEC-DEL-1)."""
+
+    _DEFERRED = {"docs": {"would_reap": 9, "table_paths": 10}}
+    _PRESERVED = {"code": 2, "docs": 1}
+
+    def setUp(self):
+        self.srv = load_server()
+        self.iss = self.srv._load_script("index_state_store")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir = self.root / ".wavefoundry" / "logs"
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path = self.index_dir / "index-build.json"
+        self.log_path = self.logs_dir / "project-index-build.log"
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.ensure_current()
+        finally:
+            store.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _record(self, deferred, preserved) -> None:
+        self.assertTrue(self.iss.write_reap_state(self.index_dir, deferred=deferred, preserved=preserved))
+
+    def _unheld_lock(self):
+        info = {"held": False, "present": False, "owner_pid": None, "owner_cmdline": None,
+                "started_at": None, "ended_at": None, "note": "no lock"}
+        return patch.object(self.srv, "_index_build_lock_info", return_value=info)
+
+    def _status(self):
+        with self._unheld_lock():
+            return self.srv.index_build_status_response(self.root, layer="project")
+
+    def _health(self):
+        from types import SimpleNamespace
+        idx = SimpleNamespace(root=self.root, docs_health=lambda: {})
+        with self._unheld_lock():
+            return self.srv.index_health_response(idx)
+
+    def _assert_block(self, block, deferred, preserved):
+        self.assertEqual(block["deferred"], deferred)
+        self.assertEqual(block["preserved"], preserved)
+        self.assertIsInstance(block["recorded_generation"], int)
+        self.assertIsInstance(block["recorded_at"], (int, float))
+
+    def test_status_carries_the_reap_block_in_every_state_and_omits_it_without_a_record(self):
+        import os, time
+        self._record(self._DEFERRED, self._PRESERVED)
+        # idle
+        resp = self._status()
+        self.assertEqual(resp["data"]["state"], "idle")
+        self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
+        # running (this process's pid holds the state file)
+        self.state_path.write_text(json.dumps({"pid": os.getpid(), "started_at": time.time() - 30}), encoding="utf-8")
+        self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
+        resp = self._status()
+        self.assertEqual(resp["data"]["state"], "running")
+        self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
+        # finished (dead pid, done line)
+        self.state_path.write_text(json.dumps({"pid": 99999999, "started_at": time.time() - 120}), encoding="utf-8")
+        self.log_path.write_text(
+            "build_index: done — 300 files indexed, 2000 doc chunks, 1800 code chunks\n", encoding="utf-8"
+        )
+        resp = self._status()
+        self.assertEqual(resp["data"]["state"], "finished")
+        self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
+        # interrupted (a `building` epoch with the lock reported unheld)
+        self.iss.begin_build_epoch(self.index_dir, "all")
+        resp = self._status()
+        self.assertEqual(resp["data"]["state"], "interrupted")
+        self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
+        # no record: the block is omitted, never an empty placeholder
+        self._record({}, {})
+        resp = self._status()
+        self.assertNotIn("reap", resp["data"])
+
+    def test_health_carries_the_block_and_one_diagnostic_per_non_empty_map(self):
+        self._record(self._DEFERRED, self._PRESERVED)
+        resp = self._health()
+        self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
+        by_code = {d["code"]: d for d in resp.get("diagnostics", [])}
+        self.assertIn("stranded_reap_deferred", by_code)
+        self.assertIn("stranded_reap_preserved", by_code)
+        deferred = by_code["stranded_reap_deferred"]
+        self.assertIn("docs", deferred["message"])
+        self.assertIn("9", deferred["message"])
+        self.assertIn("stay searchable", deferred["message"])
+        self.assertIn("readable again", deferred["message"])
+        self.assertEqual(deferred["recovery_usage"], "index_build(content='all', mode='rebuild')")
+        self.assertEqual(deferred["recovery_tools"], ["index_build", "index_build_status"])
+        self.assertNotIn("advisory", deferred)
+        preserved = by_code["stranded_reap_preserved"]
+        self.assertIn("code", preserved["message"])
+        self.assertIn("last readable build", preserved["message"])
+        self.assertEqual(preserved["recovery_usage"], "index_build(content='all', mode='update')")
+        self.assertEqual(preserved["recovery_tools"], ["index_build", "index_build_status"])
+        self.assertNotIn("advisory", preserved)
+
+    def test_health_one_sided_record_raises_one_diagnostic(self):
+        self._record(self._DEFERRED, {})
+        codes = [d["code"] for d in self._health().get("diagnostics", [])]
+        self.assertIn("stranded_reap_deferred", codes)
+        self.assertNotIn("stranded_reap_preserved", codes)
+        self._record({}, self._PRESERVED)
+        codes = [d["code"] for d in self._health().get("diagnostics", [])]
+        self.assertNotIn("stranded_reap_deferred", codes)
+        self.assertIn("stranded_reap_preserved", codes)
+
+    def test_health_without_a_record_raises_neither_and_carries_no_block(self):
+        resp = self._health()
+        self.assertNotIn("reap", resp["data"])
+        codes = [d["code"] for d in resp.get("diagnostics", [])]
+        self.assertNotIn("stranded_reap_deferred", codes)
+        self.assertNotIn("stranded_reap_preserved", codes)
+        # a record that was written and then cleared reads the same way
+        self._record(self._DEFERRED, self._PRESERVED)
+        self._record({}, {})
+        resp = self._health()
+        self.assertNotIn("reap", resp["data"])
+        self.assertNotIn("stranded_reap_deferred", [d["code"] for d in resp.get("diagnostics", [])])
+
+    def test_malformed_per_table_entries_are_dropped_by_the_reader(self):
+        # Delivery review QA-DEL-3: only well-formed entries reach the block;
+        # a record with no well-formed entry reads as no record at all.
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.set_meta({self.iss.META_REAP_STATE: json.dumps({
+                "deferred": {
+                    "docs": 7,
+                    "code": {"would_reap": "x", "table_paths": 3},
+                    "neg": {"would_reap": -1, "table_paths": 3},
+                    "flag": {"would_reap": True, "table_paths": 3},
+                    "flt": {"would_reap": 2.7, "table_paths": 5},
+                    "fstr": {"would_reap": "2.0", "table_paths": 5},
+                    "missing": {"would_reap": 4},
+                    "ok": {"would_reap": 2, "table_paths": 5},
+                },
+                "preserved": {"code": "many", "docs": 1, "flag": True, "neg": -2, "flt": 3.9, "zero": 0},
+                "recorded_generation": "3",
+                "recorded_at": "nope",
+            })})
+        finally:
+            store.close()
+        rec = self.iss.reap_state_for_index(self.index_dir)
+        self.assertEqual(rec["deferred"], {"ok": {"would_reap": 2, "table_paths": 5}})
+        self.assertEqual(rec["preserved"], {"docs": 1, "zero": 0})
+        self.assertEqual(rec["recorded_generation"], 3)
+        self.assertEqual(rec["recorded_at"], 0.0)
+        self.assertEqual(self._status()["data"]["reap"], rec)
+        health = self._health()
+        codes = [d["code"] for d in health.get("diagnostics", [])]
+        self.assertIn("stranded_reap_deferred", codes)
+        self.assertIn("stranded_reap_preserved", codes)
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.set_meta({self.iss.META_REAP_STATE: json.dumps(
+                {"deferred": {"docs": 7}, "preserved": {"code": "many"}, "recorded_generation": 1}
+            )})
+        finally:
+            store.close()
+        self.assertIsNone(self.iss.reap_state_for_index(self.index_dir))
+        self.assertNotIn("reap", self._status()["data"])
+        self.assertNotIn("reap", self._health()["data"])
+
+    def test_status_and_health_read_the_same_record(self):
+        # Req 4: one shared reader; the two surfaces cannot disagree.
+        self._record(self._DEFERRED, {})
+        self.assertEqual(self._status()["data"]["reap"], self._health()["data"]["reap"])
+        self.assertEqual(
+            self.srv._reap_state_block(self.root),
+            self.iss.reap_state_for_index(self.index_dir),
+        )

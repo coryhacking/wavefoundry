@@ -195,6 +195,15 @@ META_FTS_PAYLOAD_DIGEST_PREFIX = "fts_payload_digest_"   # + table_name -> 64 he
 # path); the serving side reads it to suppress a second heal request while the
 # published epoch still descends from that attempt.
 META_FTS_HEAL_ATTEMPT_PREFIX = "fts_heal_attempt_"       # + table_name -> attempt_id
+
+# Wave 1x6ti (1x551): the eligibility reap's persisted deferral / preservation
+# record. ONE JSON value: ``{"deferred": {table: {would_reap, table_paths}},
+# "preserved": {table: count}, "recorded_generation": int, "recorded_at":
+# float}``. Written epoch-free at every summary-carrying return of the build
+# (replaced on every non-dry-run build, removed when neither map applies),
+# read by ``reap_state_for_index`` for ``index_build_status`` and
+# ``index_health``. Absent key == no record.
+META_REAP_STATE = "reap_state"
 _FTS_DIGEST_EMPTY_HEX = "0" * 64
 # Above this many affected ids+paths, one linear FTS scan filtered in Python
 # beats batched ``IN`` probes (FTS5 evaluates non-MATCH predicates by scan).
@@ -744,6 +753,14 @@ class IndexStateStore:
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (key, value),
                 )
+
+    def delete_meta(self, keys: "list[str] | tuple[str, ...]") -> None:
+        """Remove the given meta keys (absent keys are a no-op). Wave 1x6ti
+        (1x551): the reap-state record is REMOVED, not blanked, when neither
+        map applies, so readers never see an empty placeholder."""
+        with self._conn:
+            for key in keys:
+                self._conn.execute("DELETE FROM meta WHERE key = ?", (key,))
 
     # -- freshness/attribution write path (single transaction per build pass) --
 
@@ -2667,6 +2684,115 @@ def _record_fts_heal_marker(index_dir: Path, table_name: str) -> Optional[str]:
     except Exception:
         return None
     return attempt
+
+
+def write_reap_state(
+    index_dir: Path,
+    *,
+    deferred: "dict[str, Any] | None",
+    preserved: "dict[str, Any] | None",
+) -> bool:
+    """Persist (or remove) the eligibility reap's deferral / preservation
+    record (wave 1x6ti, 1x551). Epoch-free by design, in
+    ``_record_fts_heal_marker``'s shape: open the store, write
+    ``META_REAP_STATE``, close, NO ``ensure_current`` (which could reset a
+    version-mismatched store from a visibility aid). Stamps the store's
+    PUBLISHED generation at the time of the write (the last completed build's
+    generation at the zero-change seam; the generation the finalize just
+    published on the build path) plus a wall-clock timestamp. When both maps
+    are empty the record is DELETED. A store error propagates so the caller
+    can log it, which is why the indexer wraps this in its own never-raise
+    helper. Returns True when the store now reflects the summaries."""
+    deferred = dict(deferred or {})
+    preserved = dict(preserved or {})
+    store = IndexStateStore(index_dir)
+    try:
+        if not deferred and not preserved:
+            store.delete_meta([META_REAP_STATE])
+            return True
+        state = read_build_state(index_dir)
+        generation = int((state or {}).get("generation") or 0)
+        record = {
+            "deferred": deferred,
+            "preserved": preserved,
+            "recorded_generation": generation,
+            "recorded_at": time.time(),
+        }
+        store.set_meta({META_REAP_STATE: json.dumps(record, sort_keys=True)})
+        return True
+    finally:
+        store.close()
+
+
+def _is_count(value: Any) -> bool:
+    """True for a non-negative int that is not a bool (reap-state entries)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def reap_state_for_index(index_dir: Path) -> Optional[dict[str, Any]]:
+    """O(1) read-only reader of the reap-state record (wave 1x6ti, 1x551):
+    ``{deferred, preserved, recorded_generation, recorded_at}`` or ``None``
+    when there is no record (absent store, absent key, unreadable or
+    malformed value, or both maps empty). The ONE reader both
+    ``index_build_status`` and ``index_health`` use, so the two surfaces
+    cannot disagree."""
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return None
+    try:
+        raw = IndexStateStore._get_meta(conn, META_REAP_STATE)
+    except sqlite3.Error:
+        return None
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    # Delivery review QA-DEL-3: coerce per-table entries so a hand-edited or
+    # future-schema value never reaches the reap block; an entry that is not
+    # a dict of two non-negative integers (deferred) or a non-negative
+    # integer count (preserved) is dropped.
+    deferred: dict[str, Any] = {}
+    for table, entry in (data.get("deferred") or {}).items() if isinstance(data.get("deferred"), dict) else ():
+        if not isinstance(entry, dict):
+            continue
+        would_reap = entry.get("would_reap")
+        table_paths = entry.get("table_paths")
+        # QA-RV1-3: a value counts only when it IS a non-negative int (bools
+        # are ints in Python and are refused; floats and numeric strings are
+        # not coerced; a missing key drops the entry).
+        if not (_is_count(would_reap) and _is_count(table_paths)):
+            continue
+        deferred[str(table)] = {"would_reap": would_reap, "table_paths": table_paths}
+    preserved: dict[str, int] = {}
+    for table, count in (data.get("preserved") or {}).items() if isinstance(data.get("preserved"), dict) else ():
+        if not _is_count(count):
+            continue
+        preserved[str(table)] = count
+    if not deferred and not preserved:
+        return None
+    try:
+        generation = int(data.get("recorded_generation") or 0)
+    except (TypeError, ValueError):
+        generation = 0
+    try:
+        recorded_at = float(data.get("recorded_at") or 0.0)
+    except (TypeError, ValueError):
+        recorded_at = 0.0
+    return {
+        "deferred": deferred,
+        "preserved": preserved,
+        "recorded_generation": generation,
+        "recorded_at": recorded_at,
+    }
 
 
 def fts_recorded_integrity(index_dir: Path, table_name: str) -> dict[str, Any]:

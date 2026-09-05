@@ -9221,7 +9221,11 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # function sharing the bare name. Extraction-output change).
         # Wave 1wpie delivery review bumped 48->49 (module-head segments,
         # importable-extension filter, timestamp value validation).
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "49")
+        # Wave 1x6ti (1x5pc) bumped 49->50: the assembly-time dangling-endpoint
+        # filter changes the served edge set, so persisted payloads that carry
+        # a fragment's re-emitted edge into a deleted doc or a renamed symbol
+        # must re-extract.
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "50")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

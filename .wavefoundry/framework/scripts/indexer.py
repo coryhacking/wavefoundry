@@ -1192,6 +1192,42 @@ def _preserved_summary(preserved_by_table: "dict[str, set] | None") -> dict:
     }
 
 
+def _record_reap_state(
+    index_dir: Path,
+    *,
+    deferred: "dict | None",
+    preserved: "dict | None",
+    dry_run: bool,
+    verbose: bool = False,
+) -> bool:
+    """Persist the reap's deferral / preservation summaries in the index-state
+    store's ``meta`` table (wave 1x6ti, 1x551) so ``index_build_status`` and
+    ``index_health`` can surface them; remove the record when neither applies.
+
+    Called at every summary-carrying return of ``_build_index_locked``. Skips
+    ``dry_run`` builds (the preflight is reachable unlocked there and a dry
+    run must not write). Epoch-free, and it NEVER fails the build
+    (``_record_drift_failure``'s posture): every exception is caught, the
+    failure goes to the store log, and the build result still carries the
+    summaries. Returns True when the store now reflects the summaries."""
+    if dry_run:
+        return False
+    iss = _get_index_state_store()
+    if iss is None or not hasattr(iss, "write_reap_state"):
+        return False
+    try:
+        return bool(iss.write_reap_state(index_dir, deferred=deferred, preserved=preserved))
+    except Exception as exc:  # noqa: BLE001 - a visibility aid never fails a build
+        msg = (
+            "build_index: reap state record not written "
+            f"(deferred={bool(deferred)} preserved={bool(preserved)}): {exc}"
+        )
+        _store_log_safe(index_dir, msg)
+        if verbose:
+            print(msg, file=sys.stderr, flush=True)
+        return False
+
+
 def _describe_unreadable_dirs(unreadable_dirs: "set[str] | None") -> str:
     """Operator-facing rendering of the walk's unreadable directories: the
     root is named as such rather than printed as a bare dot (SEC-DEL-1)."""
@@ -4272,6 +4308,7 @@ def _build_graph_artifacts(
             f" | sidecar: reads={merge_stats.get('blob_reads', 0)}"
             f" writes={merge_stats.get('blob_writes', 0)}"
             f" bytes={merge_stats.get('blob_bytes', 0)}"
+            f" | dangling: dropped={merge_stats.get('edges_dropped_dangling', 0)}"
         )
     print(
         f"build_index: finished graph: {len(changed)} changed, {len(removed)} removed"
@@ -5079,6 +5116,12 @@ def _build_index_locked(
         if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile:
             if verbose:
                 print("build_index: index is up to date", flush=True)
+            # Wave 1x6ti (1x551): a deferral here opens no epoch, so the
+            # record is stamped with the last completed build's generation.
+            _record_reap_state(
+                index_dir, deferred=_reap_deferred_summary, preserved=_reap_preserved_summary,
+                dry_run=dry_run, verbose=verbose,
+            )
             return {
                 "files_indexed": 0,
                 "files_total": len(files),
@@ -5194,6 +5237,12 @@ def _build_index_locked(
         _remove_legacy_meta_json(index_dir)
         if verbose:
             print("build_index: index is up to date", flush=True)
+        # Wave 1x6ti (1x551): after the idle epoch finalized, so the stamp is
+        # the generation that published this pass.
+        _record_reap_state(
+            index_dir, deferred=_reap_deferred_summary, preserved=_reap_preserved_summary,
+            dry_run=dry_run, verbose=verbose,
+        )
         return {
             "files_indexed": 0,
             "files_total": len(files),
@@ -5820,6 +5869,14 @@ def _build_index_locked(
         return _build_failed_result(files, "build epoch finalization CAS miss (superseded attempt)")
     if _remove_legacy_meta_json(index_dir) and verbose:
         print("build_index: removed legacy meta.json (SQLite is the state authority)", flush=True)
+    # Wave 1x6ti (1x551): after `finalize_build_epoch` succeeded, so the stamp
+    # is the generation that published the state the record describes. A full
+    # rebuild defers and preserves nothing (both reap seams sit behind
+    # `not full`), so this call REMOVES the record on the full path.
+    _record_reap_state(
+        index_dir, deferred=_reap_deferred_build, preserved=_reap_preserved_build,
+        dry_run=dry_run, verbose=verbose,
+    )
 
     summary = {
         "files_indexed": len(files_to_index),

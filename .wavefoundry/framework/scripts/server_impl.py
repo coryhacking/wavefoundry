@@ -10055,6 +10055,14 @@ def index_health_response(
     # integrity verdict (quick_check + freshness-fingerprint binding). Absence
     # is a normal not-yet-built state, never an error (AC-2/AC-6).
     health["state_store"] = _state_store_health_summary(index.root)
+    # Wave 1x6ti (1x551): the reap's persisted deferral / preservation record,
+    # the same reader index_build_status uses, plus one diagnostic per
+    # non-empty map (a deferral the operator must act on; a preserved subtree
+    # served as of the last readable build).
+    _reap_block = _reap_state_block(index.root)
+    if _reap_block is not None:
+        health["reap"] = _reap_block
+        diagnostics.extend(_reap_state_diagnostics(_reap_block))
     if health["state_store"].get("integrity") == "structural-fail":
         diagnostics.append(
             _diagnostic(
@@ -13628,6 +13636,66 @@ def _index_build_lock_info(root: Path) -> dict[str, Any]:
     return info
 
 
+def _reap_state_block(root: Path) -> Optional[dict[str, Any]]:
+    """Wave 1x6ti (1x551): the eligibility reap's persisted deferral /
+    preservation record, read through the store module's ONE reader
+    (``reap_state_for_index``) so ``index_build_status`` and ``index_health``
+    cannot disagree. ``None`` when there is no record, the store is absent,
+    or the module predates the record."""
+    try:
+        iss = _load_script("index_state_store")
+        reader = getattr(iss, "reap_state_for_index", None)
+        if reader is None:
+            return None
+        block = reader(root / ".wavefoundry" / "index")
+    except Exception:
+        return None
+    return block if isinstance(block, dict) else None
+
+
+def _reap_state_diagnostics(block: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Wave 1x6ti (1x551): one diagnostic per NON-EMPTY map of the reap-state
+    record, mirroring the indexer's stderr message. Neither sets the advisory
+    flag, matching the neighbouring ``index_health`` diagnostics."""
+    if not isinstance(block, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    deferred = block.get("deferred") or {}
+    preserved = block.get("preserved") or {}
+    generation = block.get("recorded_generation")
+    if deferred:
+        parts = []
+        for table, entry in sorted(deferred.items()):
+            entry = entry if isinstance(entry, dict) else {}
+            parts.append(
+                f"{table} (would reap {entry.get('would_reap', 0)} of {entry.get('table_paths', 0)} rows)"
+            )
+        out.append(_diagnostic(
+            "stranded_reap_deferred",
+            "The eligibility reap was DEFERRED by the mass-removal breaker for: "
+            + "; ".join(parts)
+            + f" (recorded at index generation {generation}). The absent rows stay searchable "
+            "until newly indexed files dilute the fraction under the breaker; if the paths "
+            "really are gone, rebuild once every directory and volume is readable again: "
+            "index_build(content='all', mode='rebuild').",
+            recovery_tools=["index_build", "index_build_status"],
+            recovery_usage="index_build(content='all', mode='rebuild')",
+        ))
+    if preserved:
+        parts = [f"{table} ({count} row path(s))" for table, count in sorted(preserved.items())]
+        out.append(_diagnostic(
+            "stranded_reap_preserved",
+            "The index is serving rows under an unreadable directory as of the last readable "
+            "build for: " + "; ".join(parts)
+            + f" (recorded at index generation {generation}). The subtree is neither reaped nor "
+            "re-embedded while the directory stays unreadable; the first readable build "
+            "reconciles it: index_build(content='all', mode='update').",
+            recovery_tools=["index_build", "index_build_status"],
+            recovery_usage="index_build(content='all', mode='update')",
+        ))
+    return out
+
+
 def index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
     """Wrapper (wave 1p99o): attach the authoritative ``lock`` object to every return path so callers
     ask the classifier, not the by-design-persistent lock file, whether a build is running.
@@ -13676,6 +13744,13 @@ def index_build_status_response(root: Path, layer: str = "project") -> dict[str,
                 recovery_tools=["index_build"],
                 recovery_usage="index_build(content='all')",
             ))
+        # Wave 1x6ti (1x551): the reap's deferral / preservation record rides
+        # EVERY state (finished, idle, running beside previous_stats, and
+        # interrupted), read from the store and never from the log; omitted
+        # when no record exists.
+        reap_block = _reap_state_block(root)
+        if reap_block is not None:
+            data["reap"] = reap_block
     return resp
 
 
@@ -32799,6 +32874,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         process-local observability; use ``index_build_status.lock.held`` as
         the authority for whether an index build is currently running.
 
+        ``reap`` (wave 1x6ti, 1x551): when the index-state store holds the
+        eligibility reap's persisted record, the response carries ``deferred``
+        (per-table ``{would_reap, table_paths}`` the mass-removal breaker
+        refused to reap), ``preserved`` (per-table row-path counts kept under
+        an unreadable directory), ``recorded_generation`` and ``recorded_at``;
+        ``stranded_reap_deferred`` and ``stranded_reap_preserved`` diagnostics
+        name the remedy for each non-empty map. Absent when no record exists.
+
         Derived-state integrity (wave 1wpif): ``state_store.fts`` carries the
         per-table lexical verdict (liveness, FTS/registry row parity, the
         recorded payload digest, the last heal attempt) read from the epoch
@@ -32979,6 +33062,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         last-owner record, so its presence does not mean a build is running. `ended_at`
         distinguishes a clean finish from an interrupted build (absent ⇒ the last build was
         killed and the index may be partial).
+
+        `reap` (wave 1x6ti, 1x551): in every state, the eligibility reap's persisted
+        record when one exists — `deferred` (per-table `{would_reap, table_paths}` the
+        mass-removal breaker refused), `preserved` (per-table row-path counts served as
+        of the last readable build), `recorded_generation`, `recorded_at` — the same
+        block `index_health` reads; omitted when no record exists.
 
         Safe to call at any time — read-only, no side effects. Suitable for /loop polling.
 
