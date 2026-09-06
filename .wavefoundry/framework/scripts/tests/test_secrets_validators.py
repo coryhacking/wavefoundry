@@ -2282,5 +2282,211 @@ class TestSha256FileCrlfNormalization(unittest.TestCase):
             self.assertEqual(_sv._sha256_file(f), bsa._sha256_file(f))
 
 
+class GuardCoverageIntegrationTests(unittest.TestCase):
+    """1x4om: actual scanner outcomes survive the serial/worker/cache boundaries."""
+
+    def setUp(self):
+        from scanner_skips import LEDGER_REL, scanner_skip_notice
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_root(self.root)
+        _write_framework_toml(self.root, '''
+[[rules]]
+id = "guard-fixture"
+regex = 'GUARDFIXTURE_[A-Z]{10}'
+''')
+        self.ledger = self.root / LEDGER_REL
+        self.notice = lambda: scanner_skip_notice(self.root)
+
+    def _write(self, name, content):
+        path = self.root / name
+        path.write_bytes(content)
+        return path
+
+    def _scan(self, files, workers=1):
+        with patch.object(_sv, "get_current_git_user_email", return_value="fixture@example.com"):
+            return check_hardcoded_secrets(self.root, files=files, max_workers=workers)
+
+    def _guards(self):
+        return [
+            self._write("big.txt", b"x" * (_sv.MAX_FILE_BYTES + 1)),
+            self._write("long.txt", b"x" * (_sv.MAX_LINE_BYTES + 1) + b"\nGUARDFIXTURE_ABCDEFGHIJ\n"),
+            self._write("image.png", b"binary extension fixture"),
+            self._write("nul.txt", b"\0binary content fixture"),
+            self._write("empty.txt", b""),
+        ]
+
+    def _assert_guard_records(self, failures):
+        expected = {
+            "big.txt": "file too large", "long.txt": "line too long",
+            "image.png": "binary file (extension)", "nul.txt": "binary file",
+        }
+        self.assertTrue(self.ledger.is_file(), "guard coverage must be durably published")
+        rows = self.notice()["scanner_skips"]
+        self.assertEqual({row["file"]: row["reason"] for row in rows}, expected)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual({row["file"] for row in _sv._SCANNER_SKIPS}, set(expected))
+        self.assertEqual(len(_sv._SCANNER_SKIPS), 4)  # serial rows are counted once
+        self.assertTrue(any("long.txt:2:" in failure for failure in failures), failures)
+        self.assertNotIn("GUARDFIXTURE_ABCDEFGHIJ", self.ledger.read_text())
+
+    def test_all_guards_persist_without_hiding_ordinary_line_findings(self):
+        self._assert_guard_records(self._scan(self._guards()))
+
+    def test_real_workers_publish_all_guards_without_serial_fallback(self):
+        files = self._guards() + [self._write(f"pad{i}.txt", b"ordinary\n") for i in range(60)]
+        # Spawn imports a fresh module. Any parent raw call proves unintended fallback.
+        with patch.object(_sv, "scan_file_raw", side_effect=AssertionError("serial fallback used")):
+            failures = self._scan(files, workers=2)
+        self._assert_guard_records(failures)
+
+    def test_spawn_failure_fallback_publishes_equivalent_outcomes(self):
+        files = self._guards() + [self._write(f"pad{i}.txt", b"ordinary\n") for i in range(60)]
+        with patch("concurrent.futures.ProcessPoolExecutor", side_effect=OSError("fixture spawn failure")) as pool:
+            failures = self._scan(files, workers=2)
+        pool.assert_called_once()
+        self._assert_guard_records(failures)
+
+    def test_skip_retained_on_reskip_unrelated_allowlisted_and_unreadable_scans(self):
+        path = self._write("omitted.txt", b"\0binary")
+        self._scan([path])
+        original = self.ledger.read_bytes()
+        self._scan([path])
+        self.assertEqual(self.ledger.read_bytes(), original)
+        self._scan([self._write("other.txt", b"clean")])
+        self.assertEqual(self.ledger.read_bytes(), original)
+        _write_project_toml(self.root, '[allowlist]\npaths = ["omitted.txt"]\n')
+        self._scan([path])
+        self.assertEqual(self.ledger.read_bytes(), original)
+        (self.root / SCAN_RULES_PROJECT_PATH).unlink()
+        real_read = Path.read_text
+        def unreadable(file, *args, **kwargs):
+            if file == path:
+                raise PermissionError("fixture denied")
+            return real_read(file, *args, **kwargs)
+        path.write_text("now text")
+        with patch.object(Path, "read_text", unreadable):
+            self._scan([path])
+        self.assertEqual(self.ledger.read_bytes(), original)
+        path.write_bytes(b"")
+        self._scan([path])  # Empty successfully read text is a complete outcome.
+        self.assertEqual(self.notice(), {})
+
+    def test_degraded_rules_do_not_retire_history_and_removed_path_does(self):
+        path = self._write("omitted.txt", b"\0binary")
+        self._scan([path])
+        original = self.ledger.read_bytes()
+        path.write_text("clean")
+        _write_project_toml(self.root, '[[rules]]\nid="broken"\nregex="["\n')
+        self._scan([path])
+        self.assertEqual(self.ledger.read_bytes(), original)
+        path.unlink()
+        self._scan([])
+        self.assertEqual(self.notice(), {})
+
+    @unittest.skipIf(sys.platform == "win32", "a backslash cannot be part of a Windows file name")
+    def test_unrecordable_path_is_warned_and_does_not_veto_the_delta(self):
+        odd = self._write("fixtures\\win.txt", b"\0binary sibling")
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            failures = self._scan(self._guards() + [odd])
+        self.assertTrue(any("long.txt:2:" in failure for failure in failures), failures)
+        rows = self.notice()["scanner_skips"]
+        self.assertEqual({row["file"] for row in rows}, {"big.txt", "long.txt", "image.png", "nul.txt"})
+        self.assertNotIn("win.txt", self.ledger.read_text())
+        self.assertEqual(_sv.unpublished_scanner_skips(), ["fixtures\\win.txt"])
+        self.assertEqual(len(_sv._SCANNER_SKIPS), 5)
+        self.assertIn("could not be recorded for a path the ledger cannot name", output.getvalue())
+        self.assertNotIn("could not be persisted", output.getvalue())
+
+    def test_failed_publication_keeps_guard_skipped_files_out_of_the_scan_cache(self):
+        import scan_secrets
+        skipped = self._write("omitted.txt", b"\0binary")
+        clean = self._write("clean.txt", b"ordinary\n")
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
+            output = io.StringIO()
+            with patch.object(_sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
+                with contextlib.redirect_stderr(output):
+                    scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
+            self.assertIn("could not be persisted", output.getvalue())
+            self.assertFalse(self.ledger.exists())
+            # Nothing from the failed run reached the ledger, so NONE of its
+            # evaluated paths is cached, not only the guard-skipped one.
+            self.assertLessEqual({skipped.name, clean.name}, set(_sv.unpublished_scanner_skips()))
+            result = scan_secrets.update_secrets_scan(
+                root=self.root, scan_dir=scan_dir, changed={skipped.name, clean.name}, removed=set(),
+            )
+        self.assertEqual(result["files_skipped"], 0)  # neither file was cached by the failed run
+        self.assertEqual(result["files_scanned"], 2)  # both are re-evaluated and published
+        self.assertEqual(_sv.unpublished_scanner_skips(), [])
+        self.assertEqual(self.notice()["scanner_skips"][0]["file"], skipped.name)
+
+    def test_failed_publication_of_a_clear_does_not_pin_the_stale_row(self):
+        import scan_secrets
+        path = self._write("blob.txt", b"\0binary")
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
+            scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
+            self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
+            path.write_bytes(b"clean text\n")
+            with patch.object(_sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
+            self.assertIn(path.name, _sv.unpublished_scanner_skips())
+            self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)  # the clear never landed
+            result = scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
+        self.assertEqual(result["files_scanned"], 1)  # not cached by the failed run, so re-evaluated
+        self.assertEqual(self.notice(), {})  # and the stale row is cleared
+
+    def test_removed_then_restored_guard_skip_is_re_observed(self):
+        import scan_secrets
+        path = self._write("blob.bin", b"\0binary")
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
+            scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
+            self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
+            path.unlink()
+            scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed={path.name})
+            self.assertEqual(self.notice(), {})  # confirmed absence retires the row
+            path.write_bytes(b"\0binary")  # identical restore, as on a branch switch back
+            result = scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
+        self.assertEqual(result["files_skipped"], 0)  # the removed-only delta deleted the cache row
+        self.assertEqual(result["files_scanned"], 1)
+        self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
+
+    def test_incremental_cache_hit_retains_guard_history_and_version_escalates(self):
+        import scan_secrets
+        path = self._write("omitted.txt", b"\0binary")
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
+            scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
+            original = self.ledger.read_bytes()
+            result = scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
+            self.assertEqual(result["files_skipped"], 1)
+            self.assertEqual(result["files_scanned"], 0)
+            self.assertEqual(self.ledger.read_bytes(), original)
+            state = scan_secrets._load_scan_state(scan_dir)
+            state["scanner_version"] = "1"
+            scan_secrets._save_scan_state(scan_dir, state)
+            self.ledger.unlink()  # Simulate pre-upgrade cache without guard history.
+            result = scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set())
+            self.assertEqual(scan_secrets._load_scan_state(scan_dir)["scan_type"], "full")
+            self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
+
+    def test_malformed_history_is_preserved_and_warned_without_scan_failure(self):
+        path = self._write("omitted.txt", b"\0binary")
+        self.ledger.parent.mkdir(parents=True)
+        self.ledger.write_bytes(b"malformed")
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            failures = self._scan([path])
+        self.assertEqual(failures, [])
+        self.assertEqual(self.ledger.read_bytes(), b"malformed")
+        self.assertIn("WARNING: secrets scanner guard coverage", output.getvalue())
+        self.assertIn("scanner_skips_error", self.notice())
+
+
 if __name__ == "__main__":
     unittest.main()

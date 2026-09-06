@@ -32,7 +32,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
 
-SCANNER_VERSION = "1"
+SCANNER_VERSION = "2"  # First upgraded scan observes guard coverage for cached files.
 
 # Minimum file count before the parallel scan path is engaged (matches
 # _PARALLEL_SCAN_THRESHOLD in secrets_validators.py).
@@ -231,7 +231,7 @@ def update_secrets_scan(
     scripts_dir = Path(__file__).parent
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
-    from wave_lint_lib.secrets_validators import check_hardcoded_secrets
+    from wave_lint_lib.secrets_validators import check_hardcoded_secrets, unpublished_scanner_skips
     from wave_lint_lib.constants import SCAN_FINDINGS_PATH
 
     scan_state = _load_scan_state(scan_dir)
@@ -306,7 +306,19 @@ def update_secrets_scan(
         files_scanned = len(files)
         scanned_rel = candidate_rel
 
-    if iss is not None and scanned_rel:
+    # Wave 1x5tr (delivery review) — a file whose scan outcome did not reach
+    # the ledger (publication failure, or a path the ledger cannot name) is not
+    # cached as scanned; otherwise the next incremental run cache-hits it and
+    # the close advisory never learns of the skip. run_secrets_scan mirrors this.
+    unpublished = set(unpublished_scanner_skips())
+    if unpublished:
+        scanned_rel = [rel for rel in scanned_rel if rel not in unpublished]
+
+    # Wave 1x5tr (delivery review) — a removed-only delta must still reach the
+    # store so the removed file's cache row is deleted; otherwise an identical
+    # restore cache-hits while the ledger prune already dropped its guard row,
+    # and the skip becomes invisible at close.
+    if iss is not None and (scanned_rel or removed):
         iss.secret_scan_record(
             index_dir,
             root,

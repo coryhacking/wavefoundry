@@ -17,8 +17,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
@@ -92,6 +93,117 @@ class _CacheCase(unittest.TestCase):
         p = self.root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
+
+
+class NonGitMachineAuthorityTests(_CacheCase):
+    """1x550: fallback excludes authority only; full scans cannot cache themselves."""
+
+    AUTHORITY_PATHS = (
+        ".wavefoundry/index/index-build.lock",
+        ".wavefoundry/index/code.lance/_versions/1.manifest",
+        ".wavefoundry/framework/index/old.manifest",
+        ".wavefoundry/logs/dashboard.log",
+        ".wavefoundry/locks/dashboard-server.lock",
+        ".wavefoundry/guard-overrides.json",
+        ".wavefoundry/memory-purge-dispositions.json",
+        "docs/waves/renamed_wave/events.jsonl",
+        "docs/agents/memory/archive/old.md",
+        "docs/agents/memory/pointers/old.md",
+        "docs/scan-findings.json",
+    )
+    CONTENT_PATHS = (
+        "src/app.py",
+        ".env",
+        ".private/settings.txt",
+        "package-lock.json",
+        "app.min.js",
+        "build/output.txt",
+        "events.jsonl",
+        "docs/waves/renamed_wave/nested/events.jsonl",
+        "docs/waves/renamed_wave/wave.md",
+        "docs/agents/memory/archive-index.md",
+        "docs/agents/memory/pointers-note.md",
+        "src/scan-findings.json",
+        ".wavefoundry/index-notes/readme.md",
+    )
+
+    def _fixture(self):
+        for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS:
+            if rel != "docs/scan-findings.json":
+                self._write(rel, "fixture text\n")
+
+    def _candidates(self):
+        from wave_lint_lib.secrets_validators import get_scan_files
+        return {p.relative_to(self.root).as_posix()
+                for p in get_scan_files(self.root, scan_all=True)}
+
+    def test_non_git_candidates_exclude_authority_and_preserve_content(self):
+        self._fixture()
+        candidates = self._candidates()
+        for rel in self.AUTHORITY_PATHS:
+            with self.subTest(authority=rel):
+                self.assertNotIn(rel, candidates)
+        for rel in self.CONTENT_PATHS:
+            with self.subTest(content=rel):
+                self.assertIn(rel, candidates)
+
+    def test_git_candidates_preserve_tracked_and_untracked_authority(self):
+        self._fixture()
+        _init_git_repo(self.root)
+        subprocess.run(["git", "-C", str(self.root), "add", "-f", "--", "."],
+                       check=True, capture_output=True)
+        untracked = ".wavefoundry/index/new.manifest"
+        self._write(untracked, "new untracked manifest\n")
+        candidates = self._candidates()
+        for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS + (untracked,):
+            with self.subTest(candidate=rel):
+                self.assertIn(rel, candidates)
+
+    def test_git_ls_files_failure_preserves_tracked_authority_in_fallback(self):
+        from wave_lint_lib import secrets_validators as scanner
+
+        self._fixture()
+        _init_git_repo(self.root)
+        subprocess.run(["git", "-C", str(self.root), "add", "-f", "--", "."],
+                       check=True, capture_output=True)
+        original_run = scanner.subprocess_util.isolated_run
+        commands = []
+
+        def fail_ls_files_only(command, *args, **kwargs):
+            commands.append(command)
+            if command[:2] == ["git", "ls-files"]:
+                return subprocess.CompletedProcess(command, 128, "", "transient failure")
+            return original_run(command, *args, **kwargs)
+
+        with patch.object(scanner.subprocess_util, "isolated_run", side_effect=fail_ls_files_only):
+            candidates = self._candidates()
+        self.assertIn(["git", "rev-parse", "--is-inside-work-tree"], commands)
+        self.assertIn(["git", "check-ignore", "--stdin"], commands)
+        for rel in self.AUTHORITY_PATHS:
+            with self.subTest(tracked_authority=rel):
+                self.assertIn(rel, candidates)
+
+    def test_two_full_scans_keep_exact_cache_membership_without_index_internals(self):
+        self._fixture()
+        expected = set(self.CONTENT_PATHS) | {".wavefoundry/framework/scan-rules.toml"}
+        memberships = []
+        # Real scanner/rules, real filesystem enumeration and real SQLite. Only
+        # worker count is fixed so the fixture stays bounded on every host.
+        with patch.object(self.scan_secrets, "_auto_max_workers", return_value=1), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            for _ in range(2):
+                summary = self.scan_secrets.update_secrets_scan(
+                    root=self.root, scan_dir=self.index_dir / "scan",
+                    changed=set(), removed=set(), full=True,
+                )
+                self.assertEqual(summary["failures"], 0)
+                with closing(sqlite3.connect(self.index_dir / "index-state.sqlite")) as conn:
+                    paths = [row[0] for row in conn.execute("SELECT path FROM secret_scan_cache")]
+                self.assertFalse(any(p.startswith(".wavefoundry/index/") for p in paths), paths)
+                self.assertEqual(set(paths), expected)
+                self.assertEqual(len(paths), len(expected))
+                memberships.append(set(paths))
+        self.assertEqual(memberships[0], memberships[1])
 
 
 class SkipCorrectnessTests(_CacheCase):
@@ -344,6 +456,42 @@ class RuleCatalogTests(_CacheCase):
         self.assertEqual(modified_rules, {"test-fake-key"})
 
 
+class RunSecretsScanGuardHistoryTests(_CacheCase):
+    """1x5tr delivery review (RED-DEL-9): the wf_scan_secrets subprocess path
+    shares the unpublished-outcome seam with the indexer scan."""
+
+    def _main(self, mode):
+        run_scan = _load("run_secrets_scan")
+        out = io.StringIO()
+        argv = ["run_secrets_scan.py", "--root", str(self.root), "--mode", mode]
+        with patch.object(sys, "argv", argv), redirect_stdout(out), redirect_stderr(io.StringIO()):
+            self.assertEqual(run_scan.main(), 0)
+        return json.loads(out.getvalue().strip().splitlines()[-1])
+
+    def _cached(self):
+        db = self.index_dir / "index-state.sqlite"
+        if not db.exists():
+            return set()
+        with closing(sqlite3.connect(db)) as conn:
+            return {row[0] for row in conn.execute("SELECT path FROM secret_scan_cache")}
+
+    def test_failed_publication_keeps_the_run_out_of_the_cache_on_the_scan_tool_path(self):
+        from wave_lint_lib import secrets_validators as sv
+        import scanner_skips
+        self._write("deck.pptx", "\0binary")
+        self._write("app.py", "x = 1\n")
+        ledger = self.root / scanner_skips.LEDGER_REL
+        with patch.object(sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
+            first = self._main("full")
+        self.assertFalse(ledger.exists())
+        self.assertEqual(first["files_skipped"], 0)
+        self.assertEqual(self._cached() & {"deck.pptx", "app.py"}, set())
+        second = self._main("incremental")
+        self.assertEqual(second["files_skipped"], 0)
+        self.assertLessEqual({"deck.pptx", "app.py"}, self._cached())
+        self.assertEqual(scanner_skips.scanner_skip_notice(self.root)["scanner_skips"][0]["file"], "deck.pptx")
+
+
 class DifferentialEquivalenceTests(_CacheCase):
     """AC-6: cache-path findings are identical to a no-cache full scan across
     add/modify/delete/rename/revert and rules-change fixtures."""
@@ -474,6 +622,7 @@ class InstrumentationAndCompatTests(_CacheCase):
         mock_validators = types.ModuleType("wave_lint_lib.secrets_validators")
         mock_validators.check_hardcoded_secrets = lambda root, **kw: calls.append(kw) or []
         mock_validators.get_scan_files = lambda root, scan_all=False: []
+        mock_validators.unpublished_scanner_skips = lambda: []  # wave 1x5tr seam
         mock_validators.load_merged_ruleset = lambda root: ([], {}, [])
         mock_constants = types.ModuleType("wave_lint_lib.constants")
         mock_constants.SCAN_FINDINGS_PATH = "docs/scan-findings.json"

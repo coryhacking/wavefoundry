@@ -571,18 +571,7 @@ HARDCODED_EXCLUDE_DIRS = {
 }
 
 # Path prefixes (relative to repo root, forward slashes) that are always excluded.
-HARDCODED_EXCLUDE_PREFIXES = (
-    ".wavefoundry/index/",
-    ".wavefoundry/framework/index/",
-    ".wavefoundry/logs/",
-    ".wavefoundry/locks/",
-)
-HARDCODED_EXCLUDE_PATHS = frozenset({
-    ".wavefoundry/guard-overrides.json",
-    # Hash-only repository authority for purged-source finality. It must be
-    # committed and preserved, but never become retrieval content.
-    ".wavefoundry/memory-purge-dispositions.json",
-})
+from machine_authority import HARDCODED_EXCLUDE_PATHS, HARDCODED_EXCLUDE_PREFIXES
 # Wave 1p2q3 (1p2qd): consumer project indexes exclude `.wavefoundry/` blanket.
 # Framework infrastructure (framework/, bin/, dist/, logs/, CHANGELOG.md, etc.)
 # is not consumer product code and shouldn't appear in the consumer's project
@@ -750,8 +739,10 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # admit the files; the low-information prior keeps them down-weighted unless
 # the query names them.
 WALKER_VERSION = "16"
-_MEMORY_ARCHIVE_PREFIX = "docs/agents/memory/archive/"
-_MEMORY_LEGACY_POINTER_PREFIX = "docs/agents/memory/pointers/"
+from machine_authority import (
+    MEMORY_ARCHIVE_PREFIX as _MEMORY_ARCHIVE_PREFIX,
+    MEMORY_LEGACY_POINTER_PREFIX as _MEMORY_LEGACY_POINTER_PREFIX,
+)
 
 # Environment variable used by the MCP server to tell the background indexer
 # which state file to remove once the process exits.
@@ -875,7 +866,7 @@ def _resolve_walk_reinclude_filenames(root: Path) -> frozenset[str]:
 # review_evidence.py so the docs-lint orphan-ledger guard and this retrieval
 # exclusion share one definition of the fixed wave-folder role. The
 # underscore alias keeps internal callers and test seams stable.
-from review_evidence import is_canonical_wave_events_path as _is_canonical_wave_events_path
+from machine_authority import is_canonical_wave_events_path as _is_canonical_wave_events_path
 
 
 def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[Path]:
@@ -888,14 +879,10 @@ def _filter_canonical_wave_event_ledgers(files: list[Path], root: Path) -> list[
     ]
 
 
-def _is_memory_archive_body_path(rel_path: str) -> bool:
-    normalized = rel_path.replace("\\", "/")
-    return normalized.startswith(_MEMORY_ARCHIVE_PREFIX)
-
-
-def _is_legacy_memory_pointer_path(rel_path: str) -> bool:
-    normalized = rel_path.replace("\\", "/")
-    return normalized.startswith(_MEMORY_LEGACY_POINTER_PREFIX)
+from machine_authority import (
+    is_memory_archive_body_path as _is_memory_archive_body_path,
+    is_legacy_memory_pointer_path as _is_legacy_memory_pointer_path,
+)
 
 
 def _filter_memory_archive_bodies(files: list[Path], root: Path) -> list[Path]:
@@ -921,10 +908,7 @@ def _filter_legacy_memory_pointers(files: list[Path], root: Path) -> list[Path]:
 # the wave event ledgers above. The path is imported from wave_lint_lib so the
 # scanner and this exclusion share one definition.
 from wave_lint_lib.constants import SCAN_FINDINGS_PATH as _SCAN_FINDINGS_REL_PATH
-
-
-def _is_secret_scan_findings_path(rel_path: str) -> bool:
-    return rel_path.replace("\\", "/") == _SCAN_FINDINGS_REL_PATH
+from machine_authority import is_secret_scan_findings_path as _is_secret_scan_findings_path
 
 
 def _filter_secret_scan_findings(files: list[Path], root: Path) -> list[Path]:

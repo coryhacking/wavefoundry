@@ -301,14 +301,16 @@ keywords = ["a"]
 class NothingNewIsSkippedTests(unittest.TestCase):
     """AC-5: every file the scanner scanned before this wave is scanned after it.
 
-    The scanned set is determined by two things this wave did not touch: the
-    file walk (`get_scan_files`) and the pre-existing byte and binary guards in
-    `scan_file_raw`. Asserted over the REAL repository: every eligible file
-    either produced a scan result or was skipped for one of the three
-    pre-existing guard reasons, and no other skip reason exists in the source.
+    Wave 1x4ol preserved the file walk and input guards. Wave 1x5tr subsequently
+    made the existing line-length guard observable as partial coverage, without
+    adding a new guard. Assert over the REAL repository that every eligible file
+    produced a scan result or a known guard observation, and reject unknown reasons.
     """
 
-    PRE_EXISTING_SKIP_REASONS = {"file too large", "binary file", "binary file (extension)"}
+    PRE_EXISTING_SKIP_REASONS = {
+        "file too large", "binary file", "binary file (extension)",
+        "line too long",  # 1x5tr reports the already-existing partial-file guard.
+    }
 
     def test_every_eligible_file_is_scanned_or_skipped_for_a_pre_existing_reason(self):
         files = sv.get_scan_files(REPO_ROOT, scan_all=True)

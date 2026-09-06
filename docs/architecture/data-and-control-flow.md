@@ -199,7 +199,8 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 | `.mcp.json` | Engineering | Claude Code and compatible clients | render_platform_surfaces.py |
 | `.codex/config.toml` framework marker region | Engineering | Codex | render_platform_surfaces.py (merge; operator TOML outside the region is preserved) |
 | `.junie/mcp/mcp.json` | Engineering | JetBrains Junie / AI Assistant MCP | render_platform_surfaces.py |
-| `.wavefoundry/index/` | indexer.py | server.py | indexer.py (incremental) |
+| `.wavefoundry/index/` derived retrieval content | indexer.py | server.py, index tools | indexer.py (incremental) |
+| `.wavefoundry/index/scan/guard-skips.json` | scanner_skips.py | close's read-only coverage advisory | check_hardcoded_secrets, including direct/CLI/index scans and existing docs validation; short locked atomic publication |
 | `.wavefoundry/index/index-state.sqlite` | index_state_store.py (wave 1rsh9) | server.py (read-only per-operation connections: FTS fusion, freshness primitive, health probe), scan_secrets.py / run_secrets_scan.py (scan cache) | indexer.py build passes, secrets-scan record, `index_optimize` maintenance |
 | `.wavefoundry/locks/dashboard-server.lock` | dashboard_server.py | dashboard lifecycle and upgrade tools | dashboard_server.py; persistent lifetime lock plus in-place process metadata |
 | Background refresh state `.wavefoundry/index/background-refresh.json` | MCP server runtime | server.py background refresh helper | MCP mutation/review tools that request detached docs-index refresh |

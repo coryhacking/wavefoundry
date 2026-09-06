@@ -10,6 +10,42 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Review outputs reuse existing wave records by default.** Briefings, reviewer reports,
+  rechecks and smoke-test results go through the coordinator into the existing review ledger
+  and wave summary. Separate Markdown artifacts need a distinct lasting purpose or an explicit
+  operator request. Wave `1x5tr` also consolidates its historical readiness reports into one
+  archive with a relocation map, preserving the original evidence and immutable ledger.
+
+- **A secrets-scanner guard skip now leaves a durable record that close surfaces.** The scanner has
+  always declined to regex-scan a file that is over the size cap, carries a line over the length cap,
+  has a binary extension, or starts with a NUL byte, and said so only on stderr, so a skipped `.pptx`
+  reached close with no signal. Every guard skip is now published to a root-local ledger at
+  `.wavefoundry/index/scan/guard-skips.json` (path, reason and detail only, never content), from
+  serial and worker scans alike, and `wf_close_wave` reports the outstanding rows as
+  `data.scanner_skips` on dry-run, successful create and the normal gate-error return. The rows are
+  advisory: they change no finding classification and block no close. A record retires only when the
+  path is later scanned in full or is confirmed absent from the filesystem; a re-skip, a cache hit, an
+  unrelated scan, an allowlisted or unreadable candidate and an I/O error all retain it. A malformed
+  or unreadable ledger is reported as `data.scanner_skips_error`, a persistence failure is a
+  non-blocking `WARNING` that preserves the prior bytes, a path the ledger cannot name is warned once
+  without vetoing the rest of the run, and when a run's observations do not reach the ledger none of
+  that run's files is cached as scanned, on the indexer scan and the `wf_scan_secrets` subprocess
+  alike, so the next run re-observes them. Missing or empty history means no recorded skips, not
+  complete coverage. Wave `1x5tr scanner-correctness-and-visibility` / change
+  `1x4om`.
+
+- **The non-git secrets candidate walk no longer scans the index's own internals.** On a target
+  without git the fallback walk fed `.wavefoundry/index/` state, locks and logs to the scanner, so
+  each full scan grew the scan cache with rows for files the scanner itself produces, and two
+  identical full scans disagreed about membership. The walk now shares the semantic indexer's
+  machine-authority exclusions, owned by one module: the index and log prefixes, the runtime lock
+  directory, the guard-override and purge-disposition records, the memory archive and pointer
+  directories, the per-wave `events.jsonl` ledgers and the committed findings ledger. Two full scans of an unchanged non-git tree now record the same cache membership.
+  The git-tracked candidate set is unchanged, including the wide walk that a transient `git ls-files`
+  failure inside a real worktree falls back to, so the memory-archive and event-ledger prose that git
+  tracks is still scanned there; on a non-git target those families are excluded by design. Wave
+  `1x5tr` / change `1x550`.
+
 - **A deferred or preserved eligibility reap is visible through the registered tools.** A build that
   defers a mass-absent reap behind the breaker, or serves a walk-shadowed subtree as of its last
   readable build, said so only in the Python build result and the logs; an agent running builds
@@ -308,6 +344,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > falls through to a full recompute on a version mismatch, so it self-heals. Reload the MCP server after
 > upgrading, since a server still running the previous code reports the older builder version and will
 > disagree with the rebuilt artifact.
+
+> **Upgrading:** the secrets scanner version moved from 1 to 2 so that the first indexed scan after this
+> upgrade runs in full and records guard skips for candidates the cache had already accepted. Expect that
+> one build to take the full-scan time (about 18 seconds on this repository against 6 seconds
+> incremental); a target upgrading from 1.21.0 or earlier already pays that full scan for the changed
+> scan rules, so the version bump adds nothing there. Guard history lives in the gitignored index
+> directory: deleting `.wavefoundry/index/` or the ledger loses it until later scans repopulate it.
 >
 > The graph builder moves several more times in this release, so the same rebuild is what makes the new
 > behaviour appear, and the last of those moves clears the dangling edges described under Fixed: the first

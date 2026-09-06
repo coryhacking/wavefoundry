@@ -48,6 +48,7 @@ def _inject_mock_validators(captured: list) -> types.ModuleType:
 
     mod.check_hardcoded_secrets = fake_check
     mod.get_scan_files = fake_get_scan_files
+    mod.unpublished_scanner_skips = lambda: []  # wave 1x5tr seam
     return mod
 
 
@@ -318,6 +319,7 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
         mock_mod = types.ModuleType("wave_lint_lib.secrets_validators")
         mock_mod.get_scan_files = fake_get_scan_files
         mock_mod.check_hardcoded_secrets = fake_check
+        mock_mod.unpublished_scanner_skips = lambda: []  # wave 1x5tr seam
 
         output_lines = []
 

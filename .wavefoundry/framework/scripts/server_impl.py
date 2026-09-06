@@ -19585,6 +19585,8 @@ def _framework_test_receipt_diagnostic(status: Mapping[str, Any]) -> Optional[di
 
 
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+    from scanner_skips import scanner_skip_notice
+
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
     if mode_s not in {"dry_run", "create"}:
@@ -19748,7 +19750,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # closed with `error` (delivery review CODE-DEL-1 / ARCH-DEL-1).
     advisory_diagnostics = [d for d in diagnostics if d.get("advisory") is True]
     if any(d.get("advisory") is not True for d in diagnostics):
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
     # Generate the wave summary from structured change doc fields (12sq4).
     try:
         wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
@@ -19833,7 +19835,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         next_tools=["wf_current_wave"],
         usage="wf_current_wave()",
     )
-    return _attach_lint_to_response(envelope, root, mode_s)
+    envelope = _attach_lint_to_response(envelope, root, mode_s)
+    # Read after existing validation: docs-lint can publish current scanner
+    # observations, but this advisory reader never scans or writes itself.
+    envelope["data"].update(scanner_skip_notice(root))
+    return envelope
 
 
 def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
@@ -32649,6 +32655,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             distribution. The pre-1p5pz per-wave acknowledged_for_wave / override_reason
             soft-block was dropped; those fields are tolerated on legacy findings but unused.
 
+        Scanner coverage (wave 1x5tr): normal gate-error and successful responses
+        include data.scanner_skips when outstanding guard skips are recorded, with
+        file, reason and detail per row. data.scanner_skips_error instead reports
+        unreadable/malformed coverage history. Both are advisory, never new close
+        blockers. Missing history means no recorded skips, not complete coverage.
+        The added reader is read-only; existing docs validation still runs scanning.
+
         Repair-independence audit (wave 1tmb2): while the target wave's status
         is non-closed (including explicitly reopened archives), close audits
         each finding's current/latest repair chain and surfaces
@@ -32662,7 +32675,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             wave_id: Wave ID or unique prefix.
-            mode: Valid values are "dry_run" (validate only, no writes) or "create"
+            mode: Valid values are "dry_run" (validate without closing; existing
+                docs validation may refresh scanner observations) or "create"
                 (alias "apply") to write the Closed status checkpoint. Passing any
                 other value returns an error with a "valid_modes" field in the response
                 data listing the accepted values.

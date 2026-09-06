@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-05
 
 ## The Problem
 
@@ -119,8 +119,9 @@ All file walks reuse the same ignore/exclusion rules as the indexer (`walk_repo(
 behind one documented story — the "CORPUS EXCLUSION STORY" banner above the constants in
 `indexer.py` — because its fragmentation across unrelated constants caused a false planning
 census. The layers, in application order: directory pruning (hardcoded dirs, the dot-directory
-rule, gitignored dirs), exact-path exclusions, the machine-authority path predicates (per-wave
-`events.jsonl` ledgers, memory-archive bodies, and the committed secret-scan findings ledger
+rule, gitignored dirs), exact-path exclusions, the machine-authority path predicates (owned by
+`machine_authority.py` since wave `1x5tr` and consumed by `indexer.py` and by the secrets scanner's
+non-git candidate walk: per-wave `events.jsonl` ledgers, memory-archive bodies, and the committed secret-scan findings ledger
 `docs/scan-findings.json` — never re-includable, also enforced on the `files=` incremental build
 seam), prefix exclusions, the NAME layer (`HARDCODED_EXCLUDE_FILENAMES` exact names such as
 `package-lock.json` and `npm-shrinkwrap.json`, plus `HARDCODED_EXCLUDE_FILENAME_SUFFIXES`
@@ -133,8 +134,10 @@ filenames only — subtracts from the NAME layer alone: it cannot override the e
 or machine-authority layers (re-including `yarn.lock` by name is therefore a no-op, because the
 `.lock` binary extension still excludes it). All three retrieval corpora (semantic docs,
 semantic code plus lexical, graph) derive from this one walk, so the layers apply uniformly.
-The standalone secret scanner's candidate set (all tracked files) is independent of these walk
-exclusions by design and is regression-pinned against narrowing.
+The standalone secret scanner's git-tracked candidate set (all tracked files) is independent of these
+walk exclusions by design and is regression-pinned against narrowing; only its non-git fallback walk
+shares the machine-authority layer (wave `1x5tr`, change `1x550`), so index internals never enter the
+scan cache on a target without git.
 
 ### Decision 6: Symbol navigation uses Python AST plus targeted tree-sitter-backed languages
 

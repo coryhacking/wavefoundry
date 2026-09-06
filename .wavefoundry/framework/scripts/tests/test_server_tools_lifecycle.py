@@ -14521,6 +14521,60 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.assertNotIn("secrets_gate_unresolved", self._diagnostic_codes(result))
         self.assertNotIn("confirmed_secrets", result["data"])
 
+    def _record_guard_skip(self):
+        from scanner_skips import LEDGER_REL, update_scanner_skips
+        (self.root / "omitted.txt").write_bytes(b"\0fixture")
+        row = {"file": "omitted.txt", "reason": "binary file", "detail": "NUL byte in first 8192 bytes"}
+        update_scanner_skips(self.root, {"omitted.txt": {"complete": False, "skips": [row]}})
+        return self.root / LEDGER_REL, row
+
+    def test_guard_skip_advisory_on_dry_run_and_successful_close(self):
+        ledger, row = self._record_guard_skip()
+        before = ledger.read_bytes()
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                result = self._close(mode)
+                self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
+                self.assertEqual(result["data"]["scanner_skips"], [row])
+                self.assertEqual(ledger.read_bytes(), before)
+
+    def test_guard_skip_advisory_survives_existing_secret_block(self):
+        _, row = self._record_guard_skip()
+        self._write_exceptions([{
+            "id": "exc-001", "file": "config.py", "line": 1, "rule_id": "r",
+            "matched_text": "****", "status": "pending", "confirmations": [],
+        }])
+        result = self._close()
+        self.assertEqual(result["status"], "error")
+        self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
+        self.assertEqual(result["data"]["scanner_skips"], [row])
+
+    def test_absent_and_malformed_guard_history_do_not_change_close_status(self):
+        from scanner_skips import LEDGER_REL
+        ledger = self.root / LEDGER_REL
+        result = self._close()
+        self.assertNotIn("scanner_skips", result["data"])
+        self.assertNotIn("scanner_skips_error", result["data"])
+        self.assertFalse(ledger.exists())
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_bytes(b"malformed")
+        result = self._close()
+        self.assertEqual(result["status"], "dry_run", result)
+        self.assertNotIn("scanner_skips", result["data"])
+        self.assertIn("coverage unavailable", result["data"]["scanner_skips_error"].lower())
+        self.assertEqual(ledger.read_bytes(), b"malformed")
+
+    def test_guard_advisory_reads_observations_after_existing_validation(self):
+        def validation(root):
+            self.assertEqual(root, self.root)
+            self._record_guard_skip()
+            return _MOCK_PASS
+        with patch.object(self.srv, "run_validate", side_effect=validation) as validate:
+            result = self.srv.wf_close_wave_response(self.root, self.wave_id, mode="dry_run")
+        validate.assert_called_once()
+        self.assertEqual(result["status"], "dry_run", result)
+        self.assertEqual(result["data"]["scanner_skips"][0]["file"], "omitted.txt")
+
     def test_empty_exceptions_file_passes_gate(self):
         self._write_exceptions([])
         result = self._close()

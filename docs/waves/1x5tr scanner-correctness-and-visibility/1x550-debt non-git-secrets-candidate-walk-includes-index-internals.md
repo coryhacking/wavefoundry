@@ -1,11 +1,11 @@
 # The Secrets Scanner's Candidate Walk Includes Index Internals in Non-Git Repositories
 
 Change ID: `1x550-debt non-git-secrets-candidate-walk-includes-index-internals`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
-Last verified: 2026-09-04
-Wave: TBD
+Last verified: 2026-09-05
+Wave: 1x5tr scanner-correctness-and-visibility
 
 ## Rationale
 
@@ -26,11 +26,19 @@ asserts on the reap alone neutralises the sidecar plan for this reason.
 1. The scanner's non-git candidate walk SHALL exclude the index directory and
    every other path the semantic walk excludes as machine authority, so the
    candidate set is a subset of repository content.
+   This means the existing canonical/legacy index prefixes, logs/locks prefixes,
+   exact authority paths and four authority predicate families (semantic walk
+   layers 2–4). Arbitrary custom index directories are outside this bounded fix;
+   semantic walking itself does not dynamically exclude them today.
 2. The exclusion SHALL not narrow the git-tracked candidate set, which is
    intentionally wider than the index corpus (wave `1rsha`).
 3. A test SHALL pin that a non-git fixture's `secret_scan_cache` holds no
    `.wavefoundry/index/` path after a full build, and that the sidecar
    breaker's denominator for that store is deterministic across two builds.
+   The fixture starts with a fresh cache. This is prevention of new pollution,
+   not migration: previously cached machine rows may remain until the separate
+   existing cache reset/reconciliation path removes them. No cleanup guarantee
+   or change to orphan reconciliation is included.
 
 ## Scope
 
@@ -41,6 +49,10 @@ denominator timing-dependent.
 **In scope:**
 
 - The non-git candidate walk in the secrets scanner.
+- Extract those existing exclusions to a lightweight shared owner used by the
+  semantic walker and non-git fallback. Keep semantic eligibility unchanged.
+- Preserve ordinary `.env`, lockfiles, generated assets, and noncanonical
+  same-named files; do not reuse the semantic walk's extension/name/size filters.
 - A determinism pin on the `secret_scan_cache` denominator in a non-git fixture.
 
 **Out of scope:**
@@ -50,15 +62,15 @@ denominator timing-dependent.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: After a full build of a non-git fixture, `secret_scan_cache` holds no path under `.wavefoundry/index/`.
-- [ ] AC-2: Two consecutive full builds of the same non-git fixture produce the same `secret_scan_cache` row count.
-- [ ] AC-3: The git-tracked candidate set is unchanged, pinned by the existing `1rsha` tests.
+- [x] AC-1: Starting with a fresh cache, after a full scanner/cache pass of a non-git fixture, `secret_scan_cache` holds no path under `.wavefoundry/index/`; every machine-authority class is excluded from fallback candidates.
+- [x] AC-2: Two consecutive full scanner/cache passes of that unchanged non-git fixture produce identical `secret_scan_cache` membership and row count. Historical polluted caches are not covered by this prevention guarantee.
+- [x] AC-3: The git-tracked candidate set is unchanged, pinned by the existing `1rsha` tests.
 
 ## Tasks
 
-- [ ] Locate the non-git fallback walk in the scanner and apply the machine-authority exclusions.
-- [ ] Add the determinism pin.
-- [ ] Record the mutation (exclusion removed) before review.
+- [x] Locate the non-git fallback walk in the scanner and apply the machine-authority exclusions.
+- [x] Add the determinism pin.
+- [x] Record the mutation (exclusion removed) before review.
 
 ## Agent Execution Graph
 
@@ -74,6 +86,11 @@ denominator timing-dependent.
 **Review targets (repo-relative paths):**
 
 - `.wavefoundry/framework/scripts/scan_secrets.py`
+- `.wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py` (candidate owner)
+- `.wavefoundry/framework/scripts/indexer.py`
+- `.wavefoundry/framework/scripts/machine_authority.py` (shared exclusion owner)
+- `.wavefoundry/framework/scripts/tests/test_secrets_validators.py`
+- `.wavefoundry/framework/scripts/tests/test_indexer.py`
 - `.wavefoundry/framework/scripts/tests/test_secret_scan_cache.py`
 
 ## Affected Architecture Docs
@@ -97,6 +114,11 @@ verification-architecture change.
 | Date       | Update                                                                                                  | Evidence                                   |
 | ---------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | 2026-09-04 | Filed from the `1x54z` delivery review (QA-DEL-7, probe P10: 14 cache rows for 12 repository files). | Wave `1x54z` events ledger, finding QA-DEL-7. |
+| 2026-09-05 | Reproduced before admission using the real scanner and SQLite in a disposable non-git tree: 4 then 8 cache rows on unchanged full scans. Git control preserves machine paths and ordinary secret-bearing candidates. | Discovery probe under `/tmp/scanner-scope`; `_get_all_files` owns fallback, `update_secrets_scan` enumerates the same candidates for cache recording. |
+| 2026-09-05 | Observe: shared policy extraction and fallback wiring complete. All 11 authority examples excluded, 13 ordinary/lookalike paths preserved; Git tracked and untracked sets unchanged. Two real fresh-cache scans retain identical 14-path membership. | `test_secret_scan_cache.py`: 22 tests pass (2.130s); `FileWalkerTests` + `CorpusExclusionCensusTests`: 19 pass (0.735s). |
+| 2026-09-05 | Mutation: replace scanner `is_machine_authority_path` with a predicate returning False. Named determinism test fails exactly one assertion; clean and restored controls pass. | `NonGitMachineAuthorityTests.test_two_full_scans_keep_exact_cache_membership_without_index_internals`. No source mutant left on disk. |
+| 2026-09-05 | Observe: preserve wider fallback when Git ls-files fails inside a real Git worktree. Only genuinely non-git fallback applies authority exclusions. | New real-Git transient-failure control preserves 11 tracked authority paths; final cache suite 23 plus walker/census 19 = 42 green (2.930s). |
+| 2026-09-05 | Delivery review: the security and red-team seats (SEC-DEL-1, RED-DEL-4) note that the memory-archive, pointer and event-ledger families are excluded only on the non-git walk while their git-tracked copies stay scanned; the CHANGELOG entry discloses the trade for operator acknowledgement, no code change. | `CHANGELOG.md` Unreleased; events ledger. |
 
 
 ## Decision Log
@@ -104,7 +126,7 @@ verification-architecture change.
 
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | ------------ |
-|      |          |        |              |
+| 2026-09-05 | Limit exclusion to existing semantic machine-authority classes. | Shares a known policy without broadening semantic eligibility or adding custom-directory plumbing. | Full semantic walker would suppress legitimate scanner candidates; duplicate predicates would drift. |
 
 
 ## Risks

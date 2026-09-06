@@ -22,6 +22,8 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 import subprocess_util  # noqa: E402
 import lifecycle_id  # noqa: E402  — wave 1p8l0: lifecycle-backed `<prefix>-sec` finding IDs
+from machine_authority import is_machine_authority_path  # noqa: E402
+from scanner_skips import is_recordable_path, update_scanner_skips  # noqa: E402
 
 _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
 
@@ -176,7 +178,12 @@ def _get_all_files(root: Path) -> list[Path]:
         # `git ls-files` merely glitched, ignored paths are dropped; if truly non-git,
         # check-ignore errors and the walk is kept (the [allowlist] + binary skip still
         # exclude framework runtime artifacts before any read).
-        walked = [p for p in root.rglob("*") if p.is_file() and ".git" not in p.parts]
+        exclude_machine_authority = not _is_inside_git(root)
+        walked = [
+            p for p in root.rglob("*")
+            if p.is_file() and ".git" not in p.parts
+            and (not exclude_machine_authority or not is_machine_authority_path(p.relative_to(root).as_posix(), root))
+        ]
         return _filter_gitignored(root, walked)
 
     untracked = subprocess_util.isolated_run(
@@ -861,6 +868,20 @@ def _is_binary_path(file_path: Path) -> bool:
 #      reset at the start of each check_hardcoded_secrets run so it stays bounded.
 _SCANNER_SKIPS: list[dict] = []
 
+# Wave 1x5tr (delivery review) — paths whose scan outcomes were NOT durably
+# published by the last run: a guard-skipped path the ledger cannot name, or
+# every path the run evaluated when publication itself failed (a failed clear
+# must be retried too, or its stale row outlives every later cache hit).
+# `scan_secrets.update_secrets_scan` and `run_secrets_scan` leave these out of
+# the scan cache so the next run re-observes and republishes them instead of
+# cache-hitting an outcome the ledger never learned about. Reset per run.
+_SCANNER_SKIPS_UNPUBLISHED: list[str] = []
+
+
+def unpublished_scanner_skips() -> list[str]:
+    """Sorted, de-duplicated paths whose scan outcomes the last run failed to publish."""
+    return sorted(set(_SCANNER_SKIPS_UNPUBLISHED))
+
 # Wave 1x4ol (1x4ok) — per-file cost report. For each scanned file, the single
 # most expensive rule and its wall time, so the next runaway pattern is named
 # by a report rather than found by an investigation. Filled by
@@ -966,12 +987,24 @@ def _worker_init_secrets_scanner(
         pass
 
 
+def _scan_with_outcome(*args, return_cost: bool = False) -> tuple:
+    """Internal transport; the public raw scanner still returns three values."""
+    before_skips, before_costs = len(_SCANNER_SKIPS), len(_SCANNER_COSTS)
+    outcome = {"complete": False}
+    result = scan_file_raw(*args, _outcome=outcome)
+    outcome["skips"] = _SCANNER_SKIPS[before_skips:]
+    cost = (
+        _SCANNER_COSTS[-1]
+        if return_cost and len(_SCANNER_COSTS) > before_costs else None
+    )
+    return (*result, cost, outcome)
+
+
 def _scan_file_secrets_worker(args: tuple) -> tuple:
     """Worker task: scan one file using initializer-compiled globals."""
     file_path_str, rel = args
     from pathlib import Path as _Path
-    before = len(_SCANNER_COSTS)
-    result = scan_file_raw(
+    return _scan_with_outcome(
         _Path(file_path_str), rel,
         _WORKER_COMPILED_RULES,
         _WORKER_GLOBAL_ALLOWLIST_PATHS,
@@ -979,12 +1012,8 @@ def _scan_file_secrets_worker(args: tuple) -> tuple:
         _WORKER_POLICY,
         _WORKER_GLOBAL_REGEXES,
         _WORKER_GLOBAL_STOPWORDS,
+        return_cost=True,
     )
-    # Wave 1x4ol — the cost row lands in THIS worker's _SCANNER_COSTS, which
-    # dies with the worker; hand it back as a 4th element so the parent can
-    # aggregate it. The public scan_file_raw contract stays a 3-tuple.
-    cost = _SCANNER_COSTS[-1] if len(_SCANNER_COSTS) > before else None
-    return (*result, cost)
 
 
 def _scan_file_secrets_batch_worker(batch_args: list) -> list:
@@ -1045,15 +1074,21 @@ def scan_file_raw(
     policy: dict | None = None,
     global_regexes: list[str] | None = None,
     global_stopwords: list[str] | None = None,
+    *,
+    _outcome: dict | None = None,
 ) -> tuple[list[str], str | None, list[dict]]:
-    """Scan a single file for raw rule hits. Thread-safe — no shared mutations.
+    """Scan a single file for raw rule hits and process-local instrumentation.
 
     Returns (lines, file_sha256_or_None, raw_hits).
     raw_hits: one dict per match that survived CEL + allowlist filtering.
     suppress_error=None means a valid (non-suppressed) hit needing exception lookup.
     suppress_error set means a bare-suppression lint error to report as a failure.
     Cleanly suppressed lines (wavefoundry-ignore with a reason) are excluded entirely.
+    The internal outcome distinguishes complete empty text from skipped/unreadable
+    candidates without changing the three-value return contract.
     """
+    if _outcome is not None:
+        _outcome["complete"] = False
     if _path_matches_allowlist(rel, global_allowlist_paths):
         return [], None, []
     # Wave 1p5qp — extension fast-skip BEFORE any stat/read: known-binary/data
@@ -1087,6 +1122,12 @@ def scan_file_raw(
         return [], None, []
 
     lines = content.splitlines()
+    long_lines = [i for i, line in enumerate(lines, 1) if len(line) > MAX_LINE_BYTES]
+    if long_lines:
+        _record_scan_skip(
+            rel, "line too long",
+            f"{len(long_lines)} line(s) over {MAX_LINE_BYTES} characters; first at {long_lines[0]}",
+        )
     content_lower = content.lower()
     file_sha256 = _sha256_file(file_path) if framework_allowlist else None
     # Wave 1p44w — policy flag a rule filter can read via attributes. Default off
@@ -1120,8 +1161,8 @@ def scan_file_raw(
         for line_no, line in enumerate(lines, start=1):
             # Wave 1p44s — skip pathological over-long lines (minified bundles,
             # generated lockfiles) before handing them to the rule regex. Real
-            # credential tokens are short, so a > MAX_LINE_BYTES line cannot hide a
-            # detectable secret; the threshold is generous to protect long config.
+            # credential tokens are short, but a long line can still contain one;
+            # the partial-coverage record above keeps that omission visible.
             if len(line) > MAX_LINE_BYTES:
                 continue
             m = pattern.search(line)
@@ -1210,6 +1251,8 @@ def scan_file_raw(
         _SCANNER_COSTS.append({"file": rel, "rule": _top[0],
                                "seconds": round(_top[1], 6),
                                "rules_timed": len(_rule_costs)})
+    if _outcome is not None:
+        _outcome["complete"] = bool(compiled_rules) and not long_lines
     return lines, file_sha256, hits
 
 
@@ -1416,6 +1459,7 @@ def check_hardcoded_secrets(
     # skips surface via the per-skip stderr line emitted in the worker process).
     _SCANNER_SKIPS.clear()
     _SCANNER_COSTS.clear()  # wave 1x4ol
+    _SCANNER_SKIPS_UNPUBLISHED.clear()  # wave 1x5tr
 
     rules, policy, load_errors = load_merged_ruleset(root)
     if load_errors:
@@ -1556,7 +1600,7 @@ def check_hardcoded_secrets(
 
     def _serial_scan() -> list:
         return [
-            scan_file_raw(
+            _scan_with_outcome(
                 fp, rel, compiled_rules, global_allowlist_paths, framework_allowlist,
                 policy, global_regexes, global_stopwords,
             )
@@ -1606,13 +1650,37 @@ def check_hardcoded_secrets(
 
     # Phase 2: serial exception matching — mutates exceptions list and collects failures.
     failures: list[str] = []
+    scan_outcomes: dict[str, dict] = {}
+    # Serial and worker paths now carry the same per-file payload. Rebuild the
+    # public per-run list once so serial rows are not counted a second time.
+    _SCANNER_SKIPS.clear()
     for (_fp, rel), _res in zip(file_scan_list, scan_results):
         lines, file_sha256, hits = _res[0], _res[1], _res[2]
-        # Wave 1x4ol — a 4th element arrives only from a spawn worker (the
+        # Wave 1x4ol — a populated 4th element arrives only from a spawn worker (the
         # serial path appends to _SCANNER_COSTS in-process, so nothing is
         # double-counted); it is None when the file was skipped or no rule ran.
         if len(_res) > 3 and _res[3]:
             _SCANNER_COSTS.append(_res[3])
+        if len(_res) > 4:
+            outcome = _res[4]
+            _SCANNER_SKIPS.extend(outcome["skips"])
+            if rules_degraded:
+                outcome["complete"] = False
+            # Explicit files= callers historically can supply outside-root paths;
+            # keep their finding behavior, but root-local history stays root-local.
+            # Wave 1x5tr (delivery review) — validate per path HERE, so one name the
+            # ledger cannot hold (a backslash on POSIX) cannot veto the whole delta;
+            # an unrecordable guard skip is warned once and re-observed next run.
+            if is_recordable_path(rel):
+                scan_outcomes[rel] = outcome
+            elif outcome["skips"]:
+                _SCANNER_SKIPS_UNPUBLISHED.append(rel)
+                print(
+                    "WARNING: secrets scanner guard coverage could not be recorded "
+                    f"for a path the ledger cannot name ({rel!r}); it is re-observed "
+                    "on the next scan.",
+                    file=sys.stderr, flush=True,
+                )
         if not lines and not hits:
             continue  # file unreadable or globally allowlisted
         file_failures, file_changed = _match_hits_for_file(
@@ -1631,6 +1699,22 @@ def check_hardcoded_secrets(
         failures.extend(file_failures)
         if file_changed:
             exceptions_changed = True
+
+    try:
+        update_scanner_skips(root, scan_outcomes)
+    except (OSError, ValueError) as exc:
+        # Wave 1x5tr (delivery review) — nothing from this run reached the ledger,
+        # so every path it evaluated stays out of the scan cache (see
+        # unpublished_scanner_skips) and is re-observed on the next run; parking
+        # only the skipped paths would let a failed CLEAR pin its stale row.
+        _SCANNER_SKIPS_UNPUBLISHED.extend(scan_outcomes)
+        # WARNING is understood by the docs validator without blocking close.
+        # Do not echo source data or absolute paths from an I/O exception.
+        print(
+            "WARNING: secrets scanner guard coverage could not be persisted "
+            f"({type(exc).__name__}); prior evidence retained where present.",
+            file=sys.stderr, flush=True,
+        )
 
     if exceptions_changed:
         save_exceptions(root, exceptions)

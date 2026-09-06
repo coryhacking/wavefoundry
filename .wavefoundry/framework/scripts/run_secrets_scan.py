@@ -130,7 +130,9 @@ def main() -> int:
         sys.path.insert(0, str(scripts_dir))
 
     try:
-        from wave_lint_lib.secrets_validators import check_hardcoded_secrets, get_scan_files
+        from wave_lint_lib.secrets_validators import (
+            check_hardcoded_secrets, get_scan_files, unpublished_scanner_skips,
+        )
     except ImportError as exc:
         print(json.dumps({"error": str(exc), "failures": []}), flush=True)
         return 1
@@ -170,6 +172,12 @@ def main() -> int:
     max_workers = _auto_max_workers(len(scan_files))
     t0 = time.monotonic()
     failures = check_hardcoded_secrets(root, files=scan_files, max_workers=max_workers)
+    # Wave 1x5tr (delivery review) — an outcome the ledger never received must
+    # not be cached as scanned, or the next run cache-hits a skip the close
+    # advisory never learned about. Mirrors scan_secrets.update_secrets_scan.
+    unpublished = set(unpublished_scanner_skips())
+    if unpublished:
+        rel_paths = [rel for rel in rel_paths if rel not in unpublished]
     if iss is not None and rel_paths:
         try:
             iss.secret_scan_record(

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-08-12
+Last verified: 2026-09-05
 
 ## Operating Identity
 
@@ -38,6 +38,7 @@ Assume the wave is not ready until document placement, lane selection, and accep
 - Do not silently skip readiness, review, or closure reconciliation because the patch looks small.
 - Do not absorb planner, implementer, or reviewer findings into coordinator narration without preserving their distinct lane outcomes.
 - Do not allow scope expansion, lane changes, or closure claims to happen without updating the wave record.
+- Follow **Review Artifact Discipline** in `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md`: receive reviewer reports and rechecks directly, record typed evidence through `wf_review_event`, and summarize in the existing wave record. Do not create a Markdown file per reviewer, packet, recheck, or test run; separate artifacts need a distinct, lasting purpose or an explicit operator request.
 
 ## Output Shape
 

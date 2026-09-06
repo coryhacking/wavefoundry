@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-14
+Last verified: 2026-09-05
 
 ## Purpose
 
@@ -45,6 +45,16 @@ A briefing packet is the structured context shared with every council seat or re
 | `recommended_model_tier` | Suggested model capability tier for complex seats |
 
 The briefing packet is assembled once per phase (readiness or delivery) before any seat runs. Seats must not expand the briefing packet; they may flag missing evidence as a gap.
+
+## Review Artifact Discipline
+
+Use existing wave records by default. A briefing packet, reviewer report, council synthesis, repair recheck, or smoke-test result is an output to communicate, not an instruction to create a separate Markdown file.
+
+- Pass briefing packets in the agent task context. Reviewers return their findings, evidence, and rechecks to the coordinator; do not create a file per seat, phase, or repair cycle.
+- The coordinator records required typed evidence through `wf_review_event` in the existing `events.jsonl` authority and keeps the concise human summary in `wave.md` (`## Review checkpoints`). Update implementation tasks and AC evidence in the admitted change docs. Legacy prose waves retain their existing recording contract.
+- Preserve distinct reviewer outcomes, required evidence fields, independence, and reproducible test or fixture references. Fewer files must not mean less evidence. Temporary working notes are acceptable, but evidence required for later verification must remain durably resolvable.
+- Create a separate Markdown artifact only when explicitly requested or when it has a distinct, lasting purpose that the existing wave and change records cannot reasonably serve. State that purpose in the wave record and reuse the artifact for subsequent updates.
+- Apply this default prospectively. Do not delete historical reports or break existing evidence references as an incidental cleanup.
 
 ## Finding Record Schema
 
