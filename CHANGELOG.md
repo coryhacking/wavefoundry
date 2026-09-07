@@ -284,6 +284,20 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Table chunks keep complete rows with their headers.** Oversized rows and headers
+  stay together even above the normal 2,000-character target, including small tables
+  beside a large prelude or postlude. Large surrounding prose still line-windows under
+  the universal limit. An indivisible row plus headers may exceed it; when a header
+  itself remains irreducible, it is emitted once with all complete rows to keep output
+  linear instead of copying that header per row. Every recognized table in a section receives the same complete-row handling. Copied
+  headers compact cosmetic padding without changing the first source-bearing header,
+  escaped pipes or alignment. Mapped non-table wrapping drops generated-only windows
+  before numbering parts. Wave `1xa00` / change `1x81x`.
+
+> **Upgrading:** `CHUNKER_VERSION` moves to 42; eligible files re-chunk on the next index update.
+> With the model and walker unchanged, content-identical chunks reuse embeddings by
+> hash; only new or changed text needs embedding.
+
 - **Links to files created later recover without editing the referring document.** Graph
   artifacts retain unresolved local targets and selectively retry when those paths become
   current, including targets with no graph node. Failed reads keep the obligation for an
@@ -425,7 +439,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   splice-aware absolute coordinates carried per part, ids are resolved against the full original id
   multiset at the file boundary, and rst/adoc preambles carry per-line numbers. A census over the
   whole repository corpus reports zero wrong ranges and zero duplicate ids, against 150 collision
-  groups on the same tree before the fix. `CHUNKER_VERSION` moves to 41. Wave
+  groups on the same tree before the fix. Those coordinate repairs shipped in chunker version 41. Wave
   `1wpif index-content-and-retrieval-correctness` / change `1wngv`.
 
 - **A damaged lexical index heals itself, and a query it cannot serve says so.** The FTS probe is

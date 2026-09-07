@@ -3302,7 +3302,7 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         38 → 39 (wave 1wl7w, 1wl7v): tool-diagram LABEL EXTRACTION — .drawio chunks one docs-routed doc-code unit per page (mxCell values + object/UserObject wrapper labels, two-layer HTML decode, bounded per-page inflate cap, #diagram/#diagram~k ids) and .excalidraw one labels-plus-frames unit (isDeleted and empty skipped); degenerate inputs emit zero chunks; paired with WALKER 15 re-admitting both extensions.
         39 → 40 (wave 1wpif, 1wngv): flat-emitter per-file collision guard (k-th same-slug repeat gets the line-anchored `{slug}-L{start}` base with the `~k` same-line tie-break; first occurrences and non-colliding bases keep legacy bare ids) and splice-aware absolute line mapping for oversized markdown/rst/adoc prose (windows and whole-section chunks map to one-based source coordinates across excised fence spans via Chunk.line_map; the universal guard consumes the map), plus ast-based module-level Python summary symbols and the store-layer chunk-id collision census.
         40 -> 41 (wave 1wpif, 1wngv delivery repair): two stored-coordinate corrections. Table row-group parts carry the lines of THEIR OWN rows (the decomposer applied the section base but never the row-group offset, so parts 2..n stored the table head's lines) and the reproduced prelude/header on parts 2..n is generated context; rst/adoc preamble and only-title sections carry per-line absolute numbers instead of a base of 1, so the first RETAINED line after the excised doc title is no longer numbered 1."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "41")
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "42")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,
@@ -3502,33 +3502,34 @@ class TableDecompositionTests(unittest.TestCase):
         self.assertIn("trailing prose", section_chunks[-1].text)
 
     def test_real_world_41k_decision_log(self):
-        """Regression target: the 1p318 change doc has a 41K-char Decision Log.
-        Verify it decomposes cleanly with every chunk under cap and the
-        majority of decomposed chunks preserve the column header.
-
-        Note: at the per-kind cap (2000 chars for docs), some individual rows
-        in 1p318's Decision Log are themselves > 2000 chars (multi-paragraph
-        Reason cells). Those rows can't fit alongside the header in a single
-        chunk; they fall through to line/char-wrap with `(part N/M)` labels.
-        For those rows, the header is on the lead part chunk and the
-        continuations are the row tail. Most rows fit cleanly with header.
-        """
+        """Every real-world table group keeps complete rows and column context."""
         path = Path(__file__).resolve().parents[4] / "docs" / "waves" / "1p31b public-launch-prep" / "1p318-enh public-launch-surface-doc-rewrite.md"
         if not path.is_file():
             self.skipTest(f"Reference doc not present at {path}")
         src = path.read_text()
         chunks = self.chunker.chunk_file(src, str(path))
         decision_chunks = [c for c in chunks if "Decision Log" in (c.section or "")]
-        self.assertGreaterEqual(len(decision_chunks), 10,
-            "1p318 Decision Log should decompose into many row-grouped chunks at the 2000-char cap")
+        self.assertGreaterEqual(len(decision_chunks), 10)
+        header = "| Date | Decision | Reason | Alternatives |"
+        source_lines = src.splitlines()
+        header_index = source_lines.index(header)
+        separator = source_lines[header_index + 1]
+        rows = []
+        for line in source_lines[header_index + 2:]:
+            if not self.chunker._is_pipe_table_line(line):
+                break
+            rows.append(line)
+        self.assertTrue(rows)
         for c in decision_chunks:
-            self.assertLessEqual(len(c.text), self.chunker.MAX_DOC_CHUNK_CHARS)
-        # Most chunks (>= 70%) preserve the canonical header. The rest are
-        # `(part N/M)` continuations of single oversized rows.
-        header_canonical = "| Date | Decision | Reason | Alternatives |"
-        with_header = sum(1 for c in decision_chunks if header_canonical in c.text)
-        self.assertGreaterEqual(with_header, int(0.7 * len(decision_chunks)),
-            f"≥70% of decomposed chunks should preserve header; got {with_header}/{len(decision_chunks)}")
+            self.assertIn(header, c.text)
+            self.assertIn(separator, c.text)
+            self.assertNotIn("(part ", c.section or "")
+            carried = [row for row in rows if row in c.text]
+            self.assertTrue(carried)
+            if len(c.text) > self.chunker.MAX_DOC_CHUNK_CHARS:
+                self.assertEqual(len(carried), 1, "only indivisible row groups exceed the target")
+        for row in rows:
+            self.assertEqual(sum(row in c.text for c in decision_chunks), 1)
 
     def test_line_wrap_preserves_breadcrumb_on_every_part(self):
         """Wave 1p3b9 (1p397): when an H2 section is line-wrap-decomposed (via
@@ -7573,6 +7574,248 @@ class ChunkCoordinateContractTests(unittest.TestCase):
     _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
     _ADORN_RE = re.compile(r"^\s*([=\-`:'\"~^_*+#<>])\1{2,}\s*$")
     _PROSE_KINDS = ("doc", "seed", "prompt")
+
+    # 1x81x: reproduced context must not become a source-less chunk.
+    def _wide_padded_table_source(self):
+        rows = ["| row%d | " % i + "payload " * 200 + "|" for i in range(3)]
+        header = "| " + "Name".ljust(780) + " | Value |"
+        separator = "|" + "-" * 782 + "|---|"
+        source = "# Wide table\n\n## Decisions\n\n" + header + "\n" + separator + "\n" + "\n".join(rows) + "\n"
+        return source, rows, header, separator
+
+    def test_wide_padded_table_has_no_generated_only_chunks(self):
+        source, rows, _header, _separator = self._wide_padded_table_source()
+        chunks = [c for c in self.chunker.chunk_file(source, "docs/wide.md")
+                  if c.kind in self._PROSE_KINDS]
+        verdicts = [self._classify(c, source.splitlines(), set(), ".md")[0] for c in chunks]
+        self.assertTrue(chunks)
+        self.assertNotIn("empty", verdicts)
+        self.assertNotIn("wrong", verdicts)
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+        for row in rows:
+            row_number = source.splitlines().index(row) + 1
+            carriers = [c for c in chunks if row in c.text]
+            self.assertTrue(carriers, row[:30])
+            for c in carriers:
+                self.assertLessEqual(c.lines[0], row_number)
+                self.assertGreaterEqual(c.lines[1], row_number)
+        for c in chunks:
+            if any(row in c.text for row in rows):
+                self.assertTrue(_header in c.text or "| Name | Value |" in c.text)
+                self.assertTrue(_separator in c.text or "|---|---|" in c.text)
+        self.assertTrue(any(len(c.text) > self.chunker.MAX_DOC_CHUNK_CHARS for c in chunks))
+
+    def test_reproduced_header_compacts_without_rewriting_first_part(self):
+        label = r"Name\|  literal"
+        header = "| " + label.ljust(780) + " | Value |"
+        separator = "|:" + "-" * 779 + ":|---:|"
+        rows = ["| row%d | " % i + "data " * 330 + "|" for i in range(3)]
+        text = header + "\n" + separator + "\n" + "\n".join(rows)
+        chunk = self.chunker.Chunk(id="table", path="docs/t.md", kind="doc", language="markdown",
+                                   lines=(10, 14), section="Table", text=text,
+                                   line_map=tuple(range(10, 15)))
+        parts = self.chunker._decompose_oversized_table_chunk(chunk, 2000)
+        self.assertEqual(len(parts), 3)
+        self.assertEqual(parts[0].text, header + "\n" + separator + "\n" + rows[0])
+        self.assertEqual(parts[0].line_map, (10, 11, 12))
+        for i, part in enumerate(parts[1:], 1):
+            self.assertEqual(part.text.splitlines()[:2], ["| " + label + " | Value |", "|:---:|---:|"])
+            self.assertIn(rows[i], part.text)
+            self.assertEqual(part.lines, (12 + i, 12 + i))
+            self.assertEqual(part.line_map, (None, None, 12 + i))
+            self.assertLessEqual(len(part.text), 2000)
+
+        public_source = "# Escaped table\n\n" + text + "\n"
+        public_parts = [c for c in self.chunker.chunk_file(public_source, "docs/escaped.md")
+                        if c.kind in self._PROSE_KINDS]
+        for part in public_parts:
+            self.assertNotIn(self._classify(part, public_source.splitlines(), set(), ".md")[0],
+                             ("empty", "wrong"))
+        self.assertTrue(any(header in p.text and separator in p.text for p in public_parts))
+        for row in rows[1:]:
+            carriers = [p for p in public_parts if row in p.text]
+            self.assertTrue(carriers)
+            self.assertTrue(all("| " + label + " | Value |" in p.text and "|:---:|---:|" in p.text
+                                for p in carriers))
+
+    def test_table_row_and_headers_remain_intact_over_cap(self):
+        fixtures = [
+            ("", "| Name | Value |", "|---|---|", ["| row | " + "payload " * 700 + "|"]),
+            ("", "| " + "Name".ljust(2200) + " | Value |", "|" + "-" * 2202 + "|---|",
+             ["| row%d | value |" % i for i in range(3)]),
+            ("intro " * 500 + "\n\n", "| Name | Value |", "|---|---|", ["| row | value |"]),
+        ]
+        for prelude, header, separator, rows in fixtures:
+            with self.subTest(header_chars=len(header), row_chars=len(rows[0]), prelude_chars=len(prelude)):
+                source = "# Atomic table\n\n" + prelude + "\n".join([header, separator] + rows) + "\n"
+                chunks = [c for c in self.chunker.chunk_file(source, "docs/atomic.md")
+                          if c.kind in self._PROSE_KINDS]
+                table_chunks = [c for c in chunks if "rows" in (c.section or "")]
+                self.assertTrue(table_chunks)
+                self.assertEqual(len({c.id for c in chunks}), len(chunks))
+                intrinsic_table_size = len("\n".join((header, separator, rows[0])))
+                if intrinsic_table_size > self.chunker.MAX_DOC_CHUNK_CHARS:
+                    self.assertTrue(any(len(c.text) > self.chunker.MAX_DOC_CHUNK_CHARS for c in table_chunks))
+                else:
+                    self.assertTrue(all(len(c.text) <= self.chunker.MAX_DOC_CHUNK_CHARS for c in chunks))
+                for c in table_chunks:
+                    self.assertTrue(any(row in c.text for row in rows))
+                    self.assertTrue(header in c.text or "| Name | Value |" in c.text)
+                    self.assertTrue(separator in c.text or "|---|---|" in c.text)
+                    self.assertNotIn("(part ", c.section or "")
+                    self.assertNotIn(self._classify(c, source.splitlines(), set(), ".md")[0], ("empty", "wrong"))
+                for row in rows:
+                    carriers = [c for c in table_chunks if row in c.text]
+                    self.assertEqual(len(carriers), 1)
+                    row_number = source.splitlines().index(row) + 1
+                    self.assertLessEqual(carriers[0].lines[0], row_number)
+                    self.assertGreaterEqual(carriers[0].lines[1], row_number)
+
+    def test_irreducible_header_is_emitted_once_with_linear_output(self):
+        for header_chars, row_count in ((2400, 240), (4800, 480)):
+            with self.subTest(header_chars=header_chars, row_count=row_count):
+                header = "| " + "H" * header_chars + " | Value |"
+                separator = "|---|---|"
+                rows = [f"| row-{i:04d} | value |" for i in range(row_count)]
+                source = "# Irreducible header\n\n" + "\n".join([header, separator] + rows) + "\n"
+                chunks = [c for c in self.chunker.chunk_file(source, "docs/irreducible.md")
+                          if c.kind in self._PROSE_KINDS]
+                table_chunks = [c for c in chunks if "rows" in (c.section or "")]
+
+                self.assertEqual(len(table_chunks), 1)
+                emitted_lines = table_chunks[0].text.splitlines()
+                self.assertEqual(emitted_lines[:2], [header, separator])
+                self.assertEqual(emitted_lines[2:], rows)
+                self.assertEqual(table_chunks[0].text, "\n".join([header, separator] + rows))
+                self.assertLessEqual(sum(len(c.text) for c in chunks), len(source.rstrip()))
+
+    def test_long_titled_sections_reach_table_decomposition_before_line_windows(self):
+        header = "| " + "H" * 2400 + " | Value |"
+        separator = "|---|---|"
+        rows = [f"| row-{i:04d} | value |" for i in range(240)]
+        table = "\n".join([header, separator] + rows)
+        prefixes = (
+            "# Long table\n\n## Section\n\n",
+            "# Long table\n\n## Section\n\n### Detail\n\n",
+            "# Long table\n\n## Section\n\n| Key | Value |\n|---|---|\n| first | small |\n\nBetween tables.\n\n",
+        )
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix.splitlines()[-1]):
+                source = prefix + table + "\n"
+                chunks = [c for c in self.chunker.chunk_file(source, "docs/titled.md")
+                          if c.kind in self._PROSE_KINDS]
+                counts = {row: 0 for row in rows}
+                for chunk in chunks:
+                    present = set(chunk.text.splitlines()).intersection(counts)
+                    if present:
+                        self.assertIn(header, chunk.text)
+                        self.assertIn(separator, chunk.text)
+                    for row in present:
+                        counts[row] += 1
+                self.assertEqual(set(counts.values()), {1})
+                self.assertEqual(len({c.id for c in chunks}), len(chunks))
+
+    def test_small_table_does_not_exempt_large_surrounding_prose_from_cap(self):
+        header = "| Name | Value |"
+        separator = "|---|---|"
+        row = "| row | value |"
+        table = "\n".join((header, separator, row))
+        fixtures = [
+            (("PRELUDE_PAYLOAD " * 500) + "\n\n" + table, "PRELUDE_PAYLOAD"),
+            (table + "\n\n" + ("POSTLUDE_PAYLOAD " * 500), "POSTLUDE_PAYLOAD"),
+        ]
+        for body, marker in fixtures:
+            with self.subTest(marker=marker):
+                source = "# Boundary\n\n## Section\n\n" + body + "\n"
+                chunks = [c for c in self.chunker.chunk_file(source, "docs/boundary.md")
+                          if c.kind in self._PROSE_KINDS]
+                table_chunks = [c for c in chunks if row in c.text]
+                self.assertEqual(len(table_chunks), 1)
+                self.assertIn(header, table_chunks[0].text)
+                self.assertIn(separator, table_chunks[0].text)
+                self.assertTrue(any(marker in c.text for c in chunks))
+                self.assertTrue(all(len(c.text) <= self.chunker.MAX_DOC_CHUNK_CHARS for c in chunks))
+                for chunk in chunks:
+                    self.assertNotIn(
+                        self._classify(chunk, source.splitlines(), set(), ".md")[0],
+                        ("empty", "wrong"),
+                    )
+
+    def test_later_table_keeps_oversized_row_with_its_own_header(self):
+        first_table = "| Key | Value |\n|---|---|\n| first | small |"
+        second_header = "| Name | Payload |"
+        second_separator = "|---|---|"
+        second_row = "| second | " + "payload " * 560 + "|"
+        third_header = "| Code | Detail |"
+        third_separator = "|---|---|"
+        third_row = "| third | " + "detail " * 640 + "|"
+        source = (
+            "# Multiple tables\n\n## Section\n\n"
+            + first_table
+            + "\n\nBetween the tables.\n\n"
+            + "\n".join((second_header, second_separator, second_row))
+            + "\n\nAfter the second table.\n\n"
+            + "\n".join((third_header, third_separator, third_row))
+            + "\n"
+        )
+        chunks = [c for c in self.chunker.chunk_file(source, "docs/multiple.md")
+                  if c.kind in self._PROSE_KINDS]
+        for header, separator, row in (
+            (second_header, second_separator, second_row),
+            (third_header, third_separator, third_row),
+        ):
+            carriers = [c for c in chunks if row in c.text]
+            self.assertEqual(len(carriers), 1)
+            self.assertIn(header, carriers[0].text)
+            self.assertIn(separator, carriers[0].text)
+            self.assertGreater(len(carriers[0].text), self.chunker.MAX_DOC_CHUNK_CHARS)
+            self.assertNotIn("(part ", carriers[0].section or "")
+        self.assertEqual(len({c.id for c in chunks}), len(chunks))
+        for chunk in chunks:
+            if len(chunk.text) > self.chunker.MAX_DOC_CHUNK_CHARS:
+                self.assertTrue(second_row in chunk.text or third_row in chunk.text)
+            self.assertNotIn(
+                self._classify(chunk, source.splitlines(), set(), ".md")[0],
+                ("empty", "wrong"),
+            )
+
+    def test_mapped_wrap_filters_generated_windows_before_numbering(self):
+        lines = ["G" * 160, "SOURCE_A", "M" * 160, "SOURCE_B", "T" * 160]
+        chunk = self.chunker.Chunk(id="mapped", path="docs/t.md", kind="doc", language="markdown",
+                                   lines=(11, 29), section="Section", text="\n".join(lines),
+                                   line_map=(None, 11, None, 29, None))
+        parts = self.chunker._line_wrap_chunk(chunk, 80)
+        self.assertEqual([p.text for p in parts], ["SOURCE_A", "SOURCE_B"])
+        self.assertEqual([p.lines for p in parts], [(11, 11), (29, 29)])
+        self.assertEqual([p.section for p in parts], ["Section (part 1/2)", "Section (part 2/2)"])
+        self.assertEqual([p.id for p in parts], ["mapped:L11-L11", "mapped:L29-L29"])
+
+    def test_all_generated_mapped_wrap_emits_nothing(self):
+        for text in ("generated", "generated" * 30):
+            with self.subTest(length=len(text)):
+                chunk = self.chunker.Chunk(id="generated", path="docs/t.md", kind="doc", language="markdown",
+                                           lines=(11, 11), section="Section", text=text, line_map=(None,))
+                self.assertEqual(self.chunker._line_wrap_chunk(chunk, 80), [])
+
+    def test_mapped_character_split_preserves_every_source_character(self):
+        payload = "row:" + "x" * 220
+        chunk = self.chunker.Chunk(id="chars", path="docs/t.md", kind="doc", language="markdown",
+                                   lines=(77, 77), section="Section", text="G" * 160 + "\n" + payload,
+                                   line_map=(None, 77))
+        parts = self.chunker._line_wrap_chunk(chunk, 80)
+        self.assertEqual("".join(p.text for p in parts), payload)
+        self.assertEqual([p.lines for p in parts], [(77, 77)] * 3)
+        self.assertEqual([p.id for p in parts], ["chars:L77-L77", "chars:L77-L77~2", "chars:L77-L77~3"])
+        self.assertEqual([p.section for p in parts], [f"Section (part {i}/3)" for i in range(1, 4)])
+
+    def test_unmapped_large_preamble_wrap_keeps_legacy_output(self):
+        chunk = self.chunker.Chunk(id="legacy", path="fixture.txt", kind="doc", language="text",
+                                   lines=(20, 50), section="Section", text="H" * 100 + "\n\nshort source")
+        parts = self.chunker._line_wrap_chunk(chunk, 80)
+        self.assertEqual([(p.id, p.lines, p.section, p.text) for p in parts], [
+            ("legacy:L20-L20", (20, 20), "Section (part 1/2)", "H" * 80),
+            ("legacy:L21-L23", (21, 23), "Section (part 2/2)", "H" * 20 + "\n\nshort source"),
+        ])
 
     def setUp(self):
         self.chunker = load_chunker()

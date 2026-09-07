@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-04
+Last verified: 2026-09-06
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -19,7 +19,7 @@ docs gate fails:
 - docs embedding model `Snowflake/snowflake-arctic-embed-s`
 - code embedding model `Snowflake/snowflake-arctic-embed-s`
 - reranker model `cross-encoder/ms-marco-MiniLM-L-6-v2`
-- chunker version `41`
+- chunker version `42`
 
 Both embedding selectors currently reuse one Arctic S instance. Embedding
 inference is FP16 on supported GPU providers and INT8 on CPU at static forward
@@ -57,6 +57,7 @@ numbers:
 | True no-op build | Zero epoch writes, generation unchanged (read-only reap/heal preflight only) | — |
 | Dashboard index stats | Cached/event-driven collection; the store read is `read_build_summary` (scalars + one COUNT) and Lance reads are `count_rows` metadata only — no per-file rows and no table materialization. Exception: the daemon's periodic staleness timer reads the full per-file snapshot because it IS the input-hash compare; it never runs on the HTTP request path | — |
 | Whole-store reset convergence | One all-layer re-chunk pass with Lance vector reuse (no re-embedding of unchanged chunks) | minutes-class worst case, same as a `--rechunk` pass |
+| Markdown table decomposition (chunker 42, wave 1xa00) | One ordered scan plus emitted text linear in input size. A compacted header below the 2,000-character target may repeat across bounded row groups; a header still at or above the target is emitted once with all complete rows, preventing row-count × header-width amplification | public irreducible-header regression grows header width and row count together and asserts byte-exact single-copy output; performance review measured the rejected branch at 293.63× amplification for 54,908 input characters |
 | Chunk-id collision census (derived rebuild, wave 1wpif) | One dict pass over the SAME materialized rows the rebuild already consumes: row visits linear in chunk count, zero chunker invocations, zero embedding calls, no second repository pass; wall-clock overhead at most 10% versus the identical rebuild with the census patched out | paired same-process runs on one temp store, 3 interleaved repetitions, median declared before measurement: 53.6 ms vs 52.0 ms on 8,000 synthetic rows (ratio 1.03, M2 Max) |
 | Warmed public lexical read (`code_lexical`, the hybrid FTS half of `code_search` / `code_ask`, the degraded FTS fallbacks; wave 1wpif `1wpag`) | Zero `COUNT(*)`, zero `quick_check` / `integrity_check`, zero corpus-sized FTS or registry scans, zero store writes: one dict lookup of the epoch-keyed verdict cache, the `build_state` row read, and the MATCH query itself (the former per-call `_state_store_health_summary` coverage tie-in is now the same epoch-cached read) | asserted by `test_fts_query_honesty.ProbedServingTests.test_warmed_healthy_read_runs_no_counts_no_health_scan_no_probe` through a sqlite trace hook (`set_trace_callback` on every read-only store connection) plus seam spies on `fts_state_verdict` and `_state_store_health_summary`; `code_lexical` warm p95 stays under its standing relative gate (the `1sear` pair's second run: 673 ms baseline, 841 ms threshold); the chunker-40 pair recorded 25 ms |
 | Bounded candidate refill (`code_search` with `max_per_file` or a non-allowlisted language, and the lexical fallback; wave 1wpif `1wpah`) | Monotonic nested windows 30, 60, 120, 240 per source/table; at most 4 substrate queries and 240 examined rows per source per public call (`code_search`: 8 / 480; `code_ask`: 16 / 960 over its four fused sources, 20 / 1200 when the live keyword pass fires); an exhausted source is not re-queried; the cross-encoder input stays at the pre-refill window `max(4 * limit, 30)`; the accounting ledger adds zero substrate queries | asserted by `test_retrieval_candidate_generation.HostileSkewTests` (exactly four windows on a 250-chunk single-file skew, then a typed ceiling exit) and `CodeAskAggregateAccountingTests` (the aggregate over a full `code_ask` call) |

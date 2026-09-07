@@ -207,7 +207,8 @@ def _ts_collapse_body(text: str, max_lines: int = 150) -> str:
 # (b) `phase_index_rebuild` (full) running on `--update-index` instead of
 # `phase_index_update` (incremental), (c) post-condition verification confirming
 # the new version in the index-state store's build snapshot after rebuild.
-CHUNKER_VERSION = "41"  # 1wngv delivery repair (chunk-identity-source-range-integrity, wave 1wpif): TWO stored-coordinate corrections, both of which change `lines` for existing chunks, so a one-time rebuild is required (ids and chunk text are unchanged, so embeddings reuse by content hash). (1) Table row groups: `_decompose_oversized_table_chunk` applied the section base but never the ROW-GROUP offset, so parts 2..n stored the table head's lines (live census before the fix: 1,075 of 1,413 row-group parts wrong; `docs/architecture/current-state.md#current-risk-areas:L133-L141:rows6-7` stored (133, 136) for rows living at 140-141). The decomposer now owns the mapping (only it knows each group's row offset), emits a per-part line_map so an over-cap part line-windows with absolute coordinates, and treats the prelude/header REPRODUCED on parts 2..n as generated context, so a part's range is exactly its own rows; the broken remap in `split_large_chunks` is gone. (2) rst/adoc preambles: the preamble and only-title sections passed `body_start = 1` while their body had the consumed doc-title lines excised, so the first RETAINED line was numbered 1; both process_body passes and `_emit_prose_sections` now accept per-line absolute numbers (a single base offset cannot describe a body with a hole in it). Paired repairs with no stored-shape effect: the terminal `_dedupe_chunk_ids` guard checks its generated `-L{n}` id against the FULL original id set (it could previously emit the duplicate it exists to prevent), and the Python-summary ast parse degrades to the regex scan on RecursionError / MemoryError. Verified by a whole-repository coordinate census (1,726 md/rst/adoc files, 22,848 prose chunks: zero WRONG, where wrong means a payload line outside the stored range or a range opening on a non-payload line). Previous (40) 1wngv (chunk-identity-source-range-integrity, wave 1wpif): four identity/coordinate repairs. (1) _ts_flat_emit_chunker (the yaml/toml/json/css/scss/hcl/make flat config emitters) routes ids through a per-file collision guard: a non-colliding base and the FIRST occurrence of a collision group keep the legacy bare {path}#{slug} id; the k-th (k>=2) same-slug repeat gets the deterministic line-anchored base {slug}-L{start} with the _dedupe_id_base ~k tie-break for same-line repeats (uppercase L is unforgeable: _slugify lowercases every emitted slug). Live census before the fix: 150 same-ID/distinct-content groups and 563 registry/FTS dedupe losses on this repo (one toml file carried 287 same-slug repeats). (2) Splice-aware absolute line mapping: oversized markdown/rst/adoc prose is character-spliced free of fenced/code spans before line-windowing, so windows renumbered from 1 inside the slice; chunk_markdown (whole-section, oversized-window, preamble, seed/prompt decompose), _split_h3_sections, _emit_prose_sections (both process_body passes now return per-line absolute numbers), _decompose_oversized_markdown_body, and the universal guard (_line_wrap_chunk plus the table decomposition remap, via the new process-local Chunk.line_map carrier whose None entries mark generated breadcrumb/separator lines) now emit one-based absolute source coordinates. Exactness is SCOPED: a whole section chunk keeps its section span (heading through section end), while an oversized-section window and a table row-group part carry the MINIMAL contiguous span containing their own payload; generated breadcrumbs are never counted as source lines. (3) Python code summaries use ast module-structure extraction (module-level def/async def/class only, so nested methods no longer consume _SUMMARY_SYMBOL_CAP; the regex line scan remains only as the SyntaxError fallback). (4) Paired store-layer collision census (index_state_store.chunk_id_collision_census at every derived rebuild, consuming already-materialized Lance rows) with the index_health chunk_id_collisions diagnostic, so a future same-ID/distinct-content regression is observable before full derived-state coverage is reported. Chunk-set shape change (ids for colliding flat-emitter chunks; line metadata and window ids for spliced prose) -> bump; a one-time rebuild is required; non-colliding ids are preserved and embeddings reuse by content hash. Previous (39) 1wl7v (diagram-label-retrieval, wave 1wl7w): tool-diagram LABEL EXTRACTION. .drawio files chunk one docs-routed kind="doc-code" unit per <diagram> page — breadcrumb (page name, or the file stem when the name matches the auto Page-N pattern) plus extracted labels: mxCell value attrs AND object/UserObject wrapper label attrs (draw.io's Edit Data serialization; value-only extraction silently drops those labels), two-layer HTML decode (XML attr layer via ElementTree, then tag strip + html.unescape). The canonical compressed save (URL-encode -> raw deflate -> base64) inflates through a bounded decompressobj seam capped at DRAWIO_MAX_INFLATED_BYTES per page (an executed 64 KB deflate bomb inflates past 10 MB; the on-disk walk cap cannot see it) — over-cap, malformed, or label-free pages emit ZERO chunks, a recorded departure from the 1whuq raw-source degrade because these serializations are machine noise. Page ids ride _dedupe_id_base on the `diagram` base (#diagram, #diagram~2). .excalidraw files chunk one labels-plus-frames unit per file (originalText preferred, isDeleted ghosts and empty strings SKIPPED, files blob never read), id #diagram, language pins drawio/excalidraw. Paired with WALKER_VERSION 15 (both extensions re-admitted at the walk layer with retrieval value). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (38) 1wh1b (retrieval-loose-ends, wave 1wl7u): two chunk-set shape changes. (1) Notebook code cells emit kind="doc-code" instead of kind="code" — .ipynb files are never code-eligible, so code cells reached NEITHER table (the 1whup both-tables drop class); doc-code routes them into the DOCS table on the landed plumbing (code size cap, breadcrumb injection; `#cell-N` ids and notebook-level kernel language unchanged; outputs stay unread). Executed on the frozen nb golden set: code-cell recall@5 0 -> measured post-change. (2) Repeat-only file-pass prose-id ordinals via _dedupe_id_base: duplicate-titled sections in markdown (section, H3-split, line-window bases, preamble-vs-literal-title, doc-summary sentinel), rst/adoc (_emit_prose_sections), the HTML/XML regex fallbacks, and the tree-sitter markup path's {slug}-L{start} ids (same-line siblings, CODE-DEL-1) previously emitted IDENTICAL ids that collapsed silently (last-writer-wins) in the id-keyed delta planner and sqlite chunk registry. First occurrence keeps its bare id (single-title dominant case byte-identical, differential-pinned); the k-th repeat gets `~k` — `~` is outside the _slugify alphabet, so no literal heading can forge the shape (bare -N is a legal slug tail: `Setup 2` -> `setup-2`; the SDL -N ordinal shape deliberately NOT reused). Fence/code-directive ids keep their raw slug base (already unique via the 1whup file-pass fence counter). _ts_flat_emit_chunker (config/markup code-kind `{path}#{slug}` ids) is a recorded adjacent-class follow-up, not changed here. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (37) 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
+# 1x81x: preserve complete table rows with headers; compact generated headers and discard source-less mapped windows.
+CHUNKER_VERSION = "42"  # 1wngv delivery repair (chunk-identity-source-range-integrity, wave 1wpif): TWO stored-coordinate corrections, both of which change `lines` for existing chunks, so a one-time rebuild is required (ids and chunk text are unchanged, so embeddings reuse by content hash). (1) Table row groups: `_decompose_oversized_table_chunk` applied the section base but never the ROW-GROUP offset, so parts 2..n stored the table head's lines (live census before the fix: 1,075 of 1,413 row-group parts wrong; `docs/architecture/current-state.md#current-risk-areas:L133-L141:rows6-7` stored (133, 136) for rows living at 140-141). The decomposer now owns the mapping (only it knows each group's row offset), emits a per-part line_map so an over-cap part line-windows with absolute coordinates, and treats the prelude/header REPRODUCED on parts 2..n as generated context, so a part's range is exactly its own rows; the broken remap in `split_large_chunks` is gone. (2) rst/adoc preambles: the preamble and only-title sections passed `body_start = 1` while their body had the consumed doc-title lines excised, so the first RETAINED line was numbered 1; both process_body passes and `_emit_prose_sections` now accept per-line absolute numbers (a single base offset cannot describe a body with a hole in it). Paired repairs with no stored-shape effect: the terminal `_dedupe_chunk_ids` guard checks its generated `-L{n}` id against the FULL original id set (it could previously emit the duplicate it exists to prevent), and the Python-summary ast parse degrades to the regex scan on RecursionError / MemoryError. Verified by a whole-repository coordinate census (1,726 md/rst/adoc files, 22,848 prose chunks: zero WRONG, where wrong means a payload line outside the stored range or a range opening on a non-payload line). Previous (40) 1wngv (chunk-identity-source-range-integrity, wave 1wpif): four identity/coordinate repairs. (1) _ts_flat_emit_chunker (the yaml/toml/json/css/scss/hcl/make flat config emitters) routes ids through a per-file collision guard: a non-colliding base and the FIRST occurrence of a collision group keep the legacy bare {path}#{slug} id; the k-th (k>=2) same-slug repeat gets the deterministic line-anchored base {slug}-L{start} with the _dedupe_id_base ~k tie-break for same-line repeats (uppercase L is unforgeable: _slugify lowercases every emitted slug). Live census before the fix: 150 same-ID/distinct-content groups and 563 registry/FTS dedupe losses on this repo (one toml file carried 287 same-slug repeats). (2) Splice-aware absolute line mapping: oversized markdown/rst/adoc prose is character-spliced free of fenced/code spans before line-windowing, so windows renumbered from 1 inside the slice; chunk_markdown (whole-section, oversized-window, preamble, seed/prompt decompose), _split_h3_sections, _emit_prose_sections (both process_body passes now return per-line absolute numbers), _decompose_oversized_markdown_body, and the universal guard (_line_wrap_chunk plus the table decomposition remap, via the new process-local Chunk.line_map carrier whose None entries mark generated breadcrumb/separator lines) now emit one-based absolute source coordinates. Exactness is SCOPED: a whole section chunk keeps its section span (heading through section end), while an oversized-section window and a table row-group part carry the MINIMAL contiguous span containing their own payload; generated breadcrumbs are never counted as source lines. (3) Python code summaries use ast module-structure extraction (module-level def/async def/class only, so nested methods no longer consume _SUMMARY_SYMBOL_CAP; the regex line scan remains only as the SyntaxError fallback). (4) Paired store-layer collision census (index_state_store.chunk_id_collision_census at every derived rebuild, consuming already-materialized Lance rows) with the index_health chunk_id_collisions diagnostic, so a future same-ID/distinct-content regression is observable before full derived-state coverage is reported. Chunk-set shape change (ids for colliding flat-emitter chunks; line metadata and window ids for spliced prose) -> bump; a one-time rebuild is required; non-colliding ids are preserved and embeddings reuse by content hash. Previous (39) 1wl7v (diagram-label-retrieval, wave 1wl7w): tool-diagram LABEL EXTRACTION. .drawio files chunk one docs-routed kind="doc-code" unit per <diagram> page — breadcrumb (page name, or the file stem when the name matches the auto Page-N pattern) plus extracted labels: mxCell value attrs AND object/UserObject wrapper label attrs (draw.io's Edit Data serialization; value-only extraction silently drops those labels), two-layer HTML decode (XML attr layer via ElementTree, then tag strip + html.unescape). The canonical compressed save (URL-encode -> raw deflate -> base64) inflates through a bounded decompressobj seam capped at DRAWIO_MAX_INFLATED_BYTES per page (an executed 64 KB deflate bomb inflates past 10 MB; the on-disk walk cap cannot see it) — over-cap, malformed, or label-free pages emit ZERO chunks, a recorded departure from the 1whuq raw-source degrade because these serializations are machine noise. Page ids ride _dedupe_id_base on the `diagram` base (#diagram, #diagram~2). .excalidraw files chunk one labels-plus-frames unit per file (originalText preferred, isDeleted ghosts and empty strings SKIPPED, files blob never read), id #diagram, language pins drawio/excalidraw. Paired with WALKER_VERSION 15 (both extensions re-admitted at the walk layer with retrieval value). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (38) 1wh1b (retrieval-loose-ends, wave 1wl7u): two chunk-set shape changes. (1) Notebook code cells emit kind="doc-code" instead of kind="code" — .ipynb files are never code-eligible, so code cells reached NEITHER table (the 1whup both-tables drop class); doc-code routes them into the DOCS table on the landed plumbing (code size cap, breadcrumb injection; `#cell-N` ids and notebook-level kernel language unchanged; outputs stay unread). Executed on the frozen nb golden set: code-cell recall@5 0 -> measured post-change. (2) Repeat-only file-pass prose-id ordinals via _dedupe_id_base: duplicate-titled sections in markdown (section, H3-split, line-window bases, preamble-vs-literal-title, doc-summary sentinel), rst/adoc (_emit_prose_sections), the HTML/XML regex fallbacks, and the tree-sitter markup path's {slug}-L{start} ids (same-line siblings, CODE-DEL-1) previously emitted IDENTICAL ids that collapsed silently (last-writer-wins) in the id-keyed delta planner and sqlite chunk registry. First occurrence keeps its bare id (single-title dominant case byte-identical, differential-pinned); the k-th repeat gets `~k` — `~` is outside the _slugify alphabet, so no literal heading can forge the shape (bare -N is a legal slug tail: `Setup 2` -> `setup-2`; the SDL -N ordinal shape deliberately NOT reused). Fence/code-directive ids keep their raw slug base (already unique via the 1whup file-pass fence counter). _ts_flat_emit_chunker (config/markup code-kind `{path}#{slug}` ids) is a recorded adjacent-class follow-up, not changed here. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (37) 1wfso (spec-format-family, wave 1wik9): the curated spec pattern (1wfr8) extends to three formats, each behind its own recorded measurement on the shared _spec_chunking_enabled() gate. AsyncAPI: content-detected root `asyncapi:` key in already-corpus YAML/JSON (the JSON check precedes JSON-Schema shape detection so order stays deterministic); channel-plus-operation, per-operation (3.x), and message/schema component units with breadcrumbed summary/description prose, ARCH-DEL-1 residue coverage. GraphQL SDL (.graphql/.gql, extension-gated): per-type-declaration units carrying block-string descriptions plus body, per-DESCRIBED-member units with type-path breadcrumbs (Query.user:), sdl: residue — bounded internal parser, no grammar dependency. Protobuf (.proto, extension-gated): message/enum/service units pairing the attached leading comment with the block body, rpc/field units for commented members with package-qualified breadcrumbs (accounts.v1.UserService.GetUser:), detached comments and options create no units, proto: residue. Undetected/degenerate files keep their previous output byte-identically (line-window fallback preserved verbatim). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (36) 1whuq (diagram-format-docs-chunkers, wave 1wik9): standalone hand-authored diagram files — Mermaid (.mmd/.mermaid), PlantUML (.puml/.plantuml), Graphviz DOT (.dot/.gv) — now chunk as one docs-routed kind="doc-code" unit each (breadcrumb line from the declared title or file stem, then the raw source; labels are the retrieval value), replacing the code-kind line-window fallback whose rows the code-corpus extension gate dropped to zero. Registration is CHUNKER-ONLY: the extensions are NOT in _KNOWN_TEXT_EXTENSIONS (sniff bypass; binary .dot Word-template namesake) and walk behavior is unchanged (no WALKER bump). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (35) 1whup (docs-fenced-content-retrieval, wave 1wik9): doc-family extracted code blocks (markdown fences, rst code-directive bodies, adoc listing blocks) now emit kind="doc-code" instead of kind="code", routing them into the DOCS table via _is_docs_kind (previously the per-table eligibility gate dropped them from BOTH tables — docs files are never code-eligible). Fence/code ordinals become FILE-PASS scoped (one counter per chunk_file invocation): markdown ids gain the ordinal ({prefix}:code → {prefix}:code-N) and rst/adoc ordinals stop resetting per section, because duplicate-titled sections collide on a per-section reset and the delta planner / chunk registry key by id. doc-code joins _DOCS_BREADCRUMB_KINDS (rst/adoc code chunks get section context injected; markdown fences are idempotently skipped) and takes the CODE size cap. Prompt-kind markdown unchanged (fences stay inline). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (34) 1wfr8 (spec-aware-structured-chunking, wave 1wfsl): content-detected OpenAPI (3.x YAML/JSON + Swagger 2.x) and JSON Schema (json-schema.org dialect URI, or schema-shaped root with value-shape guards) files chunk at operation / definition / property level with the breadcrumb BAKED into kind="code" chunk text (paths./users/{id}.get: / $defs.Address: / properties.email:), replacing flat mapping-pair emission for DETECTED files only; undetected YAML/JSON chunk byte-identically (differential-pinned). Measurement-gated per the 1wfr8 numeric bar; shipped default in SPEC_CHUNKING_DEFAULT_ON, per-project override via indexing.spec_aware_chunking → WAVEFOUNDRY_SPEC_CHUNKING. Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash). Previous (33) 1wfsm (docs-layer-rst-adoc-prose-formats, wave 1wfsl): reStructuredText (.rst) and AsciiDoc (.adoc/.asciidoc) gain doc-kind SECTION chunkers with breadcrumb labels (the measured 1p4w9 lever), mirroring the markdown path: underline/overline-adornment titles (rst) and =-run titles (adoc) drive sections; code-block/source/listing bodies extract as code-kind chunks; media/table directives drop; admonitions stay prose; imperfect recognition degrades to plain prose, never to file exclusion. These files previously produced ONLY code-kind line windows (zero docs-layer rows). Chunk-set shape change → bump (consumer indexes re-chunk; embeddings reuse by content hash; markdown output is byte-identical — differential-pinned). Previous (32) 1sbfl (java-initializer-chunk-coverage): Java static `static { … }` and instance `{ … }` initializer blocks are now emitted as their own kind="code" chunks in BOTH the tree-sitter path and the regex fallback, across class/enum/record containers (records get static-only — Java forbids record instance initializers). Closes a retrieval blind spot: literal-rich init catalogs (message/error tables, lookup-map registration) were previously in NO chunk. Deterministic identity `{owner}.__static_init_N__` / `{owner}.__instance_init_N__` (1-based per-container ordinals, nested-type qualified); merge-exempt via a " [init]" section marker; oversized blocks bounded by split_large_code_chunks. Records are now first-class in the tree-sitter path (record_declaration recognition + body traversal were net-new). Chunk-set shape change → bump (consumer code index re-chunks with embedding reuse for content-identical chunks). 1p5k0 (nested-type-const-qualification): nested types (Swift struct/enum/class in a class body; other langs' nested classes) now attribute member constants AND methods to the nested qualified owner (Outer.Inner.x) in the chunk lane — was flattened onto the outermost type — and emit a nested-type __decl__ chunk. Aligns chunk-lane qnames with the already-correct graph lane; paired with code_constants dotted-suffix matching so the natural Inner.x query resolves. Chunk-set shape change → bump (consumer code index re-chunks). 1p4w9: docs chunks prepend their section breadcrumb to embedded text (NL→docs retrieval +10pp on the 32-query eval; docs-only — code chunk text unchanged, so code vectors reuse by content-hash and only docs re-embed). 1p4q4 review (C1/C2/C3): complete the TS namespace/module const-chunk coverage — the `module M{}` keyword form, NON-export namespace const, `export namespace`, `declare namespace`, and `declare enum` members now chunk. Chunk-set shape change → bump (consumer code index re-chunks). 1p4q4 (28): TS enum/const-enum members + namespace const + declare const are now constant chunks (Enum.Member). 1p4hi close (27): all-11-language constant chunking + Go short-const fix. 1p4mf (26): module/class-level constants emitted as chunks (kind="code", breadcrumb-prefixed text, merge-excluded via " [const]" section marker)
 
 # Lines per window and overlap for the line-window fallback chunker.
 WINDOW_SIZE = 120
@@ -715,14 +716,14 @@ def _is_pipe_table_line(line: str) -> bool:
     return s.startswith("|") and s.endswith("|") and s.count("|") >= 2
 
 
-def _find_oversized_table(text: str, max_chars: int) -> Optional[tuple[int, int, int]]:
-    """Find a pipe table in `text` that exceeds `max_chars` (header + body).
+def _find_pipe_tables(text: str, max_chars: int) -> list[tuple[int, int, int]]:
+    """Find every pipe table in ``text`` that exceeds ``max_chars``.
 
-    Returns ``(start_line_idx, separator_line_idx, end_line_idx)`` where
+    Returns tuples ``(start_line_idx, separator_line_idx, end_line_idx)`` where
     `start_line_idx` is the header row's index in the line list,
     `separator_line_idx` is the `|---|---|` row index, and `end_line_idx` is
-    the line index just past the table's last data row. Returns None when
-    no such table exists in `text`.
+    the line index just past the table's last data row. The tuples use the
+    same line indexes as ``_find_oversized_table``.
 
     A real markdown pipe table is: header row + separator row + 1+ data
     rows. Detection requires at least 3 consecutive `_is_pipe_table_line`
@@ -732,6 +733,7 @@ def _find_oversized_table(text: str, max_chars: int) -> Optional[tuple[int, int,
     lines = text.splitlines()
     n = len(lines)
     i = 0
+    found: list[tuple[int, int, int]] = []
     while i < n:
         if not _is_pipe_table_line(lines[i]):
             i += 1
@@ -756,30 +758,39 @@ def _find_oversized_table(text: str, max_chars: int) -> Optional[tuple[int, int,
         table_text = "\n".join(run_lines)
         if len(table_text) <= max_chars:
             continue
-        return (run_start, run_start + sep_idx_in_run, run_end)
-    return None
+        found.append((run_start, run_start + sep_idx_in_run, run_end))
+    return found
+
+
+def _find_oversized_table(text: str, max_chars: int) -> Optional[tuple[int, int, int]]:
+    """Return the first pipe table in ``text`` that exceeds ``max_chars``."""
+    tables = _find_pipe_tables(text, max_chars)
+    return tables[0] if tables else None
 
 
 def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional[list["Chunk"]]:
-    """Decompose a chunk whose dominant oversized content is a markdown pipe
-    table. Returns None if no oversized table is found; otherwise returns the
-    list of decomposed chunks.
+    """Decompose an oversized chunk containing a markdown pipe table.
+    Returns None for an under-cap chunk or when no table is found.
 
-    Each emitted chunk contains:
-    1. The chunk-level prelude (any lines BEFORE the table — typically the
-       section breadcrumb / H2 title block).
+    Each emitted table chunk contains:
+    1. The chunk-level prelude when it fits beside the first table group;
+       otherwise the prelude is emitted through the ordinary line-window
+       path before the table.
     2. The table's header row + separator row (preserved on every emitted
        chunk so column context survives decomposition).
-    3. A greedy group of data rows that, combined with the prelude + header,
-       stays under `max_chars`.
+    3. A greedy group of complete data rows targeting `max_chars` with the
+       prelude + header. At least one row is retained, even above that target.
     4. Any chunk-level postlude (lines AFTER the table) is appended to the
-       FINAL emitted chunk only; subsequent tables in the same chunk are
-       beyond this helper's scope and fall through to line-wrap.
+       final table group when it fits; otherwise it is emitted through the
+       ordinary line-window path after the table.
 
     Section labels get `(rows N–M of T)` suffix so retrieval surfaces can
     address coherent row ranges.
     """
-    table_loc = _find_oversized_table(chunk.text, max_chars)
+    if len(chunk.text) <= max_chars:
+        return None
+    # A large prelude must not send a small real table through line wrapping.
+    table_loc = _find_oversized_table(chunk.text, 0)
     if table_loc is None:
         return None
     table_start, sep_idx, table_end = table_loc
@@ -789,31 +800,42 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
     data_rows = lines[sep_idx + 1:table_end]
     postlude = lines[table_end:]
 
-    # Compute the per-emit fixed-text size: prelude + header preamble + 2 newlines
+    # Compute table-group sizes independently from surrounding prose. The first
+    # group still budgets for its prelude so the established compact shape is
+    # preserved whenever that combined chunk fits.
     prelude_text = "\n".join(prelude).rstrip()
     header_text = "\n".join(header_lines)
-    fixed_text = (prelude_text + "\n\n" if prelude_text else "") + header_text + "\n"
-    fixed_size = len(fixed_text)
-    if fixed_size >= max_chars:
-        # Header alone already over-cap — fall through to line-wrap. This
-        # shouldn't happen for real tables (header rows are short) but
-        # guards against pathological input.
-        return None
+    header_size = len(header_text) + 1
+    first_group_size = header_size + (len(prelude_text) + 2 if prelude_text else 0)
+    # Compact generated copies only; the first part retains source bytes.
+    reproduced_header_lines = header_lines
+    if header_size > max_chars // 2:
+        reproduced_header_lines = [
+            re.sub(r"(?<!\\)\|[ \t]+", "| ", re.sub(r"[ \t]+\|", " |", line)).strip()
+            for line in header_lines
+        ]
+        reproduced_header_lines[-1] = re.sub(r"-{3,}", "---", reproduced_header_lines[-1])
 
-    # Greedy row grouping
-    groups: list[list[str]] = []
-    current: list[str] = []
-    current_size = fixed_size
-    for row in data_rows:
-        row_len = len(row) + 1  # +1 for newline
-        if current and current_size + row_len > max_chars:
+    reproduced_header_size = len("\n".join(reproduced_header_lines)) + 1
+    # An irreducible header cannot be copied into bounded row groups. Keep it
+    # once with every complete row so output stays linear in the input size.
+    if reproduced_header_size >= max_chars:
+        groups = [data_rows]
+    else:
+        # Greedy row grouping
+        groups = []
+        current: list[str] = []
+        current_size = first_group_size
+        for row in data_rows:
+            row_len = len(row) + 1  # +1 for newline
+            if current and current_size + row_len > max_chars:
+                groups.append(current)
+                current = []
+                current_size = reproduced_header_size
+            current.append(row)
+            current_size += row_len
+        if current:
             groups.append(current)
-            current = []
-            current_size = fixed_size
-        current.append(row)
-        current_size += row_len
-    if current:
-        groups.append(current)
     if not groups:
         return None
 
@@ -842,8 +864,13 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
         return num_map[idx] if 0 <= idx < len(num_map) else None
 
     prelude_split = prelude_text.split("\n") if prelude_text else []
+    postlude_start = 0
+    while postlude_start < len(postlude) and not postlude[postlude_start].strip():
+        postlude_start += 1
+    postlude_text = "\n".join(postlude[postlude_start:]).rstrip()
+    postlude_split = postlude_text.split("\n") if postlude_text else []
 
-    result: list[Chunk] = []
+    table_chunks: list[Chunk] = []
     rows_emitted = 0
     last_idx = len(groups) - 1
     for g_idx, group in enumerate(groups):
@@ -859,26 +886,12 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
         reproduced = g_idx > 0
         text_lines: list[str] = []
         map_entries: "list[Optional[int]]" = []
-        if prelude_text:
-            for i, line in enumerate(prelude_split):
-                text_lines.append(line)
-                map_entries.append(None if reproduced else _abs(i))
-            text_lines.append("")          # the blank joiner before the header
-            map_entries.append(None)
-        for k, line in enumerate(header_lines):
+        for k, line in enumerate(reproduced_header_lines if reproduced else header_lines):
             text_lines.append(line)
             map_entries.append(None if reproduced else _abs(table_start + k))
         for j, row in enumerate(group):
             text_lines.append(row)
             map_entries.append(_abs(sep_idx + 1 + rows_before + j))
-        if g_idx == last_idx and postlude:
-            postlude_text = "\n".join(postlude).rstrip()
-            if postlude_text:
-                text_lines.append("")      # the blank joiner before the postlude
-                map_entries.append(None)
-                for k, line in enumerate(postlude_text.split("\n")):
-                    text_lines.append(line)
-                    map_entries.append(_abs(table_end + k))
         emitted_text = "\n".join(text_lines)
         real = [n for n in map_entries if n is not None]
         if real:
@@ -887,7 +900,7 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
             part_lines = (base_line_start, base_line_start)
         suffix = f"rows {group_start_row}–{group_end_row} of {total_rows}"
         section = f"{base_section} ({suffix})" if base_section else f"({suffix})"
-        result.append(Chunk(
+        table_chunks.append(Chunk(
             id=f"{chunk.id}:rows{group_start_row}-{group_end_row}",
             path=chunk.path,
             kind=chunk.kind,
@@ -897,6 +910,124 @@ def _decompose_oversized_table_chunk(chunk: "Chunk", max_chars: int) -> Optional
             text=emitted_text,
             line_map=tuple(map_entries),
         ))
+
+    def _replace_text(part: Chunk, text_lines: list[str], map_entries: list["Optional[int]"]) -> Chunk:
+        real = [n for n in map_entries if n is not None]
+        return Chunk(
+            id=part.id,
+            path=part.path,
+            kind=part.kind,
+            language=part.language,
+            lines=(min(real), max(real)) if real else part.lines,
+            section=part.section,
+            text="\n".join(text_lines),
+            line_map=tuple(map_entries),
+        )
+
+    def _surrounding_parts(
+        suffix: str,
+        surrounding_lines: list[str],
+        surrounding_map: list["Optional[int]"],
+    ) -> list[Chunk]:
+        if not surrounding_lines:
+            return []
+        real = [n for n in surrounding_map if n is not None]
+        if not real:
+            return []
+        carrier = Chunk(
+            id=f"{chunk.id}:{suffix}",
+            path=chunk.path,
+            kind=chunk.kind,
+            language=chunk.language,
+            lines=(min(real), max(real)),
+            section=base_section or None,
+            text="\n".join(surrounding_lines),
+            line_map=tuple(surrounding_map),
+        )
+        table_locations = _find_pipe_tables(carrier.text, 0)
+        if not table_locations:
+            return _line_wrap_chunk(carrier, max_chars)
+
+        emitted: list[Chunk] = []
+        cursor = 0
+        prose_ordinal = 0
+
+        def _emit_plain(start: int, end: int) -> None:
+            nonlocal prose_ordinal
+            while start < end and not surrounding_lines[start].strip():
+                start += 1
+            while end > start and not surrounding_lines[end - 1].strip():
+                end -= 1
+            if start >= end:
+                return
+            prose_map = surrounding_map[start:end]
+            prose_real = [n for n in prose_map if n is not None]
+            if not prose_real:
+                return
+            prose_ordinal += 1
+            prose = Chunk(
+                id=f"{carrier.id}:prose{prose_ordinal}",
+                path=carrier.path,
+                kind=carrier.kind,
+                language=carrier.language,
+                lines=(min(prose_real), max(prose_real)),
+                section=carrier.section,
+                text="\n".join(surrounding_lines[start:end]),
+                line_map=tuple(prose_map),
+            )
+            emitted.extend(_line_wrap_chunk(prose, max_chars))
+
+        for table_ordinal, (start, _separator, end) in enumerate(table_locations, 1):
+            _emit_plain(cursor, start)
+            table_map = surrounding_map[start:end]
+            table_real = [n for n in table_map if n is not None]
+            table = Chunk(
+                id=f"{carrier.id}:table{table_ordinal}",
+                path=carrier.path,
+                kind=carrier.kind,
+                language=carrier.language,
+                lines=(min(table_real), max(table_real)) if table_real else carrier.lines,
+                section=(
+                    f"{carrier.section} (table {table_ordinal})"
+                    if carrier.section else f"(table {table_ordinal})"
+                ),
+                text="\n".join(surrounding_lines[start:end]),
+                line_map=tuple(table_map),
+            )
+            if len(table.text) <= max_chars:
+                emitted.append(table)
+            else:
+                decomposed = _decompose_oversized_table_chunk(table, max_chars)
+                emitted.extend(decomposed if decomposed is not None else _line_wrap_chunk(table, max_chars))
+            cursor = end
+
+        _emit_plain(cursor, len(surrounding_lines))
+        return emitted
+
+    result: list[Chunk] = []
+    if prelude_split:
+        prelude_map = [_abs(i) for i in range(len(prelude_split))]
+        candidate_lines = prelude_split + [""] + table_chunks[0].text.splitlines()
+        candidate_map = prelude_map + [None] + list(table_chunks[0].line_map or ())
+        if len("\n".join(candidate_lines)) <= max_chars:
+            table_chunks[0] = _replace_text(table_chunks[0], candidate_lines, candidate_map)
+        else:
+            result.extend(_surrounding_parts("prelude", prelude_split, prelude_map))
+
+    if postlude_split:
+        postlude_map = [
+            _abs(table_end + postlude_start + i) for i in range(len(postlude_split))
+        ]
+        candidate_lines = table_chunks[-1].text.splitlines() + [""] + postlude_split
+        candidate_map = list(table_chunks[-1].line_map or ()) + [None] + postlude_map
+        if len("\n".join(candidate_lines)) <= max_chars:
+            table_chunks[-1] = _replace_text(table_chunks[-1], candidate_lines, candidate_map)
+        else:
+            result.extend(table_chunks)
+            result.extend(_surrounding_parts("postlude", postlude_split, postlude_map))
+            return result
+
+    result.extend(table_chunks)
     return result
 
 
@@ -1037,6 +1168,9 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
     if num_map is not None and len(num_map) != len(lines):
         num_map = None  # defensive: a misaligned map must never misplace a citation
 
+    if num_map is not None and not any(n is not None for n in num_map):
+        return []
+
     # Detect breadcrumb preamble BEFORE char-windowing so we can size the
     # body cap correctly (every emitted chunk = preamble + \n + body slice).
     if num_map is not None:
@@ -1107,6 +1241,12 @@ def _line_wrap_chunk(chunk: Chunk, cap: int) -> list[Chunk]:
         window_end = window_start + len(window_lines) - 1
         windows.append((window_start, window_end, window_start_idx, window_lines))
 
+    # Count and label only source-bearing windows. Character-split pieces
+    # inherit their source entry, so filtering cannot discard row/prose text.
+    if body_map is not None:
+        windows = [window for window in windows
+                   if any(n is not None for n in body_map[window[2]:window[2] + len(window[3])])]
+
     out: list[Chunk] = []
     total = len(windows)
     base_section = chunk.section or ""
@@ -1167,11 +1307,12 @@ def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> 
     value applies to every chunk.
 
     Decomposition priority:
-    1. If the chunk contains an oversized markdown pipe table (header +
-       separator + many rows), decompose per-row with the header preserved
+    1. If the oversized chunk contains a markdown pipe table (header +
+       separator + data rows), decompose per-row with the header preserved
        on each emitted chunk via `_decompose_oversized_table_chunk`. This
        preserves column context which is the load-bearing retrieval-quality
        property for Decision Log / AC Priority / Risks tables in change docs.
+       Complete row groups may exceed the cap; they are never line-wrapped.
     2. Otherwise, line-window split with character-window fallback for
        single-line oversized content. Each derived chunk's `section` field
        gets a ` (part N/M)` suffix.
@@ -1191,22 +1332,9 @@ def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> 
         # 41K chars in committed change docs).
         table_chunks = _decompose_oversized_table_chunk(chunk, cap)
         if table_chunks is not None:
-            # Each emitted table chunk may itself still be over-cap (e.g., a
-            # single data row + header > cap on very wide tables under a low
-            # cap). Fall through to line/char-wrap for those residuals —
-            # don't recurse into `split_large_chunks`, which would re-enter
-            # the table path and infinite-loop.
-            # 1wngv delivery repair (RED-DEL-1): the decomposer owns the
-            # mapping now. The remap that used to live here re-derived every
-            # part's index from the TABLE HEAD, so parts 2..n were pinned to
-            # the header's lines; only the decomposer knows each group's row
-            # offset, and it emits a per-part line_map so an over-cap part
-            # line-wraps with absolute coordinates too.
-            for tc in table_chunks:
-                if len(tc.text) <= cap:
-                    result.append(tc)
-                else:
-                    result.extend(_line_wrap_chunk(tc, cap))
+            # A complete row and its headers are indivisible, even over cap.
+            # Keep the decomposer's source map and row coordinates intact.
+            result.extend(table_chunks)
             continue
 
         result.extend(_line_wrap_chunk(chunk, cap))
@@ -1717,7 +1845,9 @@ def chunk_markdown(
                 # start_line + 1 (the heading occupies start_line).
                 first_ln, last_ln = _line_bounds_after_strip(body)
                 prose_map = [start_line + 1 + i for i in range(first_ln, last_ln + 1)]
-                if not suppress_h3_split and len(prose) > H3_SPLIT_THRESHOLD_CHARS:
+                if (not suppress_h3_split
+                        and len(prose) > H3_SPLIT_THRESHOLD_CHARS
+                        and not _find_pipe_tables(prose, 0)):
                     for fw_chunk in chunk_line_window(prose, path):
                         rel_ws, rel_we = fw_chunk.lines
                         ws, we = _map_window_lines(prose_map, rel_ws, rel_we, fw_chunk.lines)
@@ -1759,7 +1889,8 @@ def chunk_markdown(
                 first_ln, last_ln = _line_bounds_after_strip(spliced)
                 prose_map = num_map[first_ln:last_ln + 1]
                 # For oversized sections without ### (line-window fallback), inject breadcrumb
-                if len(prose) > H3_SPLIT_THRESHOLD_CHARS:
+                if (len(prose) > H3_SPLIT_THRESHOLD_CHARS
+                        and not _find_pipe_tables(prose, 0)):
                     for fw_chunk in chunk_line_window(prose, path):
                         rel_ws, rel_we = fw_chunk.lines
                         ws, we = _map_window_lines(prose_map, rel_ws, rel_we, fw_chunk.lines)

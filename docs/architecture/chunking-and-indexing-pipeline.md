@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-06
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -302,7 +302,7 @@ Version differences trigger convergence, but they do not all require new embeddi
 - A `WALKER_VERSION` mismatch (currently `"15"`) forces a full rebuild because the eligible file
   set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
   12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
-- A `CHUNKER_VERSION` mismatch (currently `"41"`) selects `rechunk_all`: every eligible file is
+- A `CHUNKER_VERSION` mismatch (currently `"42"`) selects `rechunk_all`: every eligible file is
   reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
   Versions `40` and `41` (wave `1wpif`, `1wngv`) are such boundaries: `40` changed flat-emitter
   collision-group ids and spliced-prose window ids/coordinates; `41` corrects two stored
@@ -311,6 +311,10 @@ Version differences trigger convergence, but they do not all require new embeddi
   line instead of 1. Consumer indexes need the one-time `rechunk_all` pass before the identity
   and citation repairs take effect; non-colliding ids are preserved and unchanged chunk text
   keeps its vectors.
+  Version `42` (wave `1xa00`, `1x81x`) keeps complete table rows with their headers,
+  compacts generated header copies, and removes source-less mapped windows. The next
+  index update re-chunks eligible files; with model and walker unchanged, only new or
+  changed chunk text needs embedding.
 
 Both full rebuild and `rechunk_all` bypass ordinary per-file change detection; only the former
 necessarily recomputes every vector.
@@ -439,6 +443,31 @@ Markdown files are split at heading boundaries, not at a fixed character count.
    (`split_large_chunks`/`_line_wrap_chunk`, including the pipe-table decomposition)
    consumes.
 
+   Table decomposition treats the normal 2,000-character documentation limit as a
+   grouping target for every recognized table run in a section: every row-group chunk
+   retains at least one complete data row with
+   its header and separator, even if that unit exceeds the target (version `42`, wave
+   `1xa00`). The dispatcher never line-wraps a decomposed table group. When a header
+   remains at or above the target after compaction, it is emitted once with all complete
+   rows; repeating that irreducible header per row would make output grow quadratically.
+   A small table beside a large prelude or postlude still takes the table route.
+   Surrounding prose stays subject to the universal limit: it remains on the
+   first or final table group when the combined chunk fits and otherwise line-windows into
+   separate source-mapped chunks before, between, or after tables. Later table runs receive
+   deterministic table-qualified IDs instead of being line-wrapped as ordinary postlude. When copied
+   context exceeds half the target, later groups compact header padding and separator
+   hyphens while preserving escaped pipes and alignment colons; the first source-bearing
+   header stays verbatim. Stored row integrity does not expand the embedding model's
+   token budget.
+
+   Markdown sectioning preserves an oversized H2/H3 body containing a recognized pipe
+   table until this universal table-aware pass. Table-free oversized sections retain the
+   ordinary 120-line fallback; fixed windows must not sever later rows from their header.
+
+   Non-table mapped wrapping discards all-generated windows before deriving part totals,
+   labels and IDs, including entirely generated inputs. Every source-bearing character
+   fragment survives. Unmapped wrapping retains its existing output.
+
    **The coordinate contract, precisely** (chunker `41`, delivery repair): a chunk's `lines`
    is a contiguous **one-based absolute** range that **contains** its source-derived payload.
    Exactness is scoped by chunk class:
@@ -451,10 +480,10 @@ Markdown files are split at heading boundaries, not at a fixed character count.
      payload, which necessarily spans the excised lines a single contiguous range cannot
      exclude.
    - **Generated context is never counted as source text**: the injected breadcrumb, the
-     splice artifact left where a fence was removed, and the prelude plus table header that a
-     row-group part after the first repeats for column context all map to `None` in the line
-     map, so they never anchor a range. A row group's range is therefore exactly its own rows
-     (plus the postlude on the final part).
+     splice artifact left where a fence was removed, and the table header that a row-group
+     part after the first repeats for column context all map to `None` in the line map, so
+     they never anchor a range. A row group's range is therefore exactly its own rows, plus
+     any fitting prelude on the first part or postlude on the final part.
 
    `ChunkCoordinateContractTests` enforces this as a census over every markdown, rst, and adoc
    file in the repository: each prose chunk is classified exact / minimal-superset / wrong,
@@ -855,7 +884,7 @@ changed since the last run.
 
 | Constant                  | Value  | Effect of change                                 |
 |---------------------------|--------|--------------------------------------------------|
-| `CHUNKER_VERSION`         | `"41"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
+| `CHUNKER_VERSION`         | `"42"` | Chunker-only bump → re-chunk with embedding reuse (content-identical chunks keep their vectors); a model/walker change forces a full re-embed |
 | `WALKER_VERSION`          | `"15"` | Forces a full rebuild (re-walk the include set)  |
 | `WINDOW_SIZE`             | 120    | Line-window fallback window (lines per chunk)    |
 | `WINDOW_OVERLAP`          | 10     | Reserved; structured fallbacks often advance without overlap |
