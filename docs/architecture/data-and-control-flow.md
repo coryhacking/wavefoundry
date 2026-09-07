@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-05
+Last verified: 2026-09-07
 
 ## Primary Control Paths
 
@@ -146,10 +146,10 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 1. MCP client requests a **resource** or **resource template** URI via the MCP resources protocol
 2. **Stable resources** (`wavefoundry://overview`, `wavefoundry://prompts`, `wavefoundry://architecture/current-state`, `wavefoundry://wave/current`, `wavefoundry://session-handoff`, `wavefoundry://agents`, `wavefoundry://index/status`, `wavefoundry://graph/status`, `wavefoundry://graph/communities`, `wavefoundry://waves`): read the corresponding file(s) or index artifacts and return raw markdown text; missing files return a structured `# Not Found` markdown message
 3. **Resource templates** (`wavefoundry://change/{change_id}`, `wavefoundry://wave/{wave_id}`, `wavefoundry://prompt/{slug}`, `wavefoundry://seed/{slug}`, `wavefoundry://architecture/{slug}`): parameterized reads of the matching doc in `docs/` or `.wavefoundry/framework/seeds/`; matched by name prefix; unknown identifiers return `# Not Found`; ambiguous change/wave IDs return markdown candidate lists instead of silently choosing one match or reporting not-found
-4. All resource reads are **strictly read-only** — no writes, no side effects, no background refresh requests. Use tools when a structured response envelope (`diagnostics`, `next_tools`, `usage`) is needed.
+4. Resource reads are read-only by default: no writes, side effects, or background refresh requests. The one conditional exception is a missing `wavefoundry://codebase-map`: its fail-safe fallback may write `docs/references/codebase-map.md`, `.wavefoundry/index/graph/.codebase-map.fingerprint`, and the marker-bounded modules block in `docs/repo-index.md`. Reading an existing map writes nothing and performs no general freshness check. Use tools when a structured response envelope (`diagnostics`, `next_tools`, `usage`) is needed.
 
-**State read:** `docs/`, `.wavefoundry/framework/seeds/`
-**State written:** none
+**State read:** `docs/`, `.wavefoundry/framework/seeds/`; on the missing-map fallback, repository source/area topology, graph and cluster artifacts when present, per-area `AGENTS.md` files, the map fingerprint, and the marker-bounded modules block in `docs/repo-index.md`
+**State written:** none when the map exists; on the missing-map fallback, `docs/references/codebase-map.md`, `.wavefoundry/index/graph/.codebase-map.fingerprint`, and the marker-bounded modules block in `docs/repo-index.md`
 **Transport:** stdio (FastMCP MCP resources protocol)
 
 **State read (Path 6):** `.wavefoundry/index/`, `.wavefoundry/logs/context-efficiency.sqlite` when present, `docs/waves/`, `docs/plans/`, `docs/prompts/`, `docs/agents/session-handoff.md`

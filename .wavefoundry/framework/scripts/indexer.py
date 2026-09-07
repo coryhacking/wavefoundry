@@ -604,10 +604,10 @@ _PROJECT_STALE_IGNORE_PATHS = {
     ".wavefoundry/locks/dashboard-server.lock",  # merged lock + startup-metadata sidecar
     ".wavefoundry/guard-overrides.json",
     ".wavefoundry/logs/dashboard.log",
-    # Wave 1p601: the generated codebase map is a derived artifact, rewritten
-    # (change-only — see gen_codebase_map.generate_codebase_map) by the index build
-    # and at lifecycle checkpoints (prepare/close/upgrade), at moments decoupled from
-    # the index snapshot. It must NOT drive index staleness, or those regenerations
+    # Wave 1p601: the generated codebase map is a derived artifact, refreshed by
+    # create-mode prepare-and-open/close, upgrade, forced map-only MCP regeneration,
+    # the change-only generator CLI, or the missing-file resource fallback. It must
+    # NOT drive index staleness, or those regenerations
     # would trigger a redundant reindex for a derived artifact whose source inputs are
     # already tracked. (A normal resource read does NOT regenerate it — 1sq9h:
     # resource_codebase_map only writes the map when the file is missing.)
@@ -1762,7 +1762,7 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
                 continue
             layer_stale = False
             for rel, embedded_hash in state.items():
-                # 1sq9h: ignore-listed paths (e.g. the always-regenerated codebase map)
+                # 1sq9h: ignore-listed paths (e.g. the generated codebase map)
                 # are filtered out of walk_files and filtered_file_meta above; apply the
                 # same filter here so a recorded-but-ignored path is not read as
                 # "recorded path gone" (both maps lack it by construction) → the
@@ -5983,10 +5983,10 @@ def _build_index_locked(
 
     # Wave 1p601 (1p5x8): the codebase map is NOT regenerated here. The map lives
     # in the indexed docs/references/ tree, so regenerating it on every index
-    # build creates a self-referential write→reindex loop. Map regen is decoupled
-    # from the build and triggered at lifecycle (prepare/close), on upgrade,
-    # on-demand (index_build content="map" / CLI), and lazily on resource
-    # read (regenerate-if-stale) instead.
+    # build creates a self-referential write→reindex loop. Regeneration belongs to
+    # create-mode prepare-and-open/close, upgrade, forced index_build content="map",
+    # the direct change-only CLI, and the resource's missing-file fallback. Ready-only
+    # and dry-run lifecycle modes and reads of an existing map do not regenerate it.
 
     return summary
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-23
+Last verified: 2026-09-07
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -44,9 +44,9 @@ Wavefoundry is local-only and runs wherever a supported Python and AI host run. 
 
 *Reader summary:* the [codebase map](codebase-map.md) is a generated table of the code's major areas, key files, and entry points; agents read it before searching, and people can use it the same way.
 
-Before grep-thrashing or opening files, read `docs/references/codebase-map.md` — a generated, graceful-scaling map of this project's own codebase (built offline from the persisted graph + community-cluster artifacts and refreshed with the index build). It is the **index to the index**: it shows the bounded set of top-level areas, each with its responsibility, key files, and entry-point symbols, plus a drill-in handle. To go deeper, pass an area's stable `hub_node_id` to `code_graph_community`, or open its key files with `code_outline`. The map is read-only and regenerates on index build (or on demand via `wf codebase-map --root .`).
+Before grep-thrashing or opening files, read `docs/references/codebase-map.md` — a generated, graceful-scaling map of this project's own codebase, built offline from persisted graph + community-cluster artifacts. It is the **index to the index**: it shows the bounded set of top-level areas, each with its responsibility, key files, and entry-point symbols, plus a drill-in handle. To go deeper, pass an area's stable `hub_node_id` to `code_graph_community`, or open its key files with `code_outline`. The map refreshes during create-mode prepare-and-open/close, upgrade, forced `index_build(content="map")`, the direct change-only CLI, or the map resource's missing-file fallback. Ordinary index builds, ready-only/dry-run lifecycle modes, and reads of an existing map do not regenerate it.
 
-**Before working in an area, consult that area's `AGENTS.md` if one is present** — vendor-neutral per-area context (local conventions, gotchas, intent) for major areas only. The map links each area to its `AGENTS.md` when one exists; scaffold empty stubs with `wf codebase-map --scaffold-area-contexts` (humans author the content). The only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge; there are no per-folder `CLAUDE.md` bridge files.
+**Before working in an area, consult that area's `AGENTS.md` if one is present** — vendor-neutral per-area context (local conventions, gotchas, intent) for major areas only. The map names each existing file as an inline-code repo-relative path; scaffold empty stubs with `wf codebase-map --scaffold-area-contexts` (humans author the content). The only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge; there are no per-folder `CLAUDE.md` bridge files.
 
 ## Repository Structure
 

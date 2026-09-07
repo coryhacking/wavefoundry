@@ -907,8 +907,8 @@ class ProjectIndexInputsStaleTests(unittest.TestCase):
         self.assertTrue(self.bi.project_index_inputs_stale(self.root, meta))
 
     def test_generated_codebase_map_does_not_drive_staleness(self):
-        # Wave 1p601: writing the regenerated codebase map (at prepare/close/upgrade/
-        # resource-read) must NOT mark the index stale — otherwise it would trigger
+        # Wave 1p601: writing the generated codebase map through create-mode lifecycle,
+        # upgrade, map-only/CLI, or missing-file resource paths must NOT mark the index stale — otherwise it would trigger
         # a reindex (the write→reindex coupling the decoupling eliminates).
         meta = self._build_meta()
         map_path = self.root / "docs" / "references" / "codebase-map.md"
@@ -5025,7 +5025,7 @@ class ProjectLayerFreshnessTests(_EpochBuildCase):
         self.assertEqual(v["reason"], "current")
 
     def test_ignore_listed_recorded_state_path_stays_current(self):
-        """1sq9h regression: an ignore-listed path (the always-regenerated
+        """1sq9h regression: an ignore-listed path (the generated
         codebase map) is stamped into docs layer state by the build but is
         filtered out of the freshness walk and snapshot. It must NOT be read
         as 'recorded path gone'. Pre-fix this returned stale=True / reason
@@ -5034,7 +5034,7 @@ class ProjectLayerFreshnessTests(_EpochBuildCase):
         _make_repo(self.root, {
             "src/foo.py": "def f(): return 1\n",
             "docs/guide.md": "## Intro\n\nHello.\n",
-            "docs/references/codebase-map.md": "# Codebase Map\n\nGenerated every build.\n",
+            "docs/references/codebase-map.md": "# Codebase Map\n\nGenerated artifact.\n",
         })
         self._run_build(full=True)
         # Non-vacuity precondition: the ignore-listed path really is recorded in

@@ -493,8 +493,8 @@ class OversizedSubdivisionTests(unittest.TestCase):
         self.assertEqual(len(scripts_areas), 1)
 
 
-class MapLinkHrefTests(unittest.TestCase):
-    """Area->AGENTS.md link present iff the file exists, with a map-relative href."""
+class MapAreaContextPathTests(unittest.TestCase):
+    """Area context is an intact repo-relative prose path iff the file exists."""
 
     def setUp(self):
         self.gen = load_gen()
@@ -505,23 +505,21 @@ class MapLinkHrefTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_no_link_when_agents_md_absent(self):
+    def test_no_area_context_when_agents_md_absent(self):
         model = self.gen.compute_areas(self.root)
         md = self.gen.render_markdown(model, root=self.root)
         self.assertNotIn("Area context:", md)
 
-    def test_link_present_with_map_relative_href_when_file_exists(self):
+    def test_repo_relative_prose_path_present_when_file_exists(self):
         model = self.gen.compute_areas(self.root)
         area = model.areas[0]
         rel = self.gen._area_context_rel_path(area)
         (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
         (self.root / rel).write_text("# stub\n", encoding="utf-8")
-        href = self.gen._area_context_link_href(rel)
         md = self.gen.render_markdown(model, root=self.root)
-        self.assertIn(f"]({href})", md)
-        # The href is map-relative (starts with ../), never a bare repo-root path
-        # that docs-lint would resolve under docs/references/ and flag as broken.
-        self.assertTrue(href.startswith("../"), href)
+        self.assertIn(f"- Area context: `{rel}` — conventions/gotchas; ", md)
+        self.assertNotIn(f"]({rel})", md)
+        self.assertNotIn(f"[{rel}]", md)
 
 
 class AreaContextWalkUpResolverTests(unittest.TestCase):
@@ -587,8 +585,29 @@ class AreaContextWalkUpResolverTests(unittest.TestCase):
             self.gen._resolve_area_context_rel_path(self.root, area), "AGENTS.md"
         )
 
+    def test_root_area_renders_repo_root_path_as_prose(self):
+        self._write("AGENTS.md")
+        area = self._area("(root)")
+        model = self.gen.CodebaseMapModel(
+            present=True,
+            reason="",
+            layer="project",
+            areas=(area,),
+            total_area_count=1,
+            truncated=False,
+            grouping="package-directory",
+            cluster_builder_version="10",
+            cluster_schema_version="1",
+            graph_builder_version="31",
+            file_count=1,
+            symbol_count=1,
+        )
+        md = self.gen.render_markdown(model, root=self.root)
+        self.assertIn("- Area context: `AGENTS.md` — conventions/gotchas; ", md)
+        self.assertNotIn("[AGENTS.md]", md)
+
     def test_repo_root_excluded_for_non_root_area(self):
-        # Only the repo-root AGENTS.md exists — a non-root area must NOT link it.
+        # Only the repo-root AGENTS.md exists — a non-root area must NOT name it.
         self._write("AGENTS.md")
         area = self._area("libs/ui/src/components/buttons")
         self.assertIsNone(self.gen._resolve_area_context_rel_path(self.root, area))
@@ -606,8 +625,8 @@ class AreaContextWalkUpResolverTests(unittest.TestCase):
                 self.gen._resolve_area_context_rel_path(self.root, area), first
             )
 
-    def test_render_links_ancestor_file(self):
-        # End-to-end: a deep area links its project-root AGENTS.md in the map.
+    def test_render_names_ancestor_file_as_prose(self):
+        # End-to-end: a deep area names its project-root AGENTS.md as an intact path.
         self._write("libs/ui/AGENTS.md")
         area = self._area("libs/ui/src/components/buttons")
         model = self.gen.CodebaseMapModel(
@@ -625,8 +644,10 @@ class AreaContextWalkUpResolverTests(unittest.TestCase):
             symbol_count=1,
         )
         md = self.gen.render_markdown(model, root=self.root)
-        self.assertIn("Area context:", md)
-        self.assertIn("libs/ui/AGENTS.md", md)
+        self.assertIn(
+            "- Area context: `libs/ui/AGENTS.md` — conventions/gotchas; ", md
+        )
+        self.assertNotIn("[libs/ui/AGENTS.md]", md)
 
 
 class DeterminismTests(unittest.TestCase):
@@ -1342,15 +1363,34 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class AreaContextHrefPortabilityTests(unittest.TestCase):
-    """1p6d6: _area_context_link_href emits forward-slash hrefs on EVERY OS (posixpath, not
-    os.path.relpath which is ntpath.relpath on Windows -> backslash href that breaks the map
-    link + docs-lint)."""
+class AreaContextPathPortabilityTests(unittest.TestCase):
+    """The renderer preserves a slash-normalized repo-relative path on every OS."""
 
-    def test_href_is_forward_slash_on_all_os(self):
+    def test_nested_path_is_intact_prose_with_no_markdown_destination(self):
         gen = load_gen()
-        href = gen._area_context_link_href("libs/ui/AGENTS.md")
-        self.assertNotIn("\\", href)
-        self.assertIn("/", href)
-        # docs/references/codebase-map.md -> two levels up to the repo-root path
-        self.assertEqual(href, "../../libs/ui/AGENTS.md")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            area = gen.CodebaseArea(
+                area_id="design-system",
+                name="design system",
+                representative_path="docs/design-system/components",
+                responsibility="design system",
+                key_files=(),
+                key_symbols=(),
+                hub_node_id="hub",
+                community_ids=("c1",),
+                node_count=1,
+                boundary_node_count=0,
+            )
+            target = root / "docs" / "design-system" / "AGENTS.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("# context\n", encoding="utf-8")
+            model = gen.CodebaseMapModel(
+                present=True, reason="", layer="project", areas=(area,),
+                total_area_count=1, truncated=False, grouping="package-directory",
+                cluster_builder_version="10", cluster_schema_version="1",
+                graph_builder_version="31", file_count=1, symbol_count=1,
+            )
+            md = gen.render_markdown(model, root=root)
+            self.assertIn("`docs/design-system/AGENTS.md`", md)
+            self.assertNotIn("[docs/design-system/AGENTS.md]", md)

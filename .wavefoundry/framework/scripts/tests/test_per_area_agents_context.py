@@ -1,6 +1,6 @@
 """Wave 1p5xc (1p5x8 large-codebase-map) — per-area AGENTS.md context.
 
-Covers: idempotent stub scaffolding (no overwrite, stub-only), map linking an
+Covers: idempotent stub scaffolding (no overwrite, stub-only), map naming an
 area to its AGENTS.md when present, the root @AGENTS.md bridge in CLAUDE.md (no
 prose-only pointer), no @import outside root, no subdirectory CLAUDE.md, and the
 seed-first convention + operating-instruction weave.
@@ -125,8 +125,8 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(gen.scaffold_area_contexts(root), [])
 
 
-class MapLinkTests(unittest.TestCase):
-    def test_links_area_to_agents_md_when_present(self) -> None:
+class MapAreaContextPathTests(unittest.TestCase):
+    def test_names_area_agents_md_as_prose_when_present(self) -> None:
         gen = load_gen()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -134,22 +134,17 @@ class MapLinkTests(unittest.TestCase):
             model = gen.compute_areas(root)
             area = model.areas[0]
             rel = gen._area_context_rel_path(area)
-            href = gen._area_context_link_href(rel)  # map-relative (resolves under docs-lint)
-
-            # Without the file: no link.
+            # Without the file: no area-context reference.
             md_no = gen.render_markdown(model, root=root)
-            self.assertNotIn(f"]({href})", md_no)
+            self.assertNotIn("Area context:", md_no)
 
-            # With the file present: link rendered. The href is relative to the
-            # rendered map's directory (docs/references), NOT a repo-root path —
-            # otherwise docs-lint reports a broken link (the 1p5xc bug).
+            # With the file present: preserve the full repo-relative path as prose.
             dest = root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text("# stub\n", encoding="utf-8")
             md_yes = gen.render_markdown(model, root=root)
-            self.assertIn(f"]({href})", md_yes)
-            self.assertIn(f"[{rel}]", md_yes)  # display text is the repo-root path
-            self.assertIn("Area context:", md_yes)
+            self.assertIn(f"- Area context: `{rel}` — conventions/gotchas; ", md_yes)
+            self.assertNotIn(f"[{rel}]", md_yes)
 
 
 class RootBridgeTests(unittest.TestCase):

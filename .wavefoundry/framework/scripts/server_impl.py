@@ -4586,13 +4586,12 @@ def _load_script(name: str) -> Any:
 
 
 def _regenerate_codebase_map_safe(root: Path) -> bool:
-    """Fail-safe codebase-map regen for lifecycle checkpoints (wave 1p601).
+    """Fail-safe codebase-map regeneration for create-mode lifecycle checkpoints.
 
-    Map regen is decoupled from the index build; instead it fires at the
-    prepare-wave / close-wave lifecycle checkpoints so the committed artifact
-    stays fresh. ``generate_safe`` is change-only/idempotent (an unchanged
-    codebase is a no-op). All exceptions are swallowed — regenerating the map
-    must NEVER fail prepare or close.
+    Ordinary index builds do not regenerate the map. This helper is called only
+    by create-mode prepare-and-open and create-mode close. ``generate_safe`` is
+    change-only/idempotent, and all exceptions are swallowed so regeneration
+    never changes either lifecycle result.
     """
     try:
         gen = _load_script("gen_codebase_map")
@@ -18184,8 +18183,8 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             root,
             [wave_md, *(_wave_change_doc_path(root, wave_md, change_id) for change_id in change_ids)],
         )
-    # Wave 1p601: refresh the codebase map at the prepare-wave lifecycle
-    # checkpoint (fail-safe — never affects the prepare result).
+    # Wave 1p601: only create-mode prepare-and-open refreshes the codebase map;
+    # ready and dry-run modes never do (fail-safe — never affects the result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
     resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "transitioned_to_active": transitioned_to_active, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid, "review_policy": policy_response}
@@ -19821,8 +19820,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             handoff.write_text(converged, encoding="utf-8")
         handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
         _trigger_background_index_refresh_for_paths(root, [wave_md, handoff])
-    # Wave 1p601: refresh the codebase map at the close-wave lifecycle
-    # checkpoint (fail-safe — never affects the close result).
+    # Wave 1p601: only create-mode close refreshes the codebase map; dry-run does
+    # not (fail-safe — never affects the result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
     envelope = _response(
@@ -32986,9 +32985,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           and ``code_graph_community`` lives in the graph layer. Pass ``content='graph'`` to
           refresh it (the semantic ``docs``/``code`` rebuilds do NOT touch the graph).
         - ``map`` — regenerate **only the codebase map** (``docs/references/codebase-map.md``)
-          from the existing graph/cluster artifacts (wave 1p601). The ~0.09 s map-only refresh;
-          no full index rebuild, fail-safe, and change-only (a no-op when nothing changed).
-          The map also regenerates automatically on every other rebuild path. Newly registered
+          from the existing graph/cluster artifacts (wave 1p601). This path forces a render,
+          performs no full index rebuild, and remains fail-safe. Ordinary index builds do not
+          regenerate the map. Newly registered
           MCP resources are startup-bound and require reconnect/restart. For new tools or tool
           options, start a fresh turn first; reconnect only if the schema is still stale, and
           restart the host last. The server cannot observe whether a client adopted the change.
@@ -34922,9 +34921,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def resource_codebase_map() -> str:
         """Serve docs/references/codebase-map.md, regenerating fail-safe if missing.
 
-        Mirrors the wavefoundry://graph/* resource pattern. The map is normally
-        kept fresh by the index build (every rebuild path regenerates it); if the
-        file is missing we regenerate on demand (fail-safe — never raises)."""
+        An existing map is read without a freshness check or any write. If the
+        file is missing, ``generate_safe`` may write the map, its graph fingerprint,
+        and the marker-bounded modules block in ``docs/repo-index.md``. The fallback
+        is fail-safe and never raises into the resource read."""
         _root = get_handler().root
         try:
             gen = _load_script("gen_codebase_map")

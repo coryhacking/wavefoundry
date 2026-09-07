@@ -10,6 +10,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Codebase maps no longer link to unpublished agent guidance.** Area-context entries show the
+  complete repository-relative `AGENTS.md` path as readable text, so users can still find the
+  relevant guidance without encountering broken TechDocs links. The map also explains exactly
+  when it refreshes, making generated output easier to keep current. Wave
+  `1vt2t techdocs-cost-ceiling-and-map-links` / change
+  `1vt2s-enh codebase-map-area-agents-prose-paths`.
+
 - **Review outputs reuse existing wave records by default.** Briefings, reviewer reports,
   rechecks and smoke-test results go through the coordinator into the existing review ledger
   and wave summary. Separate Markdown artifacts need a distinct lasting purpose or an explicit

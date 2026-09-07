@@ -12,7 +12,7 @@ Read in this order at the start of every session:
 
 Before editing any repository code or framework seeds, read the **Stage Gate (repository code)** and **Framework Script Hygiene** sections below.
 
-**Before working in an area of the codebase, consult that area's `AGENTS.md` if one is present** (vendor-neutral per-area context — local conventions, gotchas, intent). Orient first from `docs/references/codebase-map.md`, which routes you to the right area and links its `AGENTS.md` when one exists. There are no per-folder `CLAUDE.md` bridge files; the only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge.
+**Before working in an area of the codebase, consult that area's `AGENTS.md` if one is present** (vendor-neutral per-area context — local conventions, gotchas, intent). Orient first from `docs/references/codebase-map.md`, which routes you to the right area and names its repo-relative `AGENTS.md` path when one exists. There are no per-folder `CLAUDE.md` bridge files; the only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge.
 
 ## Codebase and documentation questions (auto-Guru)
 

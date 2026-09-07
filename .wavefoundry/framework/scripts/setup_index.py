@@ -1837,9 +1837,10 @@ def build_index(
     )
     # Wave 1p601: the codebase map is decoupled from the index build (it lives in
     # the indexed docs/references/ tree, so regenerating on every build would
-    # create a write→reindex loop). No map regen here. The map is refreshed at
-    # lifecycle (prepare/close), on upgrade, on-demand (index_build
-    # content="map" / CLI), and lazily on resource read.
+    # create a write→reindex loop). No map regen here. The owners are create-mode
+    # prepare-and-open/close, upgrade, forced index_build content="map", the direct
+    # change-only CLI, and the resource's missing-file fallback. Ready-only/dry-run
+    # lifecycle modes and reads of an existing map do not regenerate it.
 
 
 def _coerce_prefix_list(raw: object) -> tuple[str, ...]:

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-18
+Last verified: 2026-09-07
 
 Wavefoundry is an agent harness: the Wave Framework seed pack, the framework scripts that do the mechanical lifecycle work, a local MCP server that AI coding agents talk to over stdio, and an optional loopback-only dashboard. Installed into a target repository, it wraps AI coding agents with feedforward guidance (seed prompts), feedback sensors (computational checks and reviewer lanes), and structural lifecycle enforcement, and it keeps that state in plain files that survive context loss ([Project overview](references/project-overview.md), What Wavefoundry Is). Wavefoundry is a framework and tooling repository, not a product application; it ships no networked service ([Architecture](ARCHITECTURE.md), Scope). The MCP server is one Python process, `server.py`, that builds a FastMCP app and runs it over stdio (`server.build_server`, `server.py` lines 486-563; `server.main`, lines 582-624).
 
@@ -46,7 +46,7 @@ Agents reach the index and the repository through MCP tool families; every tool 
 | Agent memory | `memory_add`, `memory_propose`, `memory_search` |
 | Index operations | `index_health`, `index_build`, `index_build_status` |
 
-Read-only MCP resources such as `wavefoundry://overview` and `wavefoundry://waves` expose the same documents without a tool call (the `@mcp.resource` registrations in `server_impl.register_mcp_surface`; [Data and control flow](architecture/data-and-control-flow.md), Path 6b step 2). Retrieval design lives in [Search architecture](architecture/search-architecture.md) and [Graph index system](architecture/graph-index-system.md); the full tool contract is `docs/specs/mcp-tool-surface.md` (repository path, outside this site). Before opening files, the generated [codebase map](references/codebase-map.md) shows the code's major areas and entry points (its per-area "Area context" entries link to `AGENTS.md` files that this site does not publish, which `wf techdocs-audit` reports as two `techdocs_link_outside_boundary` findings; the repair belongs in `gen_codebase_map._area_context_link_href`, which should emit those targets as prose paths).
+Read-only MCP resources such as `wavefoundry://overview` and `wavefoundry://waves` expose the same documents without a tool call (the `@mcp.resource` registrations in `server_impl.register_mcp_surface`; [Data and control flow](architecture/data-and-control-flow.md), Path 6b step 2). Retrieval design lives in [Search architecture](architecture/search-architecture.md) and [Graph index system](architecture/graph-index-system.md); the full tool contract is `docs/specs/mcp-tool-surface.md` (repository path, outside this site). Before opening files, the generated [codebase map](references/codebase-map.md) shows the code's major areas and entry points. Its per-area "Area context" entries preserve existing `AGENTS.md` targets as inline-code repo-relative prose paths, so the TechDocs publication audit reports zero boundary findings for them while agents retain the routing information.
 
 > **Docs gate.** Every page under `docs/` carries `Owner`, `Status`, and `Last verified` metadata and passes docs lint. Agents run `wf_validate_docs` and `wf_garden_docs` over MCP (`wf_validate_docs` and `wf_garden_docs`, `server_impl.py`; `docs_gardener.gardener_run`, lines 282-320); the CLI fallback is `wf docs-lint` (`wf_cli.py` line 37, writer-verified).
 
