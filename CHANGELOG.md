@@ -10,6 +10,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Planning and implementation now check understanding before dependent work.** Agents reuse
+  known context, ask only consequential questions, and briefly restate intended behavior.
+  Optional plan review checks the draft against the brief, helping catch misunderstandings
+  without adding approval steps or extra documents. Upgrade guidance carries these changes
+  into existing project prompts while preserving local customizations. Wave `1xhgc`.
+
 - **Refresh TechDocs now recommends repairs that change the published result.** Its guidance
   explains that removing a page from navigation does not unpublish it, adding `repo_url` does not
   rewrite Markdown links, and `exclude_docs` rules have distinct file and directory precedence.

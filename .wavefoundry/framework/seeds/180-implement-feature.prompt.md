@@ -94,6 +94,12 @@ Readiness handoff:
 
 `Prepare wave` owns the single pre-code critique: failure-first analysis, packet completeness, and the current readiness approval. Before editing, consume that approval and the ordered implementation plan. Do not repeat the critique or mint a second approval inside `Implement wave`.
 
+**Readback before editing:**
+
+Before the first implementation edit of each change, record a concise `Readback:` in its existing Progress Log and surface its substance to the operator: intended behavior, relevant ACs, important scope boundary, and expected affected files. Include one before/after example for nontrivial behavior changes; keep clear tasks brief.
+
+Correct an agent-only misreading directly from the established requirement. Route an actual contract contradiction or missing consequential decision back to planning under existing escalation rules, pausing only dependent work. A readback correction is not automatically Level 3 and adds no second approval. Refresh only materially changed understanding after scope changes or handoff; do not repeat an unchanged readback or create another artifact.
+
 MCP-first code exploration:
 
 Reading code is not executing it: this exploration order locates and explains code, but a load-bearing claim about behavior (a mechanism repairs its defect, a dispatch path validates an object, a census is complete) is verified by executing it (a test, a probe, a real invocation), and following this order perfectly is not, by itself, verification (seed-209, "Code-Grounded Verification").

@@ -23,6 +23,12 @@ Before reviewing, consult all available project resources to self-answer questio
 - `docs/waves/` — prior wave records, change history, decision logs
 - Any other checked-in project knowledge base artifact
 
+**Compare the draft with its brief:**
+
+At the start of this optional review, compare drafted Requirements, Acceptance Criteria, and Scope against the brief in Rationale, the operator's request, and relevant established context. When no change is specified, use the corresponding current-wave planning content. Consider what is strong, vague, missing, removable, or less useful to the consumer; report only meaningful observations and feed unresolved discrepancies into the existing decision-branch walk.
+
+Read Rationale as reference for the brief, without reopening the whole section or resolved Decision Log entries. New ideas remain proposals, not authorized scope. This comparison adds no document, gate, or signoff; preserve the existing stop condition and one-question-at-a-time flow.
+
 Plan-review contract:
 
 1. Walk every unresolved decision branch in the change doc's **Requirements**, **Acceptance Criteria**, and **Scope** sections, or the corresponding planning sections of the current wave record when no change is specified.
@@ -40,7 +46,7 @@ Scope of plan review:
 
 - Bounded to the **Requirements**, **Acceptance Criteria**, and **Scope** sections of the change doc (or current wave record when no change doc is specified).
 - Do not re-derive the full plan from scratch or extend this into a re-planning exercise.
-- Do not review sections outside Requirements, Acceptance Criteria, and Scope — explicitly resolved Decision Log entries are not in scope.
+- Use the brief in Rationale as reference; review decisions remain bounded to Requirements, Acceptance Criteria, and Scope. Explicitly resolved Decision Log entries are not in scope.
 - Do not require the operator to answer questions that project resources already answer.
 
 Required output:

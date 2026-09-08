@@ -2,13 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-08
 
 Shortcut: **`Plan feature`**
 
 ## Purpose
 
 Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admission and **Prepare wave** are required before implementation begins.
+
+**Brief before drafting:**
+
+Reuse the request, prior answers, and relevant project context before the Divergent Pre-Plan. Establish the relevant goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success. Put the brief in the existing Rationale and summarize it to the operator before dependent drafting. For clear tasks, one concise sentence can suffice; do not require a field-filling interview or confirmation.
+
+Ask only questions whose answers materially change the result: at most three for small tasks and five for complex tasks per briefing pass, ceilings rather than quotas. Do not repeat known questions or restart a pass to evade the budget. State assumptions only for reversible implementation choices within established scope. Keep unresolved goal, scope, acceptance, or authorization decisions open until answered; pause dependent work and continue independent work while waiting. Silence is neither an answer nor approval. Reuse established durable preferences without creating another brief file.
 
 ## Steps
 

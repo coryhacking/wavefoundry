@@ -77,6 +77,194 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
     test.assertIn('memory_consolidate(mode="dry_run")', read_only)
 
 
+class BriefingLoopCarrierTests(unittest.TestCase):
+    """Distribution/semantic pins, not a claim that agents always follow prose."""
+
+    CARRIERS = {
+        "brief": (
+            ".wavefoundry/framework/seeds/170-plan-feature.prompt.md",
+            "docs/prompts/plan-feature.prompt.md",
+        ),
+        "readback": (
+            ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+            ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
+            "docs/prompts/implement-feature.prompt.md",
+            "docs/prompts/implement-wave.prompt.md",
+        ),
+        "gap": (
+            ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+            "docs/prompts/review-plan.prompt.md",
+        ),
+        "upgrade": (
+            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+            "docs/prompts/upgrade-wavefoundry.prompt.md",
+        ),
+    }
+    HEADINGS = {
+        "brief": "**Brief before drafting:**",
+        "readback": "**Readback before editing:**",
+        "gap": "**Compare the draft with its brief:**",
+        "upgrade": "- **Changed briefing-loop carriers.**",
+    }
+    # Independent obligations: equality alone would accept two broken copies.
+    CLAUSES = {
+        "brief": (
+            "Reuse the request, prior answers, and relevant project context",
+            "before the Divergent Pre-Plan",
+            "goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success",
+            "existing Rationale and summarize it to the operator before dependent drafting",
+            "one concise sentence can suffice",
+            "do not require a field-filling interview or confirmation",
+            "at most three for small tasks and five for complex tasks",
+            "ceilings rather than quotas",
+            "Do not repeat known questions or restart a pass to evade the budget",
+            "assumptions only for reversible implementation choices within established scope",
+            "Keep unresolved goal, scope, acceptance, or authorization decisions open until answered",
+            "pause dependent work and continue independent work",
+            "Silence is neither an answer nor approval",
+            "without creating another brief file",
+        ),
+        "readback": (
+            "Before the first implementation edit of each change",
+            "`Readback:` in its existing Progress Log and surface its substance to the operator",
+            "intended behavior, relevant ACs, important scope boundary, and expected affected files",
+            "one before/after example for nontrivial behavior changes",
+            "Correct an agent-only misreading directly",
+            "actual contract contradiction or missing consequential decision back to planning",
+            "pausing only dependent work",
+            "not automatically Level 3 and adds no second approval",
+            "Refresh only materially changed understanding",
+            "do not repeat an unchanged readback or create another artifact",
+        ),
+        "gap": (
+            "At the start of this optional review",
+            "Requirements, Acceptance Criteria, and Scope against the brief in Rationale",
+            "operator's request, and relevant established context",
+            "When no change is specified, use the corresponding current-wave planning content",
+            "strong, vague, missing, removable, or less useful to the consumer",
+            "report only meaningful observations",
+            "feed unresolved discrepancies into the existing decision-branch walk",
+            "Read Rationale as reference for the brief, without reopening the whole section or resolved Decision Log entries",
+            "New ideas remain proposals, not authorized scope",
+            "adds no document, gate, or signoff",
+            "preserve the existing stop condition and one-question-at-a-time flow",
+        ),
+        "upgrade": (
+            "Retain the read-only pre-apply change evidence for the seeds and install baseline",
+            "After extraction",
+            "during the same installing run",
+            "`170-plan-feature.prompt.md` -> `docs/prompts/plan-feature.prompt.md`",
+            "`175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`",
+            "`180-implement-feature.prompt.md` -> `docs/prompts/implement-feature.prompt.md`",
+            "`.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `docs/prompts/implement-wave.prompt.md`",
+            "Merge only changed authored clauses",
+            "preserving project additions, metadata, and every renderer-owned marker region",
+            "verify a unique insertion location and absence of conflicting local instructions",
+            "If the old clause or insertion location is ambiguous, or local intent conflicts, stop and present the conflict",
+            "Never replace a whole destination or silently omit a changed mapping",
+            "Missing-only baseline rendering does not update existing authored prose",
+            "run `wf render-surfaces` after reconciliation for the regions it owns",
+        ),
+    }
+
+    def _block(self, kind: str, text: str) -> str:
+        heading = self.HEADINGS[kind]
+        self.assertEqual(text.count(heading), 1)
+        tail = text.split(heading, 1)[1]
+        # New blocks contain at most two paragraphs (upgrade has a mapping list).
+        boundary = (r"\n ?- \*\*Changed Prepare" if kind == "upgrade"
+                    else r"\n(?:## |[A-Z][^\n]*:\n)")
+        body = re.split(boundary, tail, maxsplit=1)[0].strip()
+        self.assertTrue(body)
+        self.assertNotIn("\u2014", body)
+        return body
+
+    def _assert_contract(self, kind: str, text: str) -> str:
+        body = self._block(kind, text)
+        for clause in self.CLAUSES[kind]:
+            self.assertIn(clause, body)
+        if kind == "gap":
+            self.assertNotIn("Do not review sections outside Requirements", text)
+        return body
+
+    def test_each_carrier_independently_satisfies_contract_and_matches(self) -> None:
+        for kind, paths in self.CARRIERS.items():
+            bodies = []
+            for path in paths:
+                with self.subTest(kind=kind, path=path):
+                    bodies.append(self._assert_contract(kind, (PROJECT_ROOT.parent / path).read_text()))
+            self.assertTrue(bodies)
+            self.assertTrue(all(body == bodies[0] for body in bodies))
+
+    def test_deleted_empty_and_reversed_clauses_are_detected_in_every_carrier(self) -> None:
+        for kind, paths in self.CARRIERS.items():
+            for path in paths:
+                original = (PROJECT_ROOT.parent / path).read_text()
+                body = self._assert_contract(kind, original)
+                mutants = [original.replace(self.HEADINGS[kind], "", 1), original.replace(body, "", 1)]
+                for clause in self.CLAUSES[kind]:
+                    # Mutate only this block: a repeated phrase in unrelated
+                    # upgrade guidance must not mask a missing instruction.
+                    mutants.append(original.replace(body, body.replace(clause, "", 1), 1))
+                reversals = {
+                    "brief": (
+                        ("Silence is neither an answer nor approval", "Silence is approval"),
+                        ("Keep unresolved goal, scope, acceptance, or authorization decisions open until answered", "Assume unresolved goal, scope, acceptance, or authorization decisions are approved"),
+                        ("ceilings rather than quotas", "mandatory question quotas"),
+                    ),
+                    "readback": (
+                        ("Before the first implementation edit", "After the first implementation edit"),
+                        ("Correct an agent-only misreading directly", "Escalate every agent-only misreading for operator approval"),
+                        ("not automatically Level 3 and adds no second approval", "always Level 3 and requires a second approval"),
+                    ),
+                    "gap": (
+                        ("Read Rationale as reference for the brief", "Never read Rationale"),
+                        ("New ideas remain proposals, not authorized scope", "New ideas automatically become authorized scope"),
+                    ),
+                    "upgrade": (
+                        ("during the same installing run", "during a future optional run"),
+                        ("Merge only changed authored clauses", "Replace entire destination files"),
+                        ("stop and present the conflict", "overwrite the conflicting local intent"),
+                    ),
+                }
+                for before, after in reversals[kind]:
+                    self.assertIn(before, body)
+                    mutants.append(original.replace(body, body.replace(before, after, 1), 1))
+                for index, mutant in enumerate(mutants):
+                    with self.subTest(kind=kind, path=path, mutant=index):
+                        self.assertNotEqual(mutant, original)
+                        with self.assertRaises(AssertionError):
+                            self._assert_contract(kind, mutant)
+
+    def test_real_render_creates_baseline_and_preserves_customized_carriers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            written = ras.render_agent_surfaces(root)
+            target = root / "docs/prompts/implement-wave.prompt.md"
+            self.assertIn("docs/prompts/implement-wave.prompt.md", written)
+            self._assert_contract("readback", target.read_text())
+            self.assertNotIn("{{generated_at}}", target.read_text())
+            # Review-plan baseline delegates to the seed; other authored prompts
+            # are not claimed to be whole-file renderer outputs.
+            review = root / "docs/prompts/review-plan.prompt.md"
+            self.assertIn("175-review-plan.prompt.md", review.read_text())
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            snapshots = {}
+            for name in ("plan-feature", "review-plan", "implement-feature", "implement-wave"):
+                relative = f"docs/prompts/{name}.prompt.md"
+                custom = ("# Project prompt\n\nOwner: Local team\nStatus: active\n"
+                          "Last verified: 2026-01-01\n\nKeep project-specific output conventions.\n")
+                (root / relative).write_text(custom)
+            ras.render_agent_surfaces(root)  # Establish the renderer-owned regions.
+            for name in ("plan-feature", "review-plan", "implement-feature", "implement-wave"):
+                target = root / f"docs/prompts/{name}.prompt.md"
+                self.assertTrue(target.read_text().startswith(custom))
+                snapshots[target] = target.read_bytes()
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            for target, expected in snapshots.items():
+                self.assertEqual(target.read_bytes(), expected)
+
+
 class MemoryReviewPromptTests(unittest.TestCase):
     def test_prompt_contract_and_known_bad_controls(self) -> None:
         prompt = (
