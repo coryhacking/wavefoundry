@@ -1833,15 +1833,16 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             result, count = self._attempt(root, pack, mod=mod)
             self.assertEqual((result, count), (1, 0)); self.assertEqual(external.read_bytes(), b"sentinel")
 
-    def test_upgrade_guidance_pins_staged_entry_before_normal_flow(self):
-        heading = "**First upgrade from an unfixed protocol-2 runner (retry-safe pruning):**"
+    def test_upgrade_guidance_keeps_standard_path_and_explains_first_hop_risk(self):
+        heading = "**Standard upgrade path and first-hop retry protection:**"
         obligations = (
-            "overrides the normal MCP-first/installed-CLI primary entry",
-            "new, separate temporary staging directory, never into the destination",
-            "`--root <absolute-destination>`", "`--pack <absolute-selected-archive>`",
-            "First use `--dry-run` and retain its pre-apply change evidence",
-            "Stage the complete framework, not just its upgrade script",
-            "retry the same staged runner and target pack",
+            "normal MCP-first `wf_upgrade()` flow, including index update and cleanup",
+            "installed CLI fallback only when MCP is unavailable",
+            "does not require inspecting it for `_save_old_manifest_snapshot` or staging",
+            "first upgrade into 1.22.0 runs with the installed older runner",
+            "a retry may lack the original authority needed to remove retired framework files",
+            "Subsequent upgrades launched with the fixed installed runner",
+            "preserve it and retry the same target pack",
             "only observed successful pruning retires it",
             "cannot reconstruct authority already lost",
         )

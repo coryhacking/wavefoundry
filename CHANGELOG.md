@@ -18,10 +18,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Failed upgrades retain the information needed to remove retired framework files on retry.**
   Recovery reuses the original manifest even after partial extraction, preserves project-created
-  files, and refuses switching targets while recovery is unfinished. For the upgrade delivering
-  this fix to an older protocol-2 installation, first stage the complete new pack outside the
-  destination and run its upgrader with `--root <destination> --pack <archive>`; the upgrade
-  guidance includes preflight and retry instructions. Wave `1xfbh` / change `1w3bs`.
+  files, and refuses switching targets while recovery is unfinished. Keep the standard
+  `wf_upgrade` path: this protection applies to upgrades launched with the fixed installed
+  runner; the first hop into 1.22.0 still uses the older runner's retry behavior.
+  Wave `1xfbh` / change `1w3bs`.
 
 - **Planning and implementation now check understanding before dependent work.** Agents reuse
   known context, ask only consequential questions, and briefly restate intended behavior.
