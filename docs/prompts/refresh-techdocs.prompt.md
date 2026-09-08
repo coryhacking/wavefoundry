@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-09-07
 
 **Shortcut phrases:** `Refresh TechDocs` · `Author TechDocs`
 
@@ -20,7 +20,7 @@ The `wf-techdocs` skill (Claude Code, Codex, Antigravity) is a thin pointer to t
 
 ### Input
 
-The current repository. The workflow reads `mkdocs.yml` (after step 1) as the publication boundary: the `nav` entries plus the paths that survive `exclude_docs`. It writes only inside that boundary, with exactly one exception named in step 2 (removing the generated-by line from the trio's root members when the writer takes ownership of the trio).
+The current repository. The workflow reads `mkdocs.yml` (after step 1) as the publication boundary: the paths that survive `exclude_docs`. The `nav` list changes discoverability only; omitting a surviving page from `nav` does not remove it from the published or audited set. The workflow writes only inside that boundary, with exactly one exception named in step 2 (removing the generated-by line from the trio's root members when the writer takes ownership of the trio).
 
 ### Step 1: baseline (`wf_techdocs_baseline`, CLI `wf techdocs-baseline`)
 
@@ -50,7 +50,7 @@ The writer then authors or refreshes the published pages: `docs/index.md` (landi
 
 - **Audience invariant.** `docs/references/project-overview.md` and `docs/ARCHITECTURE.md` are agent startup-order surfaces (`AGENTS.md` Start Here) and MCP resources (`wavefoundry://overview`, `wavefoundry://architecture/current-state`). A reader-facing revision adds framing and summaries around their agent-orientation content and never removes or reorders it: the pre-revision heading sequence must remain a subsequence of the post-revision file. The docs-contract check verifies this explicitly.
 - **Framing-only under `docs/architecture/`.** The Boundary Invariants, Interaction Edges, Dependency Direction, and State Ownership tables are review authority; the writer may frame and summarize them, never change their substance. The architecture lane verifies every edit there.
-- **Link boundary.** `exclude_docs` removes agent surfaces (`agents/**`, prompt bodies, `waves/**`, plans, reports, memory) from the built site. Published pages link only inside the publication boundary and name agent surfaces by repository path in prose (or through `repo_url` when the operator has configured it), never as relative links that would 404 in TechDocs.
+- **Link boundary.** `exclude_docs` removes agent surfaces (`agents/**`, prompt bodies, `waves/**`, plans, reports, memory) from the built site. Published pages link only inside the publication boundary. For a cross-boundary reference, name the repository path in prose or replace the relative link with an explicit repository URL derived from an operator-configured remote and branch. `repo_url` configures site and edit-link metadata; it does not rewrite Markdown links or repair a relative link that points outside the publication boundary.
 - **Summarize and link.** Pages do not duplicate `AGENTS.md`, role docs, wave records, or prompt bodies.
 - **Citations and metadata.** Every behavior claim carries a citation from the supplier that verified it. Prefer the symbol form (`module.symbol`, file named without a line number): a line range goes stale the moment anything above it moves, including edits made later in the same wave, and nothing validates it. Use `path:start-end` only where no symbol names the fact, and recompute every such range against the final tree at Step 3. Every touched page keeps `Owner` / `Status` / `Last verified` metadata and passes the project's citation and link rules.
 - **Ownership.** While `docs/index.md` is still the generated page its stamp stays. When the writer authors the landing page it removes the generated-by line from **all three** trio members, so the project owns the whole trio and a rerun of `wf techdocs-baseline` stays silent instead of warning about a mixed trio; an operator who prefers to keep the YAML members generated may leave their stamps and accept the warning. This marker-line removal on `catalog-info.yaml` and `mkdocs.yml` is the only write outside the publication boundary this workflow itself makes.
@@ -90,6 +90,8 @@ Steps:
 4. Gather the same supplier inputs as the authoring branch's step 2. The degrade rules there are written as authoring outcomes, so in this branch they read as: evaluate the lane's question yourself and label the answer with the substitute that produced it, or decline it explicitly and record the gap as a finding. Never imply a lane ran that did not.
 5. Return a **findings and proposed-edits table** — page, claim or rule at issue, evidence with anchors, the proposed edit, and the supplier that verified it (naming the degraded substitute where a lane was absent) — followed by the audit report and the operator follow-up checklist below. Write nothing.
 
+When proposing a boundary repair, distinguish configuration from content. Removing a page from `nav` changes discoverability only; the page remains published and audited while it survives `exclude_docs`. Adding `repo_url` does not rewrite Markdown links; a cross-boundary relative link still requires an explicit repository URL derived from an operator-configured remote and branch, or a repository path named in prose. For `exclude_docs`, direct-file matches take precedence over ancestor-directory matches, and the last matching rule wins within each tier. A non-negated rule can reduce the publication set and a later matching `!` rule in the same tier can expand it; a directory negation does not necessarily override a direct-file exclusion.
+
 On a clean committed tree the audit reports `audience_not_informative`, because the baseline is then byte-identical to the working file and the heading check can prove nothing. That is the expected steady state of a committed repository, not a defect: say so and move on. The `clean` verdict is reachable while an uncommitted authoring edit exists, or when `--compare-to` names an older ref.
 
 ## Operator follow-up checklist (canonical)
@@ -100,8 +102,8 @@ The generated baseline is a conservative, project-owned starting point. Before r
 2. **Catalog-unique name.** Confirm the generated `metadata.name` (`<repo>-docs`, at most 63 characters) does not collide with an existing entity; the `-docs` suffix reduces collision with a later product `Component` but cannot guarantee uniqueness.
 3. **Rendering and publication.** Wavefoundry does not render or preview the downstream site. Rendering and publication are owned by the operator's chosen Backstage/CI environment; use that environment's established process rather than treating local rendering as a Wavefoundry validation step.
 4. **Production architecture.** Prefer CI generation plus external storage with a read-only TechDocs reader, per Backstage's recommended architecture; the baseline generates no provider-specific CI YAML, `app-config.yaml`, catalog `Location`, storage configuration, or credentials.
-5. **Edit links.** Add verified `repo_url` / `edit_uri` to `mkdocs.yml` when you want the GitHub/GitLab edit and feedback affordances; the baseline never guesses a remote, provider, or branch.
-6. **Publication boundary.** `exclude_docs` publishes only the landing page, `ARCHITECTURE.md`, `architecture/**`, `references/**`, and `prompts/index.md`; widen or narrow it deliberately, and keep agent surfaces (`agents/**`, prompt bodies, `waves/**`, plans, reports, memory) out of the built site unless you mean to publish them.
+5. **Edit links.** Add verified `repo_url` / `edit_uri` to `mkdocs.yml` when you want the GitHub/GitLab edit and feedback affordances; the baseline never guesses a remote, provider, or branch, and this metadata does not rewrite links in Markdown content.
+6. **Publication boundary.** `exclude_docs` publishes only the landing page, `ARCHITECTURE.md`, `architecture/**`, `references/**`, and `prompts/index.md`; widen or narrow it deliberately, and keep agent surfaces (`agents/**`, prompt bodies, `waves/**`, plans, reports, memory) out of the built site unless you mean to publish them. `nav` affects discoverability, not publication membership.
 7. **Not generated on purpose.** `API`, `Resource`, `System`, `Domain`, `Group`, `User`, and `Location` entities, OpenAPI/AsyncAPI/GraphQL/gRPC contracts, and any organization-specific ownership, lifecycle, or source-control facts are yours to add once verified.
 
 ---

@@ -10,6 +10,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Refresh TechDocs now recommends repairs that change the published result.** Its guidance
+  explains that removing a page from navigation does not unpublish it, adding `repo_url` does not
+  rewrite Markdown links, and `exclude_docs` rules have distinct file and directory precedence.
+  Users can resolve publication-boundary findings without repeating ineffective configuration
+  changes. Wave `1xdlx techdocs-boundary-guidance` / change
+  `1w3bt-doc techdocs-boundary-remediation-guidance`.
+
 - **Codebase maps no longer link to unpublished agent guidance.** Area-context entries show the
   complete repository-relative `AGENTS.md` path as readable text, so users can still find the
   relevant guidance without encountering broken TechDocs links. The map also explains exactly

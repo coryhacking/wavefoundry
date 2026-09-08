@@ -292,6 +292,56 @@ class TechdocsAuditFindingMatrixTests(unittest.TestCase):
         # Precedence: a link that both dangles and is excluded reports the boundary code only.
         self.assertEqual(by_href["../agents/gone.md"], "techdocs_link_outside_boundary")
 
+    def test_boundary_repairs_change_only_the_inputs_that_define_publication(self):
+        source = "references/source-page.md"
+        href = "../agents/guru.md"
+        _page(
+            self.root / "docs" / source,
+            "Source page",
+            body=f"[Guru operating guide]({href})",
+        )
+
+        def state():
+            report = audit.run_techdocs_audit(self.root)
+            finding_keys = [(f.code, f.path, f.href) for f in report.findings]
+            return report, finding_keys
+
+        report, findings = state()
+        self.assertNotIn(source, report.publication["nav"])
+        self.assertIn(source, report.publication["survivor_pages"])
+        self.assertIn(("techdocs_link_outside_boundary", source, href), findings)
+
+        initial_publication = report.publication
+        initial_findings = findings
+
+        mkdocs_path = self.root / "mkdocs.yml"
+        mkdocs = mkdocs_path.read_text(encoding="utf-8")
+        mkdocs_path.write_text(
+            "repo_url: https://example.test/operator/repository\n" + mkdocs,
+            encoding="utf-8",
+        )
+        report, findings = state()
+        self.assertEqual(report.publication, initial_publication)
+        self.assertEqual(findings, initial_findings)
+
+        mkdocs = mkdocs_path.read_text(encoding="utf-8")
+        mkdocs_path.write_text(mkdocs + f"  /{source}\n", encoding="utf-8")
+        report, findings = state()
+        self.assertNotIn(source, report.publication["survivor_pages"])
+        self.assertNotIn(("techdocs_link_outside_boundary", source, href), findings)
+
+        mkdocs = mkdocs_path.read_text(encoding="utf-8")
+        mkdocs_path.write_text(mkdocs + f"  !/{source}\n", encoding="utf-8")
+        report, findings = state()
+        self.assertIn(source, report.publication["survivor_pages"])
+        self.assertIn(("techdocs_link_outside_boundary", source, href), findings)
+
+    def test_module_overview_states_the_publication_boundary(self):
+        overview = audit.__doc__ or ""
+        self.assertIn("the survivors of\n``exclude_docs``", overview)
+        self.assertIn("``nav`` reported separately as discoverability metadata", overview)
+        self.assertNotIn("``nav`` plus the survivors of ``exclude_docs``", overview)
+
     def test_links_inside_code_fences_are_not_findings(self):
         docs = self.root / "docs"
         _page(docs / "references" / "fenced.md", "Fenced", body=(

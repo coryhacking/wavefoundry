@@ -2,9 +2,9 @@
 """TechDocs publication audit (wave 1vqqi / change 1vmt2).
 
 Computes what the **Refresh TechDocs** workflow's rules imply but nothing else
-computes: which pages the built site actually publishes (the ``mkdocs.yml``
-``nav`` plus the survivors of ``exclude_docs``), which relative links on those
-pages dangle or escape that boundary, whether every ``nav`` target exists,
+computes: which pages the built site actually publishes (the survivors of
+``exclude_docs``, with ``nav`` reported separately as discoverability metadata),
+which relative links on those pages dangle or escape that boundary, whether every ``nav`` target exists,
 whether published pages carry their metadata, what the Backstage/TechDocs trio's
 marker-derived ownership state is, and whether the agent startup-order documents
 kept their heading order.

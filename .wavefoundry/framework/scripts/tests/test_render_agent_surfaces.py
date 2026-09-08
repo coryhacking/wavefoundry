@@ -3002,6 +3002,156 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
             self.assertIn(literal, text, literal)
         self.assertNotIn("techdocs_baseline.py", text)
 
+    def test_techdocs_carriers_pin_boundary_remediation_semantics(self) -> None:
+        surfaces = (
+            ("seed-178", (self.SEEDS / "178-refresh-techdocs.prompt.md").read_text(encoding="utf-8")),
+            ("docs/prompts/refresh-techdocs.prompt.md", self._read("docs/prompts/refresh-techdocs.prompt.md")),
+        )
+        replacements = {
+            "Removing a page from `nav` changes discoverability only":
+                "Removing a page from `nav` removes it from publication",
+            "Adding `repo_url` does not rewrite Markdown links":
+                "Adding `repo_url` rewrites Markdown links",
+            "direct-file matches take precedence over ancestor-directory matches":
+                "ancestor-directory matches take precedence over direct-file matches",
+            "the last matching rule wins within each tier":
+                "the first matching rule wins within each tier",
+            "a directory negation does not necessarily override a direct-file exclusion":
+                "a directory negation always overrides a direct-file exclusion",
+        }
+
+        def contract_holds(text: str) -> bool:
+            return all(clause in text for clause in replacements)
+
+        for label, text in surfaces:
+            with self.subTest(surface=label, contract="literal-and-semantic"):
+                self.assertTrue(contract_holds(text), label)
+                self.assertNotIn("the `nav` entries plus the paths that survive", text, label)
+                self.assertNotIn("through `repo_url` when the operator has configured it", text, label)
+            for clause, known_bad in replacements.items():
+                with self.subTest(surface=label, mutant=clause):
+                    mutant = text.replace(clause, known_bad, 1)
+                    self.assertNotEqual(mutant, text, f"vacuous mutant: {label}: {clause}")
+                    self.assertFalse(contract_holds(mutant), f"surviving mutant: {label}: {clause}")
+
+    def test_upgrade_carriers_pin_merge_safe_project_prompt_reconciliation(self) -> None:
+        surfaces = (
+            ("seed-160", (self.SEEDS / "160-upgrade-wavefoundry.prompt.md").read_text(encoding="utf-8")),
+            ("docs/prompts/upgrade-wavefoundry.prompt.md", self._read("docs/prompts/upgrade-wavefoundry.prompt.md")),
+        )
+        replacements = {
+            "Keep the read-only pre-apply seed diff through the installing run":
+                "Discard the pre-apply seed diff after preview",
+            "If it reports `178-refresh-techdocs.prompt.md` changed":
+                "Ignore whether `178-refresh-techdocs.prompt.md` changed",
+            "during the same installing run": "during a later upgrade",
+            "Preserve project-only additions and metadata":
+                "Discard project-only additions and metadata",
+            "never replace the project-owned prompt as a whole":
+                "replace the project-owned prompt as a whole",
+            "cannot be identified uniquely": "can be selected by best effort",
+            "local wording conflicts with the new invariant":
+                "local wording conflicts may be overwritten",
+            "After the merge, run `wf render-surfaces` again":
+                "After the merge, skip the final `wf render-surfaces` pass",
+        }
+        mapping_contracts = {
+            "**Changed Prepare Serialization Points carrier.**": {
+                "`170-plan-feature.prompt.md` changed":
+                    "`170-plan-feature.prompt.md` was unchanged",
+                "freshly extracted `.wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md`":
+                    "pre-upgrade lifecycle baseline",
+                "merge only that grammar": "replace the entire prompt",
+                "project-authored prose of `docs/prompts/prepare-wave.prompt.md`":
+                    "renderer-owned region of `docs/prompts/prepare-wave.prompt.md`",
+                "Preserve its metadata, all other project prose, and every renderer-owned marker region":
+                    "Discard its metadata, project prose, and renderer-owned marker regions",
+                "final `wf render-surfaces` pass remains responsible for those managed regions":
+                    "manual reconciliation remains responsible for managed regions",
+                "Never replace the carrier as a whole":
+                    "Replace the carrier as a whole",
+                "prior project-authored clause cannot be identified uniquely":
+                    "prior project-authored clause may be selected by best effort",
+                "local wording conflicts with the new grammar":
+                    "local wording conflicts may be overwritten",
+            },
+            "**Changed contribution-workflow carrier.**": {
+                "seeds `170` or `190` changed": "seeds `170` and `190` were unchanged",
+                "AC-locality and advisory-sensor clauses":
+                    "unrelated workflow clauses",
+                "`docs/contributing/change-workflow.md`":
+                    "`docs/contributing/review-and-evals.md`",
+                "Preserve project-only content and metadata":
+                    "Discard project-only content and metadata",
+                "never replace the carrier as a whole":
+                    "replace the carrier as a whole",
+                "prior canonical clause cannot be identified uniquely":
+                    "prior canonical clause may be selected by best effort",
+                "local wording conflicts with the new contract":
+                    "local wording conflicts may be overwritten",
+            },
+        }
+
+        def contract_holds(text: str) -> bool:
+            return all(clause in text for clause in replacements)
+
+        for label, text in surfaces:
+            techdocs_line = next(
+                (
+                    line
+                    for line in text.splitlines()
+                    if line.lstrip().startswith(
+                        "- **Changed Refresh TechDocs instructions (seed 178).**"
+                    )
+                ),
+                None,
+            )
+            with self.subTest(surface=label, contract="literal-and-semantic"):
+                self.assertIsNotNone(techdocs_line, label)
+                assert techdocs_line is not None
+                self.assertTrue(contract_holds(techdocs_line), label)
+                for literal in (
+                    "seeds `170`, `180`, `190`, `209`, `214`, `221`, or `239` changed",
+                    "docs/prompts/implement-wave.prompt.md",
+                    "docs/agents/wave-coordinator.md",
+                    "Review Artifact Discipline",
+                    "preserve historical review artifacts",
+                ):
+                    self.assertIn(literal, text, f"{label}: {literal}")
+            for clause, known_bad in replacements.items():
+                with self.subTest(surface=label, mutant=clause):
+                    mutant = techdocs_line.replace(clause, known_bad, 1)
+                    self.assertNotEqual(mutant, techdocs_line, f"vacuous mutant: {label}: {clause}")
+                    self.assertFalse(contract_holds(mutant), f"surviving mutant: {label}: {clause}")
+            for heading, clauses in mapping_contracts.items():
+                with self.subTest(surface=label, mapping=heading):
+                    mapping_line = next(
+                        (
+                            line
+                            for line in text.splitlines()
+                            if line.lstrip().startswith(f"- {heading}")
+                        ),
+                        None,
+                    )
+                    self.assertIsNotNone(mapping_line, f"{label}: {heading}")
+                    assert mapping_line is not None
+                    self.assertTrue(
+                        all(clause in mapping_line for clause in clauses),
+                        f"{label}: incomplete mapping {heading}",
+                    )
+                for clause, known_bad in clauses.items():
+                    with self.subTest(surface=label, mapping=heading, mutant=clause):
+                        mutant = mapping_line.replace(clause, known_bad, 1)
+                        self.assertNotEqual(
+                            mutant,
+                            mapping_line,
+                            f"vacuous mapping mutant: {label}: {heading}: {clause}",
+                        )
+                        self.assertFalse(
+                            all(required in mutant for required in clauses),
+                            f"surviving mapping mutant: {label}: {heading}: {clause}",
+                        )
+
     def test_techdocs_carriers_keep_python_validation_and_no_render_boundary(self) -> None:
         refresh_surfaces = (
             ("seed-178", (self.SEEDS / "178-refresh-techdocs.prompt.md").read_text(encoding="utf-8")),
