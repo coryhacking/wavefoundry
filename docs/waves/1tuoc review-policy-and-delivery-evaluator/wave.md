@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-28
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1tuoc review-policy-and-delivery-evaluator`
@@ -119,8 +119,9 @@ Wave `1tuoc` (Review Policy And Delivery Evaluator) delivered one change: Review
 
 - `1tsyx review-lifecycle-simplification` — closed; this wave owns its explicitly deferred policy, evaluator, and downstream migration work.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

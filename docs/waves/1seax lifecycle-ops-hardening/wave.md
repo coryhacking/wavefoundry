@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-21
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1seax lifecycle-ops-hardening`
@@ -116,8 +116,9 @@ Delta readiness pass, 2026-07-20 (five weeks after the original 2026-07-12 counc
 
 - No external wave dependencies. Opportunistic scheduling after `1seav`/`1seaw`; the docs change can land any time.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-22
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -71,8 +71,9 @@ Wave `1w3br` (Reconciliation Disposition Key Precision) delivered one change: Ma
 
 - No external wave dependencies.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

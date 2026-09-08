@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-01
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -122,8 +122,9 @@ Wave `1wybs` (Review Churn Follow Ups) delivered 3 changes: Serialization Points
 
 - No external wave dependencies. Wave `1wpif` is paused and waves `1wpig`/`1wpih` belong to another session; this wave touches none of their files.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

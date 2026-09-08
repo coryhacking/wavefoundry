@@ -1544,6 +1544,8 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
 
 
 def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    from index_state_store import lexical_statistics
+
     # Wave 1p4ww: single project index — the framework layer is folded in.
     index_dir        = root / ".wavefoundry" / "index"
     index_meta       = _read_store_build_meta(index_dir)  # 1sed6: bounded store summary (scalars + file_count)
@@ -1566,6 +1568,9 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
         },
         "graph": {
             "project": project_graph,
+        },
+        "lexical": {
+            "project": lexical_statistics(index_dir),
         },
         "counts": {
             "waves": wave_count,

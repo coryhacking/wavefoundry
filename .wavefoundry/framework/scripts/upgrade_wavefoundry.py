@@ -67,7 +67,7 @@ cli_stdio.configure_utf8_stdio()
 # Wave 1p8gv: `/tmp` does not exist on native Windows — the old fallback raised FileNotFoundError when
 # copying the pre-upgrade MANIFEST. `tempfile.gettempdir()` resolves the correct OS temp dir (honors
 # TMPDIR/TEMP/TMP) cross-platform.
-OLD_MANIFEST_TMP = Path(tempfile.gettempdir()) / "wf-manifest-old.txt"
+OLD_MANIFEST_SNAPSHOT = "upgrade-manifest-old.json"
 
 UPGRADE_LOG_FILENAME = "upgrade.log"
 
@@ -1936,24 +1936,98 @@ def _remove_deprecated_framework_index(root: Path) -> bool:
         return False
 
 
-def phase_pruning(root: Path) -> int:
-    """Run prune_framework.py.  Returns number of files pruned."""
+def _old_manifest_snapshot(root: Path) -> Path:
+    """Fixed repository-local recovery authority, outside the extracted tree."""
+    parent = root / ".wavefoundry"
+    path = parent / OLD_MANIFEST_SNAPSHOT
+    if parent.is_symlink() or path.is_symlink():
+        raise ValueError("upgrade MANIFEST snapshot may not use symlinks")
+    if path.exists() and not path.is_file():
+        raise ValueError("upgrade MANIFEST snapshot must be a regular file")
+    return path
+
+
+def _read_old_manifest_snapshot(root: Path) -> dict | None:
+    path = _old_manifest_snapshot(root)
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(value, dict) or set(value) != {"target_version", "manifest"}
+            or not isinstance(value["target_version"], str) or not value["target_version"]
+            or not isinstance(value["manifest"], str)):
+        raise ValueError("invalid upgrade MANIFEST snapshot; preserve it for recovery")
+    return value
+
+
+def _save_old_manifest_snapshot(root: Path, target_version: str) -> bool:
+    """Return whether this attempt created the snapshot; never overwrite a retry."""
+    existing = _read_old_manifest_snapshot(root)
+    if existing is not None:
+        if existing["target_version"] != target_version:
+            raise ValueError(
+                f"pending MANIFEST recovery targets {existing['target_version']}; "
+                "retry that target pack before selecting another target"
+            )
+        return False
+    manifest = root / ".wavefoundry" / "framework" / "MANIFEST"
+    if not manifest.exists():
+        _log("  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.")
+        return False
+    value = {"target_version": target_version,
+             "manifest": manifest.read_bytes().decode("utf-8")}
+    path = _old_manifest_snapshot(root)
+    # Exclusive random staging avoids a process-global or predictable temp file.
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                         dir=path.parent, prefix=".manifest-", delete=False) as stream:
+            temp = Path(stream.name)
+            json.dump(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+    return True
+
+
+def _discard_old_manifest_snapshot(root: Path) -> None:
+    try:
+        _old_manifest_snapshot(root).unlink(missing_ok=True)
+    except (OSError, ValueError) as exc:
+        _log(f"  Could not retire MANIFEST snapshot: {exc}")
+
+
+def phase_pruning(root: Path) -> int | None:
+    """Return deleted count on observed success, None when pruning is unproven."""
     _log("\n── Phase 2: Pruning ──")
     script = SCRIPTS_DIR / "prune_framework.py"
-    if not script.exists():
-        _log("  prune_framework.py not found — skipping pruning.")
-        return 0
-    cmd = [_preferred_python(), str(script)]
-    if OLD_MANIFEST_TMP.exists():
-        cmd += ["--old-manifest", str(OLD_MANIFEST_TMP)]
-    # Wave 1p8gv: capture as UTF-8 (errors=replace) so prune's non-ASCII output decodes cleanly on a
-    # cp1252 Windows console (folded into the shared helper).
-    result = subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
+    if not script.is_file():
+        _log("  prune_framework.py not found; retaining MANIFEST snapshot.")
+        return None
+    try:
+        snapshot = _read_old_manifest_snapshot(root)
+        # prune_framework treats missing manifests as successful no-ops. Do not
+        # confuse those with a completed diff when deciding to retire authority.
+        installed_manifest = root / ".wavefoundry" / "framework" / "MANIFEST"
+        installed_manifest.read_bytes().decode("utf-8")
+        if snapshot is None:
+            _log("  No original MANIFEST snapshot; pruning is unproven.")
+            return None
+        with tempfile.TemporaryDirectory(prefix="wf-prune-", dir=root / ".wavefoundry") as staging:
+            old_manifest = Path(staging) / "MANIFEST"
+            old_manifest.write_bytes(snapshot["manifest"].encode("utf-8"))
+            cmd = [_preferred_python(), str(script), "--old-manifest", str(old_manifest)]
+            result = subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
+    except (OSError, ValueError) as exc:
+        _log(f"  Pruning could not be proven; retaining MANIFEST snapshot: {exc}")
+        return None
     if result.stdout:
         _log(result.stdout.rstrip())
     if result.returncode != 0:
-        _log(f"  Pruning exited {result.returncode} — continuing (non-fatal).")
-        return 0
+        _log(f"  Pruning exited {result.returncode} — retaining snapshot (non-fatal).")
+        return None
     # Wave 1p44q — read the authoritative count from prune_framework.py's stderr
     # summary ("prune: deleted N item(s)" / "prune: would delete N item(s)").
     # The old heuristic scanned stdout for "removed"/"pruned", but the per-file
@@ -5264,52 +5338,62 @@ def main(argv: list[str] | None = None) -> int:
         _err(f"upgrade review-policy preflight failed before mutation: {exc}")
         return 1
 
-    # Save old MANIFEST before zip extraction overwrites it
-    old_manifest = root / ".wavefoundry" / "framework" / "MANIFEST"
-    if old_manifest.exists():
-        try:
-            shutil.copy2(old_manifest, OLD_MANIFEST_TMP)
-            _log(f"  Saved old MANIFEST to {OLD_MANIFEST_TMP}")
-        except OSError as exc:
-            _log(f"  ⚠  Could not save old MANIFEST: {exc}")
-
-    # Write upgrade lock (zip_path recorded so --rebuild-index / --cleanup can
-    # reload the same extension module without guessing from the current repo state).
-    pack_protocol = 2
-    if zip_path is not None:
-        try:
-            pack_protocol = int(
-                __import__("upgrade_protocol").read_pack_protocol(zip_path)[
-                    "upgrade_protocol_version"
-                ]
-            )
-        except ValueError:
-            # phase_preflight is the mandatory fail-closed validator. This
-            # compatibility fallback is reachable only by tests/embedded
-            # callers that replace that boundary wholesale.
-            pack_protocol = 2
-    upgrade_lib.write_upgrade_lock(
-        root,
-        from_version=from_version,
-        to_version=to_version or "unknown",
-        zip_path=zip_path,
-        runner_protocol=2,
-        pack_protocol=pack_protocol,
-    )
-    if selected_feature_zip is not None:
-        upgrade_lib.update_upgrade_lock(
-            root,
-            **_model_bundle_lock_fields(selected_feature_zip, selected_model_bundle),
+    # Preserve target-bound authority even when a previous partial extraction
+    # replaced MANIFEST but never reached VERSION.
+    try:
+        snapshot_created = _save_old_manifest_snapshot(
+            root, str(to_version or _read_pack_version(root)),
         )
-        if selected_model_bundle is not None:
-            _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
-    _log("  Upgrade lock written — dashboard will pause indexing.")
+    except (OSError, ValueError) as exc:
+        upgrade_transaction.__exit__(*sys.exc_info())
+        _err(f"upgrade stopped before extraction: cannot preserve MANIFEST: {exc}")
+        return 1
 
-    # Open the upgrade log and tell the operator where to watch it.
-    _open_log(root, mode="w")
-    log_path = upgrade_log_path(root)
-    _log(f"  Upgrade log: {log_path}")
-    _log(f"  Watch:       tail -f {log_path}")
+    try:
+        # Write upgrade lock (zip_path recorded so --rebuild-index / --cleanup can
+        # reload the same extension module without guessing from the current repo state).
+        pack_protocol = 2
+        if zip_path is not None:
+            try:
+                pack_protocol = int(
+                    __import__("upgrade_protocol").read_pack_protocol(zip_path)[
+                        "upgrade_protocol_version"
+                    ]
+                )
+            except ValueError:
+                # phase_preflight is the mandatory fail-closed validator. This
+                # compatibility fallback is reachable only by tests/embedded
+                # callers that replace that boundary wholesale.
+                pack_protocol = 2
+        upgrade_lib.write_upgrade_lock(
+            root,
+            from_version=from_version,
+            to_version=to_version or "unknown",
+            zip_path=zip_path,
+            runner_protocol=2,
+            pack_protocol=pack_protocol,
+        )
+        if selected_feature_zip is not None:
+            upgrade_lib.update_upgrade_lock(
+                root,
+                **_model_bundle_lock_fields(selected_feature_zip, selected_model_bundle),
+            )
+            if selected_model_bundle is not None:
+                _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
+        _log("  Upgrade lock written — dashboard will pause indexing.")
+
+        # Open the upgrade log and tell the operator where to watch it.
+        _open_log(root, mode="w")
+        log_path = upgrade_log_path(root)
+        _log(f"  Upgrade log: {log_path}")
+        _log(f"  Watch:       tail -f {log_path}")
+
+    except BaseException:
+        if snapshot_created:
+            _discard_old_manifest_snapshot(root)
+        upgrade_transaction.__exit__(*sys.exc_info())
+        _close_log()
+        raise
 
     # Wave 1p44o — data-safety: track whether the tree has been mutated (zip
     # extracted / surfaces rendered / files pruned) and which phase is running,
@@ -5353,6 +5437,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _log(f"\n── Phase 0b: Applying zip {zip_path.name} ──")
                 with zipfile.ZipFile(zip_path, "r") as zf:
+                    tree_mutated = True  # A failed extraction can already have written files.
                     _skipped_members = _extract_feature_members(zf, root)
                 # Tree is now half-replaced — from here a failure must RETAIN the
                 # lock (wave 1p44o) rather than remove it.
@@ -5431,6 +5516,7 @@ def main(argv: list[str] | None = None) -> int:
         # Phase 1
         current_phase = "surface_rendering"
         _run_hook("pre_surface_rendering", ctx, ext_mod)
+        tree_mutated = True  # Rendering may partially mutate before raising.
         phase_surface_rendering(root)
         # Surface rendering mutates the tree even when no zip was applied
         # (upgrade-from-current-tree path) — mark mutated here too.
@@ -5447,11 +5533,8 @@ def main(argv: list[str] | None = None) -> int:
         current_phase = "pruning"
         _run_hook("pre_pruning", ctx, ext_mod)
         pruned_count = phase_pruning(root)
-        # Old MANIFEST was only needed for pruning — remove it now.
-        try:
-            OLD_MANIFEST_TMP.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if pruned_count is not None:
+            _discard_old_manifest_snapshot(root)
         # Persist the prune count so --cleanup can report it accurately.
         upgrade_lib.update_upgrade_lock(root, pruned_count=pruned_count)
         _run_hook("post_pruning", ctx, ext_mod)
@@ -5647,12 +5730,10 @@ def main(argv: list[str] | None = None) -> int:
 
     except SystemExit as exc:
         # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
-        # gate failure; hooks may sys.exit too). Clean up the temp manifest in
-        # case pruning hadn't reached it yet.
-        try:
-            OLD_MANIFEST_TMP.unlink(missing_ok=True)
-        except OSError:
-            pass
+        # gate failure; hooks may sys.exit too). Only discard a snapshot created
+        # by this attempt when no framework writer has started.
+        if snapshot_created and not tree_mutated:
+            _discard_old_manifest_snapshot(root)
         # Wave 1uf67: the typed action-required memory checkpoint (exit code 4
         # with a token/run-id-bearing action_required block in the lock) is a
         # designed pause, not a failure. Skip failure finalization so the
@@ -5670,10 +5751,8 @@ def main(argv: list[str] | None = None) -> int:
         _close_log()
         raise
     except BaseException:
-        try:
-            OLD_MANIFEST_TMP.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if snapshot_created and not tree_mutated:
+            _discard_old_manifest_snapshot(root)
         _finalize_failed_upgrade(root, tree_mutated, current_phase)
         upgrade_transaction.__exit__(*sys.exc_info())
         _close_log()

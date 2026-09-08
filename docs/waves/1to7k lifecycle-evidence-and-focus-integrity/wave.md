@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-27
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1to7k lifecycle-evidence-and-focus-integrity`
@@ -94,8 +94,9 @@ Wave `1to7k` (Lifecycle Evidence And Focus Integrity) delivered two changes: Rep
 - Within this wave, 1tmb2 is implemented and independently reverified before
   1tmb3 begins.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-23
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1tamx review-evidence-lane-clearing-recipe`
@@ -109,8 +109,9 @@ Synthesis verdict: PASS.
 
 - No external wave dependencies.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-05
+Last verified: 2026-09-08
 Completed at: 2026-09-05
 review-evidence-source: events.jsonl
 
@@ -117,8 +117,9 @@ Changelog audit: the five latest committed waves (`1x6ti`, `1x54z`, `1x4ol`, `1w
 - No external wave dependencies.
 - Implementation order: `1x81w` dry-run guard and its no-write/reporting controls, then `1x8e1` graph recovery and entry-path verification. One implementer owns shared `indexer.py` orchestration; the graph caller integration is explicitly admitted in the combined readiness packet. Generic implementer lanes suit these bounded Python changes; no new senior-specialist domain is required.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

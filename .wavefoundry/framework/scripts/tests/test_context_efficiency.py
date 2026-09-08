@@ -888,6 +888,37 @@ class CheckpointTests(TempRootTest):
         self.assertIn("Operator prose.", inserted)
         self.assertEqual(inserted.count(ce.CONTEXT_EFFICIENCY_MARKER_BEGIN), 1)
 
+    def test_checkpoint_heading_precedes_marker_with_legacy_compatibility(self) -> None:
+        snapshot = self.sample()
+        block = ce.render_checkpoint_block(snapshot)
+        prefix = "## Context Efficiency\n\n" + ce.CONTEXT_EFFICIENCY_MARKER_BEGIN + "\n\n"
+        self.assertTrue(block.startswith(prefix))
+        old = block.replace(prefix, ce.CONTEXT_EFFICIENCY_MARKER_BEGIN + "\n## Context Efficiency\n\n", 1)
+        for layout in (block, old, old.replace("wave:", "wavefoundry:")):
+            with self.subTest(layout=layout[:80]):
+                self.assertEqual(ce.parse_checkpoint_block(layout), snapshot)
+                self.assertIsNone(ce.parse_checkpoint_block(layout.replace("| review | 2 | 120 |", "| review | 9 | 999 |")))
+                original = "Before prose.\n\n" + layout + "\n\n## After\nKeep this.\n"
+                updated = ce.replace_checkpoint_block(original, snapshot)
+                expected = "Before prose.\n\n" + block + "\n\n## After\nKeep this.\n"
+                self.assertEqual(updated, expected)
+                self.assertEqual(ce.replace_checkpoint_block(updated, snapshot), expected)
+                self.assertEqual(updated.count("## Context Efficiency"), 1)
+                carrier = ce.replace_carrier_block(original)
+                self.assertIn(expected, carrier)
+                self.assertEqual(ce.parse_checkpoint_block(carrier), snapshot)
+
+    def test_checkpoint_replacement_preserves_nonheading_prefix(self) -> None:
+        snapshot = self.sample()
+        block = ce.render_checkpoint_block(snapshot)
+        heading = "## Context Efficiency\n\n"
+        body = block.removeprefix(heading)
+        for prefix in ("Before prose.\n\n", "An inline ## Context Efficiency\n\n", "P" * (len(heading) - 2) + "\n\n"):
+            with self.subTest(prefix=prefix):
+                updated = ce.replace_checkpoint_block(prefix + body + "\nAfter prose.", snapshot)
+                self.assertEqual(updated, prefix + block + "\nAfter prose.")
+                self.assertEqual(ce.replace_checkpoint_block(updated, snapshot), updated)
+
     def test_negative_and_positive_stages_reconcile_through_checkpoint_path(self) -> None:
         negative = {
             key: 0 for key in ce._STAGE_KEYS

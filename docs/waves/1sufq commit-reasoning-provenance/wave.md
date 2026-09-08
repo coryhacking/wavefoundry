@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-20
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1sufq commit-reasoning-provenance`
@@ -72,8 +72,9 @@ Wave `1sufq` (Commit Reasoning Provenance) delivered one change: Commit-to-reaso
 
 - No external wave dependencies.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

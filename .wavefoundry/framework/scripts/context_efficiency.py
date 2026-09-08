@@ -578,11 +578,14 @@ def latest_phase_id(root: Path, wave_id: str, stage: str) -> Optional[str]:
 
 
 def _canonicalize_context_efficiency_markers(markdown: str) -> str:
-    """Map legacy owned-region markers to the one canonical ``wave:`` namespace."""
+    """Normalize legacy marker names and the exact historical checkpoint layout."""
 
     for legacy, canonical in _LEGACY_CONTEXT_EFFICIENCY_MARKERS.items():
         markdown = markdown.replace(legacy, canonical)
-    return markdown
+    return markdown.replace(
+        CONTEXT_EFFICIENCY_MARKER_BEGIN + "\n## Context Efficiency\n\n",
+        "## Context Efficiency\n\n" + CONTEXT_EFFICIENCY_MARKER_BEGIN + "\n\n",
+    )
 
 
 
@@ -2465,8 +2468,9 @@ def render_checkpoint_block(snapshot: Mapping[str, Any]) -> str:
     state = _normalized_checkpoint_state(snapshot)
     status = state["measurement_status"]
     lines = [
-        CONTEXT_EFFICIENCY_MARKER_BEGIN,
         "## Context Efficiency",
+        "",
+        CONTEXT_EFFICIENCY_MARKER_BEGIN,
         "",
         (
             "Estimated token savings use phase-unique returned source versions "
@@ -2572,6 +2576,14 @@ def replace_checkpoint_block(text: str, snapshot: Mapping[str, Any]) -> str:
         return canonical + separator + rendered + "\n"
     if start < 0 or end < start:
         raise ValueError("malformed context-efficiency marker region")
+    heading = "## Context Efficiency\n\n"
+    heading_start = start - len(heading)
+    if (
+        heading_start >= 0
+        and canonical[heading_start:start] == heading
+        and (heading_start == 0 or canonical[heading_start - 1] == "\n")
+    ):
+        start = heading_start
     end += len(CONTEXT_EFFICIENCY_MARKER_END)
     return canonical[:start] + rendered + canonical[end:]
 

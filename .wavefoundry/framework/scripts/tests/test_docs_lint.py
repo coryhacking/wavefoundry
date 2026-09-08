@@ -5267,12 +5267,12 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         self.assertIn("--baseline docs/reports/retrieval-quality-post-1wybs.json", text)
         self.assertIn("attributes corpus drift to the change under the\nzero-tolerance regression rule", text)
 
-    def test_the_unreleased_changelog_states_one_policy(self) -> None:
+    def test_the_1_22_0_changelog_states_one_policy(self) -> None:
         changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
-        unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
-        self.assertIn("**An evaluator-only edit records no close-time baseline.**", unreleased)
-        self.assertIn("A cross-generation comparison attributes corpus drift", unreleased)
-        self.assertNotIn("record a fresh baseline", unreleased)
+        release = changelog.split("## [1.22.0]", 1)[1].split("\n## [", 1)[0]
+        self.assertIn("**An evaluator-only edit records no close-time baseline.**", release)
+        self.assertIn("A cross-generation comparison attributes corpus drift", release)
+        self.assertNotIn("record a fresh baseline", release)
 
 
 class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
@@ -5326,14 +5326,14 @@ class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
         self.assertEqual(3, seed.count("kept only when its last segment carries an extension or the span ends in `/`"))
         self.assertEqual(3, seed.count("recruits a lane only through a trigger token it happens to carry"))
 
-    def test_the_unreleased_changelog_announces_the_wave(self) -> None:
+    def test_the_1_22_0_changelog_announces_the_wave(self) -> None:
         # Delivery review DOCS-DEL-4: both 1wybs CHANGELOG bullets are pinned.
         changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
-        unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
-        self.assertIn("**Serialization Points scaffolds state the token grammar of both declaration forms.**", unreleased)
-        self.assertIn("kept only when\n  its last segment carries an extension or the span ends in `/`", unreleased)
-        self.assertIn("**Verdict-gap and install-audit hardening**", unreleased)
-        self.assertIn("repr-doubled", unreleased)
+        release = changelog.split("## [1.22.0]", 1)[1].split("\n## [", 1)[0]
+        self.assertIn("**Serialization Points scaffolds state the token grammar of both declaration forms.**", release)
+        self.assertIn("kept only when\n  its last segment carries an extension or the span ends in `/`", release)
+        self.assertIn("**Verdict-gap and install-audit hardening**", release)
+        self.assertIn("repr-doubled", release)
 
     def test_the_fenced_examples_are_untouched(self) -> None:
         shipped = (self.FRAMEWORK_DIR / "install" / "plan-template.md").read_text(encoding="utf-8")

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-01
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -100,8 +100,9 @@ Wave `1wuju` (Review Churn And Evaluator Baseline) delivered 3 changes: Review-C
 
 - No external wave dependencies.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

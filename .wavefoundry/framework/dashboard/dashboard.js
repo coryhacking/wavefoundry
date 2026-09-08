@@ -665,6 +665,9 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
     (() => {
       const projectIdx = health.index?.project || {};
       const projectGraph = health.graph?.project || {};
+      const lexical = health.lexical?.project;
+      const distinctTerms = lexical?.status === "ready" && Number.isSafeInteger(lexical.distinct_terms) && lexical.distinct_terms >= 0
+        ? lexical.distinct_terms : null;
       const totalChunks = (Number(projectIdx.doc_chunks) || 0) + (Number(projectIdx.code_chunks) || 0);
       const totalFiles = Number(projectIdx.files_indexed) || 0;
       const graphNodes = Number(projectGraph.counts?.nodes) || 0;
@@ -684,6 +687,7 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
       const note = h(React.Fragment, null,
         h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
         h("div", { className: "metric-subnote" }, `${graphNodes.toLocaleString()} nodes · ${graphEdges.toLocaleString()} edges`),
+        distinctTerms !== null ? h("div", { className: "metric-subnote" }, `${distinctTerms.toLocaleString()} distinct terms`) : null,
         h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
       );
       const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
@@ -3812,6 +3816,7 @@ function IndexDialog({ health, onClose }) {
     h("div", { className: "agent-dialog-body" },
       h(IndexSection, { label: "Semantic", idx: proj }),
       h(GraphIndexSection, { label: "Graph", idx: graphProj }),
+      health?.lexical?.project ? h(LexicalIndexSection, { idx: health.lexical.project }) : null,
     ),
   );
 }
@@ -3871,6 +3876,36 @@ function IndexSection({ label, idx }) {
       h("span", { className: "index-build-badge index-build-badge--current" },
         `Cleaned ${staleLocksCleaned} stale ${p(staleLocksCleaned, "lock", "locks")}`),
     ) : null,
+  );
+}
+
+function LexicalIndexSection({ idx }) {
+  const metrics = [
+    [idx.entries, "entries"],
+    [idx.term_occurrences, "term occurrences"],
+    [idx.distinct_terms, "distinct terms"],
+  ];
+  const ready = idx.status === "ready" && metrics.every(([value]) => Number.isSafeInteger(value) && value >= 0);
+  if (!ready) {
+    const message = idx.status === "updating" ? "Updating…"
+      : idx.status === "not_built" ? (idx.reason === "empty_corpus" ? "No indexed entries" : "Statistics not built yet")
+        : idx.reason === "fts_disabled" ? "FTS5 is unavailable" : "Statistics unavailable";
+    return h("div", { className: "index-section index-section--missing" },
+      h("div", { className: "index-section-label" }, "Lexical"),
+      h("span", { className: "index-stat-missing" }, message),
+    );
+  }
+  return h("div", { className: "index-section" },
+    h("div", { className: "index-section-label" }, "Lexical"),
+    h("div", { className: "index-stat-grid" },
+      metrics.map(([value, label]) => h("div", { className: "index-stat", key: label },
+        h("span", { className: "index-stat-value" }, value.toLocaleString()),
+        h("span", { className: "index-stat-label" }, label),
+      )),
+    ),
+    h("div", { className: "index-meta-row" },
+      h("span", { className: "index-meta-pill index-meta-pill--model" }, "FTS5 BM25 ranking"),
+    ),
   );
 }
 

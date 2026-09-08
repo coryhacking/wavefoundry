@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-04
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -94,8 +94,9 @@ Two further costs were measured during diagnosis and are deliberately left out, 
   - Every claim was checked against the tree rather than the plans' prose. The three repairs were applied before this verdict was recorded, so the approval binds the repaired documents.
 - **Scope revision after readiness — 2026-09-04: operator declined the time bound.** The security seat's repair had made a skip accountable at close because the wave was adding a new skip route; with no time bound there is no new route, so that requirement was withdrawn from `1x4ok` and parked as `1x4om-bug scanner-guard-skips-invisible-at-close`, since the gap for the pre-existing byte and binary guards is real and live today. The red team's two findings stand: the thresholds it flagged as undeclared no longer exist rather than being declared, and the non-empty candidate set in `1x4oj` is still pinned. `1x4ok` now lands only the load-time prefix collapse, proven language-preserving by differential test (0 mismatches over 100,000 random strings; 5 of 5 real true positives with identical spans and groups), plus a per-rule cost report; the full-scan result is a measurement, not a gate. The receipt rotates on these edits and a fresh readiness approval is recorded below against the revised documents.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

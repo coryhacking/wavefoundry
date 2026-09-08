@@ -1133,5 +1133,212 @@ class ChunkIdCollisionCensusTests(_TempRepoCase):
         )
 
 
+class LexicalStatisticsTests(_TempRepoCase):
+    """Published FTS aggregates and the strictly bounded dashboard reader."""
+
+    def setUp(self):
+        super().setUp()
+        if not self.iss.fts5_available():
+            self.skipTest("SQLite FTS5 unavailable")
+
+    def row(self, id, text):
+        return {"id": id, "path": "unindexed_path", "tags": "unindexed_tag",
+                "kind": "unindexed_kind", "language": "unindexed_language", "text": text}
+
+    def populate(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.iss.rebuild_chunk_index(self.index_dir, "docs", [
+            self.row("d1", "alpha alpha beta keep_together"), self.row("d2", "beta gamma")])
+        self.iss.rebuild_chunk_index(self.index_dir, "code", [self.row("c1", "alpha delta")])
+        self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
+        return attempt
+
+    def assert_no_counts(self, payload, status=None):
+        if status:
+            self.assertEqual(payload["status"], status)
+        for key in ("entries", "term_occurrences", "distinct_terms"):
+            self.assertNotIn(key, payload)
+
+    def cache(self):
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            return json.loads(self.iss.IndexStateStore._get_meta(conn, self.iss.META_LEXICAL_STATISTICS))
+        finally:
+            conn.close()
+
+    def put_cache(self, value):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store.set_meta({self.iss.META_LEXICAL_STATISTICS: json.dumps(value)})
+        finally:
+            store.close()
+
+    def test_overlap_repetitions_underscore_and_unindexed_fields(self):
+        self.populate()
+        payload = self.iss.lexical_statistics(self.index_dir)
+        self.assertEqual(payload, {"status": "ready", "engine": "SQLite FTS5", "ranking": "BM25",
+            "tokenizer": "unicode61 tokenchars '_'", "entries": 3, "term_occurrences": 8, "distinct_terms": 5})
+
+    def test_empty_one_table_and_tokenless_entries(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.iss.finalize_build_epoch(self.index_dir, attempt)
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "not_built")
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "empty_corpus")
+        for content, expected in (("alpha alpha", (2, 1)), ("", (0, 0))):
+            attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+            self.iss.rebuild_chunk_index(self.index_dir, "docs", [self.row("one", content)])
+            self.iss.finalize_build_epoch(self.index_dir, attempt)
+            payload = self.iss.lexical_statistics(self.index_dir)
+            self.assertEqual(payload["entries"], 1)
+            self.assertEqual((payload["term_occurrences"], payload["distinct_terms"]), expected)
+
+    def test_replacement_delete_and_rebuild_invalidate_atomically(self):
+        self.populate()
+        self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("d1", "zeta")], delete_ids=["d2"])
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir))
+        attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+        self.iss.finalize_build_epoch(self.index_dir, attempt)
+        payload = self.iss.lexical_statistics(self.index_dir)
+        self.assertEqual((payload["entries"], payload["term_occurrences"], payload["distinct_terms"]), (2, 3, 3))
+        self.iss.rebuild_chunk_index(self.index_dir, "code", [])
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir))
+
+    def test_absent_legacy_disabled_and_capability_transition(self):
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "not_built")
+        self.assertFalse(self.index_dir.exists())
+        self.populate()
+        store = self.iss.IndexStateStore(self.index_dir)
+        store.delete_meta([self.iss.META_LEXICAL_STATISTICS])
+        store.close()
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "statistics_not_built")
+        with mock.patch.object(self.iss, "fts5_available", return_value=False):
+            store = self.iss.IndexStateStore(self.index_dir)
+            store.close()
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+        store = self.iss.IndexStateStore(self.index_dir)
+        self.assertIsNone(store.get_meta(self.iss.META_LEXICAL_STATISTICS))
+        store.close()
+
+    def test_in_progress_stale_and_malformed_cache(self):
+        self.populate()
+        valid = self.cache()
+        for key, bad_values in {"entries": [True, -1, 1.5, "3"], "term_occurrences": [False, -1, 2.5],
+                                "distinct_terms": [True, -1, 99], "version": [True, 99],
+                                "generation": [False, -1, 1.5], "attempt_id": [None, ""]}.items():
+            for bad in bad_values:
+                with self.subTest(key=key, bad=bad):
+                    self.put_cache(dict(valid, **{key: bad}))
+                    self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+        self.put_cache(dict(valid, generation=valid["generation"] + 1))
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "statistics_stale")
+        self.put_cache(dict(valid, attempt_id="other"))
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "statistics_stale")
+        self.put_cache(valid)
+        self.iss.begin_build_epoch(self.index_dir, "all")
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "updating")
+
+    def finish(self, attempt, staged):
+        if not staged:
+            return self.iss.finalize_build_epoch(self.index_dir, attempt)
+        receipt = {"index_dir": str(self.index_dir.resolve()), "attempt_id": attempt,
+                   "expected_generation": self.iss.read_build_state(self.index_dir)["generation"] + 1,
+                   "memory_backfill_run_id": "test-run"}
+        with mock.patch("memory_backfill.record_publication_success"):
+            return self.iss.finalize_staged_build_epoch(self.index_dir, receipt, "test-run")
+
+    def test_both_finalizers_reuse_unchanged_cache_and_reject_cas_miss(self):
+        self.populate()
+        for staged in (False, True):
+            attempt = self.iss.begin_build_epoch(self.index_dir, "graph")
+            with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=AssertionError("unexpected vocabulary scan")):
+                self.assertFalse(self.finish("wrong-attempt", staged))
+                self.assertTrue(self.finish(attempt, staged))
+            payload = self.iss.lexical_statistics(self.index_dir)
+            self.assertEqual(payload["status"], "ready")
+            self.assertEqual(self.cache()["attempt_id"], attempt)
+
+    def test_both_finalizers_isolate_statistics_error_without_reset(self):
+        self.populate()
+        for staged in (False, True):
+            attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+            self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("new", "zeta")])
+            with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=sqlite3.OperationalError("database is locked")), \
+                 mock.patch.object(self.iss.IndexStateStore, "reset", side_effect=AssertionError("unexpected reset")):
+                self.assertTrue(self.finish(attempt, staged))
+            self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+            self.assert_no_counts(self.iss.lexical_statistics(self.index_dir))
+            self.assertEqual(self.iss.registry_chunk_count(self.index_dir, "docs"), 3)
+
+    def test_snapshot_reads_only_metadata_and_build_state(self):
+        self.populate()
+        queries = []
+        real_open = self.iss.open_read_only
+        def traced(index_dir):
+            conn = real_open(index_dir)
+            conn.set_trace_callback(queries.append)
+            return conn
+        with mock.patch.object(self.iss, "open_read_only", side_effect=traced), \
+             mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=AssertionError("reader scanned")), \
+             mock.patch.object(self.iss, "fts_probe", side_effect=AssertionError("reader probed")):
+            self.assertEqual(self.iss.lexical_statistics(self.index_dir)["status"], "ready")
+        self.assertEqual(queries[0], "BEGIN")
+        self.assertTrue(all(sql == "BEGIN" or sql.startswith("SELECT") for sql in queries), queries)
+        self.assertFalse(any("fts_docs" in sql or "fts_code" in sql or "vocab" in sql for sql in queries), queries)
+
+    def test_staged_parent_computes_new_cache_and_capability_change_removes_it(self):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+        self.iss.rebuild_chunk_index(self.index_dir, "docs", [self.row("d", "hello hello")])
+        self.assertTrue(self.finish(attempt, True))
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["term_occurrences"], 2)
+        with mock.patch.object(self.iss, "fts5_available", return_value=False):
+            store = self.iss.IndexStateStore(self.index_dir)
+            self.assertIsNone(store.get_meta(self.iss.META_LEXICAL_STATISTICS))
+            store.close()
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+
+    def test_delta_rollback_restores_matching_cache(self):
+        self.populate()
+        before = self.cache()
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            store._conn = _FlakyConn(store._conn, "INSERT INTO fts_docs", sqlite3.OperationalError("injected IO failure"))
+            with self.assertRaises(sqlite3.OperationalError):
+                self.iss._apply_chunk_deltas_locked(store, "docs", add_rows=[self.row("new", "zeta")])
+        finally:
+            store.close()
+        self.assertEqual(self.cache(), before)
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["entries"], 3)
+
+    def test_unreadable_store_and_invalid_json_do_not_fabricate_metrics(self):
+        self.populate()
+        with mock.patch.object(self.iss, "open_read_only", return_value=None):
+            self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "store_unreadable")
+        store = self.iss.IndexStateStore(self.index_dir)
+        store.set_meta({self.iss.META_LEXICAL_STATISTICS: "{"})
+        store.close()
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+
+    def test_current_runtime_without_fts_cannot_advertise_published_cache(self):
+        self.populate()
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["status"], "ready")
+        with mock.patch.object(self.iss, "fts5_available", return_value=False), \
+             mock.patch.object(self.iss, "open_read_only", side_effect=AssertionError("capability rejection needs no store read")):
+            payload = self.iss.lexical_statistics(self.index_dir)
+        self.assertEqual(payload["reason"], "fts_disabled")
+        self.assert_no_counts(payload, "unavailable")
+
+    def test_statistics_write_error_does_not_undo_publication(self):
+        self.populate()
+        attempt = self.iss.begin_build_epoch(self.index_dir, "graph")
+        real_connect = self.iss._full_durable_connection
+        def failing(index_dir):
+            return _FlakyConn(real_connect(index_dir), "INSERT INTO meta (key, value) VALUES (?, ?)",
+                              sqlite3.OperationalError("injected cache write failure"))
+        with mock.patch.object(self.iss, "_full_durable_connection", side_effect=failing):
+            self.assertTrue(self.finish(attempt, False))
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "statistics_stale")
+
+
 if __name__ == "__main__":
     unittest.main()

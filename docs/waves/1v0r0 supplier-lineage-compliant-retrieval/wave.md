@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-11
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -348,8 +348,9 @@ Wave `1v0r0` (Supplier Lineage Compliant Retrieval) delivered one change: Suppli
 - The broader retrieval-intent golden-query framework remains owned by planned
   change `1seaw`; this wave commits only the focused migration gate it needs.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

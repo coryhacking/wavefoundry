@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-31
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -140,8 +140,9 @@ tracked, and no other tracked receipt is comparable. The `1wpif` receipts under
 - Seed-level AC-locality guidance, a lint sensor scoped to newly authored documents, and a recorded decision on where whole-suite state is judged.
 - Updated contributor and testing-architecture contract prose.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

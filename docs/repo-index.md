@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-07
+Last verified: 2026-09-08
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 12700 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 902 |
-| graph | `.wavefoundry/framework/scripts` | code | 377 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 329 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 12753 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 910 |
+| graph | `.wavefoundry/framework/scripts` | code | 376 |
 | chunker | `.wavefoundry/framework/scripts` | code | 271 |
-| dashboard | `.wavefoundry/framework/dashboard` | code | 212 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 212 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 257 |
+| workflow-config | `.wavefoundry/framework/scripts` | code | 252 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 216 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
 | indexer | `.wavefoundry/framework/scripts` | code | 203 |
 | subprocess_util | `.wavefoundry/framework/scripts` | code | 185 |
-| state | `.wavefoundry/framework/scripts` | code | 179 |
-| memory_supply | `.wavefoundry/framework/scripts` | code | 153 |
-| docs/workflow-config | `.wavefoundry/framework/scripts` | code | 128 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 106 |
+| scripts/graph_cluster | `.wavefoundry/framework/scripts` | code | 177 |
+| state | `.wavefoundry/framework/scripts` | code | 165 |
+| scripts/techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 115 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 113 |
 | retrieval_eval | `.wavefoundry/framework/scripts` | code | 98 |
-| scripts/techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 95 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 80 |
-| reconcile_scan | `.wavefoundry/framework/scripts` | code | 73 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 95 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
+| scripts/review_policy | `.wavefoundry/framework/scripts` | code | 54 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 54 |
 | evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 51 |
-| scripts/review_policy | `.wavefoundry/framework/scripts` | code | 46 |
+| graph_quality_eval | `.wavefoundry/framework/scripts` | code | 50 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| scripts/graph_cluster | `.wavefoundry/framework/scripts` | code | 39 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 29 |
 | configuration | `(root)` | config | 13 |
 <!-- wave:repo-index-modules end -->
 

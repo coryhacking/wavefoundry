@@ -6,9 +6,22 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.22.0]
 
 ### Added
+
+- **The Index dialog now shows lexical index statistics.** See the indexed entries,
+  term occurrences, distinct terms, and FTS5 BM25 ranking alongside Semantic
+  and Graph, with distinct terms also shown on the home Index tile. Cached counts keep
+  dashboard refreshes lightweight; incomplete or unavailable
+  statistics are clearly labeled. Wave `1xgbc` / change `1uqec`.
+
+- **Failed upgrades retain the information needed to remove retired framework files on retry.**
+  Recovery reuses the original manifest even after partial extraction, preserves project-created
+  files, and refuses switching targets while recovery is unfinished. For the upgrade delivering
+  this fix to an older protocol-2 installation, first stage the complete new pack outside the
+  destination and run its upgrader with `--root <destination> --pack <archive>`; the upgrade
+  guidance includes preflight and retry instructions. Wave `1xfbh` / change `1w3bs`.
 
 - **Planning and implementation now check understanding before dependent work.** Agents reuse
   known context, ask only consequential questions, and briefly restate intended behavior.
@@ -211,6 +224,16 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `1wur7` / change `1wuui`.
 
 ### Changed
+
+- **Wavefoundry's documentation makes installation and upgrades easier to follow.**
+  Direct navigation links surface installation, dashboard, and release guidance. Updated
+  instructions explain the first upgrade to 1.22.0 and how to check the installed dashboard
+  without development-only tests, alongside an introduction to lexical index statistics.
+
+- **Context Efficiency sections use consistent formatting in wave records.**
+  New and refreshed sections keep their heading outside the managed content, matching other
+  sections. Existing records remain compatible; upgrades do not bulk-reformat closed waves.
+  Wave `1xgbe` / change `1xgbd`.
 
 - **Lexical results from different tables are merged by rank, not by raw score.** BM25 is normalized
   per table, so concatenating `fts_code` and `fts_docs` hits let unrelated growth in one table

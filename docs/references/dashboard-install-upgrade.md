@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-08
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -187,7 +187,9 @@ After install or upgrade, confirm the dashboard is functional:
 1. Run `wf dashboard --root . --open`.
 2. Confirm the browser opens and the dashboard header shows the correct `project_label` and framework version.
 3. Confirm the state badge shows `LIVE` after the first poll.
-4. Run `python3 .wavefoundry/framework/scripts/run_tests.py` to confirm framework tests pass.
+4. Open the Index details and check that the displayed layer states agree with the completed install or upgrade. When lexical statistics are ready after a successful index build, the Lexical section shows entries, occurrences, distinct terms, and the `FTS5 BM25 ranking` label; the home Index tile shows distinct terms when the cached count is ready. A legacy index without cached statistics needs a successful build/finalization before these counts appear. See [Chunking and indexing pipeline](../architecture/chunking-and-indexing-pipeline.md), lexical statistics (`index_state_store.py` and `dashboard_lib.py`).
+
+Framework tests and `scripts/run_tests.py` are development-only and are excluded from destination packs (`build_pack.EXCLUDED_REL_PATHS` and `build_pack.should_exclude`). The checks above exercise the installed dashboard without requiring the source repository's test suite.
 
 ## Cross-Links
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-05
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -112,8 +112,9 @@ Wave `1x6ti` (Reap State Visibility And Dangling Edges) delivered two changes: S
   - red-team seat (executed, temp repositories and a census of this repository's served graph): the deleted-linked-doc sequence reproduces the dangling edge through the real merge and a from-scratch oracle carries no such edge; the census found 11,027 `external::` endpoints and six non-external node-less edges in three classes, all with targets present on disk (RED-PREP-1, do_now, repaired on admission); a post-prune filter leaves a doc whose only link was deleted as a zero-edge node (RED-PREP-2, do_now, repaired: filter before the prune, `assert_equivalent` oracle); `build_index(dry_run=True)` reaches the zero-change preflight without the lock (RED-PREP-3, do_now, repaired: the writer skips dry runs); the named meta-write precedents are epoch-bound, the true no-epoch precedents are the drift clear and `_record_drift_failure` (RED-PREP-4, conforming, Rationale corrected); the `files=` seam does run the build-path reap and deletes every unlisted row, pre-existing and unreachable (RED-PREP-5, maybe_later: Scope corrected, parked as plan `1x81v`); the builder bump's two test pins, the synchronous first-query rebuild and the production-identity perturbation were undisclosed (RED-PREP-6, conforming, added). A full rebuild resets nothing in `meta`; no consumer enumerates `meta`; the stats file is server-derived from the log and nothing the indexer returns reaches the two tools.
   - docs-contract-reviewer seat: the proposed `reap` block and diagnostics fit the `_response` and `_diagnostic` conventions of the neighbouring health diagnostics (none set the advisory flag); item 15's follow-on sentence can become shipped behaviour without contradicting the rest of item 15; `graph-index-system.md`'s finalize output-pass order sentence and the retirement clause must change with `1x5pc` and `docs/RELIABILITY.md`'s builder-version claim is enforced by the claims engine (DOCS-PREP-1, 2, repaired); `1x5pc` AC-3 contradicted AC-4 (DOCS-PREP-3, repaired); the CHANGELOG Upgrading note counts builder moves (DOCS-PREP-4, added to the task); `1x551`'s diagnostics fire per non-empty map and the status block covers running and interrupted (DOCS-PREP-5, 6, repaired); the generation stamp is the store's published generation (DOCS-PREP-7, repaired); the registered tool docstrings and spec rows are contract surfaces (DOCS-PREP-8, added); the deferral message carries both halves (DOCS-PREP-9, repaired). Every AC in both plans asserts change-controlled outcomes; the AC Priority tables are complete.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

@@ -10,6 +10,14 @@ Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`
 
 Upgrade the Wave Framework operating surface in a target repository. Reconciles the rendered local docs, prompt surface, platform hook/config surfaces, the repo-local Codex bootstrap launcher, and `AGENTS.md` with the current canonical framework source.
 
+**First upgrade from an unfixed protocol-2 runner (retry-safe pruning):**
+
+Before the primary upgrade mutates the destination, inspect its installed `upgrade_wavefoundry.py` for `_save_old_manifest_snapshot`. If absent, this section overrides the normal MCP-first/installed-CLI primary entry: an already-running old process cannot gain the new snapshot logic by extracting new files. Discover and verify the selected release archive through the existing read-only discovery/preflight flow, then extract it into a new, separate temporary staging directory, never into the destination to stage the runner. Read this guidance from the selected pack when the installed prompt predates it.
+
+Run the staged `.wavefoundry/framework/scripts/upgrade_wavefoundry.py` with `python3`, `--root <absolute-destination>`, and `--pack <absolute-selected-archive>`. First use `--dry-run` and retain its pre-apply change evidence; then run the same staged script with `--yes` and the normal approved upgrade flags (including the selected archive hash when supplied). Keep the declared model companion beside the original archive. Stage the complete framework, not just its upgrade script. Existing permission, host-quiescence, reconciliation, memory, index, and cleanup requirements still apply. This changes the primary runner entry, not those later phases or the protocol-1 bridge procedure.
+
+If that attempt fails, retry the same staged runner and target pack. The repository-local `.wavefoundry/upgrade-manifest-old.json` binds the exact original MANIFEST to that target, even when partial extraction left VERSION old. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. Once the fixed runner is installed, ordinary upgrade entry points use the same recovery behavior. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case.
+
 ## How Framework Updates Work
 
 Use this prompt when the repository is already seeded and you want it to adopt a newer Wavefoundry framework pack or reconcile against a newer local `.wavefoundry/framework/` tree.

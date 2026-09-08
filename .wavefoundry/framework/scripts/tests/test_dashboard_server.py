@@ -3706,6 +3706,116 @@ class GitStatsZStripSafetyTests(unittest.TestCase):
         self.assertEqual(stats["lines_added"], 2)
 
 
+
+class LexicalDashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        self.lib, _ = load_dashboard_modules()
+
+    def _snapshot(self):
+        with patch.object(self.lib, "_lance_table_stats", return_value=(0, 0)):
+            return self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
+
+    def test_snapshot_publishes_real_cached_lexical_counts_and_hides_incomplete_build(self):
+        import index_state_store as iss
+        index_dir = self.root / ".wavefoundry" / "index"
+        attempt = iss.begin_build_epoch(index_dir, "docs")
+        iss.rebuild_chunk_index(index_dir, "docs", [
+            {"id": "a", "path": "docs/a.md", "text": "alpha alpha beta"},
+            {"id": "b", "path": "docs/b.md", "text": "beta gamma"},
+        ])
+        iss.rebuild_chunk_index(index_dir, "code", [
+            {"id": "c", "path": "src/a.py", "text": "alpha delta"},
+        ])
+        self.assertTrue(iss.finalize_build_epoch(index_dir, attempt))
+        with patch.object(iss, "lexical_statistics", wraps=iss.lexical_statistics) as reader:
+            lexical = self._snapshot()["health"]["lexical"]["project"]
+        reader.assert_called_once_with(index_dir)
+        self.assertEqual(lexical["status"], "ready")
+        self.assertEqual((lexical["entries"], lexical["term_occurrences"], lexical["distinct_terms"]), (3, 7, 4))
+        self.assertEqual(lexical["engine"], "SQLite FTS5")
+        self.assertEqual(lexical["ranking"], "BM25")
+        self.assertEqual(lexical["tokenizer"], "unicode61 tokenchars '_'")
+        iss.begin_build_epoch(index_dir, "code")
+        lexical = self._snapshot()["health"]["lexical"]["project"]
+        self.assertEqual(lexical["status"], "updating")
+        for key in ("entries", "term_occurrences", "distinct_terms"):
+            self.assertNotIn(key, lexical)
+
+    def test_snapshot_missing_lexical_store_does_not_create_it(self):
+        index_dir = self.root / ".wavefoundry" / "index"
+        self.assertFalse(index_dir.exists())
+        lexical = self._snapshot()["health"]["lexical"]["project"]
+        self.assertEqual(lexical["status"], "not_built")
+        self.assertNotIn("entries", lexical)
+        self.assertFalse(index_dir.exists())
+
+    def test_lexical_section_executes_ready_unavailable_and_dialog_states(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node is needed to execute dashboard component controls")
+        script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const section = source.slice(source.indexOf('function LexicalIndexSection('), source.indexOf('function GraphIndexSection('));
+const dialog = source.slice(source.indexOf('function IndexDialog('), source.indexOf('function _visibleModelId('));
+const h = (tag, props, ...children) => typeof tag === 'function' ? tag(props) : ({tag, props: props || {}, children: children.flat(Infinity).filter(x => x != null)});
+const context = { h, useRef: () => ({current: null}), useEffect: () => {}, relativeAge: () => '',
+  IndexSection: ({label}) => label, GraphIndexSection: ({label}) => label };
+vm.createContext(context);
+vm.runInContext(section + dialog, context);
+const nodes = node => typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [];
+const text = node => typeof node === 'object' ? node.children.map(text).join(' ') : String(node);
+const values = node => nodes(node).filter(n => n.props.className === 'index-stat-value').map(text);
+const ready = {status: 'ready', engine: 'SQLite FTS5', ranking: 'BM25', tokenizer: "unicode61 tokenchars '_'", entries: 3, term_occurrences: 7, distinct_terms: 4};
+const render = idx => context.LexicalIndexSection({idx});
+assert.deepEqual(values(render(ready)), ['3', '7', '4']);
+assert.deepEqual(nodes(render(ready)).filter(n => n.props.className === 'index-meta-pill index-meta-pill--model').map(text), ['FTS5 BM25 ranking']);
+for (const phrase of ['Lexical', 'entries', 'term occurrences', 'distinct terms', 'FTS5 BM25 ranking']) assert.ok(text(render(ready)).includes(phrase), phrase);
+assert.deepEqual(values(render({...ready, term_occurrences: 0, distinct_terms: 0})), ['3', '0', '0']);
+for (const [status, reason, expected] of [
+  ['not_built', 'store_absent', 'Statistics not built yet'],
+  ['not_built', 'empty_corpus', 'No indexed entries'],
+  ['unavailable', 'fts_disabled', 'FTS5 is unavailable'],
+  ['unavailable', 'statistics_invalid', 'Statistics unavailable'],
+  ['updating', 'build_in_progress', 'Updating…'],
+]) {
+  const tree = render({...ready, status, reason});
+  assert.deepEqual(values(tree), []);
+  assert.ok(text(tree).includes(expected));
+}
+for (const invalid of [undefined, null, true, -1, 1.5, '4', NaN]) {
+  assert.deepEqual(values(render({...ready, distinct_terms: invalid})), []);
+}
+const tree = context.IndexDialog({health: {lexical: {project: ready}}, onClose: () => {}});
+const content = text(tree);
+assert.ok(content.indexOf('Semantic') < content.indexOf('Graph'));
+assert.ok(content.indexOf('Graph') < content.indexOf('Lexical'));
+assert.ok(!text(context.IndexDialog({health: {}, onClose: () => {}})).includes('Lexical'));
+Object.assign(context, {React: {Fragment: 'fragment'}, activeWaves: () => [], pendingWaves: () => [],
+  acProgressStats: () => ({pending: 0, total: 0}), p: (count, single, plural) => count === 1 ? single : plural});
+vm.runInContext(source.slice(source.indexOf('function Metrics('), source.indexOf('// buildFileTree / FileTree')), context);
+const tile = lexical => nodes(context.Metrics({snapshot: {health: {lexical: {project: lexical}}}, scopeChanges: []}))
+  .find(n => n.props.className === 'metric metric--index');
+assert.ok(text(tile(ready)).includes('4 distinct terms'));
+assert.ok(nodes(tile(ready)).some(n => n.props.className === 'metric-subnote' && text(n) === '4 distinct terms'));
+assert.ok(text(tile({...ready, distinct_terms: 0})).includes('0 distinct terms'));
+for (const status of ['updating', 'unavailable', 'not_built']) assert.ok(!text(tile({...ready, status})).includes('distinct terms'));
+for (const distinct_terms of [undefined, null, true, -1, 1.5, '4', NaN]) assert.ok(!text(tile({...ready, distinct_terms})).includes('distinct terms'));
+assert.ok(!text(tile(undefined)).includes('distinct terms'));
+console.log('lexical component, dialog and home tile controls passed');
+"""
+        result = subprocess.run([node, "-e", script, str(SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js")], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class IndexStalenessTests(unittest.TestCase):
     """Verify _index_is_stale detects missing index and meta-based staleness."""
 

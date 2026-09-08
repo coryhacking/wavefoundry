@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-10
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -83,8 +83,9 @@ Wave `1uugh advisory-diagnostic-severity` (Advisory Diagnostic Severity) deliver
 
 - Wave `1usqm citation-durability-and-receipt-integrity` must land first: this change deletes code that wave ships, in a file both edit.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

@@ -148,6 +148,8 @@ WAVE_ID_TOKEN = re.compile(r"\b(?=[0-9]*[a-z])[0-9][a-z0-9]{4}\b")
 # tokens; concept/sub-word queries are the dense layer's job.
 FTS_TABLES = {"docs": "fts_docs", "code": "fts_code"}
 FTS_TOKENIZER = "unicode61 tokenchars '_'"
+META_LEXICAL_STATISTICS = "lexical_statistics"
+LEXICAL_STATISTICS_VERSION = 1
 # In-build segment-merge gate (the FTS analog of LANCEDB_COMPACT_THRESHOLD):
 # when cumulative insert+delete churn since the last merge exceeds this, a
 # bounded ``('merge', N)`` runs in-build; the full ``'optimize'`` runs on the
@@ -536,6 +538,8 @@ class IndexStateStore:
             # --- FTS5 lexical resident schema (1rrr0) — capability-gated ---
             fts_ok = fts5_available()
             prev_fts = self._get_meta(conn, META_FTS_AVAILABLE)
+            if prev_fts != ("1" if fts_ok else "0"):
+                conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
             conn.execute(
                 "INSERT INTO meta (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1673,6 +1677,8 @@ def _apply_chunk_deltas_locked(
     conn = store._conn
     churn = len(delete_ids) + len(delete_paths) + len(rows)
     with conn:
+        if churn and fts_name is not None:
+            conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
         # 1wpag: maintain the keyed payload digest in O(delta) INSIDE this
         # transaction. XOR-out the current payloads of every row the delta
         # removes (by id, by path, and the replace-by-id deletes for added
@@ -1879,6 +1885,8 @@ def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[st
         fts_name = FTS_TABLES.get(table_name)
         fts_on = fts_name is not None and _fts_enabled(store)
         with conn:
+            if fts_name is not None:
+                conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
             conn.execute("DELETE FROM chunk_registry WHERE table_name = ?", (table_name,))
             if fts_on:
                 conn.execute(f"DELETE FROM {fts_name}")
@@ -3378,6 +3386,8 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
                     (time.time(), str(attempt_id)),
                 )
                 finalized = cur.rowcount == 1
+                if finalized:
+                    _publish_lexical_statistics(conn)
         finally:
             conn.close()
         if finalized and authorized:
@@ -3433,6 +3443,8 @@ def finalize_staged_build_epoch(
                 (time.time(), str(receipt["attempt_id"])),
             )
             finalized = cur.rowcount == 1
+            if finalized:
+                _publish_lexical_statistics(conn)
     finally:
         conn.close()
     if finalized:
@@ -3471,6 +3483,133 @@ def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:
             conn.close()
         except sqlite3.Error:
             pass
+
+
+def _decode_lexical_statistics(raw: Optional[str]) -> Optional[dict[str, Any]]:
+    """Accept only this producer's typed, configuration-bound aggregate."""
+    try:
+        value = json.loads(raw) if raw is not None else None
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    counts = ("generation", "entries", "term_occurrences", "distinct_terms")
+    if (
+        type(value.get("version")) is not int
+        or value["version"] != LEXICAL_STATISTICS_VERSION
+        or value.get("tokenizer") != FTS_TOKENIZER
+        or not isinstance(value.get("attempt_id"), str)
+        or not value["attempt_id"]
+        or any(type(value.get(key)) is not int or value[key] < 0 for key in counts)
+        or value["distinct_terms"] > value["term_occurrences"]
+        or (value["entries"] == 0 and value["term_occurrences"] != 0)
+    ):
+        return None
+    return value
+
+
+def _aggregate_lexical_statistics(conn: sqlite3.Connection) -> dict[str, int]:
+    """Writer-only vocabulary census; temporary views retain no terms."""
+    names = []
+    entries = 0
+    for table in FTS_TABLES.values():
+        name = f"lexical_vocab_{table}"
+        conn.execute(
+            f"CREATE VIRTUAL TABLE temp.{name} USING fts5vocab(main, '{table}', 'row')"
+        )
+        names.append(name)
+        entries += conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+    # Shared docs/code tokens count once, while every occurrence contributes.
+    union = " UNION ALL ".join(f"SELECT term, cnt FROM temp.{name}" for name in names)
+    distinct, occurrences = conn.execute(
+        f"SELECT count(DISTINCT term), coalesce(sum(cnt), 0) FROM ({union})"
+    ).fetchone()
+    for name in names:
+        conn.execute(f"DROP TABLE temp.{name}")
+    return {"entries": entries, "term_occurrences": occurrences, "distinct_terms": distinct}
+
+
+def _publish_lexical_statistics(conn: sqlite3.Connection) -> None:
+    """Best-effort cache publication inside the successful epoch CAS transaction.
+
+    Corpus writers delete the cache in their mutation transaction. An intact
+    previous-generation cache can therefore be rebound without a vocabulary
+    scan. A savepoint isolates observational failures from index publication;
+    any surviving old cache has the wrong generation and is never served.
+    """
+    conn.execute("SAVEPOINT lexical_statistics_publish")
+    try:
+        previous = _decode_lexical_statistics(
+            IndexStateStore._get_meta(conn, META_LEXICAL_STATISTICS)
+        )
+        conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
+        if IndexStateStore._get_meta(conn, META_FTS_AVAILABLE) == "1":
+            attempt, generation = conn.execute(
+                "SELECT attempt_id, generation FROM build_state WHERE id = 1"
+            ).fetchone()
+            if previous is not None and previous["generation"] == generation - 1:
+                counts = {key: previous[key] for key in ("entries", "term_occurrences", "distinct_terms")}
+            else:
+                counts = _aggregate_lexical_statistics(conn)
+            payload = dict(counts, version=LEXICAL_STATISTICS_VERSION,
+                           tokenizer=FTS_TOKENIZER, attempt_id=attempt, generation=generation)
+            conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)",
+                         (META_LEXICAL_STATISTICS, json.dumps(payload)))
+    except (sqlite3.Error, ValueError, TypeError, OverflowError):
+        conn.execute("ROLLBACK TO lexical_statistics_publish")
+    finally:
+        conn.execute("RELEASE lexical_statistics_publish")
+
+
+def lexical_statistics(index_dir: Path) -> dict[str, Any]:
+    """Bounded, coherent, metadata-only dashboard read; never create or repair."""
+    out: dict[str, Any] = {
+        "status": "not_built", "reason": "store_absent",
+        "engine": "SQLite FTS5", "ranking": "BM25", "tokenizer": FTS_TOKENIZER,
+    }
+    # The stored flag describes the publishing interpreter. This cached
+    # runtime capability probe uses only an in-memory database, never the
+    # corpus; another interpreter may be unable to serve its FTS tables.
+    if not fts5_available():
+        out.update(status="unavailable", reason="fts_disabled")
+        return out
+    conn = open_read_only(index_dir)
+    if conn is None:
+        if state_store_path(index_dir).exists():
+            out.update(status="unavailable", reason="store_unreadable")
+        return out
+    try:
+        conn.execute("BEGIN")
+        capability = IndexStateStore._get_meta(conn, META_FTS_AVAILABLE)
+        if capability != "1":
+            out.update(status="unavailable", reason="fts_disabled")
+            return out
+        state = conn.execute(
+            "SELECT attempt_id, status, generation FROM build_state WHERE id = 1"
+        ).fetchone()
+        if state is None or state[1] != "complete":
+            out.update(status="updating" if state and state[1] == "building" else "not_built",
+                       reason="build_in_progress" if state and state[1] == "building" else "statistics_not_built")
+            return out
+        raw = IndexStateStore._get_meta(conn, META_LEXICAL_STATISTICS)
+        cached = _decode_lexical_statistics(raw)
+        if cached is None:
+            out.update(status="not_built" if raw is None else "unavailable",
+                       reason="statistics_not_built" if raw is None else "statistics_invalid")
+        elif (cached["attempt_id"], cached["generation"]) != (state[0], state[2]):
+            out.update(status="unavailable", reason="statistics_stale")
+        elif cached["entries"] == 0:
+            out.update(reason="empty_corpus")
+        else:
+            out.pop("reason")
+            out.update(status="ready", **{key: cached[key] for key in (
+                "entries", "term_occurrences", "distinct_terms")})
+        return out
+    except sqlite3.Error:
+        out.update(status="unavailable", reason="store_unreadable")
+        return out
+    finally:
+        conn.close()
 
 
 def build_epoch_state_token(index_dir: Path) -> Optional[tuple[str, str, int]]:

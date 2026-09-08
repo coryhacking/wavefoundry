@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-06
+Last verified: 2026-09-08
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -825,6 +825,25 @@ return; the FTS table must also pass liveness (a real MATCH), row and shadow-tab
 and the keyed payload digest compare (see `search-architecture.md`, Hybrid Lexical Layer).
 The former Lance/Tantivy FTS index was retired with wave 1rsh9; its leftover `_indices/`
 versions are dropped by the reclaim path at upgrade.
+
+The dashboard's Lexical section reads a cached aggregate from state-store metadata
+(wave `1xgbc`, change `1uqec`). Entries count FTS rows across docs and code, occurrences
+count indexed text tokens, and distinct terms count the union of both vocabularies.
+Repeated or overlapping chunks can therefore contribute repeated occurrences; these
+are corpus counts, not source-file or query statistics. The panel displays a single
+`FTS5 BM25 ranking` label. The home Index tile also shows distinct terms when
+the cached count is ready. The payload retains the tokenizer configuration
+`unicode61 tokenchars '_'`, which keeps underscores inside tokens.
+
+Supported FTS mutations invalidate the cache in their transaction. Both normal and
+staged-parent build finalization publish refreshed aggregates with the completed epoch;
+unchanged-corpus finalization reuses cached aggregates. Temporary vocabulary aggregation
+stays on the writer path. The dashboard reader uses a bounded, consistent, read-only
+metadata snapshot and never scans vocabulary or repairs the store. Missing legacy
+statistics populate at a subsequent successful build/finalization. Disabled FTS,
+incomplete publication, missing/invalid statistics and an empty corpus have explicit
+non-ready states without fabricated counts. Statistics failure does not add a new
+retrieval publication gate, and no query history or terms are retained in the cache.
 
 Below the threshold, vector queries fall back to a brute-force scan, which is fast enough at
 small scale and avoids the overhead of index construction on near-empty tables.

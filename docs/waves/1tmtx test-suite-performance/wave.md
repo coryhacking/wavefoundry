@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-08-27
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1tmtx test-suite-performance`
@@ -116,8 +116,9 @@ Wave `1tmtx` (Test Suite Performance) delivered one change: Canonical Test Suite
   so activation-time freshness is the operative condition, not any wave's
   closure.)
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

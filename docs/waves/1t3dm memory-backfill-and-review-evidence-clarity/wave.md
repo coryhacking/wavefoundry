@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-20
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1t3dm memory-backfill-and-review-evidence-clarity`
@@ -263,8 +263,9 @@ carrier updates must be reconciled together.
   thin `server.py`, the current host still requires one process restart to load
   that notifier.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

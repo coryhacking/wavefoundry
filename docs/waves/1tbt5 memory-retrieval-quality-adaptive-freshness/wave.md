@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-25
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 wave-id: `1tbt5 memory-retrieval-quality-adaptive-freshness`
@@ -205,8 +205,9 @@ Wave `1tbt5` (Memory Retrieval Quality Adaptive Freshness) delivered 3 changes: 
 - Consumes the archive and pointer contract completed by wave
   `1t8la memory-archival-and-retention`; that closed wave is not reopened.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

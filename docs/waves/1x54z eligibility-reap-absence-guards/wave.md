@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-04
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -117,8 +117,9 @@ Wave `1x54z` (Eligibility Reap Absence Guards) delivered one change: Shipped Eli
   - security-reviewer seat: every confidentiality shape (ignore rule, `include_tests` narrowing) reaps immediately and never defers; the envelope fields carry counts only; the cycle-2 widening admits store-known paths only (a ghost link mints nothing) and a gitignored-but-known path is served as of the last readable build in parity with the carry-forward; SEC-RV1-1 established that no registered tool relays the build result, recorded in item 15 and plan `1x551`. Residual risk: deferral and preservation are log-only under MCP or hook builds until `1x551` lands. Supports delivery.
   - the cycle-3 delta (the impacted-docs skip, its faithful mode-000 test, the edge-oracle fix) was reverified by the architecture lane with a real chmod probe, by the code lane with the interpreter's own `Path.exists` semantics, and by the QA lane's re-established approval evidence; the seats' positions were taken on the cycle-2 tree and the delta lies inside the architecture lane's remit.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 

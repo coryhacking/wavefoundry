@@ -1624,6 +1624,276 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertEqual(self._resume(), 1)
 
 
+class UpgradeManifestRecoveryTests(unittest.TestCase):
+    """Real extraction/pruning across attempts; isolate unrelated upgrade phases."""
+
+    OLD = b"MANIFEST\r\nVERSION\r\nseeds/keep.md\r\nseeds/retired.md\r\n"
+    NEW = b"MANIFEST\nVERSION\nseeds/keep.md\n"
+    TARGET = "1.22.0+test"
+
+    def _fixture(self, root):
+        framework = root / ".wavefoundry" / "framework"
+        (framework / "seeds").mkdir(parents=True)
+        (framework / "MANIFEST").write_bytes(self.OLD)
+        (framework / "VERSION").write_text("1.21.0+old\n")
+        (framework / "seeds/retired.md").write_text("retired\n")
+        (framework / "seeds/keep.md").write_text("keep\n")
+        (framework / "seeds/project.md").write_text("project-owned\n")
+        (root / "docs").mkdir()
+        (root / "docs/workflow-config.json").write_text("{}\n")
+        pack = root.parent / (root.name + "-pack.zip")
+        with zipfile.ZipFile(pack, "w") as archive:
+            # MANIFEST deliberately precedes VERSION for the partial-write case.
+            archive.writestr(".wavefoundry/framework/MANIFEST", self.NEW)
+            archive.writestr(".wavefoundry/framework/VERSION", self.TARGET + "\n")
+            archive.writestr(".wavefoundry/framework/seeds/keep.md", "new keep\n")
+        return pack
+
+    def _attempt(self, root, pack, failure=None, mod=None):
+        mod = mod or load_upgrade_module()
+        import upgrade_protocol
+        import venv_bootstrap
+        real_extract = mod._extract_feature_members
+        extracted = []
+
+        def extract(archive, destination):
+            extracted.append(True)
+            if failure == "partial":
+                archive.extract(".wavefoundry/framework/MANIFEST", destination)
+                raise OSError("injected partial extraction")
+            return real_extract(archive, destination)
+
+        def hook(name, *_):
+            if name == "pre_extract" and failure == "before":
+                raise SystemExit(23)
+
+        def surface(_):
+            if failure == "surface":
+                raise SystemExit(24)
+
+        with contextlib.ExitStack() as stack:
+            # Keep CLI parsing, main state/cleanup, target detection, extraction,
+            # snapshot I/O and actual prune subprocess. Network/model/docs/memory
+            # work is outside this regression's boundary.
+            for name, kwargs in {
+                "phase_preflight": {"return_value": ("1.21.0+old", self.TARGET, pack)},
+                "_stage_pack_for_consumption": {"side_effect": lambda path, _: path},
+                "_load_extension_module": {"return_value": None},
+                "_run_hook": {"side_effect": hook},
+                "_extract_feature_members": {"side_effect": extract},
+                "_snapshot_pre_extract_chunker_versions": {"return_value": {}},
+                "_snapshot_pre_extract_versions": {"return_value": {}},
+                "phase_surface_rendering": {"side_effect": surface},
+                "_stamp_manifest_revision": {"return_value": False},
+                "materialize_secrets_policy": {"return_value": "ok"},
+                "materialize_lifecycle_policy": {"return_value": "ok"},
+                "phase_docs_gate": {},
+                "phase_index_update": {"return_value": True},
+                "_emit_primary_summary_via_delegate_or_fallback": {},
+            }.items():
+                stack.enter_context(patch.object(mod, name, **kwargs))
+            stack.enter_context(patch.object(upgrade_protocol, "read_pack_protocol",
+                                            return_value={"upgrade_protocol_version": 2}))
+            stack.enter_context(patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"))
+            stack.enter_context(patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}))
+            if failure == "prune":
+                stack.enter_context(patch.object(mod.subprocess_util, "isolated_run",
+                    return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="injected prune failure")))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+            try:
+                result = mod.main(["--root", str(root), "--pack", str(pack), "--yes"])
+            except (SystemExit, OSError) as exc:
+                result = exc
+        return result, len(extracted)
+
+    def _assert_recovered(self, root, mod):
+        framework = root / ".wavefoundry/framework"
+        self.assertFalse((framework / "seeds/retired.md").exists())
+        self.assertEqual((framework / "seeds/project.md").read_text(), "project-owned\n")
+        self.assertFalse(mod._old_manifest_snapshot(root).exists())
+
+    def test_full_retry_after_surface_failure_skips_extract_and_prunes_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            first, count = self._attempt(root, pack, "surface", mod)
+            self.assertIsInstance(first, SystemExit); self.assertEqual(count, 1)
+            self.assertEqual(mod._read_old_manifest_snapshot(root)["manifest"].encode(), self.OLD)
+            before = mod._old_manifest_snapshot(root).read_bytes()
+            failed, count = self._attempt(root, pack, "before", mod)
+            self.assertIsInstance(failed, SystemExit); self.assertEqual(count, 0)
+            self.assertEqual(mod._old_manifest_snapshot(root).read_bytes(), before)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual(result, 0); self.assertEqual(count, 0)
+            self._assert_recovered(root, mod)
+
+    def test_partial_manifest_write_before_version_then_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            result, _ = self._attempt(root, pack, "partial", mod)
+            self.assertIsInstance(result, OSError)
+            self.assertEqual((root / ".wavefoundry/framework/VERSION").read_text(), "1.21.0+old\n")
+            self.assertEqual(mod._read_old_manifest_snapshot(root)["manifest"].encode(), self.OLD)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual(result, 0); self.assertEqual(count, 1)
+            self._assert_recovered(root, mod)
+
+    def test_success_and_pre_mutation_failure_retire_only_new_snapshot(self):
+        for failure in (None, "before"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / "target"; pack = self._fixture(root)
+                mod = load_upgrade_module()
+                result, count = self._attempt(root, pack, failure, mod)
+                self.assertFalse(mod._old_manifest_snapshot(root).exists())
+                if failure is None:
+                    self.assertEqual(result, 0); self._assert_recovered(root, mod)
+                else:
+                    self.assertIsInstance(result, SystemExit); self.assertEqual(count, 0)
+                    self.assertEqual((root / ".wavefoundry/framework/MANIFEST").read_bytes(), self.OLD)
+
+    def test_failed_prune_retains_authority_and_retry_recovers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            result, _ = self._attempt(root, pack, "prune", mod)
+            self.assertEqual(result, 0)  # Existing nonfatal phase contract.
+            self.assertEqual(mod._read_old_manifest_snapshot(root)["manifest"].encode(), self.OLD)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual(result, 0); self.assertEqual(count, 0)
+            self._assert_recovered(root, mod)
+
+    def test_snapshot_isolation_target_refusal_and_atomic_save_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory)/"a", Path(directory)/"b"
+            pack = self._fixture(a); self._fixture(b)
+            mod = load_upgrade_module()
+            mod._save_old_manifest_snapshot(a, self.TARGET)
+            original = mod._old_manifest_snapshot(a).read_bytes()
+            with self.assertRaisesRegex(ValueError, "pending MANIFEST recovery"):
+                mod._save_old_manifest_snapshot(a, "1.23.0")
+            self.assertEqual(mod._old_manifest_snapshot(a).read_bytes(), original)
+            self.assertFalse(mod._old_manifest_snapshot(b).exists())
+            with patch.object(mod.os, "replace", side_effect=OSError("injected save failure")):
+                result, count = self._attempt(b, pack, mod=mod)
+            self.assertEqual(result, 1); self.assertEqual(count, 0)
+            self.assertFalse(mod._old_manifest_snapshot(b).exists())
+            self.assertEqual((b/".wavefoundry/framework/MANIFEST").read_bytes(), self.OLD)
+            self.assertEqual(list((b/".wavefoundry").glob(".manifest-*")), [])
+
+    def test_missing_or_unreadable_prune_inputs_never_retire_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; self._fixture(root)
+            mod = load_upgrade_module(); mod._save_old_manifest_snapshot(root, self.TARGET)
+            original = mod._old_manifest_snapshot(root).read_bytes()
+            with patch.object(mod, "SCRIPTS_DIR", Path(directory)/"missing"):
+                self.assertIsNone(mod.phase_pruning(root))
+            manifest = root/".wavefoundry/framework/MANIFEST"
+            manifest.unlink()
+            self.assertIsNone(mod.phase_pruning(root))
+            manifest.write_bytes(b"\xff")
+            self.assertIsNone(mod.phase_pruning(root))
+            self.assertEqual(mod._old_manifest_snapshot(root).read_bytes(), original)
+
+    def test_pending_different_target_refuses_main_before_extract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            mod._save_old_manifest_snapshot(root, "1.23.0")
+            before = mod._old_manifest_snapshot(root).read_bytes()
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual(result, 1); self.assertEqual(count, 0)
+            self.assertEqual(mod._old_manifest_snapshot(root).read_bytes(), before)
+            self.assertEqual((root/".wavefoundry/framework/MANIFEST").read_bytes(), self.OLD)
+
+    def test_lock_setup_failure_cleans_new_snapshot_but_preserves_inherited(self):
+        import upgrade_lib
+        for inherited in (False, True):
+            with self.subTest(inherited=inherited), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)/"target"; pack = self._fixture(root)
+                mod = load_upgrade_module()
+                if inherited:
+                    mod._save_old_manifest_snapshot(root, self.TARGET)
+                with patch.object(upgrade_lib, "write_upgrade_lock", side_effect=OSError("lock save failed")):
+                    result, count = self._attempt(root, pack, mod=mod)
+                self.assertIsInstance(result, OSError); self.assertEqual(count, 0)
+                self.assertEqual(mod._old_manifest_snapshot(root).exists(), inherited)
+
+    def test_corrupt_and_symlink_snapshots_refuse_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; pack = self._fixture(root)
+            mod = load_upgrade_module(); snapshot = mod._old_manifest_snapshot(root)
+            snapshot.write_bytes(b"not json")
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual((result, count), (1, 0)); self.assertEqual(snapshot.read_bytes(), b"not json")
+            snapshot.unlink()
+            external = Path(directory)/"external"; external.write_bytes(b"sentinel")
+            snapshot.symlink_to(external)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual((result, count), (1, 0)); self.assertEqual(external.read_bytes(), b"sentinel")
+
+    def test_upgrade_guidance_pins_staged_entry_before_normal_flow(self):
+        heading = "**First upgrade from an unfixed protocol-2 runner (retry-safe pruning):**"
+        obligations = (
+            "overrides the normal MCP-first/installed-CLI primary entry",
+            "new, separate temporary staging directory, never into the destination",
+            "`--root <absolute-destination>`", "`--pack <absolute-selected-archive>`",
+            "First use `--dry-run` and retain its pre-apply change evidence",
+            "Stage the complete framework, not just its upgrade script",
+            "retry the same staged runner and target pack",
+            "only observed successful pruning retires it",
+            "cannot reconstruct authority already lost",
+        )
+        def check(text):
+            self.assertEqual(text.count(heading), 1)
+            block = text.split(heading, 1)[1].split("\n\n", 4)[:4]
+            block = "\n\n".join(block)
+            for clause in obligations:
+                self.assertIn(clause, block)
+            self.assertNotIn("--zip <", block)
+        for path in (SCRIPTS_ROOT.parent/"seeds/160-upgrade-wavefoundry.prompt.md",
+                     SCRIPTS_ROOT.parents[2]/"docs/prompts/upgrade-wavefoundry.prompt.md"):
+            text = path.read_text()
+            with self.subTest(path=str(path)):
+                check(text)
+                for clause in obligations:
+                    bad = text.replace(clause, "omitted required instruction", 1)
+                    self.assertNotEqual(bad, text)
+                    with self.assertRaises(AssertionError):
+                        check(bad)
+                normal = "Intent:" if "/seeds/" in str(path) else "## How Framework Updates Work"
+                self.assertLess(text.index(heading), text.index(normal))
+
+    def test_fresh_process_staged_runner_retries_an_unfixed_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); root = base/"target"; pack = self._fixture(root)
+            old_runner = root/".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+            old_runner.parent.mkdir()
+            old_runner.write_text("raise RuntimeError('unfixed destination runner must not execute')\n")
+            staging = base/"staged"
+            shutil.copytree(SCRIPTS_ROOT, staging, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+            fresh_runner = staging/"upgrade_wavefoundry.py"
+            # A fresh interpreter invokes the staged runner's main with the exact
+            # documented CLI arguments through the same isolated phase fixture.
+            driver = (
+                "import sys; from pathlib import Path; "
+                "sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2]); "
+                "import test_upgrade_wavefoundry as t; "
+                "t.UPGRADE_PATH=Path(sys.argv[3]); "
+                "case=t.UpgradeManifestRecoveryTests(); "
+                "result,count=case._attempt(Path(sys.argv[4]),Path(sys.argv[5]),sys.argv[6]); "
+                "assert (isinstance(result,SystemExit) if sys.argv[6]=='surface' else result==0),(result,count)"
+            )
+            for failure in ("surface", "success"):
+                result = subprocess.run([sys.executable, "-B", "-W", "error", "-c", driver,
+                    str(SCRIPTS_ROOT), str(SCRIPTS_ROOT/"tests"), str(fresh_runner), str(root), str(pack), failure],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            self._assert_recovered(root, load_upgrade_module())
+            self.assertIn("unfixed destination", old_runner.read_text())
+
+
 class PhasePruningCountTests(unittest.TestCase):
     """Wave 1p44q — phase_pruning reads the pruned count from prune_framework.py's
     stderr summary, not the old (always-zero) stdout substring heuristic."""
@@ -1632,6 +1902,10 @@ class PhasePruningCountTests(unittest.TestCase):
         self.mod = load_upgrade_module()
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        framework = self.root / ".wavefoundry" / "framework"
+        framework.mkdir(parents=True)
+        (framework / "MANIFEST").write_text("seeds/keep.md\n", encoding="utf-8")
+        self.mod._save_old_manifest_snapshot(self.root, "2.0.0")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1657,8 +1931,8 @@ class PhasePruningCountTests(unittest.TestCase):
         # must come from the stderr summary, so absent-stderr → 0 (not a stdout scan).
         self.assertEqual(self._prune("", stdout="deleted: a\ndeleted: b\n"), 0)
 
-    def test_nonzero_exit_returns_zero(self):
-        self.assertEqual(self._prune("prune: deleted 5 item(s)\n", returncode=1), 0)
+    def test_nonzero_exit_is_not_successful_zero(self):
+        self.assertIsNone(self._prune("prune: deleted 5 item(s)\n", returncode=1))
 
 
 class PreferredPythonTests(unittest.TestCase):
@@ -7115,18 +7389,16 @@ class WindowsTempPathRobustnessTests(unittest.TestCase):
     native Windows. The temp dir must come from tempfile.gettempdir() (cross-OS), not a hardcoded
     POSIX path."""
 
-    def test_old_manifest_tmp_uses_gettempdir_not_slash_tmp(self):
+    def test_old_manifest_snapshot_is_repository_local(self):
         mod = load_upgrade_module()
-        self.assertEqual(
-            mod.OLD_MANIFEST_TMP.parent, Path(tempfile.gettempdir()),
-            "OLD_MANIFEST_TMP must live under tempfile.gettempdir(), not a hardcoded /tmp",
-        )
-        self.assertEqual(mod.OLD_MANIFEST_TMP.name, "wf-manifest-old.txt")
+        root = Path("destination")
+        self.assertEqual(mod._old_manifest_snapshot(root),
+                         root / ".wavefoundry" / "upgrade-manifest-old.json")
 
     def test_no_hardcoded_tmp_or_tmpdir_fallback_in_source(self):
         src = UPGRADE_PATH.read_text(encoding="utf-8")
         self.assertNotIn('os.environ.get("TMPDIR", "/tmp")', src)
-        self.assertIn("tempfile.gettempdir()", src)
+        self.assertIn("tempfile.NamedTemporaryFile", src)
 
     def test_old_manifest_copy_resolves_on_windows_style_temp(self):
         # Simulate a Windows-style temp dir (no real /tmp dependency): the MANIFEST copy target must

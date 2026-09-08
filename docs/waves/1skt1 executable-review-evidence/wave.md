@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-07-27
+Last verified: 2026-09-08
 review-evidence-source: events.jsonl
 wave-id: `1skt1 executable-review-evidence`
 Title: Executable Review Evidence
@@ -158,8 +158,9 @@ Wave `1skt1` (Executable Review Evidence) delivered one change: Executable Revie
 
 - No external sequencing blocker: `1ro44` is closed. Activation remains separate from readiness and operator-owned.
 
-<!-- wave:context-efficiency begin -->
 ## Context Efficiency
+
+<!-- wave:context-efficiency begin -->
 
 Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
 
