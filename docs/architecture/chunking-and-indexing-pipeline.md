@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -31,19 +31,18 @@ Repository files
           Chunking             -- markdown, rst/adoc, code, plain-text, notebooks
                 |
                 v
-          Embedding            -- docs model / code model (768-dim each)
-                |
-                v
           Provider selection   -- CUDA, verified CoreML, named secondary provider, or CPU
                 |
                 v
-          LanceDB write        -- chunk-delta update or full overwrite
+          Embedding            -- docs/code models; 384-dimensional vectors
                 |
                 v
-          Index build          -- HNSW vector index + FTS (BM25)
+          SQLite publication   -- one transaction: canonical chunks, FP32 vectors,
+                                  external-content FTS and semantic bookkeeping
+                                  (chunk delta or full layer replacement)
                 |
                 v
-          store bookkeeping update
+          Search               -- exact cosine scan + FTS5 BM25
 ```
 
 ---
@@ -51,7 +50,8 @@ Repository files
 ## The Project Index
 
 Wavefoundry maintains a **single** semantic index — the project index — stored at
-`/.wavefoundry/index/`. It contains two Lance tables: `docs` and `code`.
+`.wavefoundry/index/index-state.sqlite`. It contains separate docs/code canonical chunk,
+FP32 vector and external-content FTS table families in the same file.
 
 There is no separately built or shipped "framework" index. Before wave `1p4ww` the framework
 seeds/docs were embedded into their own layer at `/.wavefoundry/framework/index/` and packaged in
@@ -284,9 +284,9 @@ chunker emits `kind="doc"` docstring/comment chunks that live in the docs table
 dual-output file changed for only one layer updates only that layer; the other
 stays queued, never erased.
 
-**Commit ordering and healing:** a layer's hashes commit only after its LanceDB
-write block completes (a failed write leaves the layer stale — the next build
-retries; vectors are reused by chunk content hash). An EMPTY layer state — fresh
+**Commit ordering and healing:** a layer's hashes commit in the same SQLite
+transaction as its canonical chunks, vectors and FTS changes. A failed transaction
+leaves the layer stale for retry; vectors are reused by chunk content hash. An EMPTY layer state — fresh
 store, store schema bump, or a repo upgraded from before this scheme — reads as
 "everything eligible is stale": the first build runs one rechunk pass with vector
 reuse and converges, which is also the automatic heal for repos whose code index
@@ -327,8 +327,9 @@ Chunking converts a file into a list of small, semantically coherent text units.
 carries enough context to be useful as a standalone search result.
 
 Implementation lives in `.wavefoundry/framework/scripts/chunker.py`. The indexer calls
-`chunk_file(content, rel_path)` and routes each chunk to the `docs` or `code` Lance table
-by `kind` (see below).
+`chunk_file(content, rel_path)` and routes each chunk to the `docs` or `code` layer
+by `kind` (see below). Both layers share `index-state.sqlite`, with canonical
+`chunks_docs` / `chunks_code` rows and keyed vector and external-content FTS tables.
 
 ### Chunk metadata
 
@@ -347,7 +348,7 @@ Every chunk includes:
 
 **Chunk kinds:**
 
-| `kind` | Lance table | Typical source |
+| `kind` | Index layer | Typical source |
 |--------|-------------|----------------|
 | `doc` | `docs` | Markdown, reStructuredText, and AsciiDoc prose sections (rst/adoc since wave `1wfsl`, `1wfsm`), docstrings, HTML/XML element text |
 | `doc-summary` | `docs` | One file-level summary per markdown doc |
@@ -741,8 +742,8 @@ The buffer keeps a window of `SORT_WINDOW_SIZE` (2048) chunks. Within that windo
 are sorted by text length, and each batch of `EMBED_BATCH_SIZE` (256) chunks is drawn from
 the shortest sequences available. This means sequences within a batch are similar in length,
 reducing the amount of zero-padding needed to make them uniform — which reduces ONNX
-inference time. Vectors are written to LanceDB incrementally after each batch completes; the
-entire chunk list is never loaded into memory at once.
+inference time. Vectors are spooled to bounded temporary SQLite storage after each batch completes;
+the shared semantic database is changed only during final atomic publication.
 
 ### Bounded-buffer streaming (full rebuild)
 
@@ -754,8 +755,8 @@ Instead it streams the whole pipeline file-by-file through a bounded buffer
 2. Push chunks into a per-layer buffer. When a buffer reaches `embed_buffer_chunks`
    (`EMBED_BUFFER_CHUNKS_DEFAULT` = `SORT_WINDOW_SIZE`, configurable via
    `indexing.embed_buffer_chunks`, floored at `EMBED_BATCH_SIZE` (64) to keep GPU batches
-   full), embed one batch and append the rows to LanceDB, then flush the buffer.
-3. Flush the remainder at the end and build the secondary indexes **once** (see Stage 5).
+   full), embed one batch and spool the prepared rows, then flush the buffer.
+3. Flush the remainder, then publish the prepared changes in one transaction (see Stage 5).
 
 Peak memory is bounded by the buffer rather than the corpus, so very large repositories index
 without materializing every chunk and vector at once. The produced index is byte-identical to
@@ -770,61 +771,32 @@ build_index: indexed file 50/1044 files
 
 ---
 
-## Stage 5: LanceDB Write
+## Stage 5: Atomic SQLite publication
 
-LanceDB stores the chunks and their vectors. The project index has two tables: `docs` and
-`code`. Writes follow different paths depending on whether the build is incremental or a full
-rebuild.
+Docs and code share `.wavefoundry/index/index-state.sqlite` (schema 7), with separate
+`chunks_docs`/`chunks_code`, `vectors_docs`/`vectors_code` and `fts_docs`/`fts_code`
+tables. Canonical text is stored once; external-content FTS indexes it without a second
+text copy. Internal integer keys join vectors and FTS to each canonical chunk. Public
+chunk IDs and separate docs/code BM25 populations remain unchanged.
 
-### Incremental write
+Incremental change detection remains file-scoped. Matching stable IDs and content hashes
+reuses unchanged embeddings; metadata-only changes rewrite the row with its existing
+vector. Only changed or added chunk content is embedded. Ambiguous line-window matches
+remain conservative. The prepared spool records ordered deletes, inserts and layer
+replacement operations; a full rebuild also clears a layer that now emits zero chunks.
 
-Incremental writes are file-scoped for change detection but chunk-scoped for embedding work.
-For each stale path, the indexer reads existing LanceDB rows from the relevant table and
-compares them with the freshly generated chunks:
+After embedding finishes, one writer takes `BEGIN IMMEDIATE`. It validates the publication
+attempt and source/model/chunker/configuration identities, applies prepared chunks and
+vectors, and writes FTS, registry/digests, file bookkeeping and layer hashes together.
+It checks vector integrity and validates source identity again before committing. A failure
+rolls the semantic delta back. Graph publication remains separately fenced by the existing
+FULL-durability epoch; this transaction does not make separate graph files atomic.
 
-1. **Read current rows** — existing rows are fetched by `path` from the `docs` and/or `code`
-   table, including vectors.
-2. **Classify chunks** — new chunks are matched against existing rows by stable `id` plus
-   `chunk_hash`. Unchanged chunks keep their existing row. Changed, added, removed, and
-   ambiguous chunks are identified per path.
-3. **Reuse vectors where safe** — when chunk text and retrieval-relevant metadata are
-   unchanged, no embedding call is made. If the vector is reusable but row metadata such as
-   `lines`, `section`, or `id` changed, the row is rewritten with current metadata and the
-   reused vector.
-4. **Embed only the delta** — only added or changed chunks are sent to the embedder.
-5. **Delete and append** — removed/changed old rows are deleted by `id`; changed/new rows
-   are appended. If existing rows lack compatible `chunk_hash` metadata, the path falls back
-   to the previous delete-all-for-path replacement behavior.
-
-Line-window fallback chunks are treated conservatively because their IDs include line ranges.
-When matching is ambiguous, correctness wins and the affected chunk is re-embedded.
-
-### Full rebuild
-
-On a forced rebuild, the streaming writer (`_StreamingLayerWriter`, see Stage 4) writes the
-first buffered batch with `mode="overwrite"`, which replaces the entire table, then appends
-each subsequent flush with `.add()`. The table lock is acquired lazily on the first append, so
-a layer that produces zero chunks creates no table or lock directory (this keeps the
-incremental path's missing-table handling intact). The secondary indexes are built once at
-finalize, after every flush has been appended.
-
-### Index creation
-
-After all rows have been written, the vector index is created if the total row count
-reaches `LANCEDB_INDEX_THRESHOLD` (1000 rows):
-
-- **HNSW** — approximate nearest-neighbour vector index, used for semantic search queries.
-
-The lexical index is **not** a Lance secondary index. Since wave 1rsh9 the only lexical
-engine is the SQLite FTS5 layer inside `index-state.sqlite` (`fts_docs` / `fts_code`, one
-contentful FTS5 table per Lance content table, keyed by chunk id): the chunk-delta
-transaction keeps it in sync after every Lance write, and the end-of-build reconcile
-rebuilds it from Lance when it diverges. Wave 1wpif (`1wpag`) made that reconcile honest
-about FTS-only damage: registry-vs-Lance id parity alone no longer takes the in-sync early
-return; the FTS table must also pass liveness (a real MATCH), row and shadow-table parity,
-and the keyed payload digest compare (see `search-architecture.md`, Hybrid Lexical Layer).
-The former Lance/Tantivy FTS index was retired with wave 1rsh9; its leftover `_indices/`
-versions are dropped by the reclaim path at upgrade.
+Vector queries use exact FP32 cosine scans with metadata filters applied before top-K.
+There is no ANN creation threshold or secondary vector-index maintenance. Ordinary metadata
+indexes support filtering. Derived FTS/registry repair reads canonical SQLite rows and
+cannot replace canonical text or vectors. Native FTS integrity checks cover posting damage,
+including damage that a simple row-count comparison would miss.
 
 The dashboard's Lexical section reads a cached aggregate from state-store metadata
 (wave `1xgbc`, change `1uqec`). Entries count FTS rows across docs and code, occurrences
@@ -845,30 +817,17 @@ incomplete publication, missing/invalid statistics and an empty corpus have expl
 non-ready states without fabricated counts. Statistics failure does not add a new
 retrieval publication gate, and no query history or terms are retained in the cache.
 
-Below the threshold, vector queries fall back to a brute-force scan, which is fast enough at
-small scale and avoids the overhead of index construction on near-empty tables.
+### Maintenance and recovery
 
-### Compaction and reclaim (bloat recovery)
+`index_optimize` uses SQLite planner/FTS maintenance, a passive WAL checkpoint and bounded
+incremental vacuum. Free pages can be reused during branch churn; routine maintenance does
+not run a full VACUUM or forced TRUNCATE checkpoint. Graph maintenance remains separate.
 
-Incremental appends leave superseded data fragments, stale FTS artifacts, and old table versions
-behind; `optimize(cleanup_older_than=0)` reclaims them. When the table hits the Lance list-offset
-corruption bug (`Max offset … exceeds length of values`, lance-format/lance #7538 — see the
-`1p9aj-lance-list-offset-corruption` journal), in-place `optimize()` can no longer decode the table and
-the bloat grows unbounded. The **reclaim ladder** (`indexer.reclaim_lance_table`) recovers it without a
-re-embed:
-
-1. **optimize** — compact in place (the normal path).
-2. **compact by rewrite** — on an `optimize()` failure, read the still-readable rows (`to_arrow()`) and
-   rewrite the table fresh with `create_table(mode="overwrite")`, which recomputes the list-column
-   offsets from clean in-memory data and sidesteps the bug, then rebuild the vector + FTS indices. The
-   swap uses `create_table(mode="overwrite")` — **never `db.rename_table`**, which is unsupported in
-   LanceDB OSS and would leave the table missing on failure.
-3. **full rebuild** — only when a table is entirely unreadable (a re-embed is unavoidable).
-
-Both the finalize path and the incremental compaction path **self-heal**: a failed `optimize()`
-escalates to the rewrite automatically (never raising), so a corrupted table reclaims itself on the next
-build/update. The ladder is exposed as the `index_optimize` MCP tool and runs automatically at the
-end of `setup`/`upgrade` (reclaim-only). Proven: `docs.lance` 1.6 GB → 55 MB, zero re-embed.
+An unsupported schema or corrupt canonical database is preserved with recovery guidance.
+Migration uses the standard upgrade receipt/restart path; an explicit rebuild uses canonical
+setup after database-owning hosts are stopped and recovery files are preserved. Obsolete
+`docs.lance`, `code.lance` and `__manifest` directories are removed only after migration,
+publication and new-process verification pass. See [the storage decision](decisions/1xjmn-adr%20unified-sqlite-vector-storage.md).
 
 ---
 
@@ -882,9 +841,9 @@ build_index: finished code — 3 added, 1 updated, 0 removed | chunks: 12 added,
 ```
 
 The file-level counts (`3 added, 1 updated`) reflect source files processed. The chunk-level
-counts reflect rows written to or removed from LanceDB.
+counts reflect canonical SQLite rows written or removed.
 
-The store's build bookkeeping (wave 1sed7 — the sole state surface; no `meta.json`) is then updated with:
+The same semantic transaction publishes build bookkeeping (the sole state surface; no `meta.json`):
 
 | Field              | Contents                                              |
 |--------------------|-------------------------------------------------------|
@@ -911,16 +870,15 @@ changed since the last run.
 | `CHUNK_MIN_LINES`         | 2      | Minimum code chunk size before merge             |
 | `EMBED_BATCH_SIZE`        | 256    | Affects throughput only                          |
 | `SORT_WINDOW_SIZE`        | 2048   | Affects padding efficiency only                  |
-| `LANCEDB_INDEX_THRESHOLD` | 1000   | Below: brute-force scan; at/above: HNSW+FTS used |
 
 Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format changes or a
 new tree-sitter language is added — every file is **re-chunked** on the next build, but a
 chunker-only bump (model and walker unchanged) **reuses embeddings for content-identical
-chunks by content hash** and only embeds new or changed chunk text (the `_plan_lance_delta_rows`
+chunks by content hash** and only embeds new or changed chunk text (the `_plan_vector_delta_rows`
 delta path). A full re-encode is forced only when the embedding **model** name/precision or the
 `WALKER_VERSION` changes (old vectors are invalid), or on an explicit `--full`.
 
-An index whose existing LanceDB rows predate `chunk_hash` triggers a one-time **full rebuild**
+An index whose existing canonical rows predate `chunk_hash` triggers a one-time **full rebuild**
 automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently
 before chunk-level vector reuse applies; you can also force it (e.g.
 `python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --full` or `index_build`

@@ -1435,6 +1435,10 @@ class GraphStateStore:
 
     def _open(self) -> "sqlite3.Connection":
         conn = sqlite3.connect(str(self.path), timeout=10.0)
+        if conn.execute("PRAGMA page_count").fetchone()[0] == 0:
+            # Must precede schema creation. Existing NONE stores converge at
+            # controlled maintenance, where the one-time VACUUM is explicit.
+            conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         # WAL can be silently refused (e.g. some network filesystems fall
         # back to a rollback journal, where multi-process locking is
         # unreliable) — check the pragma's RESULT and warn loudly so a field

@@ -6,6 +6,21 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0]
+
+### Fixed
+
+- **Older indexes can recover through a full storage rebuild.** Upgrades blocked by historical chunk-ID collisions can regenerate search from current project files while preserving auxiliary data and recovery copies until verification succeeds. The upgrade editing pass also brings recovery instructions into existing project prompts while preserving local customizations. Wave `1xjmm`.
+
+- **Interrupted storage upgrades resume with the original package.** Byte-identical archives remain valid after temporary staging or relocation, and existing project-root installer instructions are preserved. Wave `1xjmm`.
+
+- **Storage upgrades give a clear restart handoff.** The expected restart pause preserves recovery state, identifies observable Wavefoundry hosts still attached to the project, and supplies the exact CLI continuation before MCP stops. Wave `1xjmm`.
+
+### Changed
+
+- **Projects use a smaller, unified local search index.** Docs and code share SQLite storage, keeping text, keyword search and vectors consistent through file changes. Standard upgrades preserve recovery data and remove retired LanceDB files only after verification. Fresh installs no longer need LanceDB. Wave close also reclaims excess graph storage without re-embedding. Scripts reading health or retrieval coverage must use `vector_rows` in place of the removed `lance_rows` field. Wave `1xjmm`.
+- **Index failures explain how to recover.** Setup checks local WAL-capable storage; unavailable native dependencies and search failures are reported explicitly. Index staging uses project storage, maintenance failures retain actionable diagnostics, and Windows upgrade access failures retain a normal retry path. Upgrading requires stopping old database-owning hosts when prompted; see the packaged framework README for supported binaries and filesystem requirements. Wave `1xjmm`.
+
 ## [1.22.0]
 
 ### Added

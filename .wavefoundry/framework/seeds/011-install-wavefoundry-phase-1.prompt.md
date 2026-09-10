@@ -53,6 +53,14 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 
+Fresh semantic storage uses one project-local
+`.wavefoundry/index/index-state.sqlite` for both docs and code, with canonical
+text stored once and vectors/FTS updated together. Standard setup provisions
+pinned APSW/SQLite and sqlite-vec in the tool environment; it does not install
+LanceDB for a new project. Keep Python 3.11+ and the existing platform bootstrap
+path. If setup detects old Lance stores, route to **Upgrade Wavefoundry** rather
+than deleting them or treating the project as fresh.
+
 ### 1.2 — Verify lifecycle policy and workflow defaults provisioned by setup
 
 **Action:** confirm `docs/workflow-config.json` carries `lifecycle_id_policy.scheme_version` set to `"v2"` and the required top-level sections `wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`, `prompt_generation`, `factor_review_policy`, and `persona_review_policy`. Setup's Step 0 adds only absent default sections and leaves every operator-set section untouched. If a default section is absent, rerun `wf setup`. If only the lifecycle policy is absent, run `wf upgrade --materialize-lifecycle-policy` — never hand-edit `epoch_utc`, `offset`, or `scheme_version`; issued IDs depend on them.

@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import stat
 import sys
 import tempfile
 import time
@@ -2915,40 +2916,73 @@ class RetiredModelCleanupTests(unittest.TestCase):
         self.assertEqual(sentinel.read_bytes(), b"victim bytes")
 
     def test_fallback_classifies_junction_entry_as_node_not_descended(self):
-        """1v0r0 repair (F10): a Windows directory junction is NOT a symlink on
-        CPython 3.12+, so ``DirEntry.is_symlink()`` is False and a bare
-        ``os.walk`` descends it, deleting content the junction points at
-        outside the cache root. The fallback classifies every reparse point
-        (symlink OR junction) as a NODE via ``os.path.isjunction``.
+        """Python 3.11 lstat reparse metadata prevents descent without newer APIs."""
+        from types import SimpleNamespace
+        cache = self.root / "cache"
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        fake_junction = target / "reparse-node"
+        fake_junction.mkdir(parents=True)
+        referent = fake_junction / "referent-child"
+        referent.write_bytes(b"outside-cache bytes")
+        real_lstat = Path.lstat
+        def metadata(path, *args, **kwargs):
+            result = real_lstat(path, *args, **kwargs)
+            if path == fake_junction:
+                return SimpleNamespace(st_mode=result.st_mode,
+                    st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+            return result
+        with patch.object(Path, "lstat", metadata), \
+             patch.object(self.mod.os.path, "isjunction", side_effect=AssertionError("3.12 API unavailable"), create=True):
+            outcome = self.mod._remove_retired_component_no_follow(target)
+        # A real nonempty directory cannot be unlinked as a junction node on
+        # this host. The failure proves its child was never visited/deleted.
+        self.assertEqual(referent.read_bytes(), b"outside-cache bytes")
+        self.assertEqual(outcome, "failed")
 
-        This host cannot create a real junction, so ``os.path.isjunction`` is
-        monkeypatched True for a crafted directory entry; the assertion is that
-        the recursion does NOT descend it (its child survives byte-intact) and
-        the entry is handled on the node-unlink path rather than walked."""
+    def test_cleanup_refuses_windows311_reparse_root_and_ancestors(self):
+        from types import SimpleNamespace
         cache = self.root / "cache"
         target = cache / "models--BAAI--bge-small-en-v1.5"
         target.mkdir(parents=True)
-        fake_junction = target / "reparse-node"
-        fake_junction.mkdir()
-        referent = fake_junction / "referent-child"
-        referent.write_bytes(b"outside-cache bytes")
+        sentinel = target / "keep"
+        sentinel.write_bytes(b"retain external content")
+        real_lstat = Path.lstat
+        for candidate in (cache, self.root):
+            with self.subTest(candidate=candidate):
+                def metadata(path, *args, **kwargs):
+                    result = real_lstat(path, *args, **kwargs)
+                    if path == candidate:
+                        return SimpleNamespace(st_mode=result.st_mode,
+                            st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+                    return result
+                with patch.object(Path, "lstat", metadata), self._patch_missing_fd_capabilities():
+                    self.assertEqual(self.mod._remove_retired_component(cache, target.name, False), "unowned")
+                self.assertEqual(sentinel.read_bytes(), b"retain external content")
 
-        def fake_isjunction(path):
-            try:
-                return os.fspath(path) == os.fspath(fake_junction)
-            except TypeError:
-                return False
-
-        with patch.object(self.mod.os.path, "isjunction", fake_isjunction):
-            outcome = self.mod._remove_retired_component_no_follow(target)
-
-        # Classified as a node, not descended: the child was never visited, so
-        # it survives byte-intact. A non-empty real directory cannot be removed
-        # as a node here (a real junction's rmdir would succeed on Windows), so
-        # the outcome is `failed` — the load-bearing guarantee is non-descent.
-        self.assertTrue(fake_junction.is_dir())
-        self.assertEqual(referent.read_bytes(), b"outside-cache bytes")
-        self.assertEqual(outcome, "failed")
+    @unittest.skipUnless(os.name == "nt", "native Windows junction cleanup qualification; simulated metadata runs on every host")
+    def test_native_windows_junction_root_and_nested_cleanup_preserve_referent(self):
+        cache = self.root / "cache"
+        cache.mkdir()
+        outside = self.root / "external-junction-target"
+        outside.mkdir()
+        sentinel = outside / "keep"
+        sentinel.write_bytes(b"outside retained")
+        def junction(path):
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(path), str(outside)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        root_link = cache / "linked-root"
+        junction(root_link)
+        try:
+            self.assertEqual(self.mod._remove_retired_component(root_link, "keep", False), "unowned")
+        finally:
+            os.rmdir(root_link)
+        target = cache / "models--BAAI--bge-small-en-v1.5"
+        target.mkdir()
+        junction(target / "nested")
+        self.assertEqual(self.mod._remove_retired_component(cache, target.name, False), "removed")
+        self.assertFalse(target.exists())
+        self.assertEqual(sentinel.read_bytes(), b"outside retained")
 
     def _cleanup_root_with_lock(self, **lock_fields):
         """A repo whose lock passes main()'s pre-cleanup memory gate."""
@@ -5446,10 +5480,7 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
 
 
 class RemoveRootBootstrapFileTests(unittest.TestCase):
-    """Wave 1rxyi: the upgrade removes the re-dropped root install-wavefoundry.md (fail-safe).
-
-    The zip ships that single-use bootstrap file at the zip root by design, so every extract re-drops it
-    at the project root and prune (MANIFEST-scoped to .wavefoundry/framework/) never removes it."""
+    """Only a demonstrably created, unchanged installer is cleanup-owned."""
 
     def setUp(self) -> None:
         self.mod = load_upgrade_module()
@@ -5459,12 +5490,36 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_removes_present_bootstrap_file(self) -> None:
-        # AC-1: a present root install-wavefoundry.md is deleted.
+    def _extract_bootstrap(self):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr("install-wavefoundry.md", "bootstrap instructions")
+        with zipfile.ZipFile(stream) as archive:
+            self.mod._extract_feature_members(archive, self.root)
+
+    def test_removes_only_file_created_by_this_extract(self) -> None:
         f = self.root / "install-wavefoundry.md"
-        f.write_text("bootstrap instructions", encoding="utf-8")
+        self._extract_bootstrap()
         self.mod._remove_root_bootstrap_file(self.root)
-        self.assertFalse(f.exists(), "the root bootstrap file must be removed")
+        self.assertFalse(f.exists())
+
+    def test_existing_and_modified_bootstrap_survive(self) -> None:
+        f = self.root / "install-wavefoundry.md"
+        f.write_bytes(b"project-owned instructions")
+        self._extract_bootstrap()
+        self.mod._remove_root_bootstrap_file(self.root)
+        self.assertEqual(f.read_bytes(), b"project-owned instructions")
+        f.unlink()
+        self._extract_bootstrap()
+        f.write_bytes(b"operator edits after extraction")
+        self.mod._remove_root_bootstrap_file(self.root)
+        self.assertEqual(f.read_bytes(), b"operator edits after extraction")
+
+    def test_fresh_process_cannot_infer_installer_ownership(self) -> None:
+        self._extract_bootstrap()
+        fresh = load_upgrade_module()
+        fresh._remove_root_bootstrap_file(self.root)
+        self.assertEqual((self.root / "install-wavefoundry.md").read_text(), "bootstrap instructions")
 
     def test_absent_is_noop(self) -> None:
         # AC-2: no file present → no-op, no exception.
@@ -5474,7 +5529,7 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
     def test_unlink_error_is_swallowed(self) -> None:
         # AC-2: a failed unlink is logged and swallowed — the upgrade must never abort over cleanup.
         f = self.root / "install-wavefoundry.md"
-        f.write_text("x", encoding="utf-8")
+        self._extract_bootstrap()
         with patch.object(self.mod.Path, "unlink", side_effect=OSError("boom")):
             self.mod._remove_root_bootstrap_file(self.root)  # must not raise
 
@@ -5485,14 +5540,13 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
         (self.root / "install-wavefoundry.md").write_text("bootstrap", encoding="utf-8")
         self.mod._remove_root_bootstrap_file(self.root)
         self.assertTrue(other.exists(), "unrelated root files must be left untouched")
-        self.assertFalse((self.root / "install-wavefoundry.md").exists())
+        self.assertEqual((self.root / "install-wavefoundry.md").read_text(), "bootstrap")
 
     def test_extract_phase_wires_the_cleanup_after_extractall(self) -> None:
         # F1 (delivery review): lock the wiring — the upgrade extract phase must CALL
         # `_remove_root_bootstrap_file(root)` AFTER `zf.extractall`, so a refactor that drops the call is
-        # caught. The helper is otherwise only unit-tested and the full apply path has no test harness
-        # (main() is only reachable in the suite via --resume-after-gate / --materialize-lifecycle-policy,
-        # neither of which reaches the extract block).
+        # caught. This complements the process-level ownership tests in
+        # test_storage_upgrade_resume.py.
         import inspect
         src = inspect.getsource(self.mod)
         self.assertIn("_remove_root_bootstrap_file(root)", src, "the cleanup call must be wired in")
@@ -5509,11 +5563,9 @@ class RemoveRootBootstrapFileTests(unittest.TestCase):
         )
 
     def test_update_index_phase_wires_the_bootstrap_removal(self) -> None:
-        # Wave 1rych: the --update-index phase must invoke _remove_root_bootstrap_file (from the freshly
-        # extracted NEW code) so a from-old MCP upgrade — whose extract ran the OLD orchestrator with no
-        # removal helper — still cleans up the re-dropped root install-wavefoundry.md. The full
-        # --update-index path spawns a real index build (no unit harness), so lock the wiring by source:
-        # the removal call must appear AFTER phase_index_update in the --update-index handler.
+        # Keep the --update-index cleanup call after indexing. The helper itself
+        # requires creation proof from this invocation; a fresh process must
+        # preserve a preexisting installer rather than infer ownership by name.
         import inspect
         src = inspect.getsource(self.mod)
         piu = src.index("phase_index_update(root)")  # closing paren matches the call site, not the def
@@ -8477,6 +8529,29 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             ).exists()
         )
 
+    def test_indexed_memory_resume_retries_storage_verification_without_republishing(self):
+        _wave, state = self._ready_candidate_run()
+        calls = []
+
+        def phase(_root):
+            calls.append("children")
+            index_dir = self.root / ".wavefoundry/index"
+            attempt = state.begin_build_epoch(index_dir, "all")
+            self.assertTrue(state.finalize_build_epoch(index_dir, attempt))
+            return True
+
+        with patch.object(self.mod, "phase_index_update", side_effect=phase), \
+             patch.object(self.mod, "_verify_storage_publication", side_effect=[
+                 RuntimeError("fresh verifier interrupted"), None]) as verify:
+            first = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+            self.assertEqual(first, 1)
+            self.assertEqual(self.backfill.run_summary(self.root, self.run_id)["state"], "indexed")
+            self.assertIsNotNone(self.upgrade_lib.read_upgrade_lock(self.root))
+            second = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+        self.assertEqual(second, 0)
+        self.assertEqual(calls, ["children"])
+        self.assertEqual(verify.call_count, 2)
+
     def test_resume_recovers_published_epoch_without_second_index_pass(self):
         _wave, index_state_store = self._ready_candidate_run()
         phase_calls = 0
@@ -10715,6 +10790,68 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
         self.assertTrue(
             any("backstop" in str(call.args[0]) for call in log.call_args_list)
         )
+
+
+
+
+class StorageRebuildOrchestrationTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_upgrade_module()
+
+    def test_rebuild_storage_rejects_standalone_phase_before_receipt_mutation(self):
+        import sqlite_storage_migration as migration
+        with tempfile.TemporaryDirectory() as temp, patch.object(migration, 'restore_checkpoint') as restore:
+            for flag in ('--update-index', '--rebuild-index', '--cleanup', '--resume-after-gate', '--resume-after-memory'):
+                with self.subTest(flag=flag), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(self.mod.main(['--root', temp, '--rebuild-storage', flag]), 2)
+            restore.assert_not_called()
+
+    def test_rebuild_prewarm_failure_precedes_conversion_and_retains_sources(self):
+        import sqlite_storage_migration as migration
+        import setup_index
+        receipt = {'state': 'quiesced', 'strategy': 'rebuild'}
+        with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
+            root = Path(temp)
+            stack.enter_context(patch.object(migration, 'read_receipt', return_value=receipt))
+            stack.enter_context(patch.object(migration, 'detect', return_value={'migration_required': True, 'legacy': ['code.lance']}))
+            stack.enter_context(patch.object(setup_index, 'ensure_deps'))
+            legacy = stack.enter_context(patch.object(setup_index, 'ensure_migration_deps'))
+            convert = stack.enter_context(patch.object(migration, 'migrate_legacy'))
+            publish = stack.enter_context(patch.object(migration, 'begin_upgrade_publication'))
+            run = stack.enter_context(patch.object(self.mod.subprocess_util, 'isolated_run', return_value=subprocess.CompletedProcess([], 1)))
+            try:
+                self.mod.phase_index_update(root)
+            except RuntimeError as exc:
+                self.assertIsInstance(exc, migration.MigrationRequired)
+                self.assertIn('storage_rebuild_models_unavailable', str(exc))
+            else:
+                self.fail('Missing model must refuse before conversion')
+            self.assertIn('--prewarm-only', run.call_args.args[0])
+            self.assertEqual(run.call_count, 1)
+            legacy.assert_not_called()
+            convert.assert_not_called()
+            publish.assert_not_called()
+
+    def test_persisted_rebuild_forces_full_semantic_and_graph_children(self):
+        import sqlite_storage_migration as migration
+        for strategy in ('transfer', 'rebuild'):
+            with self.subTest(strategy=strategy), tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
+                root = Path(temp)
+                receipt = {'state': 'published', 'strategy': strategy}
+                stack.enter_context(patch.object(migration, 'read_receipt', return_value=receipt))
+                stack.enter_context(patch.object(migration, 'detect', return_value={'migration_required': False}))
+                stack.enter_context(patch.object(migration, 'begin_upgrade_publication'))
+                stack.enter_context(patch.object(migration, 'record_upgrade_publication'))
+                stack.enter_context(patch.object(self.mod, '_verify_storage_publication'))
+                stack.enter_context(patch.object(self.mod, '_index_child_publisher_grant', return_value=None))
+                run = stack.enter_context(patch.object(self.mod.subprocess_util, 'isolated_run', return_value=subprocess.CompletedProcess([], 0)))
+                self.assertTrue(self.mod.phase_index_update(root))
+                self.assertEqual(run.call_count, 2)
+                semantic, graph = [item.args[0] for item in run.call_args_list]
+                self.assertNotIn('--graph-only', semantic)
+                self.assertIn('--graph-only', graph)
+                self.assertEqual('--full' in semantic, strategy == 'rebuild')
+                self.assertEqual('--full' in graph, strategy == 'rebuild')
 
 
 if __name__ == "__main__":

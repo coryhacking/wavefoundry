@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from unittest.mock import patch
 
 
@@ -32,6 +32,30 @@ def load_graph_di_signals():
     sys.modules["graph_di_signals"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+class GraphVacuumPolicyTests(unittest.TestCase):
+    def test_fresh_graph_uses_incremental_vacuum_but_existing_none_waits_for_maintenance(self):
+        mod = load_graph_indexer()
+        with tempfile.TemporaryDirectory() as tmp:
+            for existing in (False, True):
+                with self.subTest(existing=existing):
+                    path = Path(tmp) / f"graph-{existing}.sqlite"
+                    if existing:
+                        with closing(sqlite3.connect(path)) as conn:
+                            conn.execute("CREATE TABLE preserved(value TEXT)")
+                            conn.execute("INSERT INTO preserved VALUES('keep')")
+                            conn.commit()
+                    store = mod.GraphStateStore(path, layer="project", walker_version="1",
+                                                chunker_version="1")
+                    try:
+                        self.assertEqual(store._conn.execute("PRAGMA auto_vacuum").fetchone()[0],
+                                         0 if existing else 2)
+                        if existing:
+                            self.assertEqual(store._conn.execute("SELECT * FROM preserved").fetchall(),
+                                             [("keep",)])
+                    finally:
+                        store.close()
 
 
 class BoundGraphReceiptTests(unittest.TestCase):

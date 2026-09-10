@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 
 ## Repository Summary
 
@@ -35,30 +35,30 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 12753 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 910 |
-| graph | `.wavefoundry/framework/scripts` | code | 376 |
-| chunker | `.wavefoundry/framework/scripts` | code | 271 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 257 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 252 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 216 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 13108 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 983 |
+| graph | `.wavefoundry/framework/scripts` | code | 379 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 319 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 290 |
+| chunker | `.wavefoundry/framework/scripts` | code | 282 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 249 |
+| framework index | `.wavefoundry/framework/scripts` | code | 238 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 213 |
-| indexer | `.wavefoundry/framework/scripts` | code | 203 |
-| subprocess_util | `.wavefoundry/framework/scripts` | code | 185 |
-| scripts/graph_cluster | `.wavefoundry/framework/scripts` | code | 177 |
-| state | `.wavefoundry/framework/scripts` | code | 165 |
-| scripts/techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 115 |
-| context_efficiency | `.wavefoundry/framework/scripts` | code | 113 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 98 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 95 |
+| indexer | `.wavefoundry/framework/scripts` | code | 195 |
+| state | `.wavefoundry/framework/scripts` | code | 187 |
+| retrieval_eval | `.wavefoundry/framework/scripts` | code | 137 |
+| memory-archive | `.wavefoundry/framework/scripts` | code | 121 |
+| review_evidence | `.wavefoundry/framework/scripts` | code | 104 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 89 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 76 |
+| scripts/techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 73 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 56 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
-| scripts/review_policy | `.wavefoundry/framework/scripts` | code | 54 |
-| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 54 |
-| evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 51 |
-| graph_quality_eval | `.wavefoundry/framework/scripts` | code | 50 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| memory_eval | `.wavefoundry/framework/scripts` | code | 29 |
-| configuration | `(root)` | config | 13 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 39 |
+| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
+| evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
+| configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.

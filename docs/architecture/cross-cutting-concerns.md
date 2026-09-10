@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-09-09
 
 ## Configuration
 
@@ -30,7 +30,7 @@ Only `render_platform_surfaces.py` writes to platform config files.
 - **Single authority:** `.wavefoundry/index/index-state.sqlite` is the only semantic-index state surface (no `meta.json`). SQLite runs WAL + `synchronous=NORMAL`, except the two safety-critical build-boundary commits (the pre-mutation `building` fence and the attempt-ID compare-and-set completion), which use a dedicated `synchronous=FULL` connection so a power failure cannot lose the fence.
 - **Generation invalidation:** the `build_state` row's `(attempt_id, generation)` token is the cross-process cache-invalidation signal — the MCP server's `WaveIndex` reload signature and every reader's pre/post seqlock check key on it. Only the completion CAS advances the generation; a true no-op build changes nothing.
 - **Fail-closed liveness:** an absent, uninitialized, `building`, or unreadable store means "not servable" — readers return structured `index_not_ready` rather than guessing. An interrupted build (fence committed, builder died) is derived from `building` + a free build lock, never stored, and heals when the next build supersedes the dead attempt.
-- **Integrity:** the store is derived-only — corruption or schema-version mismatch is a loud drop-and-rebuild (mandatory all-layer convergence, vector reuse from Lance), never data loss. `index_optimize` runs the structural + stale-fingerprint integrity probe.
+- **Integrity:** structural corruption and unsupported schema versions refuse service while preserving the shared database, WAL/SHM sidecars and migration receipt. Follow the explicit retained-state recovery path; routine `index_optimize` does not discard or reset the semantic store. Known historical schemas convert only through the standard upgrade migration.
 
 ## Locking Inventory (wave 1seax)
 

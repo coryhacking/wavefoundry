@@ -1,40 +1,20 @@
 #!/usr/bin/env python3
-"""Semantic-index SQLite state store (wave 1rsh9 / 1rq4h).
+"""Unified semantic SQLite store at .wavefoundry/index/index-state.sqlite.
 
-One derived-only relational store for semantic-index sidecar state, at
-``.wavefoundry/index/index-state.sqlite``. First resident schema: the
-freshness/attribution tables consumed by the churn-aware retrieval decay work
-(``1ro43``) and the memory layer (``1p8gy``). Follow-on residents: FTS5
-lexical tables + per-path bookkeeping (``1rrr0``) and the secret-scan cache
-(``1rsha``).
+Schema 7 owns canonical chunk payloads and FP32 vectors alongside external
+FTS5, chunk registry, freshness, memory, secret-scan and build-epoch state.
+All connections use the qualified APSW runtime. Ordinary writes use WAL and
+NORMAL durability; build fences and publication CAS use FULL durability.
 
-Extracted ALONGSIDE the graph state store (``GraphStateStore`` in
-``graph_indexer.py``) rather than by refactoring it — the graph store is
-landed, reviewed machinery whose build-path behavior must stay untouched
-(1rq4h AC-7). This module generalizes its proven posture: WAL journaling +
-``synchronous=NORMAL``, ``busy_timeout``, version-gated whole-store
-invalidation, and reset-and-recreate on a corrupted open.
+Unknown schemas and corrupt files are preserved and refused. The explicit
+upgrade migration may convert known schemas 4–6 on an unpublished staging copy.
+Derived FTS/registry repair reads canonical rows and retains embeddings,
+auxiliary state and build fences. The separate graph database is unchanged.
 
-**Derived-only rule (the operational safety property):** every table must be
-rebuildable from git, Lance, and the repo itself (1sed6: the store IS the
-sole build-state authority — there is no meta.json). A missing, corrupt,
-or schema-mismatched store is a rebuild with a loud diagnostic — never data
-loss, never a hard failure, never silent data invention.
-
-**Maintenance posture (1rq4h Req 9):** ``auto_vacuum=INCREMENTAL`` at store
-creation; ``wal_checkpoint(TRUNCATE)`` + ``incremental_vacuum`` at the end of
-each build pass (the long-lived MCP server reads this store on the query
-path, so a pinned reader could otherwise starve WAL autocheckpoint);
-``PRAGMA optimize`` at connection close. Full ``VACUUM`` is reserved for the
-on-demand ``index_optimize`` path (``optimize_state_stores``).
-
-**Integrity posture (1rq4h Req 11):** two-layer probe. Physical/structural —
-``PRAGMA quick_check`` at open and in routine maintenance, full
-``PRAGMA integrity_check`` on the on-demand optimize path. Logical/staleness —
-resident schemas bind their derived tables to a source-of-truth fingerprint
-(git HEAD for freshness; Lance chunk-set / rules-hash for later residents)
-recorded in ``meta``, so a structurally-sound-but-stale store is detected
-too. Any failure routes to the derived-only drop-and-rebuild.
+Maintenance checkpoints WAL and runs bounded incremental vacuum/optimize;
+full VACUUM belongs to explicit index optimization. Structural integrity and
+logical source/digest checks remain distinct, and neither permits automatic
+whole-file erasure.
 """
 from __future__ import annotations
 
@@ -44,6 +24,13 @@ import os
 import re
 import secrets
 import sqlite3
+import sqlite_runtime
+import sqlite_vector_store
+from sqlite_storage_migration import LEGACY_SCHEMA_VERSIONS
+
+_SQL_ERRORS = (sqlite3.Error, sqlite_runtime.Error)
+_SQL_OPERATIONAL = (sqlite3.OperationalError, *sqlite_runtime.OperationalError)
+_SQL_DATABASE = (sqlite3.DatabaseError, *sqlite_runtime.CorruptionError)
 import subprocess
 import sys
 import time
@@ -61,8 +48,8 @@ import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
 
 STATE_STORE_FILENAME = "index-state.sqlite"
 
-# Store schema version. Whole-store invalidation on mismatch (the graph
-# store's proven semantics): bump when any resident table's shape changes.
+# Store schema version. Mismatches require explicit migration/recovery;
+# historical versions below used whole-store invalidation before schema 7.
 # Resident-schema bumps are SEQUENCED, not concurrent (wave 1rsh9 watchpoint):
 # 1rq4h shipped "1" (freshness/attribution); 1rrr0 bumped to "2" (FTS5 lexical
 # tables + per-path bookkeeping + chunk registry); 1rsha bumped to "3"
@@ -77,7 +64,7 @@ STATE_STORE_FILENAME = "index-state.sqlite"
 # attempt-ID fenced builds, completed-generation reader tokens; the reset
 # doubles as legacy convergence since an uninitialized epoch fails readers
 # closed until the first completed build).
-STATE_STORE_SCHEMA_VERSION = "6"
+STATE_STORE_SCHEMA_VERSION = "7"
 
 # Freshness extraction tuning (1ro43 Req 1: "commit count touching the file
 # over a trailing window, normalized"; window + normalization are named
@@ -136,12 +123,9 @@ VERIFICATION_STAMP_LINE = re.compile(r"^Verified against:.*$", re.MULTILINE)
 WAVE_ID_TOKEN = re.compile(r"\b(?=[0-9]*[a-z])[0-9][a-z0-9]{4}\b")
 
 # --- FTS5 lexical layer (1rrr0) ---
-# One FTS5 table per Lance content table, keyed by chunk id. Mode decision
-# (recorded in the change doc's Decision Log): CONTENTFUL — a plain fts5
-# table storing the chunk text. Contentless tables cannot delete rows without
-# ``contentless_delete`` (SQLite >= 3.43), which field interpreters cannot be
-# assumed to have; the second text copy is anticipated and posture-tested
-# (1rrr0 Req 11/AC-8), and display text always comes from Lance regardless.
+# One external-content FTS5 table per canonical chunk table. Triggers keep
+# postings in the same transaction as text/vector changes; display text comes
+# from canonical chunks without a second stored text copy.
 # Tokenizer: unicode61 with ``_`` as a token character — the lexical layer
 # exists for the documented dense-retrieval weak patterns (exact identifiers,
 # rare tokens, error strings), so compound identifiers must stay whole
@@ -160,20 +144,17 @@ META_FTS_AVAILABLE = "fts5_available"
 META_FTS_CHURN_PREFIX = "fts_churn_"          # + table_name → cumulative churn counter
 META_FTS_FINGERPRINT_PREFIX = "fts_fingerprint_"  # + table_name → chunk-id-set fingerprint
 # Set at store creation/reset; cleared by the first reconcile. Marks the
-# rebuild-from-Lance as expected provisioning (install/upgrade/schema bump),
+# rebuild from canonical chunks as expected provisioning (install/upgrade/schema bump),
 # not a crash repair — even when partial in-build deltas preceded it.
 META_CHUNK_INDEX_COLD = "chunk_index_cold"
-# Recorded at every successful reconcile (1sbfj): the Lance RAW row count and
-# the registry's unique-id count at sync time, per table. Lance ids are not
-# unique (incremental churn leaves duplicate-id rows), so a raw-vs-registry
-# compare misreads a fully-synced store as under-covered; exact comparison
-# against these sync-time counts is both cheaper and correct. Absent on
-# stores that have not reconciled under this code yet — consumers fall back
-# to the proportional raw-vs-registry threshold.
+# Recorded at successful reconciliation: canonical vector and unique registry
+# counts at sync time, per layer. Retain the persisted keys across upgrades;
+# legacy stores could contain duplicate public IDs. Readers compare the recorded
+# counts without rescanning payloads, falling back when no sync record exists.
 META_CHUNK_SYNC_RAW_PREFIX = "chunk_sync_raw_"        # + table_name
 META_CHUNK_SYNC_UNIQUE_PREFIX = "chunk_sync_unique_"  # + table_name
 # 1wngv (wave 1wpif): same-ID/distinct-content collision census, recorded at
-# every derived rebuild from the already-materialized Lance rows (no second
+# every derived rebuild from the already-materialized canonical chunk rows (no second
 # chunking or embedding pass). Non-zero means multiple DIFFERENT chunks share
 # one id, so the registry/FTS layer keeps only one of them; index_health
 # surfaces the count before reporting full derived-state coverage.
@@ -330,7 +311,7 @@ def fts5_available() -> bool:
                 _FTS5_AVAILABLE = True
             finally:
                 probe.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             _FTS5_AVAILABLE = False
     return _FTS5_AVAILABLE
 
@@ -366,89 +347,51 @@ def _quick_check_ok(conn: "sqlite3.Connection") -> bool:
 class IndexStateStore:
     """The semantic-index state store: substrate + resident schemas.
 
-    Durability and error posture mirror the graph state store: WAL +
-    ``synchronous=NORMAL`` (atomic commit; an OS crash can at worst lose the
-    last commit — a re-buildable build, never a torn store); a corrupted or
-    structurally-damaged database at open time is loudly deleted and
-    recreated (derived-only: the next build repopulates); a schema-version
-    mismatch resets the whole store. A busy or locked open (another writer
-    holding the lock past ``STORE_OPEN_TIMEOUT_SECONDS``) is a wait
-    condition, never corruption: it propagates and the store file is
-    preserved (wave 1wpif, ARCH-DEL-2).
+    Native WAL connections preserve files on busy, corruption, and unknown
+    schema errors. Explicit schema-6 migration is restricted by its caller to
+    an unpublished staging copy; ordinary callers cannot reset the store.
     """
 
-    def __init__(self, index_dir: Path, *, read_only: bool = False) -> None:
+    def __init__(self, index_dir: Path, *, read_only: bool = False,
+                 migration: bool = False) -> None:
         self.index_dir = Path(index_dir)
         self.path = state_store_path(self.index_dir)
         self.read_only = read_only
+        self._migration = migration
         if read_only:
-            # Read-only open never creates or repairs; callers get None-ish
-            # behavior via `open_read_only` instead. Kept for API symmetry.
-            self._conn = sqlite3.connect(
-                f"file:{self.path.as_posix()}?mode=ro", uri=True, timeout=10.0
-            )
-            self._conn.execute("PRAGMA busy_timeout=10000")
+            self._conn = sqlite_runtime.connect(self.path, read_only=True)
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._conn = self._open()
-        except sqlite3.OperationalError as exc:
-            # A busy/locked database, a missing directory, or an I/O error is
-            # NOT corruption: another writer (a long rebuild transaction, a
-            # hook build, the quiet-period monitor) may simply hold the lock
-            # past the open timeout. Deleting the store here destroyed healthy
-            # derived state under ordinary concurrency (wave 1wpif,
-            # ARCH-DEL-2); propagate so the caller retries or reports.
-            store_log(
-                self.index_dir,
-                f"index-state-store: open deferred, store preserved ({exc})",
-            )
-            raise
-        except sqlite3.DatabaseError:
-            # Corrupted/unreadable database file (or quick_check structural
-            # failure): loudly delete and recreate. Derived-only — the empty
-            # store forces repopulation on this and later builds. The reset is
-            # recorded in the durable store log as well as on stderr, so a
-            # reset by a process whose stderr is discarded stays attributable.
-            message = (
-                f"index-state-store: store unreadable or corrupt at {self.path} — "
-                "resetting store (derived-only; tables repopulate on rebuild)"
-            )
-            print(message, file=sys.stderr, flush=True)
-            store_log(self.index_dir, message)
-            _delete_store_files(self.path)
-            self._conn = self._open()
+        self._conn = self._open()
 
-    def _open(self) -> "sqlite3.Connection":
-        creating = not self.path.exists()
-        conn = sqlite3.connect(str(self.path), timeout=STORE_OPEN_TIMEOUT_SECONDS)
+    def _open(self):
+        conn = sqlite_runtime.connect(self.path)
         try:
-            if creating:
-                # Must be set before the first table is created to take
-                # effect without a full VACUUM (1rq4h Req 9 / AC-8).
-                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-            journal_mode = str(
-                (conn.execute("PRAGMA journal_mode=WAL").fetchone() or [""])[0]
-            )
-            if journal_mode.lower() != "wal":
-                print(
-                    f"[index-state-store] WARNING: journal_mode=WAL refused "
-                    f"(got {journal_mode!r}); store at {self.path} may be on a "
-                    f"filesystem with unreliable locking",
-                    file=sys.stderr,
-                )
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute(f"PRAGMA busy_timeout={int(STORE_OPEN_TIMEOUT_SECONDS * 1000)}")
-            if not creating and not _quick_check_ok(conn):
-                # Proactive structural probe at open (1rq4h Req 11): upgrade
-                # from the reactive "reset when a read raises" posture.
-                raise sqlite3.DatabaseError("quick_check failed")
+            has_meta = conn.execute("SELECT 1 FROM sqlite_schema WHERE name='meta'").fetchone()
+            if has_meta:
+                version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+                if version != (STATE_STORE_SCHEMA_VERSION,):
+                    if not self._migration or version is None or version[0] not in LEGACY_SCHEMA_VERSIONS:
+                        raise sqlite_runtime.StorageRecoveryRequired(
+                            f"Index schema {version!r} requires explicit migration/rebuild; "
+                            f"preserving {self.path}. Run the standard wf upgrade/setup recovery path.")
+                    # Explicit migration is restricted to an unpublished staging copy.
+                    with conn:
+                        for table in FTS_TABLES.values():
+                            conn.execute(f"DROP TABLE IF EXISTS {table}")
+                        # These digests describe the removed legacy FTS
+                        # tables. Carrying them into initially empty canonical
+                        # tables would XOR the legacy digest into every import.
+                        conn.executemany("DELETE FROM meta WHERE key=?",
+                            [(META_FTS_PAYLOAD_DIGEST_PREFIX + layer,) for layer in FTS_TABLES]
+                            + [(META_LEXICAL_STATISTICS,)])
+                        conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'",
+                                     (STATE_STORE_SCHEMA_VERSION,))
+            elif conn.execute("SELECT 1 FROM sqlite_schema WHERE type='table' LIMIT 1").fetchone():
+                raise sqlite_runtime.StorageRecoveryRequired("Unrecognized index schema; file preserved.")
             self._create_tables(conn)
-        except Exception:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        except BaseException:
+            conn.close()
             raise
         return conn
 
@@ -536,7 +479,7 @@ class IndexStateStore:
                 "ON chunk_registry (table_name, path)"
             )
             # --- FTS5 lexical resident schema (1rrr0) — capability-gated ---
-            fts_ok = fts5_available()
+            fts_ok = True
             prev_fts = self._get_meta(conn, META_FTS_AVAILABLE)
             if prev_fts != ("1" if fts_ok else "0"):
                 conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
@@ -549,17 +492,13 @@ class IndexStateStore:
                 # Capability upgrade (interpreter gained FTS5): the fresh FTS
                 # tables are empty while the registry may be populated — the
                 # id-set reconcile could not see that. Clear the registry so
-                # the next reconciliation rebuilds BOTH from Lance.
+                # the next reconciliation rebuilds BOTH from canonical chunks.
                 conn.execute("DELETE FROM chunk_registry")
-            if fts_ok:
-                for fts_name in FTS_TABLES.values():
-                    conn.execute(
-                        f"CREATE VIRTUAL TABLE IF NOT EXISTS {fts_name} USING fts5("
-                        f"chunk_id UNINDEXED, path UNINDEXED, kind UNINDEXED, "
-                        f"language UNINDEXED, tags UNINDEXED, "
-                        f"start_line UNINDEXED, end_line UNINDEXED, text, "
-                        f"tokenize = \"{FTS_TOKENIZER}\")"
-                    )
+            sqlite_vector_store.create_schema(conn)
+            for layer in FTS_TABLES:
+                if not conn.execute(f"SELECT 1 FROM chunks_{layer} LIMIT 1").fetchone():
+                    conn.execute("INSERT OR IGNORE INTO meta(key,value) VALUES (?,?)",
+                                 (META_FTS_PAYLOAD_DIGEST_PREFIX + layer, "0" * 64))
             # --- Secret-scan cache resident schema (1rsha, Tier 1) ---
             # Per-file content+rules fingerprint cache: a file is skipped only
             # when BOTH match. finding_refs holds derived references into
@@ -610,8 +549,8 @@ class IndexStateStore:
             # THE semantic-index readiness authority: a single typed row.
             # Fresh/reset store starts `uninitialized` (readers fail closed);
             # `begin_build_epoch` durably marks `building` BEFORE the first
-            # Lance/FTS mutation (FULL-synchronous fence — a crash can never
-            # leave partially mutated Lance data behind an apparently valid
+            # index mutation (FULL-synchronous fence — a crash can never
+            # leave partially updated index state behind an apparently valid
             # completed generation); only `finalize_build_epoch`'s attempt-ID
             # compare-and-set advances `generation` and restores `complete`.
             # A `building` row whose owning build lock is gone reads as
@@ -637,7 +576,7 @@ class IndexStateStore:
                     ("store_schema_version", STATE_STORE_SCHEMA_VERSION),
                 )
                 # Fresh store (creation or post-reset): the chunk index is
-                # cold — the next reconcile's rebuild-from-Lance is expected
+                # cold — the next reconcile's rebuild from canonical chunks is expected
                 # provisioning, not a crash repair. The flag survives partial
                 # in-build deltas (which make the registry non-empty before
                 # the reconcile runs) and is cleared by the reconcile itself.
@@ -650,7 +589,7 @@ class IndexStateStore:
     def _get_meta(conn: "sqlite3.Connection", key: str) -> Optional[str]:
         try:
             row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             return None
         return None if row is None else str(row[0])
 
@@ -667,7 +606,7 @@ class IndexStateStore:
         """
         try:
             rows = self._conn.execute("SELECT key, value FROM meta").fetchall()
-        except sqlite3.OperationalError as exc:
+        except _SQL_OPERATIONAL as exc:
             if not _is_missing_object_error(exc):
                 store_log(
                     self.index_dir,
@@ -675,7 +614,7 @@ class IndexStateStore:
                 )
                 raise
             return {}
-        except sqlite3.DatabaseError:
+        except _SQL_DATABASE:
             return {}
         return {str(k): str(v) for k, v in rows}
 
@@ -688,61 +627,16 @@ class IndexStateStore:
         return all(meta.get(key) == expected[key] for key in _VERSION_KEYS)
 
     def ensure_current(self) -> bool:
-        """Reset the whole store when the schema version mismatches.
-
-        Returns True when the store was already current. A mismatch (older or
-        unknown version) drops every resident table's rows — derived-only, so
-        the next build repopulates — with a loud diagnostic.
-        """
-        if self.versions_current():
-            return True
-        print(
-            f"index-state-store: schema version mismatch at {self.path} "
-            f"(found {self.meta_all().get('store_schema_version')!r}, expected "
-            f"{STATE_STORE_SCHEMA_VERSION!r}) — resetting store (derived-only)",
-            file=sys.stderr,
-            flush=True,
-        )
-        self.reset()
-        return False
+        """Never erase canonical vectors or an in-flight fence on a version mismatch."""
+        if not self.versions_current():
+            raise sqlite_runtime.StorageRecoveryRequired(
+                f"Index schema mismatch at {self.path}; preserve it and run explicit migration/rebuild.")
+        return True
 
     def reset(self) -> None:
-        """Drop every resident table and recreate the current schema.
-
-        Drop-and-recreate (rather than per-table DELETEs) so a version bump
-        that changes table SHAPES converges to the new schema; virtual (FTS)
-        tables drop first so their shadow tables go with them.
-
-        1sed6 note: since the build epoch is a resident, a reset ERASES any
-        in-flight fence — a build whose store is reset underneath it fails
-        its finalization CAS (fail-closed, heals on the next run). Every
-        reset is therefore persisted to the store log with a traceback-tail
-        so a field CAS-miss is diagnosable after the fact.
-        """
-        import traceback
-        _caller = "".join(traceback.format_stack(limit=6)[:-1]).strip().splitlines()
-        _caller_tail = " <- ".join(
-            ln.strip().split(",")[1].strip() for ln in _caller if ln.strip().startswith("File")
-        )[-300:]
-        store_log(
-            self.index_dir,
-            f"store RESET (drop-and-recreate all residents; any in-flight build fence is erased) [{_caller_tail}]",
-        )
-        with self._conn:
-            rows = self._conn.execute(
-                "SELECT name, sql FROM sqlite_master "
-                "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            ).fetchall()
-            virtual = [n for n, s in rows if s and "VIRTUAL" in str(s).upper()]
-            for name in virtual:
-                self._conn.execute(f"DROP TABLE IF EXISTS {name}")
-            remaining = self._conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            ).fetchall()
-            for (name,) in remaining:
-                self._conn.execute(f"DROP TABLE IF EXISTS {name}")
-        self._create_tables(self._conn)
+        """Automatic whole-store reset is unsafe once this file owns semantic data."""
+        raise sqlite_runtime.StorageRecoveryRequired(
+            f"Automatic index reset refused at {self.path}; use explicit rebuild recovery.")
 
     # -- meta helpers --
 
@@ -989,17 +883,16 @@ class IndexStateStore:
 
     # -- maintenance (1rq4h Req 9) --
 
-    def end_of_build_maintenance(self) -> None:
-        """Bounded end-of-build maintenance: WAL truncate + incremental vacuum.
+    def end_of_build_maintenance(self) -> dict[str, Any] | None:
+        """Attempt a PASSIVE checkpoint and report frames left behind readers.
 
         Runs while the build still holds the index-build lock (writers done).
         Keeps the ``-wal`` bounded under the long-lived MCP server, whose
         query-path reads could otherwise starve autocheckpoint.
         """
         try:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            self._conn.execute("PRAGMA incremental_vacuum")
-        except sqlite3.Error as exc:
+            return _passive_checkpoint(self._conn)
+        except _SQL_ERRORS as exc:
             print(
                 f"index-state-store: end-of-build maintenance skipped ({exc})",
                 file=sys.stderr,
@@ -1009,11 +902,11 @@ class IndexStateStore:
         try:
             if not self.read_only:
                 self._conn.execute("PRAGMA optimize")
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
         try:
             self._conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
     def __del__(self):  # pragma: no cover - GC timing dependent
@@ -1029,7 +922,7 @@ class IndexStateStore:
 
 
 def open_read_only(index_dir: Path) -> Optional["sqlite3.Connection"]:
-    """Read-only URI open with busy_timeout; None when absent or unreadable.
+    """Native read-only open; None when absent, unreadable or wrong schema.
 
     Server-side reads must open/close per operation (1rq4h Req 9): a pinned
     long-lived reader would starve WAL autocheckpoint between builds.
@@ -1037,11 +930,21 @@ def open_read_only(index_dir: Path) -> Optional["sqlite3.Connection"]:
     path = state_store_path(index_dir)
     if not path.exists():
         return None
+    conn = None
     try:
-        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=10.0)
-        conn.execute("PRAGMA busy_timeout=10000")
+        conn = sqlite_runtime.connect(path, read_only=True)
+        version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+        if version != (STATE_STORE_SCHEMA_VERSION,):
+            conn.close()
+            return None
         return conn
-    except sqlite3.Error:
+    except (sqlite_runtime.RuntimeUnavailable, sqlite_runtime.StorageRecoveryRequired):
+        if conn is not None:
+            conn.close()
+        raise
+    except _SQL_ERRORS:
+        if conn is not None:
+            conn.close()
         return None
 
 
@@ -1087,12 +990,12 @@ def freshness_for_path(
             "churn_score": float(churn_score or 0.0),
             "commits_since": commits_since,
         }
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1114,12 +1017,12 @@ def wave_attribution_for_path(index_dir: Path, path: str) -> list[dict[str, Any]
              "landed_at": None if ts is None else int(ts)}
             for w, sha, ts in rows
         ]
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return []
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1149,12 +1052,12 @@ def doc_drift_for_path(index_dir: Path, path: str) -> Optional[dict[str, Any]]:
             "historical": bool(historical),
             "waves_behind": int(waves_behind or 0),
         }
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1205,12 +1108,12 @@ def freshness_for_paths(
                 entry["drifted"] = bool(drifted)
                 entry["commits_since_verified"] = int(commits_since or 0)
         return out
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return {}
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1299,7 +1202,7 @@ def read_memory_state(index_dir: Path) -> Optional[dict[str, Any]]:
                 live = conn.execute(
                     "SELECT COUNT(*) FROM memory_writers WHERE started_at >= ?", (cutoff,)
                 ).fetchone()[0]
-            except sqlite3.Error:
+            except _SQL_ERRORS:
                 live = 0
         finally:
             conn.close()
@@ -1308,7 +1211,7 @@ def read_memory_state(index_dir: Path) -> Optional[dict[str, Any]]:
             "generation": int(rows.get("generation", "0")),
             "dirty": 1 if live else 0,
         }
-    except (sqlite3.Error, ValueError, OSError):
+    except (*_SQL_ERRORS, ValueError, OSError):
         return None
 
 
@@ -1337,7 +1240,7 @@ def memory_fence(index_dir: Path) -> Optional[str]:
             return token
         finally:
             conn.close()
-    except (sqlite3.Error, OSError):
+    except (*_SQL_ERRORS, OSError):
         return None
 
 
@@ -1363,7 +1266,7 @@ def memory_finalize(index_dir: Path, token: Optional[str] = None) -> Optional[in
             return int(row[0]) if row else None
         finally:
             conn.close()
-    except (sqlite3.Error, OSError):
+    except (*_SQL_ERRORS, OSError):
         return None
 
 
@@ -1389,7 +1292,7 @@ def memory_advance(index_dir: Path) -> Optional[int]:
             return int(row[0]) if row else None
         finally:
             conn.close()
-    except (sqlite3.Error, OSError):
+    except (*_SQL_ERRORS, OSError):
         return None
 
 
@@ -1436,12 +1339,12 @@ def file_commit_times(index_dir: Path, paths: Iterable[str]) -> dict[str, list[i
         ):
             out.setdefault(str(path), []).append(int(ts))
         return out
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return {}
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1458,8 +1361,10 @@ def drift_worklist(index_dir: Path, *, limit: int = 20) -> dict[str, Any]:
     try:
         # Exempt prefixes are filtered at read time too, so a store written
         # by an older pass heals immediately (no fingerprint-change wait).
+        # Native vector LIKE is case-sensitive; lower() explicitly retains
+        # SQLite's historical ASCII-insensitive matching for auxiliary paths.
         exempt_sql = " AND ".join(
-            "path NOT LIKE ?" for _ in DRIFT_EXEMPT_PREFIXES
+            "lower(path) NOT LIKE lower(?)" for _ in DRIFT_EXEMPT_PREFIXES
         )
         exempt_args = [f"{p}%" for p in DRIFT_EXEMPT_PREFIXES]
         flagged = int(
@@ -1491,12 +1396,12 @@ def drift_worklist(index_dir: Path, *, limit: int = 20) -> dict[str, Any]:
                 }
             )
         return {"available": True, "flagged_count": flagged, "entries": entries}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return {"available": False, "flagged_count": 0, "entries": []}
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -1504,12 +1409,9 @@ def drift_worklist(index_dir: Path, *, limit: int = 20) -> dict[str, Any]:
 # Chunk index: FTS5 lexical tables + chunk registry (1rrr0)
 # ---------------------------------------------------------------------------
 #
-# Ordered-consistency model (readiness-council amendment): Lance is
-# authoritative for chunk existence; these derived tables commit in a single
-# SQLite transaction ORDERED AFTER the corresponding Lance writes; the
-# reconciliation pass (chunk-id set comparison → derived-only rebuild on
-# mismatch, loud diagnostic) repairs any crash window between the engines.
-# Cross-engine atomicity is explicitly not claimed.
+# Canonical chunks, vectors, external FTS triggers and registry deltas share
+# one native transaction. Reconciliation repairs only derived state from the
+# canonical tables; it never replaces the authoritative SQLite file.
 
 # Max whitespace tokens taken from a user query when building the FTS MATCH
 # expression — bounds pathological inputs without changing normal queries.
@@ -1517,7 +1419,7 @@ FTS_QUERY_MAX_TOKENS = 12
 
 
 def _row_lines(row: dict[str, Any]) -> tuple[int, int]:
-    lines = row.get("lines")
+    lines = row.get("lines") or [row.get("start_line", 0), row.get("end_line", 0)]
     if isinstance(lines, (list, tuple)) and len(lines) == 2:
         try:
             return int(lines[0]), int(lines[1])
@@ -1527,7 +1429,7 @@ def _row_lines(row: dict[str, Any]) -> tuple[int, int]:
 
 
 def _row_tags(row: dict[str, Any]) -> str:
-    """Normalize the tags field to the space-joined string Lance rows carry."""
+    """Normalize the tags field to the space-joined string canonical chunk rows carry."""
     tags = row.get("tags")
     if isinstance(tags, (list, tuple)):
         return " ".join(str(t) for t in tags)
@@ -1586,9 +1488,12 @@ def _fts_digest_of_rows(rows: Iterable[dict[str, Any]]) -> int:
 
 
 def _fts_table_digest(conn: "sqlite3.Connection", fts_name: str) -> int:
-    """Full-scan recompute over the live FTS table. Corpus-linear: reserved
+    """Recompute from canonical external-content rows. Corpus-linear: reserved
     for probe boundaries (reconcile / open / epoch change / serving error),
     never a warmed public read."""
+    # FTS5 reads these exact columns from the canonical table. Avoid its
+    # per-row external-content lookup; postings are verified independently.
+    fts_name = "chunks_" + next(layer for layer, name in FTS_TABLES.items() if name == fts_name)
     acc = 0
     cur = conn.execute(
         f"SELECT chunk_id, path, kind, language, tags, start_line, end_line, text FROM {fts_name}"
@@ -1618,6 +1523,9 @@ def _fts_affected_rows_digest(
     uniq_paths = [p for p in dict.fromkeys(str(x) for x in paths) if p]
     if not uniq_ids and not uniq_paths:
         return 0
+    # External FTS columns are UNINDEXED. Canonical chunk_id/path indexes
+    # provide the identical payloads without a corpus scan for every batch.
+    fts_name = "chunks_" + next(layer for layer, name in FTS_TABLES.items() if name == fts_name)
     cols = "rowid, chunk_id, path, kind, language, tags, start_line, end_line, text"
     seen: set[int] = set()
     acc = 0
@@ -1630,13 +1538,6 @@ def _fts_affected_rows_digest(
             seen.add(rowid)
             acc ^= _fts_payload_row_digest(*payload)
 
-    if len(uniq_ids) + len(uniq_paths) > _FTS_DIGEST_SELECT_BATCH:
-        id_set, path_set = set(uniq_ids), set(uniq_paths)
-        _consume(
-            row for row in conn.execute(f"SELECT {cols} FROM {fts_name}")
-            if row[1] in id_set or row[2] in path_set
-        )
-        return acc
     for column, values in (("chunk_id", uniq_ids), ("path", uniq_paths)):
         for start in range(0, len(values), _FTS_DIGEST_SELECT_BATCH):
             batch = values[start:start + _FTS_DIGEST_SELECT_BATCH]
@@ -1673,7 +1574,7 @@ def _apply_chunk_deltas_locked(
     fts_on = fts_name is not None and _fts_enabled(store)
     delete_ids = [str(i) for i in delete_ids]
     delete_paths = [str(p) for p in delete_paths]
-    rows = list(add_rows)
+    rows = list({str(r.get("id") or ""): r for r in add_rows}.values())
     conn = store._conn
     churn = len(delete_ids) + len(delete_paths) + len(rows)
     with conn:
@@ -1697,57 +1598,18 @@ def _apply_chunk_deltas_locked(
                 )
                 for r in rows:
                     digest_acc ^= _fts_payload_row_digest(*_fts_row_tuple(r))
-        if delete_ids:
-            conn.executemany(
-                "DELETE FROM chunk_registry WHERE table_name = ? AND chunk_id = ?",
-                [(table_name, i) for i in delete_ids],
-            )
-            if fts_on:
-                conn.executemany(
-                    f"DELETE FROM {fts_name} WHERE chunk_id = ?",
-                    [(i,) for i in delete_ids],
-                )
-        if delete_paths:
-            conn.executemany(
-                "DELETE FROM chunk_registry WHERE table_name = ? AND path = ?",
-                [(table_name, p) for p in delete_paths],
-            )
-            if fts_on:
-                conn.executemany(
-                    f"DELETE FROM {fts_name} WHERE path = ?",
-                    [(p,) for p in delete_paths],
-                )
-        if rows:
-            # Replace-by-id: an add for an existing id supersedes it.
-            conn.executemany(
-                "INSERT INTO chunk_registry (table_name, chunk_id, path, chunk_hash) "
-                "VALUES (?, ?, ?, ?) ON CONFLICT(table_name, chunk_id) DO UPDATE SET "
-                "path=excluded.path, chunk_hash=excluded.chunk_hash",
-                [
-                    (table_name, str(r.get("id") or ""), str(r.get("path") or ""),
-                     str(r.get("chunk_hash") or ""))
-                    for r in rows
-                ],
-            )
-            if fts_on:
-                conn.executemany(
-                    f"DELETE FROM {fts_name} WHERE chunk_id = ?",
-                    [(str(r.get("id") or ""),) for r in rows],
-                )
-                conn.executemany(
-                    f"INSERT INTO {fts_name} "
-                    f"(chunk_id, path, kind, language, tags, start_line, end_line, text) "
-                    f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (str(r.get("id") or ""), str(r.get("path") or ""),
-                         str(r.get("kind") or ""), str(r.get("language") or ""),
-                         _row_tags(r), *_row_lines(r),
-                         str(r.get("text") or ""))
-                        for r in rows
-                    ],
-                )
-        # Threshold-gated in-build segment merge (1rrr0 Req 12) — the FTS
-        # analog of the fragment-gated Lance compact.
+        sqlite_vector_store.delete_rows(conn, table_name, ids=delete_ids, paths=delete_paths)
+        sqlite_vector_store.write_rows(conn, table_name, rows, require_vector=False)
+        conn.executemany("DELETE FROM chunk_registry WHERE table_name=? AND chunk_id=?",
+                         ((table_name, i) for i in delete_ids))
+        conn.executemany("DELETE FROM chunk_registry WHERE table_name=? AND path=?",
+                         ((table_name, p) for p in delete_paths))
+        conn.executemany(
+            "INSERT INTO chunk_registry(table_name,chunk_id,path,chunk_hash) VALUES(?,?,?,?) "
+            "ON CONFLICT(table_name,chunk_id) DO UPDATE SET path=excluded.path,chunk_hash=excluded.chunk_hash",
+            ((table_name,str(r.get("id") or ""),str(r.get("path") or ""),
+              str(r.get("chunk_hash") or "")) for r in rows))
+        # Threshold-gated in-build FTS segment merge (1rrr0 Req 12).
         if fts_on and churn:
             key = f"{META_FTS_CHURN_PREFIX}{table_name}"
             try:
@@ -1778,13 +1640,11 @@ def apply_chunk_deltas(
     delete_paths: Iterable[str] = (),
     add_rows: Iterable[dict[str, Any]] = (),
 ) -> None:
-    """Apply one build pass's chunk deltas to the registry + FTS tables.
+    """Apply payload, vector, registry and external FTS deltas atomically.
 
-    One transaction, opened per call (build futures for docs/code run
-    concurrently in threads — each call owns its own connection; WAL +
-    busy_timeout serialize the writers). Ordered AFTER the Lance writes by
-    the caller. Never raises to the caller's build loop — the reconciliation
-    pass self-heals any missed sync.
+    This standalone boundary owns a connection and transaction. The main
+    indexer calls the locked variant inside its wider indexing transaction.
+    Write failures propagate; no successful publication can hide a missed row.
     """
     store = IndexStateStore(index_dir)
     try:
@@ -1843,134 +1703,45 @@ def chunk_id_collision_counts(index_dir: Path, table_name: str) -> "tuple[Option
         count = int(raw) if raw is not None else None
         ids = [s for s in (sample or "").split("\x1f") if s]
         return count, ids
-    except (sqlite3.Error, ValueError):
+    except (*_SQL_ERRORS, ValueError):
         return None, []
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
 def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[str, Any]]) -> int:
-    """Full derived-only rebuild of one table's registry + FTS rows from Lance.
+    """Repair derived registry/FTS without dropping canonical vectors or build fences.
 
-    On STRUCTURAL damage mid-rebuild (a corrupt FTS shadow table, a missing
-    object) the whole store is reset (drop-and-recreate, loud) and the rebuild
-    retried once — everything resident is derived, so recovery is free.
-
-    An operational error is NOT damage. A lock, IO or disk-full error
-    propagates with the store preserved: resetting on one dropped every
-    resident table and erased the in-flight build fence, then returned
-    success, so no caller could tell the store had been emptied (wave 1wpif
-    delivery review, ARCH-RV1-2). "Recovery is free" holds for derived rows,
-    not for the fence `reset()` erases.
-
-    Rows are deduped by chunk id (last wins): Lance's ``id`` column is not
-    unique — incremental churn can leave duplicate-id rows (observed live:
-    +300 on this repo) — while the registry PK and the FTS delete-by-id
-    contract both assume one row per id.
+    Rows supplied by legacy fixture/bootstrap callers seed missing canonical text;
+    production repair reads canonical rows and never replaces their embeddings.
     """
     raw_rows = list(rows)
-    # 1wngv: collision census over the SAME materialized rows this rebuild
-    # already consumes — one extra dict pass, no second chunking/embedding.
-    census = chunk_id_collision_census(raw_rows)
-    deduped: dict[str, dict[str, Any]] = {}
-    for r in raw_rows:
-        deduped[str(r.get("id") or "")] = r
-    rows = list(deduped.values())
-
-    def _write(store: "IndexStateStore") -> int:
-        conn = store._conn
-        fts_name = FTS_TABLES.get(table_name)
-        fts_on = fts_name is not None and _fts_enabled(store)
-        with conn:
-            if fts_name is not None:
-                conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
-            conn.execute("DELETE FROM chunk_registry WHERE table_name = ?", (table_name,))
-            if fts_on:
-                conn.execute(f"DELETE FROM {fts_name}")
-            conn.executemany(
-                "INSERT OR REPLACE INTO chunk_registry (table_name, chunk_id, path, chunk_hash) "
-                "VALUES (?, ?, ?, ?)",
-                [
-                    (table_name, str(r.get("id") or ""), str(r.get("path") or ""),
-                     str(r.get("chunk_hash") or ""))
-                    for r in rows
-                ],
-            )
-            if fts_on:
-                conn.executemany(
-                    f"INSERT INTO {fts_name} "
-                    f"(chunk_id, path, kind, language, tags, start_line, end_line, text) "
-                    f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (str(r.get("id") or ""), str(r.get("path") or ""),
-                         str(r.get("kind") or ""), str(r.get("language") or ""),
-                         _row_tags(r), *_row_lines(r),
-                         str(r.get("text") or ""))
-                        for r in rows
-                    ],
-                )
-            conn.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (f"{META_FTS_CHURN_PREFIX}{table_name}", "0"),
-            )
-            # 1wngv: persist the collision census with the rebuild that
-            # measured it (sample capped at 5; \x1f-joined so ids that
-            # contain commas stay parseable).
-            conn.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (META_CHUNK_ID_COLLISIONS_PREFIX + table_name,
-                 str(census["collision_count"])),
-            )
-            conn.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (META_CHUNK_ID_COLLISION_SAMPLE_PREFIX + table_name,
-                 "\x1f".join(census["collision_ids"][:5])),
-            )
-            # 1wpag: the keyed payload digest is computed from the SAME rows
-            # this transaction inserted and published with them (the
-            # publication boundary, under the build lock). With FTS off the
-            # table does not exist, so any stale digest is cleared.
-            _write_fts_digest_meta(conn, table_name, _fts_digest_of_rows(rows) if fts_on else None)
-        return len(rows)
-
-    def _reset_and_retry(store: "IndexStateStore", exc: BaseException) -> int:
-        message = (
-            f"index-state-store: chunk-index rebuild for '{table_name}' hit a store "
-            f"error ({exc}) — resetting store and retrying (derived-only)"
-        )
-        print(message, file=sys.stderr, flush=True)
-        store_log(index_dir, message)
-        store.reset()
-        return _write(store)
-
+    deduped = {str(r.get("id") or ""): r for r in raw_rows}
     store = IndexStateStore(index_dir)
     try:
-        store.ensure_current()
-        try:
-            return _write(store)
-        except sqlite3.OperationalError as exc:
-            if not _is_missing_object_error(exc):
-                # Wave 1wpif delivery review (ARCH-RV1-2): a lock, IO or
-                # disk-full error is a wait condition, not store damage.
-                # Resetting here dropped every resident table and erased the
-                # in-flight build fence, then RETURNED SUCCESS, so no caller
-                # could tell the store had been emptied. Propagate instead.
-                message = (
-                    f"index-state-store: chunk-index rebuild for '{table_name}' deferred, "
-                    f"store preserved ({exc})"
-                )
-                print(message, file=sys.stderr, flush=True)
-                store_log(index_dir, message)
-                raise
-            return _reset_and_retry(store, exc)
-        except sqlite3.DatabaseError as exc:
-            return _reset_and_retry(store, exc)
+        with store._conn:
+            conn = store._conn
+            fts_name = FTS_TABLES[table_name]
+            # Repair the external index BEFORE canonical triggers can touch
+            # damaged postings. Existing canonical payloads are authoritative;
+            # supplied rows only seed ids absent from that authority.
+            conn.execute(f"INSERT INTO {fts_name}({fts_name}) VALUES('rebuild')")
+            missing = [row for cid, row in deduped.items()
+                       if not conn.execute(f"SELECT 1 FROM chunks_{table_name} WHERE chunk_id=?", (cid,)).fetchone()]
+            _apply_chunk_deltas_locked(store, table_name, add_rows=missing)
+            conn.execute("DELETE FROM meta WHERE key=?", (META_LEXICAL_STATISTICS,))
+            conn.execute("DELETE FROM chunk_registry WHERE table_name=?", (table_name,))
+            conn.execute(f"INSERT INTO chunk_registry(table_name,chunk_id,path,chunk_hash) "
+                f"SELECT ?,chunk_id,path,COALESCE(json_extract(payload,'$.chunk_hash'),'') FROM chunks_{table_name}",
+                (table_name,))
+            _write_fts_digest_meta(conn, table_name, _fts_table_digest(conn, fts_name))
+            census = chunk_id_collision_census(raw_rows)
+            store.set_meta({META_CHUNK_ID_COLLISIONS_PREFIX + table_name: str(census['collision_count'])})
+            store.set_meta({META_CHUNK_ID_COLLISION_SAMPLE_PREFIX + table_name: "\x1f".join(census['collision_ids'][:5])})
+        return len(deduped)
     finally:
         store.close()
 
@@ -2011,12 +1782,12 @@ def registry_map_for_paths(
                 ).fetchall()
                 if rows:
                     result[path] = {str(i): str(h) for i, h in rows}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return {}
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     return result
 
@@ -2031,12 +1802,12 @@ def registry_chunk_ids(index_dir: Path, table_name: str) -> Optional[set[str]]:
             "SELECT chunk_id FROM chunk_registry WHERE table_name = ?", (table_name,)
         ).fetchall()
         return {str(r[0]) for r in rows}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2057,12 +1828,12 @@ def layer_hashes(index_dir: Path, layer: str) -> Optional[dict[str, str]]:
             "SELECT path, hash FROM layer_path_state WHERE layer = ?", (layer,)
         ).fetchall()
         return {str(p): str(h) for p, h in rows}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2075,8 +1846,8 @@ def update_layer_hashes(
 ) -> None:
     """Commit one build pass's layer-state deltas in a single transaction (1sek8).
 
-    Called AFTER the layer's Lance writes succeed (same ordered-consistency
-    posture as the chunk deltas): ``set_hashes`` records the walk hash each
+    Standalone compatibility helper; the main publication path writes these
+    hashes in the shared chunk/vector transaction: ``set_hashes`` records the walk hash each
     written path was embedded at; ``remove_paths`` drops deleted/no-longer-
     eligible paths. Never raises to the build loop — a missed update just
     means the next build re-processes those paths (idempotent, vectors
@@ -2138,12 +1909,12 @@ def registry_chunk_count(index_dir: Path, table_name: str) -> Optional[int]:
             "SELECT count(*) FROM chunk_registry WHERE table_name = ?", (table_name,)
         ).fetchone()
         return int(row[0]) if row else 0
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2170,12 +1941,12 @@ def stored_language_vocabulary(index_dir: Path, table_name: str) -> Optional[fro
         rows = conn.execute(
             f"SELECT DISTINCT language FROM {fts_name}"  # noqa: S608 - fixed table name
         ).fetchall()
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     return frozenset(str(r[0]) for r in rows if r and r[0])
 
@@ -2203,12 +1974,12 @@ def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
             for table in ("file_freshness", "secret_scan_cache"):
                 rows = conn.execute(f"SELECT path FROM {table}").fetchall()
                 result[table] = {str(r[0]) for r in rows}
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
         finally:
             try:
                 conn.close()
-            except sqlite3.Error:
+            except _SQL_ERRORS:
                 pass
     graph_path = index_dir / GRAPH_STATE_STORE_RELPATH
     if graph_path.exists():
@@ -2223,9 +1994,9 @@ def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
             finally:
                 try:
                     gconn.close()
-                except sqlite3.Error:
+                except _SQL_ERRORS:
                     pass
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     return result
 
@@ -2267,7 +2038,7 @@ def remove_sidecar_paths(
                     cur = conn.execute(
                         f"DELETE FROM {table} WHERE path IN ({marks})", batch
                     )
-                    deleted[table] += max(cur.rowcount, 0)
+                    deleted[table] += max(conn.changes(), 0)
     finally:
         store.close()
     return deleted
@@ -2285,12 +2056,12 @@ def chunk_index_is_cold(index_dir: Path) -> bool:
         return False
     try:
         return IndexStateStore._get_meta(conn, META_CHUNK_INDEX_COLD) == "1"
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return False
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2298,9 +2069,9 @@ def chunk_sync_counts(index_dir: Path, table_name: str) -> "tuple[Optional[int],
     """Read-only ``(raw_rows, unique_ids)`` recorded at the last successful
     reconcile for one table, or ``(None, None)`` when never recorded (1sbfj).
 
-    The exact-comparison basis for the zero-change heal probe and the health
-    coverage flag: Lance ids are not unique, so live raw-vs-registry compares
-    misread duplicate-id rows as under-coverage.
+    Retained sync-time counts provide fallback coverage when live vector
+    population counts are unavailable. Metadata keys are preserved across
+    the SQLite conversion; canonical chunk IDs are now unique.
     """
     conn = open_read_only(index_dir)
     if conn is None:
@@ -2312,12 +2083,12 @@ def chunk_sync_counts(index_dir: Path, table_name: str) -> "tuple[Optional[int],
             int(raw) if raw is not None else None,
             int(unique) if unique is not None else None,
         )
-    except (sqlite3.Error, ValueError):
+    except (*_SQL_ERRORS, ValueError):
         return None, None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2345,20 +2116,20 @@ def _record_chunk_sync_counts(
 def reconcile_chunk_index(
     index_dir: Path,
     table_name: str,
-    lance_ids: set[str],
+    canonical_ids: set[str],
     fetch_rows,
     *,
     expected: bool = False,
     raw_rows: Optional[int] = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Chunk-id set comparison between Lance (authoritative) and the store.
+    """Chunk-id set comparison between canonical SQLite chunks and the derived registry.
 
     On mismatch, the derived tables for ``table_name`` are rebuilt from
-    ``fetch_rows()`` (full Lance row fetch, vectors excluded by the caller).
+    ``fetch_rows()`` (canonical SQLite row fetch, vectors excluded by the caller).
     ``expected=True`` marks a rebuild that is anticipated (fresh store, full
     rebuild) so the diagnostic is informational rather than a repair warning.
-    ``raw_rows`` is the Lance RAW row count when the caller has it (the id
+    ``raw_rows`` is the source row count when the caller has it (the id
     fetch's row total, dup-id rows included) — recorded with the unique count
     at every successful reconcile as the exact-comparison basis for the
     zero-change heal probe and the health coverage flag (1sbfj).
@@ -2372,7 +2143,7 @@ def reconcile_chunk_index(
         finally:
             try:
                 conn.close()
-            except sqlite3.Error:
+            except _SQL_ERRORS:
                 pass
     fts_damage: Optional[dict[str, Any]] = None
     if force:
@@ -2382,12 +2153,12 @@ def reconcile_chunk_index(
         # maintenance, not a repair.
         msg = (
             f"index-state-store: rebuilding derived chunk index for '{table_name}' "
-            f"from Lance ({len(lance_ids)} chunks — operator-requested)"
+            f"from canonical SQLite chunks ({len(canonical_ids)} chunks — operator-requested)"
         )
         print(msg, flush=True)
         store_log(index_dir, msg)
-    elif store_ids is not None and store_ids == lance_ids:
-        # 1wpag (wave 1wpif): registry-vs-Lance id parity alone is NOT
+    elif store_ids is not None and store_ids == canonical_ids:
+        # 1wpag (wave 1wpif): registry-vs-canonical id parity alone is NOT
         # synchronization: a dropped, emptied, truncated, shadow-damaged, or
         # payload-substituted FTS table leaves the id set intact. Verify FTS
         # liveness, row parity, and the keyed payload digest before taking
@@ -2427,28 +2198,28 @@ def reconcile_chunk_index(
             f"fts_rows={fts_damage.get('fts_rows')}, "
             f"registry_rows={fts_damage.get('registry_rows')}, "
             f"digest={fts_damage.get('digest')}) with registry ids in sync; "
-            f"rebuilding derived tables from Lance (FTS heal)"
+            f"rebuilding derived tables from canonical SQLite chunks (FTS heal)"
         )
         print(msg, file=sys.stderr, flush=True)
         store_log(index_dir, msg)
     elif cold or not store_ids:
         # Cold start: a just-created or just-reset store (install, upgrade,
-        # schema bump) is EXPECTED to need the backfill from Lance — routine
+        # schema bump) is EXPECTED to need the backfill from canonical SQLite chunks — routine
         # provisioning, not a crash repair, even when partial in-build deltas
         # already populated some rows. Say so calmly; the loud crash-window
         # diagnostic below is reserved for a warm store that genuinely
-        # diverged from Lance.
+        # diverged from canonical SQLite chunks.
         msg = (
-            f"build_index: building derived chunk index for '{table_name}' from Lance "
-            f"({len(lance_ids)} chunks — provisioning this store)"
+            f"build_index: building derived chunk index for '{table_name}' from canonical SQLite chunks "
+            f"({len(canonical_ids)} chunks — provisioning this store)"
         )
         print(msg, flush=True)
         store_log(index_dir, msg)
     elif not expected:
         msg = (
-            f"index-state-store: chunk-index for '{table_name}' out of sync with Lance "
+            f"index-state-store: chunk-index for '{table_name}' out of sync with canonical SQLite chunks "
             f"(store={len(store_ids)} ids, "
-            f"lance={len(lance_ids)} ids) — rebuilding derived tables from Lance "
+            f"canonical={len(canonical_ids)} ids) — rebuilding derived tables from canonical SQLite chunks "
             f"(crash-window reconciliation)"
         )
         print(msg, file=sys.stderr, flush=True)
@@ -2456,10 +2227,10 @@ def reconcile_chunk_index(
     written = rebuild_chunk_index(index_dir, table_name, fetch_rows())
     store_log(
         index_dir,
-        f"index-state-store: chunk-index for '{table_name}' rebuilt from Lance "
+        f"index-state-store: chunk-index for '{table_name}' rebuilt from canonical SQLite chunks "
         f"({written} rows written)",
     )
-    # A successful rebuild-from-Lance IS provisioning complete — clear the
+    # A successful rebuild from canonical chunks IS provisioning complete — clear the
     # cold flag unconditionally and record the sync-time counts (1sbfj).
     # The prior ``if cold:`` guard leaked a permanently-cold store when the
     # reconcile itself CREATED the store: the flag was read before the store
@@ -2637,19 +2408,25 @@ def fts_probe(index_dir: Path, table_name: str) -> bool:
         # then break — or silently skew — real queries. Contentful FTS5
         # keeps one row per document in both; enforce exact parity
         # deterministically (no tokenizer dependence).
-        for shadow in ("docsize", "content"):
+        # External-content FTS owns postings/docsize; canonical chunks own text.
+        # There is deliberately no second fts_*_content shadow table.
+        for shadow in ("docsize",):
             shadow_rows = int(conn.execute(
                 f"SELECT count(*) FROM fts_{table_name}_{shadow}"
             ).fetchone()[0])
             if shadow_rows != fts_rows:
                 return False
+        if conn.execute(
+            f"SELECT id FROM chunks_{table_name} EXCEPT SELECT id FROM fts_{table_name}_docsize LIMIT 1"
+        ).fetchone():
+            return False
         return True
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return False
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -2749,12 +2526,12 @@ def reap_state_for_index(index_dir: Path) -> Optional[dict[str, Any]]:
         return None
     try:
         raw = IndexStateStore._get_meta(conn, META_REAP_STATE)
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     if not raw:
         return None
@@ -2819,25 +2596,85 @@ def fts_recorded_integrity(index_dir: Path, table_name: str) -> dict[str, Any]:
             out["digest_prefix"] = str(raw)[:12]
         heal = IndexStateStore._get_meta(conn, META_FTS_HEAL_ATTEMPT_PREFIX + table_name)
         out["heal_attempt"] = str(heal) if heal else None
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         pass
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     return out
 
 
-def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
+def _fts_postings_match(conn, table_name: str, *, _writer=False) -> bool:
+    """Native external-content integrity, directly in an owned writer transaction.
+
+    Readers instead use a read-only main connection in their read snapshot.
+    SQLite copies canonical FTS columns and exact postings into TEMP memory;
+    vectors, JSON payloads and auxiliary tables are excluded. The qualified
+    native rank=1 verifier checks canonical text against those actual postings.
+    No project writes or Python token materialization occur. TEMP memory is
+    proportional to one layer's text/postings and is released on every path.
+    """
+    fts_name, chunks_name = FTS_TABLES[table_name], "chunks_" + table_name
+    ddl = conn.execute("SELECT sql FROM main.sqlite_schema WHERE name=?", (fts_name,)).fetchone()
+    if ddl is None:
+        return False
+    fields = ",".join(name + " UNINDEXED" for name in sqlite_vector_store.FTS_COLUMNS.split(",")[:-1]) + ",text"
+    expected = (f"CREATE VIRTUAL TABLE {fts_name} USING fts5({fields},"
+                f"content='{chunks_name}',content_rowid='id',tokenize=\"{FTS_TOKENIZER}\")")
+    normalize = lambda sql: re.sub(r"\s+", "", sql).lower()
+    if normalize(ddl[0]) != normalize(expected):
+        return False
+    if _writer:
+        if conn.get_autocommit() or conn.readonly("main"):
+            raise RuntimeError("Direct FTS verification requires the caller's writer transaction")
+        try:
+            conn.execute(f"INSERT INTO {fts_name}({fts_name},rank) VALUES('integrity-check',1)").fetchall()
+            return True
+        except sqlite_runtime.CorruptionError:
+            return False
+    conn.execute("PRAGMA mmap_size=0")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    created_chunks = created_fts = False
+    try:
+        conn.execute(f"CREATE TEMP TABLE {chunks_name} AS SELECT id,"
+                     f"{sqlite_vector_store.FTS_COLUMNS} FROM main.{chunks_name}")
+        created_chunks = True
+        prefix = "CREATE VIRTUAL TABLE "
+        conn.execute(prefix + "temp." + expected[len(prefix):])
+        created_fts = True
+        for suffix in ("data", "idx", "docsize", "config"):
+            shadow = f"{fts_name}_{suffix}"
+            conn.execute(f"DELETE FROM temp.{shadow}")
+            conn.execute(f"INSERT INTO temp.{shadow} SELECT * FROM main.{shadow}")
+        conn.execute(f"INSERT INTO temp.{fts_name}({fts_name},rank) VALUES('integrity-check',1)")
+        return True
+    except sqlite_runtime.CorruptionError:
+        return False
+    finally:
+        # Closing the outer read connection also releases TEMP after any
+        # cleanup error; never mask a failure with a persistent retry artifact.
+        try:
+            if created_fts:
+                conn.execute(f"DROP TABLE temp.{fts_name}")
+        finally:
+            if created_chunks:
+                conn.execute(f"DROP TABLE temp.{chunks_name}")
+
+
+def fts_state_verdict(index_dir: Path, table_name: str, *, _writer_conn=None) -> dict[str, Any]:
     """The full FTS state probe for one table (1wpag, wave 1wpif).
 
     Liveness + row parity + shadow parity (``fts_probe``: the real MATCH path,
-    FTS-vs-registry counts, ``_docsize``/``_content`` parity) AND the keyed
-    payload digest compare (full-scan recompute vs the digest recorded at
-    the last publication). Corpus-linear: this is a PROBE-BOUNDARY read
+    FTS-vs-registry counts and ``_docsize`` parity) AND native external-content
+    integrity on a selective TEMP copy plus the keyed payload digest recorded
+    at the last publication. Corpus-linear: this is a PROBE-BOUNDARY read
     (reconcile / open / epoch change / serving error), never a warmed
-    public read; callers cache it by the build-state token. Read-only.
+    public read; callers cache it by the build-state token. Read-only by
+    default. Reconciliation may supply its already-owned writer transaction
+    for the same native integrity check without the TEMP copy. That connection
+    remains owned by the caller: this helper never commits or closes it.
 
     Returns ``{table, ok, reason, live, digest, fts_rows, registry_rows,
     heal_attempt}``. ``reason``: None (healthy), ``fts_disabled`` (nothing
@@ -2856,12 +2693,16 @@ def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
     if fts_name is None:
         out["reason"] = "unknown_table"
         return out
-    conn = open_read_only(index_dir)
+    conn = _writer_conn if _writer_conn is not None else open_read_only(index_dir)
+    if _writer_conn is not None and (conn.get_autocommit() or conn.readonly("main")):
+        raise RuntimeError("FTS reconciliation requires the caller's writer transaction")
     if conn is None:
         out["reason"] = "store_absent"
         return out
     recorded: Optional[int] = None
     try:
+        if _writer_conn is None:
+            conn.execute("BEGIN")
         try:
             heal = IndexStateStore._get_meta(conn, META_FTS_HEAL_ATTEMPT_PREFIX + table_name)
             out["heal_attempt"] = str(heal) if heal else None
@@ -2870,7 +2711,7 @@ def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
                 out["reason"] = "fts_disabled"
                 return out
             recorded = _fts_recorded_digest(conn, table_name)
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             out["reason"] = "store_absent"
             return out
         try:
@@ -2878,11 +2719,18 @@ def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
                 "SELECT count(*) FROM chunk_registry WHERE table_name = ?", (table_name,)
             ).fetchone()[0])
             out["fts_rows"] = int(conn.execute(f"SELECT count(*) FROM {fts_name}").fetchone()[0])
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass  # the probe below types the damage
         live = fts_probe(index_dir, table_name)
         out["live"] = live
         if not live:
+            out["reason"] = "probe_failed"
+            return out
+        try:
+            if not _fts_postings_match(conn, table_name, _writer=_writer_conn is not None):
+                out.update(reason="digest_mismatch", digest="mismatch")
+                return out
+        except _SQL_ERRORS:
             out["reason"] = "probe_failed"
             return out
         if recorded is None:
@@ -2891,7 +2739,7 @@ def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
             return out
         try:
             current = _fts_table_digest(conn, fts_name)
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             out["reason"] = "digest_unavailable"
             out["digest"] = "unavailable"
             return out
@@ -2904,8 +2752,9 @@ def fts_state_verdict(index_dir: Path, table_name: str) -> dict[str, Any]:
         return out
     finally:
         try:
-            conn.close()
-        except sqlite3.Error:
+            if _writer_conn is None:
+                conn.close()
+        except _SQL_ERRORS:
             pass
 
 
@@ -2966,7 +2815,9 @@ def fts_search(
         params.append(str(kind))
     tag_list = [str(t) for t in (tags_any or []) if t]
     if tag_list:
-        where.append("(" + " OR ".join("tags LIKE ?" for _ in tag_list) + ")")
+        # Preserve historical SQLite ASCII-insensitive LIKE, including wildcards,
+        # independently of the connection's case-sensitive vector filters.
+        where.append("(" + " OR ".join("lower(tags) LIKE lower(?)" for _ in tag_list) + ")")
         params.extend(f"%{t}%" for t in tag_list)
     language_list = sorted({str(name) for name in (languages or []) if name})
     if language_list:
@@ -2980,14 +2831,14 @@ def fts_search(
             f"WHERE {' AND '.join(where)} ORDER BY score LIMIT ?",
             params,
         ).fetchall()
-    except sqlite3.Error as exc:
+    except _SQL_ERRORS as exc:
         if strict and not _fts_query_shaped_error(exc):
             raise
         return []
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     return [
         {
@@ -3046,7 +2897,7 @@ def secret_scan_filter(
                 "SELECT path, content_hash, rules_fingerprint FROM secret_scan_cache"
             ).fetchall()
         }
-    except sqlite3.Error as exc:
+    except _SQL_ERRORS as exc:
         print(
             f"secret-scan-cache: unreadable ({exc}) — scanning all candidates "
             f"(fail-safe toward full scan)",
@@ -3057,7 +2908,7 @@ def secret_scan_filter(
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
     to_scan: list[str] = []
     skipped = 0
@@ -3161,12 +3012,12 @@ def secret_rule_catalog_for(index_dir: Path, rules_fingerprint: str) -> dict[str
             (rules_fingerprint,),
         ).fetchall()
         return {str(rid): str(rh) for rid, rh in rows}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return {}
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -3189,9 +3040,7 @@ def _full_durable_connection(index_dir: Path) -> "sqlite3.Connection":
     NORMAL (performance posture unchanged).
     """
     path = state_store_path(index_dir)
-    conn = sqlite3.connect(path.as_posix(), timeout=10.0)
-    conn.execute("PRAGMA busy_timeout=10000")
-    conn.execute("PRAGMA synchronous=FULL")
+    conn = sqlite_runtime.connect(path, full_durability=True)
     return conn
 
 
@@ -3220,7 +3069,7 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
 
     Returns the attempt id the caller must present to finalize. NOT
     fail-soft: a failure here must fail the build visibly (raising is the
-    contract — the caller may not mutate Lance/FTS without the fence).
+    contract — the caller may not mutate index data without the fence).
     Committed with FULL-synchronous durability so a power failure cannot
     lose the fence. Ensures the store exists/current first (creation or a
     version-gated reset both land `uninitialized`, which this immediately
@@ -3385,7 +3234,7 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
                     "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
                     (time.time(), str(attempt_id)),
                 )
-                finalized = cur.rowcount == 1
+                finalized = conn.changes() == 1
                 if finalized:
                     _publish_lexical_statistics(conn)
         finally:
@@ -3442,7 +3291,7 @@ def finalize_staged_build_epoch(
                 "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
                 (time.time(), str(receipt["attempt_id"])),
             )
-            finalized = cur.rowcount == 1
+            finalized = conn.changes() == 1
             if finalized:
                 _publish_lexical_statistics(conn)
     finally:
@@ -3476,12 +3325,12 @@ def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:
             "attempt_id": str(row[0]), "scope": str(row[1]), "status": str(row[2]),
             "generation": int(row[3]), "started_at": row[4], "completed_at": row[5],
         }
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -3555,7 +3404,7 @@ def _publish_lexical_statistics(conn: sqlite3.Connection) -> None:
                            tokenizer=FTS_TOKENIZER, attempt_id=attempt, generation=generation)
             conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)",
                          (META_LEXICAL_STATISTICS, json.dumps(payload)))
-    except (sqlite3.Error, ValueError, TypeError, OverflowError):
+    except (*_SQL_ERRORS, ValueError, TypeError, OverflowError):
         conn.execute("ROLLBACK TO lexical_statistics_publish")
     finally:
         conn.execute("RELEASE lexical_statistics_publish")
@@ -3605,7 +3454,7 @@ def lexical_statistics(index_dir: Path) -> dict[str, Any]:
             out.update(status="ready", **{key: cached[key] for key in (
                 "entries", "term_occurrences", "distinct_terms")})
         return out
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         out.update(status="unavailable", reason="store_unreadable")
         return out
     finally:
@@ -3642,52 +3491,49 @@ def build_epoch_token(index_dir: Path) -> Optional[tuple[str, int]]:
     return (state["attempt_id"], state["generation"])
 
 
-def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
-    """Persist one build's canonical state into the store. One transaction.
-
-    The store is the SOLE source of truth for per-path build state (1rrr0
-    Req 6; exclusive since 1sed6 — nothing is exported to disk). Readers
-    reconstruct the legacy dict shape via ``export_meta_snapshot`` /
-    ``read_build_summary``.
-    """
+def write_build_bookkeeping_locked(conn, meta: dict[str, Any]) -> None:
+    """Write bookkeeping inside the semantic publication transaction."""
     file_meta = meta.get("file_meta") or {}
+    conn.execute("DELETE FROM build_file_meta")
+    conn.executemany(
+        "INSERT INTO build_file_meta (path, hash, mtime, size, inode, chunks_emitted) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (
+                path,
+                str(entry.get("hash") or ""),
+                entry.get("mtime"),
+                entry.get("size"),
+                entry.get("inode"),
+                entry.get("chunks_emitted"),
+            )
+            for path, entry in file_meta.items()
+            if isinstance(entry, dict)
+        ],
+    )
+    conn.execute("DELETE FROM build_layer_meta")
+    layer_rows = []
+    for key in _LAYER_META_STR_KEYS:
+        if key in meta:
+            layer_rows.append((key, str(meta.get(key) or "")))
+    for key in _LAYER_META_JSON_KEYS:
+        if key in meta:
+            layer_rows.append(
+                (key, json.dumps(meta.get(key), separators=(",", ":")))
+            )
+    conn.executemany(
+        "INSERT INTO build_layer_meta (key, value) VALUES (?, ?)", layer_rows
+    )
+
+
+def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
     store = IndexStateStore(index_dir)
     try:
-        store.ensure_current()
-        conn = store._conn
-        with conn:
-            conn.execute("DELETE FROM build_file_meta")
-            conn.executemany(
-                "INSERT INTO build_file_meta (path, hash, mtime, size, inode, chunks_emitted) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        path,
-                        str(entry.get("hash") or ""),
-                        entry.get("mtime"),
-                        entry.get("size"),
-                        entry.get("inode"),
-                        entry.get("chunks_emitted"),
-                    )
-                    for path, entry in file_meta.items()
-                    if isinstance(entry, dict)
-                ],
-            )
-            conn.execute("DELETE FROM build_layer_meta")
-            layer_rows = []
-            for key in _LAYER_META_STR_KEYS:
-                if key in meta:
-                    layer_rows.append((key, str(meta.get(key) or "")))
-            for key in _LAYER_META_JSON_KEYS:
-                if key in meta:
-                    layer_rows.append(
-                        (key, json.dumps(meta.get(key), separators=(",", ":")))
-                    )
-            conn.executemany(
-                "INSERT INTO build_layer_meta (key, value) VALUES (?, ?)", layer_rows
-            )
+        with store._conn:
+            write_build_bookkeeping_locked(store._conn, meta)
     finally:
         store.close()
+
 
 
 def read_build_file_meta(
@@ -3722,12 +3568,12 @@ def read_build_file_meta(
             }
             for path, mtime, size, inode in rows
         }
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -3774,12 +3620,12 @@ def export_meta_snapshot(index_dir: Path) -> Optional[dict[str, Any]]:
         ordered_keys = ["built_at", "model_versions", "chunker_versions",
                         "walker_version", "content", "file_meta"]
         return {k: snapshot[k] for k in ordered_keys if k in snapshot}
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -3811,12 +3657,12 @@ def read_build_summary(index_dir: Path) -> Optional[dict[str, Any]]:
             conn.execute("SELECT COUNT(*) FROM build_file_meta").fetchone()[0]
         )
         return summary
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return None
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -4892,12 +4738,12 @@ def has_drift_state(index_dir: Path) -> bool:
             return True
         rows = conn.execute("SELECT COUNT(*) FROM doc_drift").fetchone()
         return bool(rows and int(rows[0]))
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return False
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -5064,12 +4910,12 @@ def drift_evaluation_state(index_dir: Path) -> dict[str, Any]:
         elif last_success is not None:
             state["status"] = "evaluated"
         return state
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return state
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -5251,7 +5097,7 @@ def probe_state_store(root: Path, index_dir: Path, *, deep: bool = False) -> dic
         pragma = "integrity_check" if deep else "quick_check"
         try:
             check_rows = conn.execute(f"PRAGMA {pragma}").fetchall()
-        except sqlite3.Error as exc:
+        except _SQL_ERRORS as exc:
             return {
                 "status": "structural-fail",
                 "detail": f"{pragma} raised: {exc}",
@@ -5287,7 +5133,7 @@ def probe_state_store(root: Path, index_dir: Path, *, deep: bool = False) -> dic
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
@@ -5297,7 +5143,7 @@ def _fts5_table_names(conn: "sqlite3.Connection") -> list[str]:
         rows = conn.execute(
             "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
-    except sqlite3.Error:
+    except _SQL_ERRORS:
         return []
     return [
         str(name) for name, sql in rows
@@ -5314,34 +5160,48 @@ def _fts_integrity_verdict(path: Path) -> str:
     command, so it needs a write connection even though it mutates nothing.
     """
     try:
-        conn = sqlite3.connect(str(path), timeout=2.0)
-    except sqlite3.Error:
+        conn = (sqlite_runtime.connect(path) if path.name == STATE_STORE_FILENAME
+                else sqlite3.connect(str(path), timeout=2.0))
+    except _SQL_ERRORS:
         return "skipped"
     try:
         conn.execute("PRAGMA busy_timeout=2000")
         for name in _fts5_table_names(conn):
             try:
-                conn.execute(f"INSERT INTO {name}({name}) VALUES('integrity-check')")
-            except sqlite3.Error:
+                conn.execute(f"INSERT INTO {name}({name},rank) VALUES('integrity-check',1)")
+            except _SQL_ERRORS:
                 return "fail"
         return "ok"
     finally:
         try:
             conn.close()
-        except sqlite3.Error:
+        except _SQL_ERRORS:
             pass
 
 
+INCREMENTAL_VACUUM_PAGES = 5000
+
+
+def _passive_checkpoint(conn) -> dict[str, Any]:
+    rows = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall()
+    busy, log_frames, checkpointed_frames = rows[0]
+    return {"mode": "PASSIVE", "busy": bool(busy), "log_frames": log_frames,
+            "checkpointed_frames": checkpointed_frames,
+            "remaining_frames": max(0, log_frames - checkpointed_frames),
+            "complete": not busy and log_frames == checkpointed_frames}
+
+
 def sqlite_store_maintenance(
-    path: Path, *, full_vacuum: bool = False, deep_integrity: bool = False
+    path: Path, *, full_vacuum: bool = False, deep_integrity: bool = False,
+    migrate_graph_vacuum: bool = False,
 ) -> dict[str, Any]:
     """Generic SQLite-store maintenance: checkpoint, reclaim, optimize, verify.
 
     Used by the unified ``index_optimize`` path for every reachable
-    SQLite store (the index-state store AND the graph state store — closing
-    the "graph index is not reclaimed this way" gap) without touching the
-    graph store's own build-path code. On-demand only; the caller holds the
-    index-build lock.
+    SQLite store (the index-state store AND the graph state store). The
+    explicit graph-store arm may convert legacy NONE auto-vacuum once;
+    ordinary maintenance remains incremental. On-demand only; the caller
+    holds the index-build lock. Busy/I/O failures leave the store intact.
     """
     path = Path(path)
     result: dict[str, Any] = {
@@ -5350,42 +5210,90 @@ def sqlite_store_maintenance(
         "size_after_bytes": 0,
         "reclaimed_bytes": 0,
         "integrity": None,
+        "checkpoint": None,
         "error": None,
+        "error_stage": None,
+        "maintenance_complete": False,
+        "auto_vacuum_before": None,
+        "auto_vacuum_after": None,
+        "auto_vacuum_migrated": False,
+        "vacuum_mode": None,
     }
     if not path.exists():
         return result
     result["size_before_bytes"] = _store_size_bytes(path)
+    stage = "open"
     try:
-        conn = sqlite3.connect(str(path), timeout=10.0)
+        conn = (sqlite_runtime.connect(path) if path.name == STATE_STORE_FILENAME
+                else sqlite3.connect(str(path), timeout=10.0))
         try:
             conn.execute("PRAGMA busy_timeout=10000")
+            stage = "integrity_check"
             pragma = "integrity_check" if deep_integrity else "quick_check"
             verdicts = [str(r[0]) for r in conn.execute(f"PRAGMA {pragma}").fetchall()]
             result["integrity"] = "ok" if verdicts == ["ok"] else "structural-fail"
+            if result["integrity"] != "ok":
+                raise sqlite3.DatabaseError("SQLite integrity check failed; maintenance stopped")
             # FTS5 contributions (1rrr0 Req 12–13): internal integrity-check
             # plus the full segment-merge 'optimize' — this is the on-demand
             # arm of the FTS maintenance (the in-build arm is threshold-gated
             # in apply_chunk_deltas). Skipped naturally when no fts5 tables.
             for fts_name in _fts5_table_names(conn):
-                try:
-                    conn.execute(
-                        f"INSERT INTO {fts_name}({fts_name}) VALUES('integrity-check')"
-                    )
-                    conn.execute(f"INSERT INTO {fts_name}({fts_name}) VALUES('optimize')")
+                stage = "fts_integrity_check"
+                conn.execute(
+                    f"INSERT INTO {fts_name}({fts_name},rank) VALUES('integrity-check',1)"
+                )
+                stage = "fts_optimize"
+                conn.execute(f"INSERT INTO {fts_name}({fts_name}) VALUES('optimize')")
+                if path.name != STATE_STORE_FILENAME:
                     conn.commit()
-                except sqlite3.Error:
-                    result["integrity"] = "structural-fail"
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            if full_vacuum:
+            stage = "checkpoint"
+            result["checkpoint"] = _passive_checkpoint(conn)
+            stage = "vacuum_policy"
+            vacuum_before = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
+            result["auto_vacuum_before"] = vacuum_before
+            result["auto_vacuum_after"] = vacuum_before
+            # Only the known graph entry opts into a format conversion. Never
+            # turn a generic SQLite maintenance call into an implicit VACUUM.
+            graph_path = Path(GRAPH_STATE_STORE_RELPATH)
+            migrate_graph = (migrate_graph_vacuum and path.name == graph_path.name
+                             and path.parent.name == graph_path.parent.name
+                             and vacuum_before != 2)
+            if migrate_graph:
+                stage = "graph_vacuum_migration"
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                if vacuum_before == 0:
+                    # NONE lacks the pointer map. VACUUM builds it atomically;
+                    # failure retains the original database for a later retry.
+                    conn.execute("VACUUM")
+                    result["vacuum_mode"] = "graph_migration"
+                result["auto_vacuum_after"] = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
+                if result["auto_vacuum_after"] != 2:
+                    raise sqlite3.DatabaseError("Graph incremental auto-vacuum conversion did not persist")
+                result["auto_vacuum_migrated"] = True
+            stage = "vacuum"
+            if full_vacuum and result["vacuum_mode"] != "graph_migration":
                 conn.execute("VACUUM")
-            else:
-                conn.execute("PRAGMA incremental_vacuum")
+                result["vacuum_mode"] = "full"
+            elif result["vacuum_mode"] != "graph_migration":
+                # APSW yields one row per reclaimed page. Discarding its
+                # cursor after execute() reclaims only the first page.
+                for _ in conn.execute(f"PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES})"):
+                    pass
+                result["vacuum_mode"] = "incremental" if result["auto_vacuum_after"] == 2 else "none"
+            stage = "planner_optimize"
             conn.execute("PRAGMA optimize")
+            result["maintenance_complete"] = True
         finally:
             conn.close()
-    except sqlite3.Error as exc:
+    except _SQL_ERRORS as exc:
         result["error"] = str(exc)
-        if result["integrity"] is None:
+        result["error_stage"] = stage
+        result["maintenance_complete"] = False
+        sqlite_code = getattr(exc, "sqlite_errorcode", getattr(exc, "result", None))
+        if ((isinstance(sqlite_code, int) and sqlite_code & 0xFF in
+             {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB})
+                or _is_missing_object_error(exc)):
             result["integrity"] = "structural-fail"
     result["size_after_bytes"] = _store_size_bytes(path)
     result["reclaimed_bytes"] = max(
@@ -5412,7 +5320,8 @@ def optimize_state_stores(
     }
     return {
         name: sqlite_store_maintenance(
-            path, full_vacuum=full_vacuum, deep_integrity=deep_integrity
+            path, full_vacuum=full_vacuum, deep_integrity=deep_integrity,
+            migrate_graph_vacuum=name == "graph-state",
         )
         for name, path in stores.items()
     }

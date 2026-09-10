@@ -8,6 +8,23 @@ This folder is Wavefoundry's canonical Wave Framework source for initializing, u
 - Boundary rule: project-specific outputs belong in the target repository's `docs/`, root agent entry files, and platform-native agent folders, not in this shared pack
 - Core upgrade model: this source tree should be renderable or packageable into another project's repository, then used to initialize or upgrade that project's local context system
 
+## Local index compatibility
+
+The semantic index requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLite 3.53.4) and `sqlite-vec==0.1.9`. All dependencies must support the selected Python/OS/architecture; a wheel listing alone does not certify an end-to-end install.
+
+| Target | Pinned sqlite-vec binary availability |
+| --- | --- |
+| macOS Apple Silicon / Intel | Available |
+| Linux glibc x86_64 / aarch64, including corresponding WSL2 environments | Available; APSW requires glibc 2.28 or newer |
+| Native Windows x64 | Available |
+| Linux musl, native Windows ARM64 or Windows 32-bit | Unavailable; this sqlite-vec release has neither matching wheels nor a source distribution |
+
+Use a local WAL-capable filesystem for `.wavefoundry/index/`; in WSL2 prefer the Linux filesystem. Network and VM shared filesystems are not qualified by their path or OS name. Setup/conversion probes native WAL write/read on that filesystem before semantic format mutation. A runtime or filesystem failure requires fixing the reported condition and retrying the ordinary command; deleting/rebuilding on the same unsupported filesystem is not a remedy.
+
+Prepared embeddings use an owned temporary directory below the index directory, so staging uses the same filesystem and free-space budget. Keep headroom for the index, WAL, prepared work and any retained migration backup. Runtime, permissions and disk failures retain the authoritative index; cleanup removes only verified owned artifacts. A Windows sharing/access failure during cutover retains migration recovery state: release database handles or correct permissions, then retry the ordinary upgrade. Do not force deletion or disable security software.
+
+Binary inventory: [sqlite-vec 0.1.9](https://pypi.org/project/sqlite-vec/0.1.9/) and [APSW 3.53.4.0](https://pypi.org/project/apsw/3.53.4.0/). Conversion execution qualified locally on macOS Apple Silicon; native Windows, Linux and Intel macOS package execution remains pending release qualification.
+
 ## Public Commands
 
 Use these public phrases in a target project's repository:

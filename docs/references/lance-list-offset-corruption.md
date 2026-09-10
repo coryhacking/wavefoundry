@@ -2,10 +2,10 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-09-09
 
 Reference for the LanceDB list-column offset-corruption bug that motivated the index reclaim ladder
-(wave `1p9aj`). Retire this note when a single-level-list upstream fix ships.
+(wave `1p9aj`). Retain the recovery guidance until the observed failure is reproduced and verified fixed.
 
 ## Symptom
 
@@ -20,53 +20,55 @@ The table's on-disk size balloons far past its live working set (observed **`doc
 a ~55 MB / 16,992-row working set**) because in-place compaction can no longer run, so stale
 fragments/versions accumulate unbounded.
 
-## Trigger
+## Observed conditions and diagnosis limits
 
-Repeated **incremental appends** (the post-edit-hook reindex path — ~390 appends in the observed
-session) to a table containing a **list column** (`lines list<int64>` in the docs/code schema). The Lance
-encoder does not rebase the list **offset buffers** across page boundaries when writing across multiple
-batches, so a later page's offsets reference positions beyond the values buffer they were rebased
-against. Reads that don't cross the corrupted page succeed; the **compaction/decode** path that walks all
-pages fails.
+The original incident followed approximately 390 incremental appends to a table with a
+single-level `lines list<int64>` column. Compaction failed with the signature above while
+reading and rewriting the live rows succeeded. This establishes a useful recovery path,
+but does not establish an append-time writer offset-rebasing defect as the root cause.
 
-## Upstream
+## Upstream and current probe
 
-- lance-format/lance **#7538** — the bug report (offset buffers not rebased across page boundaries in
-  multi-batch list writes).
-- lance-format/lance **#7546** — the fix, merged but **unreleased**, covering the **nested-list** case
-  only. The docs/code column is a **single-level** `list<int64>`, which the fix does **not** cover — so
-  the exposure remains until a broader fix ships. This note + repro is the basis for a single-level
-  upstream report.
+[Lance PR 7546](https://github.com/lance-format/lance/pull/7546), associated with issue
+7538, describes a **nested-list decoder** correction. It does not by itself establish
+that Wavefoundry's single-level-list incident has the same cause or is fixed.
+[PR 8382](https://github.com/lance-format/lance/pull/8382) also concerns Arrow offsets;
+its existence alone is not a regression test for this incident.
 
-## Minimal repro (single-level list, multi-batch append)
+On 2026-09-08, wave `1xhbo` ran the previously documented 400-append example against
+LanceDB **0.33.0 and 0.38.0**, both with PyArrow 25.0.0. Each produced 20,000 rows,
+completed optimization, and retained identical keyed list payloads. The example below
+is therefore a **stress probe, not a confirmed reproducer**. Because the baseline did
+not fail, the upgrade's effect on the historical defect remains **inconclusive**.
+Neither the recovery of an already affected table under 0.38.0 nor prevention of the
+original failure was proven; the workaround remains enabled.
 
 ```python
-# Reproduces "Max offset N exceeds length of values M" on optimize() with a single-level list column.
-# Requires: pip install lancedb pyarrow
+# Use a fresh disposable directory; this probe may not reproduce the historical failure.
 import lancedb, pyarrow as pa
 from datetime import timedelta
 
-db = lancedb.connect("/tmp/lance-offset-repro")
+db = lancedb.connect("/tmp/lance-offset-probe-fresh")
 schema = pa.schema([("id", pa.int64()), ("lines", pa.list_(pa.int64()))])
-tbl = db.create_table("t", schema=schema, mode="overwrite")
-
-# Many small appends, each a separate batch, each with a variable-length list column.
+tbl = db.create_table("t", schema=schema)
 for i in range(400):
     tbl.add([{"id": i, "lines": list(range(i % 37))} for _ in range(50)])
-
-# Compaction walks all pages and hits the un-rebased offsets:
-tbl.optimize(cleanup_older_than=timedelta(seconds=0))   # -> Max offset ... exceeds length of values ...
+before = tbl.to_arrow().to_pylist()
+tbl.optimize(cleanup_older_than=timedelta(0))
+after = tbl.to_arrow().to_pylist()
+key = lambda row: (row["id"], row["lines"])
+assert sorted(before, key=key) == sorted(after, key=key)
 ```
 
 ## Workaround (shipped — wave 1p9aj)
 
-Normal **reads succeed** on the corrupted table (only the compaction/decode path fails), so the table is
-reclaimed by **rewriting fresh**, which recomputes the list offsets from clean in-memory Arrow data:
+In the observed incident, reads succeeded despite the compaction failure, allowing reclamation by
+**rewriting fresh** from in-memory Arrow data. If the read also fails, this tier cannot recover the table:
 
 ```python
 data = tbl.to_arrow()                                   # reads fine
 db.create_table("t", data=data, mode="overwrite")       # fresh write -> correct offsets, no corruption
-# then rebuild vector + FTS indices and optimize the fresh table
+# then rebuild the vector index and optimize; lexical FTS5 is stored separately
 ```
 
 Proven: **`docs.lance` 1.6 GB → 55 MB, zero re-embedding**, FTS + vector search intact.

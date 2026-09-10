@@ -95,7 +95,7 @@ class _StoreFixture(unittest.TestCase):
         return self.iss.state_store_path(self.index_dir)
 
     def _sql(self, *statements: str) -> None:
-        conn = sqlite3.connect(str(self._store_path()))
+        conn = self.iss.sqlite_runtime.connect(self._store_path())
         try:
             with conn:
                 for stmt in statements:
@@ -129,6 +129,28 @@ class _StoreFixture(unittest.TestCase):
 
 class FtsPayloadDigestTests(_StoreFixture):
     """Req 1 / amendment A3: the keyed payload digest contract."""
+
+    def test_readonly_native_posting_probe_checks_unicode_and_token_positions(self):
+        row = {"id": "unicode", "path": "unicode.md", "text": "Café naïve Ångström 東京 alpha_beta alpha beta alpha"}
+        self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[row])
+        real_open = self.iss.open_read_only
+        opened = []
+        def readonly(index_dir):
+            conn = real_open(index_dir)
+            if conn is not None:
+                opened.append(conn.readonly("main"))
+            return conn
+        before = self._store_path().read_bytes()
+        with patch.object(self.iss, "open_read_only", side_effect=readonly):
+            self.assertTrue(self.iss.fts_state_verdict(self.index_dir, "docs")["ok"])
+        self.assertTrue(opened and all(opened))
+        self.assertEqual(self._store_path().read_bytes(), before)
+        # Same token multiset and count, different positions in the inverted
+        # index; external-content SELECT still returns the original text.
+        self._sql("UPDATE fts_docs SET text='Café naïve Ångström 東京 alpha_beta beta alpha alpha' WHERE chunk_id='unicode'")
+        verdict = self.iss.fts_state_verdict(self.index_dir, "docs")
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["reason"], "digest_mismatch")
 
     def test_rebuild_records_digest_equal_to_full_recompute(self):
         recorded, current = self._digests()
@@ -209,6 +231,9 @@ class FtsPayloadDigestTests(_StoreFixture):
         other = self.root / ".wavefoundry" / "index2"
         rows = self.code_rows
         self.iss.apply_chunk_deltas(other, "code", add_rows=rows)
+        store = self.iss.IndexStateStore(other)
+        store.delete_meta([self.iss.META_FTS_PAYLOAD_DIGEST_PREFIX + "code"])
+        store.close()
         verdict = self.iss.fts_state_verdict(other, "code")
         self.assertTrue(verdict["ok"], verdict)
         self.assertEqual(verdict["digest"], "unrecorded")
@@ -221,23 +246,16 @@ class FtsPayloadDigestTests(_StoreFixture):
         self.assertEqual(self.iss.fts_state_verdict(other, "code")["digest"], "ok")
         self.assertTrue(self.iss.fts_recorded_integrity(other, "code")["digest_recorded"])
 
-    def test_fts_disabled_interpreter_is_not_damage(self):
-        other = self.root / ".wavefoundry" / "index3"
-        rows = self.code_rows
-        with patch.object(self.iss, "fts5_available", return_value=False):
-            self.iss.apply_chunk_deltas(other, "code", add_rows=rows)
-            verdict = self.iss.fts_state_verdict(other, "code")
-            self.assertTrue(verdict["ok"])
-            self.assertEqual(verdict["reason"], "fts_disabled")
-            with _quiet():
-                result = self.iss.reconcile_chunk_index(other, "code", {r["id"] for r in rows}, lambda: rows)
-            self.assertTrue(result["in_sync"])
-            self.assertEqual(result["fts_verified"], "fts_disabled")
+    def test_unqualified_runtime_cannot_open_or_rewrite_canonical(self):
+        with patch.object(self.iss.sqlite_runtime, "connect", side_effect=self.iss.sqlite_runtime.RuntimeUnavailable("unqualified runtime")):
+            with self.assertRaises(self.iss.sqlite_runtime.RuntimeUnavailable):
+                self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=self.code_rows)
+        self.assertTrue(self.iss.fts_state_verdict(self.index_dir, "code")["ok"])
 
     def test_strict_fetch_raises_on_table_damage_default_swallows(self):
         self._sql("DROP TABLE fts_code")
         self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha_handler"), [])
-        with self.assertRaises(sqlite3.Error):
+        with self.assertRaises(self.iss.sqlite_runtime.Error):
             self.iss.fts_search(self.index_dir, "code", "alpha_handler", strict=True)
         # Query-shaped FTS5 errors stay a zero-hit even in strict mode.
         with patch.object(self.iss, "_fts_match_expression", return_value='NEAR("unclosed'):
@@ -275,7 +293,7 @@ class ReconcileHonestyTests(_StoreFixture):
         self._assert_healed(result, err, "probe_failed")
 
     def test_corrupt_shadow_row_is_detected_and_rebuilt(self):
-        self._sql("DELETE FROM fts_code_content WHERE rowid IN (SELECT rowid FROM fts_code_content LIMIT 1)")
+        self._sql("DELETE FROM fts_code_docsize WHERE rowid IN (SELECT rowid FROM fts_code_docsize LIMIT 1)")
         result, err, _ = self._reconcile()
         self._assert_healed(result, err, "probe_failed")
 
@@ -295,7 +313,7 @@ class ReconcileHonestyTests(_StoreFixture):
             "VALUES ('orphan', 'src/orphan.py', 'code', 'python', '', 1, 2, 'def orphan_symbol(): pass')"
         )
         before = self.iss.fts_state_verdict(self.index_dir, "code")
-        self.assertEqual((before["fts_rows"], before["registry_rows"]), (4, 3))
+        self.assertEqual((before["fts_rows"], before["registry_rows"]), (3, 3))
         result, err, _ = self._reconcile()
         self._assert_healed(result, err, "probe_failed")
         self.assertEqual(self.iss.fts_search(self.index_dir, "code", "orphan_symbol"), [])
@@ -347,10 +365,6 @@ class ZeroChangeHealProbeTests(unittest.TestCase):
     an idle repo heals FTS-only damage through the ordinary reconcile."""
 
     def setUp(self):
-        try:
-            import lancedb  # noqa: F401
-        except Exception:  # pragma: no cover - lancedb ships in the tool venv
-            self.skipTest("lancedb unavailable")
         spec = importlib.util.spec_from_file_location("indexer", SCRIPTS_ROOT / "indexer.py")
         self.bi = importlib.util.module_from_spec(spec)
         sys.modules["indexer"] = self.bi
@@ -359,19 +373,18 @@ class ZeroChangeHealProbeTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.index_dir = Path(self._tmp.name) / ".wavefoundry" / "index"
-        import lancedb
         rows = [
             {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
              "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
-             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+             "chunk_hash": f"h{i}", "vector": [1.0] + [0.0] * 383}
             for i in range(24)
         ]
-        lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=rows)
         with _quiet():
             self.bi._sync_chunk_derived_state(self.index_dir)
 
     def _sql(self, stmt: str) -> None:
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         try:
             with conn:
                 conn.execute(stmt)
@@ -384,7 +397,8 @@ class ZeroChangeHealProbeTests(unittest.TestCase):
         self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
         with _quiet():
             stats = self.bi._sync_chunk_derived_state(self.index_dir)
-        self.assertEqual(stats["code"].get("fts_repaired"), "digest_mismatch")
+        self.assertTrue(stats["code"]["fts_repaired"])
+        self.assertEqual(stats["code"]["fts_reason"], "digest_mismatch")
         self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
         self.assertEqual(self.iss.fts_search(self.index_dir, "code", "tampered_symbol"), [])
         self.assertTrue(self.iss.fts_search(self.index_dir, "code", "fn_7"))
@@ -394,7 +408,8 @@ class ZeroChangeHealProbeTests(unittest.TestCase):
         self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
         with _quiet():
             stats = self.bi._sync_chunk_derived_state(self.index_dir)
-        self.assertEqual(stats["code"].get("fts_repaired"), "probe_failed")
+        self.assertTrue(stats["code"]["fts_repaired"])
+        self.assertEqual(stats["code"]["fts_reason"], "probe_failed")
         self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
 
 
@@ -414,6 +429,10 @@ class ProbedServingTests(unittest.TestCase):
         self.iss = _load_store_module("_iss_query_honesty")
         self.code_rows = _code_rows()
         self.docs_rows = _docs_rows()
+        # These public-tool controls represent a healthy unified index, which
+        # requires a vector for every canonical row as well as intact FTS.
+        for row in self.code_rows + self.docs_rows:
+            row["vector"] = [1.0] + [0.0] * 383
         with _quiet():
             self.iss.reconcile_chunk_index(
                 self.index_dir, "code", {r["id"] for r in self.code_rows}, lambda: self.code_rows)
@@ -431,7 +450,7 @@ class ProbedServingTests(unittest.TestCase):
     # --- helpers ---
 
     def _sql(self, *statements: str) -> None:
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         try:
             with conn:
                 for stmt in statements:
@@ -879,7 +898,7 @@ class ProbedServingTests(unittest.TestCase):
         def spy_open(index_dir):
             conn = real_open(index_dir)
             if conn is not None:
-                conn.set_trace_callback(statements.append)
+                conn.set_exec_trace(lambda cursor, sql, bindings: (statements.append(sql), True)[1])
             return conn
 
         with patch.object(iss_srv, "fts_state_verdict", side_effect=spy_verdict):
@@ -978,7 +997,7 @@ class ProbedServingTests(unittest.TestCase):
             damaged = self.srv._state_store_health_summary(self.root)["fts"]["code"]
             self.assertFalse(damaged["ok"])
             self.assertEqual(damaged["reason"], "probe_failed")
-            self.assertEqual((damaged["fts_rows"], damaged["registry_rows"]), (4, 3))
+            self.assertEqual((damaged["fts_rows"], damaged["registry_rows"]), (3, 3))
             index = MagicMock()
             index.root = self.root
             index.docs_health.return_value = {

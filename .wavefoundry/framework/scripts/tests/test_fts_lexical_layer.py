@@ -57,45 +57,21 @@ class _StoreCase(unittest.TestCase):
 class FtsAvailabilityTests(_StoreCase):
     """AC-1 degrade half: an FTS5-less interpreter builds and queries cleanly."""
 
-    def test_fts_unavailable_degrades_without_errors(self):
-        with patch.object(self.iss, "fts5_available", return_value=False):
-            self.iss.apply_chunk_deltas(
-                self.index_dir, "code", add_rows=_rows(("c1", "a.py", "def alpha(): pass"))
-            )
-            # Registry still works (it is not FTS-dependent) ...
-            self.assertEqual(
-                self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1"}
-            )
-            # ... and lexical search degrades to [] with no error.
-            self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha"), [])
-            # Capability is recorded in store meta (while degraded).
-            store = self.iss.IndexStateStore(self.index_dir)
-            try:
-                self.assertEqual(store.get_meta(self.iss.META_FTS_AVAILABLE), "0")
-            finally:
-                store.close()
+    def test_missing_qualified_runtime_fails_before_creating_store(self):
+        with patch.object(self.iss.sqlite_runtime, "connect",
+                          side_effect=self.iss.sqlite_runtime.RuntimeUnavailable("missing runtime")):
+            with self.assertRaises(self.iss.sqlite_runtime.RuntimeUnavailable):
+                self.iss.apply_chunk_deltas(self.index_dir, "code",
+                    add_rows=_rows(("c1", "a.py", "def alpha(): pass")))
+        self.assertFalse(self.iss.state_store_path(self.index_dir).exists())
 
-    def test_capability_upgrade_invalidates_registry_for_rebuild(self):
-        # An interpreter that GAINS FTS5 later: the fresh FTS tables are empty
-        # while the registry is populated — the store must clear the registry
-        # so the next id-set reconcile rebuilds both from Lance.
+    def test_capability_probe_cannot_erase_canonical_rows(self):
+        self.iss.apply_chunk_deltas(self.index_dir, "code",
+            add_rows=_rows(("c1", "a.py", "def alpha(): pass")))
         with patch.object(self.iss, "fts5_available", return_value=False):
-            self.iss.apply_chunk_deltas(
-                self.index_dir, "code", add_rows=_rows(("c1", "a.py", "def alpha(): pass"))
-            )
-            self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1"})
-        # Re-open with real FTS5 available: registry cleared → reconcile repairs.
-        store = self.iss.IndexStateStore(self.index_dir)
-        try:
-            self.assertEqual(store.get_meta(self.iss.META_FTS_AVAILABLE), "1")
-        finally:
+            store = self.iss.IndexStateStore(self.index_dir)
             store.close()
-        self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), set())
-        rows = _rows(("c1", "a.py", "def alpha(): pass"))
-        result = self.iss.reconcile_chunk_index(
-            self.index_dir, "code", {"c1"}, lambda: rows, expected=True
-        )
-        self.assertTrue(result["reconciled"])
+        self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1"})
         self.assertTrue(self.iss.fts_search(self.index_dir, "code", "alpha"))
 
     def test_fts_available_records_capability_and_serves_search(self):
@@ -114,7 +90,7 @@ class FtsAvailabilityTests(_StoreCase):
 
 
 class OrderedConsistencyTests(_StoreCase):
-    """AC-1: crash window between Lance write and store commit is repaired."""
+    """AC-1: derived-registry divergence is repaired from canonical chunks."""
 
     def test_crash_window_is_repaired_by_reconciliation_with_diagnostic(self):
         # Build 1: two chunks in sync; the end-of-build reconcile runs and
@@ -126,19 +102,19 @@ class OrderedConsistencyTests(_StoreCase):
             self.index_dir, "code", {"c1", "c2"}, lambda: initial
         )
         self.assertTrue(warm["in_sync"])
-        # Crash window: Lance gained c3 (authoritative) but the store commit
+        # Out-of-band change: canonical chunks gained c3 but the store commit
         # never happened — the store still carries only c1/c2.
-        lance_now = initial + _rows(("c3", "c.py", "def gamma(): pass"))
-        lance_ids = {r["id"] for r in lance_now}
+        canonical_now = initial + _rows(("c3", "c.py", "def gamma(): pass"))
+        canonical_ids = {r["id"] for r in canonical_now}
         stderr = io.StringIO()
         with redirect_stderr(stderr):
             result = self.iss.reconcile_chunk_index(
-                self.index_dir, "code", lance_ids, lambda: lance_now
+                self.index_dir, "code", canonical_ids, lambda: canonical_now
             )
         self.assertTrue(result["reconciled"])
-        self.assertIn("out of sync with Lance", stderr.getvalue())
+        self.assertIn("out of sync with canonical SQLite chunks", stderr.getvalue())
         self.assertIn("crash-window reconciliation", stderr.getvalue())
-        self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), lance_ids)
+        self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), canonical_ids)
         self.assertTrue(self.iss.fts_search(self.index_dir, "code", "gamma"))
 
     def test_in_sync_reconcile_is_a_quiet_no_op(self):
@@ -154,7 +130,7 @@ class OrderedConsistencyTests(_StoreCase):
 
     def test_cold_start_backfill_is_informational_not_a_crash_warning(self):
         """First build against an empty store (the normal install/upgrade path)
-        backfills from Lance with a calm stdout note — the loud crash-window
+        backfills from canonical chunks with a calm stdout note — the loud crash-window
         stderr diagnostic is reserved for a POPULATED store that diverged."""
         import contextlib
         rows = _rows(("c1", "a.py", "def alpha(): pass"))
@@ -166,6 +142,8 @@ class OrderedConsistencyTests(_StoreCase):
         self.assertTrue(result["reconciled"])
         self.assertEqual(stderr.getvalue(), "")
         self.assertIn("provisioning this store", stdout.getvalue())
+        self.assertIn("from canonical SQLite chunks", stdout.getvalue())
+        self.assertNotIn("Lance", stdout.getvalue())
         self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1"})
 
     def test_cold_flag_covers_partial_deltas_then_clears(self):
@@ -185,6 +163,8 @@ class OrderedConsistencyTests(_StoreCase):
         self.assertTrue(result["reconciled"])
         self.assertEqual(stderr.getvalue(), "")
         self.assertIn("provisioning this store", stdout.getvalue())
+        self.assertIn("from canonical SQLite chunks", stdout.getvalue())
+        self.assertNotIn("Lance", stdout.getvalue())
         # Flag cleared: a subsequent out-of-band divergence is the LOUD path.
         stderr2 = io.StringIO()
         with redirect_stderr(stderr2):
@@ -208,7 +188,7 @@ class OrderedConsistencyTests(_StoreCase):
         store = self.iss.IndexStateStore(self.index_dir)
         try:
             store._conn.execute("DELETE FROM fts_code")
-            store._conn.commit()
+            # APSW autocommit persists this standalone mutation.
         finally:
             store.close()
         self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha"), [])
@@ -219,6 +199,8 @@ class OrderedConsistencyTests(_StoreCase):
             )
         self.assertTrue(result["reconciled"])
         self.assertIn("operator-requested", stdout.getvalue())
+        self.assertIn("from canonical SQLite chunks", stdout.getvalue())
+        self.assertNotIn("Lance", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")  # never a crash-window warning
         self.assertTrue(self.iss.fts_search(self.index_dir, "code", "alpha"))
 
@@ -386,6 +368,25 @@ class Fts5CodeSearchLexicalTests(_StoreCase):
                                    tags_any=["framework"])
         self.assertEqual([h["id"] for h in hits], ["py1"])
 
+    def test_auxiliary_tags_preserve_ascii_like_without_changing_vector_filters(self):
+        import sqlite_vector_store as vectors
+        rows = [dict(id=key, path=f"Src/{key}.py", kind="code", text="alpha_handler",
+                     tags=tag, vector=[1.0] + [0.0] * 383)
+                for key, tag in (("ascii", "FrameWORK"), ("quote", "Release'S"),
+                                 ("wild", "ALPHA_BETA"), ("unicode", "ÄBC"))]
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=rows)
+        for tag, expected in [("framework", ["ascii"]), ("release's", ["quote"]),
+                              ("alpha_beta", ["wild"]), ("alpha%beta", ["wild"]),
+                              ("äbc", []), ("Äbc", ["unicode"]),
+                              ("%' OR 1=1 --", [])]:
+            with self.subTest(tag=tag):
+                hits = self.iss.fts_search(self.index_dir, "code", "alpha_handler",
+                                           tags_any=[tag], limit=1)
+                self.assertEqual([hit["id"] for hit in hits], expected)
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", predicate="path LIKE 'src/%'"), [])
+        self.assertEqual(len(vectors.payload_rows(self.index_dir, "code", predicate="path LIKE 'Src/%'")), 4)
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", predicate="tags LIKE '%framework%'"), [])
+
     def test_languages_filter_is_pushed_into_the_bounded_window(self):
         """Wave 1wpif (1wpah, AC-1): an allowlisted language set fills the
         LIMIT window with eligible rows instead of post-filtering it, so a
@@ -445,33 +446,16 @@ class Fts5CodeSearchLexicalTests(_StoreCase):
         fn_pos = src.index("def search_code(")
         self.assertIn("_fts5_lexical_search(", src[fn_pos:fn_pos + 4000])
 
-    def test_v3_store_converges_to_v4_via_drop_and_rebuild(self):
-        # AC-3 (1sauc): an old-schema store (no language/tags columns) is
-        # detected by the version gate, dropped, recreated with the new
-        # columns, and the reconcile backfills — no migration code.
+    def test_old_schema_is_preserved_for_explicit_migration(self):
         store = self.iss.IndexStateStore(self.index_dir)
         store.set_meta({"store_schema_version": "3"})
         store.close()
-        rows = [{"id": "c1", "path": "a.py", "kind": "code", "language": "python",
-                 "tags": ["framework"], "lines": [1, 2],
-                 "text": "def alpha(): pass", "chunk_hash": "h1"}]
-        import io as _io
-        from contextlib import redirect_stderr as _rs
-        stderr = _io.StringIO()
-        with _rs(stderr):
-            result = self.iss.reconcile_chunk_index(
-                self.index_dir, "code", {"c1"}, lambda: rows
-            )
-        self.assertTrue(result["reconciled"])
-        self.assertIn("schema version mismatch", stderr.getvalue())
-        hits = self.iss.fts_search(self.index_dir, "code", "alpha", tags_any=["framework"])
-        self.assertEqual([h["id"] for h in hits], ["c1"])
-        store = self.iss.IndexStateStore(self.index_dir)
-        try:
-            self.assertEqual(store.get_meta("store_schema_version"),
-                             self.iss.STATE_STORE_SCHEMA_VERSION)
-        finally:
-            store.close()
+        path = self.iss.state_store_path(self.index_dir)
+        before = path.read_bytes()
+        with self.assertRaises(self.iss.sqlite_runtime.StorageRecoveryRequired):
+            self.iss.reconcile_chunk_index(self.index_dir, "code", {"c1"},
+                lambda: _rows(("c1", "a.py", "def alpha(): pass")))
+        self.assertEqual(path.read_bytes(), before)
 
 
 class SnapshotContractTests(_StoreCase):
@@ -499,14 +483,9 @@ class SnapshotContractTests(_StoreCase):
     def test_snapshot_absent_store_returns_none(self):
         self.assertIsNone(self.iss.export_meta_snapshot(self.index_dir))
 
-    def test_indexer_fails_structured_on_store_failure(self):
-        """1sed6: the store is the sole authority — a bookkeeping-write
-        failure is a structured build failure, never a silent JSON fallback
-        (the old JSON-success/SQLite-failure mode is the retired defect)."""
+    def test_indexer_publishes_metadata_in_the_vector_transaction(self):
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        pos = src.index("_state_store.write_build_bookkeeping(index_dir, new_meta)")
-        failure_pos = src.index("canonical build-state write failed", pos)
-        self.assertGreater(failure_pos, pos)
+        self.assertIn("_state_store.write_build_bookkeeping_locked(conn,new_meta)", src)
         self.assertNotIn("def _save_meta(", src)
 
 
@@ -552,7 +531,7 @@ class RegistryDifferentialTests(_StoreCase):
         lance_rows = [self._lance_row(c) for c in chunks]
         new_map = self._registry_map(chunks)
         self.assertEqual(new_map, {r["id"]: r["chunk_hash"] for r in lance_rows})
-        delete_ids, rows_to_add, fallback, stats = self.idx._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback, stats = self.idx._plan_vector_delta_rows(
             existing_rows=lance_rows, new_chunks=chunks, embedder=None, label="code",
         )
         self.assertEqual(delete_ids, set())
@@ -593,37 +572,22 @@ class RegistryDifferentialTests(_StoreCase):
         new = [self._chunk("c1", "a.py", "x", tags=["b"])]
         self.assertNotEqual(self._registry_map(old), self._registry_map(new))
 
-    def test_drift_flagged_paths_are_exempt_from_the_skip(self):
-        """Out-of-band drift (rows vanish from Lance AFTER the registry synced):
-        the registry mirrors the PRE-drift state, so the skip condition would
-        wrongly hold — drift-flagged paths must bypass the skip entirely so the
-        repair reads Lance (the authority). Source-anchored: the exemption is
-        applied before the map comparison and threaded from `drifted`."""
+    def test_incremental_skip_is_gated_by_drift_and_kill_switch(self):
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        fn_pos = src.index("def _lance_incremental_write(")
-        exempt_pos = src.index("if skip_exempt and file_path in skip_exempt:", fn_pos)
-        compare_pos = src.index("_reg_maps.get(file_path) == new_map", fn_pos)
-        self.assertLess(exempt_pos, compare_pos)
-        # The build threads the drift set into both futures.
-        build_pos = src.index("def _build_index_locked(")
-        self.assertIn("_skip_exempt = set(drifted)", src[build_pos:])
+        start = src.index("def _prepare_incremental_vectors(")
+        end = src.index("\ndef ", start + 5)
+        body = src[start:end]
+        self.assertIn("not (skip_exempt and path in skip_exempt)", body)
+        self.assertIn('not os.environ.get("WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL")', body)
+        self.assertLess(body.index("registry.get(path) == new_map"), body.index("_read_vector_rows_for_paths"))
         self.assertEqual(src.count("skip_exempt=_exempt"), 2)
-
-    def test_incremental_write_wires_the_skip_with_kill_switch(self):
-        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        fn_pos = src.index("def _lance_incremental_write(")
-        skip_pos = src.index("WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL", fn_pos)
-        read_pos = src.index(
-            "_read_lance_rows_for_paths(db_path, table_name, lance_read_paths)", fn_pos
-        )
-        self.assertLess(skip_pos, read_pos)
 
 
 class FtsMaintenanceTests(_StoreCase):
     """AC-9: segment growth bounded under churn; skipped cleanly without FTS."""
 
     def _data_blocks(self, table="fts_code"):
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         try:
             return int(conn.execute(f"SELECT COUNT(*) FROM {table}_data").fetchone()[0])
         finally:
@@ -673,12 +637,12 @@ class FtsIntegrityTests(_StoreCase):
     """AC-10: a corrupted FTS table is detected and rebuilt from Lance rows."""
 
     def _corrupt_fts_shadow(self):
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         try:
             # Mangle the fts5 segment data directly — internal inconsistency
             # that quick_check alone cannot see but 'integrity-check' catches.
             conn.execute("UPDATE fts_code_data SET block = zeroblob(4) WHERE id > 1")
-            conn.commit()
+            # APSW autocommit persists this standalone mutation.
         finally:
             conn.close()
 
@@ -727,22 +691,18 @@ class SecretPostureTests(_StoreCase):
         self.assertIn("index", src)
         self.assertNotIn("index-state.sqlite", src)  # never explicitly included
 
-    def test_fts_text_comes_only_from_chunk_rows(self):
-        # Structural control: the ONLY writers of FTS text are
-        # apply_chunk_deltas / rebuild_chunk_index, and the indexer feeds them
-        # exclusively Lance-bound rows (rows_to_add / _created_rows) or Lance
-        # reads (_fetch_rows) — no new text source exists.
-        idx_src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        for call, arg in (("apply_chunk_deltas", "add_rows=rows_to_add"),
-                          ("apply_chunk_deltas", "add_rows=_created_rows"),
-                          ("reconcile_chunk_index", "_fetch_rows")):
-            self.assertIn(arg, idx_src, f"{call} must be fed Lance-bound rows ({arg})")
-        store_src = (SCRIPTS_ROOT / "index_state_store.py").read_text(encoding="utf-8")
-        insert_count = store_src.count("INSERT INTO {fts_name} ")
-        self.assertEqual(
-            insert_count, 2,
-            "FTS text writers must remain exactly apply_chunk_deltas + rebuild_chunk_index",
-        )
+    def test_fts_text_comes_only_from_canonical_chunk_rows(self):
+        self.iss.apply_chunk_deltas(self.index_dir, "code",
+            add_rows=_rows(("c1", "a.py", "unique_index_text")))
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            schema = conn.execute("SELECT sql FROM sqlite_schema WHERE name='fts_code'").fetchone()[0]
+            self.assertIn("content='chunks_code'", schema)
+            self.assertIsNone(conn.execute("SELECT name FROM sqlite_schema WHERE name='fts_code_content'").fetchone())
+            self.assertEqual(conn.execute("SELECT text FROM chunks_code").fetchone(), ("unique_index_text",))
+            self.assertEqual(conn.execute("SELECT text FROM fts_code").fetchone(), ("unique_index_text",))
+        finally:
+            conn.close()
 
 
 def load_indexer_module():
@@ -769,9 +729,21 @@ def _production_lance_rows(*specs):
         rows.append({
             "id": chunk_id, "path": path, "kind": "code", "language": "python",
             "lines": [1, 10], "section": "", "text": text,
-            "chunk_hash": f"h-{chunk_id}", "vector": [0.0, 0.0, 0.0, 0.0],
+            "chunk_hash": f"h-{chunk_id}", "vector": [1.] + [0.] * 383,
         })
     return rows
+
+
+def _write_native_rows(index_dir, table_name, rows):
+    import index_state_store as state
+    import sqlite_vector_store as vectors
+    store = state.IndexStateStore(index_dir)
+    try:
+        with store._conn:
+            store._conn.execute(f"DELETE FROM chunks_{table_name}")
+            vectors.write_rows(store._conn, table_name, rows)
+    finally:
+        store.close()
 
 
 class SchemaTolerantBackfillTests(_StoreCase):
@@ -783,18 +755,12 @@ class SchemaTolerantBackfillTests(_StoreCase):
 
     def setUp(self):
         super().setUp()
-        try:
-            import lancedb  # noqa: F401
-        except Exception:  # pragma: no cover - lancedb ships in the tool venv
-            self.skipTest("lancedb unavailable")
         self.bi = load_indexer_module()
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
     def _create_lance_table(self, table_name, rows):
-        import lancedb
-        db = lancedb.connect(str(self.index_dir))
-        db.create_table(table_name, rows, mode="overwrite")
-        return db.open_table(table_name)
+        _write_native_rows(self.index_dir, table_name, rows)
+        return rows
 
     def test_production_schema_table_backfills_end_to_end(self):
         # AC-1: the exact field precondition — a tag-less production table.
@@ -805,7 +771,7 @@ class SchemaTolerantBackfillTests(_StoreCase):
         table = self._create_lance_table("code", rows)
         # Pin fixture fidelity (AC-2): the table genuinely has NO tags column.
         self.assertEqual(
-            [f.name for f in table.schema], PRODUCTION_LANCE_COLUMNS
+            list(table[0]), PRODUCTION_LANCE_COLUMNS
         )
         import contextlib
         stderr, stdout = io.StringIO(), io.StringIO()
@@ -832,26 +798,15 @@ class SchemaTolerantBackfillTests(_StoreCase):
         self.assertEqual([h["id"] for h in hits], ["c1"])
         self.assertEqual(hits[0]["tags"], "framework")
 
-    def test_missing_required_column_takes_skip_path_and_persists_reason(self):
-        # AC-3: a table without a load-bearing column (text) is genuinely
-        # unreadable — fail-safe skip, no crash, no partial write, and the
-        # skip reason is now recoverable from the persisted log.
-        rows = [
-            {"id": "c1", "path": "a.py", "kind": "code",
-             "chunk_hash": "h-c1", "vector": [0.0, 0.0, 0.0, 0.0]},
-        ]
+    def test_absent_optional_text_is_preserved_without_inventing_content(self):
+        import sqlite_vector_store as vectors
+        rows = [{"id": "c1", "path": "a.py", "kind": "code",
+                 "chunk_hash": "h-c1", "vector": [1.] + [0.] * 383}]
         self._create_lance_table("code", rows)
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            self.bi._sync_chunk_derived_state(self.index_dir)
-        self.assertIn("reconcile for 'code' skipped", stderr.getvalue())
-        self.assertIn("required columns", stderr.getvalue())
-        # No partial write: the registry stayed empty.
-        self.assertFalse(self.iss.registry_chunk_ids(self.index_dir, "code"))
-        # Persisted: the reason survives the process (the field gap).
-        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
-        self.assertIn("reconcile for 'code' skipped", log_text)
-        self.assertIn("required columns", log_text)
+        self.bi._sync_chunk_derived_state(self.index_dir)
+        self.assertNotIn("text", vectors.payload_rows(self.index_dir, "code")[0])
+        self.assertEqual(self.iss.registry_chunk_ids(self.index_dir, "code"), {"c1"})
+        self.assertEqual(self.iss.fts_search(self.index_dir, "code", "alpha"), [])
 
 
 class ZeroChangeHealProbeTests(_StoreCase):
@@ -861,20 +816,14 @@ class ZeroChangeHealProbeTests(_StoreCase):
 
     def setUp(self):
         super().setUp()
-        try:
-            import lancedb  # noqa: F401
-        except Exception:  # pragma: no cover
-            self.skipTest("lancedb unavailable")
         self.bi = load_indexer_module()
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
     def _create_code_table(self, n):
-        import lancedb
-        db = lancedb.connect(str(self.index_dir))
         rows = _production_lance_rows(
             *[(f"c{i}", f"f{i}.py", f"def fn_{i}(): pass") for i in range(n)]
         )
-        db.create_table("code", rows, mode="overwrite")
+        _write_native_rows(self.index_dir, "code", rows)
 
     def test_undercovered_store_needs_heal_then_heals_then_fast_path(self):
         self._create_code_table(30)
@@ -919,7 +868,7 @@ class ZeroChangeHealProbeTests(_StoreCase):
             store._conn.execute(
                 "DELETE FROM chunk_registry WHERE table_name='code' AND chunk_id='c1'"
             )
-            store._conn.commit()
+            # APSW autocommit persists this standalone mutation.
         finally:
             store.close()
         self.assertTrue(self.bi._chunk_index_needs_heal(self.index_dir))
@@ -930,26 +879,23 @@ class ZeroChangeHealProbeTests(_StoreCase):
         # ``count_rows`` above the registry's unique count. A fully-synced
         # store must keep the fast exit; a raw-vs-registry compare would
         # re-reconcile it on every zero-change build forever.
-        import lancedb
-        db = lancedb.connect(str(self.index_dir))
         rows = _production_lance_rows(
             *[(f"c{i}", f"f{i}.py", f"def fn_{i}(): pass") for i in range(20)]
         )
         # 30 raw rows, 20 unique ids: c0..c9 duplicated.
-        db.create_table("code", rows + rows[:10], mode="overwrite")
+        _write_native_rows(self.index_dir, "code", rows + rows[:10])
         with redirect_stderr(io.StringIO()):
             self.bi._sync_chunk_derived_state(self.index_dir)
         self.assertEqual(
             len(self.iss.registry_chunk_ids(self.index_dir, "code")), 20
         )
         self.assertEqual(
-            self.iss.chunk_sync_counts(self.index_dir, "code"), (30, 20)
+            self.iss.chunk_sync_counts(self.index_dir, "code"), (20, 20)
         )
         self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
 
     def test_absent_store_reads_healthy(self):
         # Nothing to heal into: the probe never invents work (and never raises).
-        self._create_code_table(3)
         self.assertFalse(self.bi._chunk_index_needs_heal(self.index_dir))
 
     def test_up_to_date_early_return_runs_the_probe(self):
@@ -1007,7 +953,8 @@ class StoreLogTests(_StoreCase):
             self.iss.reconcile_chunk_index(self.index_dir, "code", {"c1"}, lambda: rows)
         log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
         self.assertIn("provisioning this store", log_text)
-        self.assertIn("rebuilt from Lance", log_text)
+        self.assertIn("rebuilt from canonical SQLite chunks", log_text)
+        self.assertNotIn("Lance", log_text)
         # Warm divergence → the crash-window line is persisted too.
         lance_now = rows + _rows(("c2", "b.py", "def beta(): pass"))
         with redirect_stderr(io.StringIO()):
@@ -1132,7 +1079,7 @@ class JavaInitializerRechunkReuseTests(_StoreCase):
         # Case 1 — content-identical re-chunk: every chunk reuses its vector, nothing embeds.
         identical_rows = [_lance_row(c) for c in chunks]
         emb1 = _RecordingEmbedder()
-        delete_ids, rows_to_add, fallback, stats = idx._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback, stats = idx._plan_vector_delta_rows(
             existing_rows=identical_rows, new_chunks=chunks, embedder=emb1, label="code")
         self.assertFalse(fallback)
         self.assertEqual(rows_to_add, [])
@@ -1143,7 +1090,7 @@ class JavaInitializerRechunkReuseTests(_StoreCase):
         # index. Only it embeds; the pre-existing chunks still reuse their vectors.
         prior_rows = [_lance_row(c) for c in chunks if "__static_init_" not in c["id"]]
         emb2 = _RecordingEmbedder()
-        delete_ids, rows_to_add, fallback, stats = idx._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback, stats = idx._plan_vector_delta_rows(
             existing_rows=prior_rows, new_chunks=chunks, embedder=emb2, label="code")
         self.assertFalse(fallback)
         self.assertEqual(len(rows_to_add), 1)

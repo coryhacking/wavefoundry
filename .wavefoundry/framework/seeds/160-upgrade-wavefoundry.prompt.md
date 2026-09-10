@@ -16,6 +16,110 @@ The first upgrade into 1.22.0 runs with the installed older runner, so it does n
 
 When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, memory, index, cleanup, and protocol-1 bridge requirements remain unchanged.
 
+## Local semantic storage conversion (wave 1xjmm)
+
+Continue through standard `wf_upgrade`; no bridge release or externally staged
+replacement runner is required for this storage change. Fresh installs use one
+`.wavefoundry/index/index-state.sqlite` file for docs/code vectors, canonical
+chunk text, FTS and indexing state. Existing graph and memory stores stay separate.
+
+The first storage conversion of an existing framework may return
+`storage_restart_required` after extraction and before any format change. This
+also covers metadata-only installations and an existing framework that has never
+built an index: its old host could still create the previous format. A fresh
+installation with no previous framework does not need this upgrade pause.
+This is an expected checkpoint, not an upgrade failure: framework files may
+already be extracted, but storage conversion has not occurred.
+An already-running older MCP wrapper may still label its outer response an
+error; use the explicit `storage_restart_required` action and retained checkpoint
+to identify this pause. Other exit-3 failures are not restart checkpoints.
+
+Before stopping MCP, retain the response's exact `command_argv` and its
+shell-labelled command. Stop every repository-associated Wavefoundry dashboard
+and MCP server, including the invoking server and servers attached to other
+editors. The response lists observable hosts with PID, kind and repository
+association; discovery is best-effort, so an empty list does not prove that all
+hosts stopped. Restarting only the current editor is insufficient when another
+host still owns the repository's index.
+
+Continue through the ordinary non-MCP shell using that exact installed CLI
+command. It preserves the repository and selected pack and includes
+`--confirm-hosts-stopped`; do not launch another MCP server to submit the
+confirmation. The confirmation explicitly asserts that hosts stopped and does
+not replace stopping them. Identified live hosts and held locks still block
+conversion. Restart/reconnect MCP only after the CLI's recovery instructions
+permit it. A native SQLite binding change requires a new process; in-process
+reload alone cannot complete this boundary.
+
+The package path is a locator, not its identity: resume verifies the recorded
+SHA-256 and exact target version against the private copy it consumes. Keep the
+original archive until completion. If the recorded temporary path disappears,
+use `--pack` with a byte-identical copy of that archive; do not substitute a newer
+build or edit `pack_path` in the receipt. A changed digest remains a refusal.
+If an affected older build rejects identical bytes with `storage_pack_changed`,
+retain all recovery files and use a verified, build-specific installed-code
+repair before retrying that same archive. A newer target cannot take over an
+unfinished upgrade. Existing project-root `install-wavefoundry.md` files must
+remain untouched, whether tracked or untracked.
+
+Preserve `.wavefoundry/index/sqlite-migration.json` and its named staging and
+rollback artifacts on any pause/failure. They bind recovery to the project and
+exact source/target; do not delete the receipt, clear the checkpoint, or switch
+packs to force success. Compatible vectors transfer without re-embedding;
+normal filesystem and model/chunker checks still reconcile changed inputs.
+Schema/runtime, source identity, disk-space or integrity refusals require the
+reported correction before standard upgrade can continue. Never treat a copied
+file or successful extraction as completed publication.
+
+Known shipped shared-store schemas 4, 5 and 6 convert only on the unpublished
+staging copy; existing auxiliary rows remain intact while missing tables are
+added. Unknown formats remain refused. The legacy migration warning floor is
+1.4.0; the existing protocol-1 package transition still requires at least 1.8.0.
+This storage change does not bypass that protocol boundary.
+
+**Rebuild legacy semantic storage from current sources.** If faithful transfer
+refuses historical duplicate or missing chunk IDs, or legacy vectors cannot be
+read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuation
+with the original `--pack` and `--confirm-hosts-stopped`. Before the first restart
+pause, MCP can select `wf_upgrade(rebuild_storage=true)`; after that pause use the
+external CLI, without reconnecting MCP. Do not combine the selection flag with a
+standalone index/cleanup/memory phase. The receipt retains this choice for later
+phases and retries, so it need not be repeated.
+
+Rebuild uses the current filesystem, walker and chunker instead of transferring
+legacy vectors. It requires available source files, readable walks, models,
+native storage and sufficient disk/capacity. Original source identities and
+fingerprints, package/target checks, host quiescence and structural SQLite checks
+still apply. Historical duplicate IDs are not silently deduplicated. The current
+chunker regenerates unique IDs; auxiliary SQLite rows and separate graph/memory
+stores are preserved. Both semantic layers must complete a full rebuild with
+source-derived proof bound to final publication before new-process verification
+can authorize cleanup. Empty consistent tables or successful child exits alone
+are insufficient. Failures retain original stores and rollback data for retry.
+
+Select this strategy while the receipt is `restart_required` or `quiesced`,
+including after a failed transfer. Later receipt states refuse a strategy change. `wf setup --full` still cannot bypass a pending receipt.
+An already-paused older build that lacks this option needs a verified,
+build-specific installed-code repair followed by its original archive; a newer
+package cannot take over its receipt. Never edit or delete the live receipt,
+checkpoint or only copy of data. If source files, auxiliary storage, ownership
+or a compatible runtime cannot be verified, leave the migration paused and
+resolve that refusal before retrying.
+
+Cleanup runs through `wf_upgrade(phase='cleanup')` only after a new process has
+verified the published SQLite generation. It removes the proven project-owned
+`docs.lance/`, `code.lance/` and `__manifest/` under `.wavefoundry/index/`, plus
+recorded obsolete staging/rollback files. Review reclaimed and retained bytes
+and reasons; failed removals remain pending. Shared or user-managed dependencies
+remain installed when their exclusive ownership/use cannot be proven. Ordinary
+SQLite queries and refreshes must not recreate Lance stores or install LanceDB.
+
+Before cleanup, follow the retained migration's verified retry/recovery path.
+After cleanup, downgrading requires reinstalling a compatible older framework
+and rebuilding its derived index from current project sources; the new SQLite
+format must never be opened by an old runner. Do not remove the entire index
+tree or unrelated graph, memory and model caches.
+
 Intent:
 
 - Upgrade the project's installed Wave Framework layer to the standard represented by the `.wavefoundry/framework` pack currently available in the workspace for that repository.
@@ -37,7 +141,7 @@ Operator mental model — how framework updates actually work:
  - If a root pack zip is present, step 0 adopts it automatically.
  - The rest of this prompt then reconciles prompts, hooks, docs, configs, and local policy surfaces.
 3. **Reload MCP in-process after the upgrade completes** — call `wf_reload_mcp()` (or run `wf_upgrade` cleanup, which reloads automatically).
- - A full host restart is only needed for hosts that cannot hot-reload; the upgrade reloads the server code in-process otherwise.
+ - A full host restart is needed for storage-format/native-runtime cutovers and hosts that cannot hot-reload; ordinary code-only upgrades retain in-process reload.
  - **Exception — upgrades that RENAME MCP tools require a full restart of every attached host (or fresh sessions), not a hot reload.** The 1.14.0 release renames the whole tool surface (`wave_*` to `wf_*`/`memory_*`/`index_*`), including the reload tool itself: upgrading sessions still hold the OLD in-memory tool names, and the hot-reload path cannot re-register the renamed reload survivor from inside an old process. After upgrading across such a boundary, fully quit and restart every attached agent host (or start fresh conversations) so each client fetches the new tool list; until then old sessions' tools are stale and renamed-tool calls fail. The reconciliation scan lists the old-to-new tool renames alongside the retired-wrapper findings. Stale `mcp__wavefoundry__<old-name>` allow rules split by ownership: rules the permissions renderer recorded emitting into the committed `.claude/settings.json` (its `wavefoundryManagedAllow` provenance) **self-heal on the upgrade render** and surface only informationally in the `renderer_provenance_flags` channel; everything else (`.claude/settings.local.json`, non-provenance `settings.json` rules, per-host equivalents) still surfaces in the operator flags channel, and the operator must update those rules or every renamed tool call will prompt.
  - **Exception: a cutover-active 1.15 events-only review-evidence upgrade run requires a full restart of every attached MCP/agent host, including the invoking host.** Upgrading across the 1.15 boundary removes the retired project-global review-evidence sidecars (`docs/waves/review-evidence-adoptions.json`, `docs/waves/review-evidence-migration.json`) and makes each wave's fixed sibling `events.jsonl` the sole review authority. The cutover is a maintenance window: the upgrade stops the dashboard, refuses while either shipped publication-lock path is held (the current `.wavefoundry/locks/review-evidence-adoptions.lock` or the v1.13 root-level `.wavefoundry/review-evidence-adoptions.lock`), holds both locks for the whole sidecar-deletion window, and releases then unlinks the v1.13 root-lock file last (Windows cannot delete an open locked file; on POSIX an unlink under a concurrent v1.13-era holder would split the lock domain onto a fresh inode; both slivers are bounded by the full-restart instruction). The restart requirement is scoped, not permanent: `restart_required` is true only on cutover-active runs (the run removed a sidecar or the stale root lock, or the installed version predates 1.15; an unknown installed version is treated fail-safe as pre-1.15). On a cutover-active run the upgrade suppresses its own automatic in-process reload at both automatic-reload phases, removes `wf_reload_mcp` from the suggested next tools, and instructs the full host restart instead: an in-process `wf_reload_mcp` alone is NOT sufficient, because a still-running pre-upgrade host would write receipt state the new implementation no longer reads. The suppression executes in the invoking host's already-loaded server code, so it is guaranteed only when that host already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may still fire its old unconditional in-process reload, which loads the new module but does not substitute for the full restart; the full-restart instruction, delivered in the upgrade summary, stands either way. Ordinary post-1.15 upgrades, and reruns on an already-converged repository, keep the established in-process reload flow and report no cutover restart requirement. Mixed-version concurrent lifecycle mutation during a cutover-active upgrade is unsupported; the upgrade states that plainly rather than claiming safety it cannot prove. Existing `wave.md` and `events.jsonl` files are left byte-for-byte untouched. One narrow exception to the suppressed-reload guidance: when the upgrade pauses action-required at the historical-memory gate, its response still names `wf_reload_mcp`, because that reload is required to continue the upgrade itself; the final cleanup response still carries the full-restart instruction.
  - **Mandatory after a `GRAPH_BUILDER_VERSION` bump — a non-reloaded server DOWNGRADES the graph.** An already-running MCP server keeps the PRE-upgrade graph extractor in memory for its whole lifetime (the module is lazy-loaded once per process). The upgrade's Phase 4b already re-extracts the graph at the new builder version, but the FIRST graph query on a still-stale server sees its own old in-memory version, decides the on-disk store is "wrong", and re-extracts the graph back DOWN to the old version — silently reverting the upgrade's graph work. Reloading (`wf_reload_mcp`) or restarting the host loads the new extractor so this cannot happen. Do not skip this step when the release notes flag a graph-builder bump.
@@ -149,6 +253,7 @@ The migrations:
 5. If the repository still uses the legacy framework or has stale post-init migration drift, apply `seed-220` without redefining baseline-wave semantics.
 6. Validate the installed repo-local Wave Framework surface and detect drift across:
  - public prompt docs (including `implement-feature`, `implement-wave`, `plan-feature`, `review-plan`, and `index` vs current `seed-100` guard requirements)
+ - `docs/prompts/upgrade-wavefoundry.prompt.md` vs seed-160 storage recovery guidance on every upgrade, including unchanged-seed/same-version retries (merge contract in step 8)
  - topical artifact roots and refreshable docs with regeneration paths
  - workflow config schema
  - agent entry files and native wrappers (including **Git commits (operator-owned)** and **Implementation guard** presence and thin-pointer alignment vs `seed-050`)
@@ -179,6 +284,7 @@ The migrations:
  - `AGENTS.md`, `docs/contributing/build-and-verification.md`, implementation prompts, and canonical implementer guidance so the docs-feedback cadence matches seeds `050` / `080` / `090` / `100`: automatic incremental changed-set lint during routine edits; full docs validation at explicit handoff/validation and lifecycle, install, or upgrade boundaries; explicit gardener paths for untracked docs that need stamping
  - `AGENTS.md`, `docs/prompts/index.md`, and `docs/prompts/prompt-surface-manifest.json` so **`Review memories`** is discoverable after upgrade (retain **`Memory review`** only as a human-readable alias; keep only the canonical phrase in the manifest). Merge the exact entry into each surface without replacing repo-grown additions.
  - **Backstage/TechDocs baseline (wave 1vj4e).** The upgrade does **not** generate `catalog-info.yaml`, `mkdocs.yml`, or `docs/index.md` and never rewrites them: nothing about them runs in the pipeline, in `wf render-surfaces`, or in setup. Point operators at **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`; alias **Author TechDocs**; the doc-gated `wf-techdocs` skill), which runs the baseline (`wf_techdocs_baseline` over MCP, the CLI dispatcher `./.wavefoundry/bin/wf techdocs-baseline` as the fallback) missing-only and is safe to rerun: existing files are preserved byte-for-byte, each generated file carries a one-line generated-by stamp (not a review-protocol marker; nothing to repair or re-render), the command runs only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist, and when the trio is mixed (some files generated, some project-owned) it prints one `techdocs-baseline: WARNING` naming the project-owned files (the `--json` envelope carries the same `partial` record) without claiming the mixed result is a validated site. Make **Refresh TechDocs** discoverable in `AGENTS.md`, `docs/prompts/index.md`, and the manifest like **Review memories** above. On the upgrade that first ships seed `178`, backfill `docs/prompts/refresh-techdocs.prompt.md` per `seed-100` and then run `wf render-surfaces` **again**, because the render passes at steps 2 and 4 of the agent procedure below ran before that prompt existed and the doc-gated `wf-techdocs` skill renders only once it does. After an upgrade, `wf_techdocs_audit` (CLI dispatcher `./.wavefoundry/bin/wf techdocs-audit`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-audit`) is the safe read-only check: it reports the publication boundary, the nav targets, links that escape that boundary and the audience invariant, and writes nothing. A new MCP tool appears to a host only after a reconnect, so use the CLI until then (wave 1vqqi).
+ - **Storage recovery guidance in existing upgrade prompts (seed 160).** On every upgrade, including same-version retries, compare the existing `docs/prompts/upgrade-wavefoundry.prompt.md` with freshly extracted `160-upgrade-wavefoundry.prompt.md` § Local semantic storage conversion, even when the pre-apply diff reports no seed change. Retain the read-only pre-apply seed diff as context, but check the destination itself for previously missed guidance. During the agent editing pass, reconcile during the same installing run: restart checkpoint and retained CLI continuation; `--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary; package identity and receipt prohibitions; publication/verification gate before cleanup. Preserve project-only additions, metadata and all renderer-owned marker regions; merge only missing or stale storage guidance outside those regions, and never replace the project-owned prompt as a whole. If no prior storage section exists, add a single section at an unambiguous location; already-current guidance remains unchanged. If the old clause or insertion location cannot be identified uniquely, or local wording conflicts with the new contract, stop and present the conflict to the operator rather than guessing or overwriting it. Re-run `wf render-surfaces` and the docs gate after the merge; rendering alone does not reconcile project-authored prose.
  - **Changed Refresh TechDocs instructions (seed 178).** Keep the read-only pre-apply seed diff through the installing run. If it reports `178-refresh-techdocs.prompt.md` changed, merge the changed canonical clauses into the existing `docs/prompts/refresh-techdocs.prompt.md` during the same installing run, after extraction makes the new seed available. Preserve project-only additions and metadata; never replace the project-owned prompt as a whole. If the prior canonical clause cannot be identified uniquely, or local wording conflicts with the new invariant, stop and present the conflict to the operator instead of guessing or overwriting it. After the merge, run `wf render-surfaces` again so doc-gated skills and other generated agent surfaces see the reconciled prompt.
  - **Changed briefing-loop carriers.** Retain the read-only pre-apply change evidence for the seeds and install baseline through the installing run. After extraction, reconcile each changed source into its destination during the same installing run:
    - `170-plan-feature.prompt.md` -> `docs/prompts/plan-feature.prompt.md`: Brief before drafting.
@@ -250,7 +356,7 @@ The migrations:
    - `docs/agents/qa-reviewer.md` — verify the operating identity states that code/tests are the truth source, checked boxes are claims not proof, and the refusal conditions include rejecting unchecked-AC completion claims; backfill from current framework standard when absent.
    - `docs/agents/code-reviewer.md` — verify the review rubric includes a truth-hierarchy note (document is coordination layer, not authority); backfill when absent.
    - `docs/prompts/review-wave.prompt.md` — verify an **AC and Task Verification Truth Hierarchy** section exists defining the three-layer truth stack (code/tests → review evidence → documentation); backfill when absent.
- - `docs/prompts/upgrade-wavefoundry.prompt.md` when the seed pack’s upgrade contract changes
+ - other changed upgrade clauses in `docs/prompts/upgrade-wavefoundry.prompt.md` when the seed pack’s upgrade contract changes; storage recovery guidance is checked on every upgrade per the explicit step-8 contract above
  - the `wf` shim pair (`.wavefoundry/bin/wf` + `wf.cmd`) and any legacy **`./package-wave-framework`** repo-root wrapper so the dispatcher routes to the **current** script filenames under `.wavefoundry/framework/scripts/` via `wf_cli.py`, or are retired when packaging is not supported in a target repository. The `wf` shim pair (and any repo-root packaging helper) is **not** overwritten blindly by pack unpack, so reconcile it explicitly during upgrade. Required routing:
  - `wf docs-lint` must invoke `scripts/docs_lint.py`
  - `wf docs-gardener` must invoke `scripts/docs_gardener.py`

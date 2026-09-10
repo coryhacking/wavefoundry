@@ -30,6 +30,7 @@ import model_bundle
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
 venv_bootstrap.activate_tool_venv()
+import sqlite_vector_store as vector_store
 # Wave 1p8gv: indexer is spawned as a child by setup_index — reconfigure its OWN stdout/stderr to
 # UTF-8 so its `→`/em-dash progress prints never raise UnicodeEncodeError on a cp1252 Windows console
 # (which silently failed the index build). Belt-and-suspenders with the PYTHONUTF8 child env.
@@ -51,7 +52,6 @@ INDEX_BUILD_LOCK_NAME = "index-build.lock"
 # writable regardless of lock state (status reads owner/ended_at; finalize writes ended_at while still
 # holding the lock). Byte-range locks beyond EOF are legal and do not extend the file.
 INDEX_BUILD_LOCK_SENTINEL = 1 << 20
-TABLE_LOCK_NAME = ".lock"   # written inside docs.lance/ and code.lance/
 LOCK_STALE_SECONDS = 60 * 60
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
 
@@ -125,18 +125,7 @@ def _assert_active_models_have_empty_document_prefix() -> None:
 
 _assert_active_models_have_empty_document_prefix()
 
-# ANN query tuning (wave 1wpif, 1wpah): the former LANCEDB_NPROBES / LANCEDB_REFINE_FACTOR
-# constants declared here were never applied to a query (zero call sites at either
-# definition site) and were retired. Production `WaveIndex._lance_search` submits the
-# query with neither `nprobes` nor `refine_factor` set, so an IVF_HNSW_SQ-indexed table
-# runs at the installed Lance engine defaults (verified on lancedb 0.33.0 through
-# `explain_plan`: `minimum_nprobes=20, maximum_nprobes=Some(20)` and no refine stage);
-# a table below LANCEDB_INDEX_THRESHOLD is a flat exact scan. Any measured tuning is
-# owned by wave `1wpih` (exact-search reference and overlap metric), not declared here.
-# LanceDB vector index constants
-# Tables are stored directly inside the index directory (e.g. .wavefoundry/index/docs.lance/).
-LANCEDB_INDEX_THRESHOLD = 1000   # rows; below: flat scan; at/above: IVF_HNSW_SQ index
-LANCEDB_COMPACT_THRESHOLD = 20   # fragment count threshold; triggers optimize() after add/delete
+# Exact SQLite vector scans require no ANN index maintenance.
 EMBED_BATCH_SIZE = 256           # chunks per embedding batch
 SORT_WINDOW_SIZE = 2048          # sliding sort buffer size (8× EMBED_BATCH_SIZE)
 # Wave 1p52p: cross-encoder reranker. ms-marco-MiniLM-L-6-v2 (6-layer, 22M) via its Xenova FP16 export
@@ -981,7 +970,7 @@ def walk_repo(
             ) and dirname.startswith("."):
                 continue
             # Wave 1p5c4: prune gitignored DIRECTORIES during the walk so we never descend into
-            # generated/binary trees — most importantly `.wavefoundry/index/` (LanceDB shards),
+            # generated/binary trees — most importantly `.wavefoundry/index/` (generated index files),
             # `.wavefoundry/logs/`, and `.wavefoundry/framework/index/`. Previously these were walked
             # and dropped per-file, which stat'd hundreds of large index shards and spammed the
             # oversized-file skip log. (Per-file ignore matching still runs as a backstop below.)
@@ -1561,7 +1550,7 @@ def _load_meta(index_dir: Path) -> dict:
     versions, content) from the index-state store's bookkeeping tables.
     A legacy ``meta.json`` on disk is NEVER read as authority: an
     installation with JSON but no current store converges by full
-    reconstruction from repository/git/Lance (empty dict here means
+    reconstruction from repository/git/canonical chunks (empty dict here means
     "everything is new" — the derived-only convergence path), and the stale
     file is removed after the next successful build.
     """
@@ -1810,48 +1799,19 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
 
 
 # ---------------------------------------------------------------------------
-# LanceDB vector index helpers
+# SQLite vector storage helpers
 # ---------------------------------------------------------------------------
 
-def _auto_install_lancedb() -> None:
-    """Install lancedb into the shared Wavefoundry tool venv when missing.
-
-    Wave 1p93v: applies the same pip TLS-conflict mitigation (`setup_index._pip_tls_env()`) used at
-    every other pip/uv install call site in this codebase, so this one doesn't inherit a corp-only
-    `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` unchanged and fail against PyPI behind a TLS-intercepting
-    proxy."""
-    venv_python = venv_bootstrap.tool_venv_python()  # the single venv resolver (wave 1p7pl)
-    if not venv_python.exists():
-        raise ImportError(
-            "lancedb is not installed and the Wavefoundry tool venv is not bootstrapped yet. "
-            "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
-        )
-    print("build_index: lancedb not installed — installing into Wavefoundry tool venv ...", flush=True)
-    import setup_index  # wave 1p93v: function-local import, mirrors the established direction-safety pattern
-    cmd = [str(venv_python), "-m", "pip", "install", setup_index.LANCEDB_REQUIREMENT]  # wave 1p95j: pinned spec
-    result = subprocess_util.isolated_run(cmd, check=False, env=setup_index._pip_tls_env())
-    if result.returncode != 0:
-        raise ImportError(
-            "lancedb auto-install into the Wavefoundry tool venv failed. "
-            "Run manually: python3 .wavefoundry/framework/scripts/setup_index.py"
-        )
-    print("build_index: lancedb installed successfully in the Wavefoundry tool venv.", flush=True)
 
 
-def _get_lance_db(db_path: Path):
-    try:
-        import lancedb
-    except ImportError:
-        _auto_install_lancedb()
-        import lancedb  # retry after install
-    db_path.mkdir(parents=True, exist_ok=True)
-    return lancedb.connect(str(db_path))
+
+
 
 
 # Wave 1p5ch: streaming full-rebuild. Files are chunked into a bounded buffer that flushes
 # (embed → create/append) once it fills, so the full chunk list for a layer is never held in
 # memory — peak memory is bounded by the buffer, independent of corpus size. Rows are produced with
-# `_embed_texts` + `_make_lance_rows` and the vector + FTS index is built once at the end; the
+# `_embed_texts` + `_make_vector_rows` and the vector + FTS index is built once at the end; the
 # produced table is independent of the buffer size (verified by a buffer-invariance test). This
 # replaced an earlier `_stream_embed_write` whose caller pre-materialized the whole chunk list.
 EMBED_BUFFER_CHUNKS_DEFAULT = 1024  # max chunks buffered before a flush. 1024 = best build
@@ -1923,111 +1883,26 @@ def _resolve_embed_batch_size(model_name: str, root: Path, *, layer: Optional[st
 
 
 class _StreamingLayerWriter:
-    """Wave 1p5ch: incremental writer for one layer's full rebuild. ``add(chunks)`` embeds a buffer
-    and creates-or-appends to the Lance table (the first ``add`` creates it with ``mode="overwrite"``);
-    ``finalize()`` builds the vector + FTS index once, after all rows are written. Feeding every chunk
-    in a single ``add`` is exactly the batch write, so the produced table is independent of how the
-    input is chunked across ``add`` calls — buffering bounds memory without changing output."""
-
-    def __init__(self, db, table_name: str, embedder, label: str, lock_dir: "Optional[Path]" = None,
-                 batch_size: int = EMBED_BATCH_SIZE) -> None:
-        self.db = db
-        self.table_name = table_name
-        self.embedder = embedder
-        self.label = label
-        self.lock_dir = lock_dir
-        self.batch_size = batch_size  # forward-pass batch width (per-model; 1p7iv)
-        self.table = None
-        self.written = 0
-        self._lock = None  # ExitStack holding the per-table lock; acquired lazily on first write
+    """Embed bounded buffers into an unpublished spool, outside the index transaction."""
+    def __init__(self, prepared, table_name: str, embedder, label: str,
+                 batch_size: int = EMBED_BATCH_SIZE):
+        self.prepared, self.table_name = prepared, table_name
+        self.embedder, self.label = embedder, label
+        self.batch_size, self.written = batch_size, 0
+        self.prepared.add(table_name, replace=True)
 
     def add(self, chunks: list[dict]) -> None:
         if not chunks:
             return
-        vecs = _embed_texts(self.embedder, [c["text"] for c in chunks], batch_size=self.batch_size)
-        rows = _make_lance_rows(chunks, vecs)
-        if self.table is None:
-            # Acquire the per-table lock (which creates the Lance dir) ONLY on the first real write —
-            # a layer that produces 0 chunks never locks, so its dir stays absent and the incremental
-            # path's "table absent" guard fires correctly (wave 1p5ch).
-            if self.lock_dir is not None and self._lock is None:
-                import contextlib as _ctx
-                self._lock = _ctx.ExitStack()
-                self._lock.enter_context(_table_lock(self.lock_dir, create_dir=True))
-            self.table = self.db.create_table(self.table_name, data=rows, mode="overwrite")
-        else:
-            self.table.add(rows)
+        vectors = _embed_texts(self.embedder, [c['text'] for c in chunks], batch_size=self.batch_size)
+        self.prepared.add(self.table_name, rows=_make_vector_rows(chunks, vectors))
         self.written += len(chunks)
-        # Watchdog heartbeat (wave 1p9j0): one unconditional line per embed flush so the setup
-        # stall watchdog's no-progress window keeps resetting during long/thrashing embed
-        # stretches between the per-50-file progress prints.
         print(f"build_index: embedded {self.written} chunks ({self.label})", flush=True)
 
-    def finalize(self, verbose: bool = False) -> int:
-        # Watchdog heartbeat (wave 1p9j0): the finalize tail (optimize/compact, vector-index and
-        # FTS builds) printed only under verbose, leaving a minutes-long silent window at "99%"
-        # that could trip the setup stall watchdog on a slow host — announce it unconditionally.
-        print(f"build_index: finalizing {self.label} index ({self.written} chunks)", flush=True)
-        try:
-            return self._finalize_inner(verbose)
-        finally:
-            self.release_lock()
-
-    def release_lock(self) -> None:
-        """Release the per-table lock without building any index. ``finalize`` calls this on the
-        success path; the runner calls it in a ``finally`` so a mid-stream exception (before
-        ``finalize``) still frees the lock in-process rather than relying on subprocess exit."""
-        if self._lock is not None:
-            self._lock.close()
-            self._lock = None
-
-    def _finalize_inner(self, verbose: bool = False) -> int:
-        if self.table is None:
-            return 0
-        # Wave 1p95j: compact + clean FIRST — the streaming append leaves ~26 small data fragments,
-        # and `create_table(mode="overwrite")` on a rebuild over a non-empty dir leaves the prior
-        # build's data versions behind. `optimize(cleanup_older_than=0)` compacts the fragments and
-        # reclaims stale versions. This MUST run BEFORE the index builds: running it after would
-        # compact the data out from under a just-built FTS/vector index, invalidating it and forcing
-        # a duplicate rebuild whose stale copy can't be GC'd without `pylance` (a naive
-        # optimize-after-index left TWO ~40 MB FTS copies). Mirrors the incremental path's order
-        # (compact → build indexes). Best-effort; never fails the build.
-        if not _optimize_lance_table(self.table):
-            # Wave 1p9aj: optimize() failed (e.g. the Lance list-offset corruption bug) — self-heal by
-            # compacting via a fresh rewrite so the table reclaims instead of growing unbounded. The
-            # rewrite rebuilds the vector + FTS indices itself, so return early on success. Never raise
-            # out of finalize: on a rewrite failure, warn and fall through to a best-effort normal index
-            # build over the (still readable) un-reclaimed table.
-            try:
-                self.table = _compact_by_rewrite(self.db, self.table_name)
-                if verbose:
-                    print(
-                        f"build_index: reclaimed '{self.table_name}' via compact-by-rewrite (optimize failed)",
-                        flush=True,
-                    )
-                return self.written
-            except Exception as exc:
-                print(
-                    f"build_index: reclaim of '{self.table_name}' skipped ({exc})",
-                    file=sys.stderr,
-                )
-        if self.written >= LANCEDB_INDEX_THRESHOLD:
-            try:
-                self.table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-                if verbose:
-                    print(
-                        f"build_index: LanceDB IVF_HNSW_SQ index created for '{self.table_name}' ({self.written} rows)",
-                        flush=True,
-                    )
-            except Exception as exc:
-                print(
-                    f"build_index: LanceDB index creation for '{self.table_name}' skipped ({exc})",
-                    file=sys.stderr,
-                )
-        # Wave 1rsh9 (1sauc): no Lance FTS index is built here anymore — the
-        # lexical layer is the index-state store's FTS5 tables, maintained by
-        # the chunk-delta sync + end-of-build reconcile.
+    def finalize(self, verbose=False):
+        print(f"build_index: prepared {self.label} index ({self.written} chunks)", flush=True)
         return self.written
+
 
 
 def _run_streaming_full_rebuild(
@@ -2046,287 +1921,119 @@ def _run_streaming_full_rebuild(
     code_elapsed: list,
     docs_eligible_rel: "set[str] | None" = None,
     code_eligible_rel: "set[str] | None" = None,
+    prepared=None,
+    strict_reads: bool = False,
 ) -> None:
     """Wave 1p5ch: full rebuild as a bounded-buffer stream. Chunks each file ONCE (recording
     ``chunks_emitted_by_file``), routes doc/code chunks to per-layer buffers, and flushes a buffer
     (embed → create/append) once it reaches ``buffer_chunks``; the vector + FTS index is built once
     per layer at the end. Peak memory is bounded by the buffers, independent of corpus size.
     Progress is reported per file (``file N / M``) — no total-chunk pre-count."""
-    db = _get_lance_db(db_path)
-    # Each writer acquires its per-table lock lazily on first write (see _StreamingLayerWriter.add),
-    # so a layer that produces 0 chunks never creates its Lance dir — matching the old full path and
-    # keeping the incremental "table absent" guard correct.
-    docs_writer = _StreamingLayerWriter(db, "docs", docs_embedder, "doc", lock_dir=db_path / "docs.lance",
-                                        batch_size=_resolve_embed_batch_size(DOCS_MODEL, root, layer="docs")) if build_docs else None
-    code_writer = _StreamingLayerWriter(db, "code", code_embedder, "code", lock_dir=db_path / "code.lance",
-                                        batch_size=_resolve_embed_batch_size(CODE_MODEL, root, layer="code")) if build_code else None
+    docs_writer = _StreamingLayerWriter(prepared, "docs", docs_embedder, "doc",
+        batch_size=_resolve_embed_batch_size(DOCS_MODEL, root, layer="docs")) if build_docs else None
+    code_writer = _StreamingLayerWriter(prepared, "code", code_embedder, "code",
+        batch_size=_resolve_embed_batch_size(CODE_MODEL, root, layer="code")) if build_code else None
     docs_buf: list[dict] = []
     code_buf: list[dict] = []
     t_docs = 0.0
     t_code = 0.0
     total = len(files_to_index)
 
-    try:
-        for i, file_path in enumerate(files_to_index, 1):
-            rel = str(file_path.relative_to(root)).replace("\\", "/")
-            try:
-                source_text = file_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            dc, cc = _chunks_for_file(rel, source_text)
-            # 1sek8: per-layer eligibility gates the routing — one corpus
-            # definition per table under every content scope (a test file
-            # reachable through the docs walk must not feed the code table).
-            # The emitted count is recorded AFTER gating so the drift
-            # detector never sees a claimed-but-ineligible contribution.
-            if docs_eligible_rel is not None and rel not in docs_eligible_rel:
-                dc = []
-            if code_eligible_rel is not None and rel not in code_eligible_rel:
-                cc = []
-            # A layer this rebuild is not writing must not be CLAIMED either
-            # (a docs-only full build recording code-chunk counts would
-            # drift-flag every code file until a code build ran).
-            if not build_docs:
-                dc = []
-            if not build_code:
-                cc = []
-            chunks_emitted_by_file[rel] = len(dc) + len(cc)
-            if build_docs and dc:
-                docs_buf.extend(dc)
-                if len(docs_buf) >= buffer_chunks:
-                    _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
-                    docs_buf = []
-            if build_code and cc:
-                code_buf.extend(cc)
-                if len(code_buf) >= buffer_chunks:
-                    _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
-                    code_buf = []
-            if i == total or i % 50 == 0:
-                print(f"build_index: indexed file {i}/{total} files", flush=True)
+    for i, file_path in enumerate(files_to_index, 1):
+        rel = str(file_path.relative_to(root)).replace("\\", "/")
+        try:
+            source_text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            if strict_reads:
+                raise
+            continue
+        dc, cc = _chunks_for_file(rel, source_text)
+        # 1sek8: per-layer eligibility gates the routing — one corpus
+        # definition per table under every content scope (a test file
+        # reachable through the docs walk must not feed the code table).
+        # The emitted count is recorded AFTER gating so the drift
+        # detector never sees a claimed-but-ineligible contribution.
+        if docs_eligible_rel is not None and rel not in docs_eligible_rel:
+            dc = []
+        if code_eligible_rel is not None and rel not in code_eligible_rel:
+            cc = []
+        # A layer this rebuild is not writing must not be CLAIMED either
+        # (a docs-only full build recording code-chunk counts would
+        # drift-flag every code file until a code build ran).
+        if not build_docs:
+            dc = []
+        if not build_code:
+            cc = []
+        chunks_emitted_by_file[rel] = len(dc) + len(cc)
+        if build_docs and dc:
+            docs_buf.extend(dc)
+            if len(docs_buf) >= buffer_chunks:
+                _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
+                docs_buf = []
+        if build_code and cc:
+            code_buf.extend(cc)
+            if len(code_buf) >= buffer_chunks:
+                _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
+                code_buf = []
+        if i == total or i % 50 == 0:
+            print(f"build_index: indexed file {i}/{total} files", flush=True)
 
-        if build_docs and docs_buf:
-            _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
-        if build_code and code_buf:
-            _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
-        if docs_writer is not None:
-            _t = time.monotonic(); docs_writer.finalize(verbose); t_docs += time.monotonic() - _t
-        if code_writer is not None:
-            _t = time.monotonic(); code_writer.finalize(verbose); t_code += time.monotonic() - _t
-    finally:
-        # finalize() releases the lock on the success path; this frees it if the loop or a flush
-        # raised before finalize ran (no-op once finalize has nulled the lock).
-        for _w in (docs_writer, code_writer):
-            if _w is not None:
-                _w.release_lock()
+    if build_docs and docs_buf:
+        _t = time.monotonic(); docs_writer.add(docs_buf); t_docs += time.monotonic() - _t
+    if build_code and code_buf:
+        _t = time.monotonic(); code_writer.add(code_buf); t_code += time.monotonic() - _t
+    if docs_writer is not None:
+        _t = time.monotonic(); docs_writer.finalize(verbose); t_docs += time.monotonic() - _t
+    if code_writer is not None:
+        _t = time.monotonic(); code_writer.finalize(verbose); t_code += time.monotonic() - _t
 
     docs_elapsed.append(t_docs)
     code_elapsed.append(t_code)
 
 
-def _optimize_lance_table(table) -> bool:
-    """Compact a LanceDB table, swallowing errors (advisory).
-
-    Returns ``True`` when ``optimize()`` succeeded, ``False`` when it raised (e.g. the Lance list-offset
-    corruption bug — ``Max offset … exceeds length of values``, lance-format/lance #7538 — where in-place
-    compaction cannot decode the corrupted pages). Callers that hold ``db`` + ``table_name`` context can
-    escalate a ``False`` to ``_compact_by_rewrite`` / ``reclaim_lance_table`` to reclaim the table."""
-    try:
-        from datetime import timedelta
-        table.optimize(cleanup_older_than=timedelta(seconds=0))
-        return True
-    except Exception as exc:
-        print(f"build_index: LanceDB optimize failed ({exc})", file=sys.stderr)
-        return False
 
 
-def _compact_by_rewrite(db, table_name: str):
-    """Reclaim a LanceDB table whose in-place ``optimize()`` fails by rewriting it fresh.
-
-    Wave 1p9aj. When ``optimize()`` cannot compact a table because of the Lance list-offset corruption
-    bug (lance-format/lance #7538; unbounded on-disk bloat, no in-place recovery), normal *reads* still
-    succeed — only the compaction/decode path fails. So read the live rows with ``to_arrow()`` and write
-    them to a fresh table via ``create_table(mode="overwrite")``: a fresh write recomputes the
-    list-column offsets from the clean in-memory Arrow data, sidestepping the append-time offset-rebasing
-    bug (this is why the rewrite reclaims — proven ``docs.lance`` 1.6 GB → 55 MB, zero re-embed — where
-    ``optimize()`` cannot). Then rebuild the vector index and compact (wave 1rsh9/1sauc: no Lance FTS —
-    the lexical layer lives in the index-state store's FTS5 tables).
-
-    The swap uses ``create_table(mode="overwrite")`` and **never** ``db.rename_table`` — the latter raises
-    ``NotImplementedError: rename_table is not supported in LanceDB OSS``, and a drop-then-rename would
-    leave the table missing if the rename failed. ``to_arrow()`` raising (the data itself is unreadable,
-    not just the compaction path) propagates so the caller can fall back to a full re-embed rebuild.
-
-    Returns the new table handle."""
-    src = db.open_table(table_name)
-    data = src.to_arrow()  # propagates on a real read failure -> caller falls back to full rebuild
-    row_count = data.num_rows
-    new_table = db.create_table(table_name, data=data, mode="overwrite")
-    if row_count >= LANCEDB_INDEX_THRESHOLD:
-        try:
-            new_table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-        except Exception as exc:
-            print(
-                f"build_index: reclaim vector-index rebuild for '{table_name}' skipped ({exc})",
-                file=sys.stderr,
-            )
-    _optimize_lance_table(new_table)
-    return new_table
 
 
-def reclaim_lance_table(db, table_name: str, index_dir: "Optional[Path]" = None) -> dict:
-    """Tiered reclaim of a bloated LanceDB table. Wave 1p9aj.
-
-    Tier 1: ``optimize()`` in place (the normal, non-corrupt case). Tier 2 (on an ``optimize()``
-    failure): compact by rewrite via ``_compact_by_rewrite`` — no re-embed. Tier 3 (only when the
-    ``to_arrow()`` read itself fails — true data loss, not just compaction corruption): signal the caller
-    to full-rebuild via ``needs_rebuild``. Never raises. Returns
-    ``{tier, rows, needs_rebuild, error}``."""
-    result = {"tier": 0, "rows": 0, "needs_rebuild": False, "error": None}
-    try:
-        table = db.open_table(table_name)
-    except Exception as exc:
-        result["tier"] = 3
-        result["needs_rebuild"] = True
-        result["error"] = f"open failed: {exc}"
-        return result
-    # Wave 1rsh9 (1sauc): drop retired Lance/Tantivy FTS indices BEFORE the
-    # optimize pass, so its cleanup can GC the now-unreferenced FTS versions
-    # that accumulated under `_indices/` (the leak class the fragment-gated
-    # optimize could never reclaim). One-time per field repo, then a no-op.
-    _drop_legacy_fts_indices(table, table_name, index_dir=index_dir)
-    if _optimize_lance_table(table):
-        result["tier"] = 1
-        try:
-            result["rows"] = table.count_rows()
-        except Exception:
-            pass
-        return result
-    # optimize() failed -> Tier 2 compact by rewrite (or Tier 3 if the read/rewrite itself fails).
-    try:
-        new_table = _compact_by_rewrite(db, table_name)
-        result["tier"] = 2
-        try:
-            result["rows"] = new_table.count_rows()
-        except Exception:
-            pass
-        return result
-    except Exception as exc:
-        result["tier"] = 3
-        result["needs_rebuild"] = True
-        result["error"] = f"rewrite failed: {exc}"
-        return result
 
 
-# Wave 1p9aj: semantic Lance tables and their on-disk directories under .wavefoundry/index/.
-_LANCE_TABLE_FILES = {"docs": "docs.lance", "code": "code.lance"}
 
 
-def _lance_dir_bytes(path: Path) -> int:
-    """Best-effort sum of file sizes under a ``.lance`` table directory; 0 on any error."""
-    total = 0
-    try:
-        for dirpath, _dirs, files in os.walk(path):
-            for name in files:
-                try:
-                    total += (Path(dirpath) / name).stat().st_size
-                except OSError:
-                    pass
-    except Exception:
-        return total
-    return total
+
+# Semantic docs/code layer names within the project-local SQLite store.
 
 
-def optimize_index_tables(index_dir: Path, tables: "tuple[str, ...]" = ("docs", "code")) -> dict:
-    """Run the tiered reclaim (``reclaim_lance_table``) over the given Lance tables under the whole-index
-    build lock. Wave 1p9aj. Returns ``{table: {tier, rows, needs_rebuild, error, bytes_before,
-    bytes_after}}`` for each **existing** table (absent tables are skipped). Reclaim-only — it never
-    re-embeds; a Tier-3 (unreadable) table is reported via ``needs_rebuild`` for the caller to rebuild.
 
-    Shared by ``index_optimize`` and the automatic end-of-``setup``/``upgrade`` optimize pass. May
-    raise ``IndexBuildAlreadyRunning`` if another build holds the lock; callers handle that."""
-    results: dict = {}
-    existing = [t for t in tables if t in _LANCE_TABLE_FILES and (index_dir / _LANCE_TABLE_FILES[t]).exists()]
-    if not existing:
-        return results
+
+
+
+def optimize_index_tables(index_dir: Path, tables=("docs", "code")) -> dict:
+    """Maintain the shared file once, plus the separate graph store, without re-embedding."""
+    iss = _get_index_state_store()
+    if not (index_dir / vector_store.FILENAME).exists():
+        return {}
     with _index_build_lock(index_dir):
-        # 1sed6: optimize/compact/rewrite mutate Lance storage — fence first,
-        # finalize after, so a crash mid-rewrite reads as interrupted rather
-        # than current. Module-absent store = refuse (same posture as builds).
-        _iss = _get_index_state_store()
-        if _iss is None:
-            return {"error": "index-state store module unavailable"}
-        # Review fix: optimize is restore-only maintenance — refuse on a store
-        # with no completed epoch rather than manufacturing one.
-        _prior = _iss.read_build_state(index_dir)
-        if not _prior or _prior.get("status") != "complete":
-            return {"error": (
-                "no completed build epoch — optimize can only run over a "
-                "published index; run a build first (index_build)"
-            )}
-        _attempt = _iss.begin_build_epoch(index_dir, "optimize")
-        try:
-            db = _get_lance_db(index_dir)
-            for t in existing:
-                tdir = index_dir / _LANCE_TABLE_FILES[t]
-                before = _lance_dir_bytes(tdir)
-                res = reclaim_lance_table(db, t, index_dir=index_dir)
-                res["bytes_before"] = before
-                res["bytes_after"] = _lance_dir_bytes(tdir)
-                results[t] = res
-        except Exception as exc:  # noqa: BLE001 - epoch stays un-finalized (fail closed), but structured
-            results["error"] = f"optimize failed mid-mutation: {exc} — epoch NOT finalized; run index_build to restore readiness"
-            return results
-        # Review fix: a reclaim error or Tier-3 (unreadable) table means the
-        # in-place rewrite left UNKNOWN state — readiness must not re-publish
-        # over it. Leave the epoch un-finalized: readers fail closed and the
-        # next real build (or table rebuild) restores readiness.
-        _dirty_tables = {
-            t: {"error": r.get("error"), "needs_rebuild": bool(r.get("needs_rebuild"))}
-            for t, r in results.items()
-            if isinstance(r, dict) and (r.get("error") or r.get("needs_rebuild"))
-        }
-        if _dirty_tables:
-            results["finalize"] = {
-                "error": "optimize left unreadable/errored tables — epoch NOT finalized; "
-                         "readers fail closed until a build restores readiness",
-                "dirty_tables": _dirty_tables,
-            }
-        elif not _iss.finalize_build_epoch(index_dir, _attempt):
-            results["finalize"] = {"error": "epoch finalization CAS miss"}
-    return results
+        prior = iss.read_build_state(index_dir)
+        if not prior or prior.get("status") != "complete":
+            return {"error": "no completed build epoch — run index_build first"}
+        attempt = iss.begin_build_epoch(index_dir, "optimize")
+        stores = iss.optimize_state_stores(index_dir, full_vacuum=False)
+        result = {"stores": stores}
+        if any(r.get("error") or r.get("integrity") not in (None, "ok")
+               for r in stores.values()):
+            result["finalize"] = {"error": "SQLite maintenance failed; epoch NOT finalized"}
+            return result
+        counts = vector_store.layer_counts(index_dir)
+        for layer in tables:
+            if layer in counts:
+                result[layer] = {"tier": 1, "rows": counts[layer], "needs_rebuild": False,
+                                 "error": None, "bytes_before": 0, "bytes_after": 0}
+        if not iss.finalize_build_epoch(index_dir, attempt):
+            result["error"] = "epoch finalization CAS miss"
+        return result
 
 
-def _drop_legacy_fts_indices(table, table_name: str, index_dir: "Optional[Path]" = None) -> int:
-    """Drop retired Lance/Tantivy FTS indices from a table (wave 1rsh9 / 1sauc).
 
-    The lexical layer moved to the index-state store's FTS5 tables; the Lance
-    FTS is no longer created anywhere. Field repos still carry the legacy
-    index (and its un-GC-able ``_indices/`` version accumulation — the class
-    the fragment-gated optimize could never reclaim without ``pylance``).
-    Dropping the index de-references those versions so the reclaim pass's
-    cleanup can GC them. Runs on the reclaim path (``index_optimize``,
-    on demand and automatically at setup/upgrade). Best-effort: returns the
-    number of indices dropped; any error just leaves cleanup for next time.
-    """
-    dropped = 0
-    try:
-        for index in table.list_indices() or []:
-            index_type = str(getattr(index, "index_type", "") or "")
-            name = str(getattr(index, "name", "") or "")
-            if "FTS" in index_type.upper() or name == "text_idx":
-                table.drop_index(name)
-                dropped += 1
-                msg = (
-                    f"build_index: dropped legacy Lance FTS index '{name}' on "
-                    f"'{table_name}' (lexical layer is FTS5 in the index-state store)"
-                )
-                print(msg, flush=True)
-                _store_log_safe(index_dir, msg)  # 1sbfj: persist one-time drop
-    except Exception as exc:  # noqa: BLE001 - cleanup is best-effort
-        msg = f"build_index: legacy FTS index cleanup for '{table_name}' skipped ({exc})"
-        print(msg, file=sys.stderr)
-        _store_log_safe(index_dir, msg)
-    return dropped
 
 
 def _store_log_safe(index_dir: "Optional[Path]", message: str) -> None:
@@ -2346,41 +2053,13 @@ def _store_log_safe(index_dir: "Optional[Path]", message: str) -> None:
         pass
 
 
-def _lance_fragment_count(table) -> int:
-    """Best-effort fragment count; returns 0 on failure."""
-    try:
-        stats = table.stats()
-        if isinstance(stats, dict):
-            return int(stats.get("num_fragments", 0))
-    except Exception:
-        pass
-    try:
-        return len(table.list_versions())
-    except Exception:
-        pass
-    return 0
 
 
-def _update_lance_table(db_path: Path, table_name: str, file_path: str, new_rows: list) -> None:
-    """Delete existing rows for file_path and add new_rows; compact if needed."""
-    db = _get_lance_db(db_path)
-    table = db.open_table(table_name)
-    safe_path = file_path.replace("'", "''")
-    table.delete(f"path = '{safe_path}'")
-    if new_rows:
-        table.add(new_rows)
-    if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
-        _optimize_lance_table(table)
 
 
-def _delete_lance_chunks(db_path: Path, table_name: str, file_path: str) -> None:
-    """Delete all rows for file_path from a LanceDB table; compact if needed."""
-    db = _get_lance_db(db_path)
-    table = db.open_table(table_name)
-    safe_path = file_path.replace("'", "''")
-    table.delete(f"path = '{safe_path}'")
-    if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
-        _optimize_lance_table(table)
+
+
+
 
 
 def _chunk_hash(chunk: dict) -> str:
@@ -2398,7 +2077,7 @@ def _chunk_hash(chunk: dict) -> str:
 
 
 def _normalize_chunk_row_metadata(row: dict) -> dict:
-    """Normalize row metadata so freshly chunked rows compare cleanly to Lance rows."""
+    """Normalize row metadata so freshly chunked rows compare cleanly to stored rows."""
     normalized = {
         "id": str(row.get("id") or ""),
         "path": str(row.get("path") or ""),
@@ -2426,18 +2105,16 @@ def _row_metadata_matches_current(existing: dict, current: dict) -> bool:
     return _normalize_chunk_row_metadata(existing) == _normalize_chunk_row_metadata(current)
 
 
-def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray | list") -> list[dict]:
-    """Convert chunk dicts + vector array into LanceDB row dicts."""
+def _make_vector_rows(chunks: list[dict], vecs: "np.ndarray | list") -> list[dict]:
+    """Combine canonical chunk payloads with their float32 vectors."""
     rows = []
     for chunk, vec in zip(chunks, vecs):
         row = dict(chunk)
         if isinstance(row.get("tags"), list):
             row["tags"] = " ".join(str(t) for t in row["tags"])
         row["chunk_hash"] = _chunk_hash(chunk)
-        # Normalize nullable string fields to "" so LanceDB always sees a non-null
-        # string column type. If the first batch is all-None (e.g. Markdown-only), 
-        # LanceDB infers the column as Null; a later batch with a real string value
-        # then raises: ValueError: cannot cast field 'language' from Utf8 to Null.
+        # Preserve the existing non-null string payload/filter contract across
+        # Markdown-only and mixed-language batches.
         for _nullable_str in ("language", "section"):
             if row.get(_nullable_str) is None:
                 row[_nullable_str] = ""
@@ -2446,33 +2123,19 @@ def _make_lance_rows(chunks: list[dict], vecs: "np.ndarray | list") -> list[dict
     return rows
 
 
-def _read_lance_rows_for_paths(db_path: Path, table_name: str, paths: set[str]) -> list[dict]:
-    """Return existing LanceDB rows, including vectors, for the given paths."""
-    if not paths or not (db_path / f"{table_name}.lance").is_dir():
-        return []
-    try:
-        db = _get_lance_db(db_path)
-        table = db.open_table(table_name)
-        escaped = [p.replace("'", "''") for p in paths]
-        in_clause = ", ".join(f"'{p}'" for p in escaped)
-        return table.search().where(f"path IN ({in_clause})", prefilter=True).limit(None).to_arrow().to_pylist()
-    except Exception:
-        return []
+def _read_vector_rows_for_paths(db_path: Path, table_name: str, paths: set[str]) -> list[dict]:
+    result = []
+    ordered = sorted(paths)
+    for start in range(0,len(ordered),100):
+        clause = ",".join("'" + p.replace("'", "''") + "'" for p in ordered[start:start+100])
+        result.extend(vector_store.payload_rows(db_path, table_name, f"path IN ({clause})", include_vector=True))
+    return result
 
 
-def _delete_lance_rows_by_ids(table, ids: set[str]) -> None:
-    if not ids:
-        return
-    ordered = sorted(ids)
-    # Keep delete predicates compact; very large updates can otherwise create
-    # unwieldy SQL strings for LanceDB's filter parser.
-    for idx in range(0, len(ordered), 100):
-        batch = [item.replace("'", "''") for item in ordered[idx:idx + 100]]
-        in_clause = ", ".join(f"'{item}'" for item in batch)
-        table.delete(f"id IN ({in_clause})")
 
 
-def _detect_lance_drift(
+
+def _detect_vector_drift(
     db_path: Path,
     file_meta: dict[str, dict],
     *,
@@ -2480,71 +2143,13 @@ def _detect_lance_drift(
     tables: tuple[str, ...] = ("docs", "code"),
     verbose: bool = False,
 ) -> set[str]:
-    """Wave 1p3b9 (1p399) + 1p3iv (1p3iw) + 1rmaf: return the set of paths in
-    ``file_meta`` that have ZERO rows in any of the configured Lance tables,
-    EXCLUDING paths the indexer previously recorded as legitimately emitting
-    zero chunks AND paths that are not chunk-eligible under the current
-    build's content filters.
+    """Find eligible source paths whose expected canonical/vector rows are absent.
 
-    These paths are "drifted" — the build snapshot claims they're indexed at a
-    known hash, but the Lance chunks table has no rows for them. The
-    incremental indexer's skip-on-hash-match optimization perpetuates the
-    missing state indefinitely until something forces the file's mtime to
-    change. This helper surfaces drifted paths so the caller can force
-    them through the re-chunk + re-embed path.
-
-    Chunk-eligibility precondition (1rmaf): drift candidacy only makes sense
-    for paths the current build can actually re-chunk. The build snapshot tracks
-    the full walked set (``files_for_meta``), but the repair path can only
-    reach files that pass the content filters (``files_for_content``), so a
-    meta-tracked path outside ``chunk_eligible_rel_paths`` must never be
-    flagged: flagging it forces it into ``changed``, chunking skips it, the
-    ``chunks_emitted`` field never updates, and the next build re-flags it —
-    a non-converging repair loop. The parameter is required keyword-only so
-    no caller can silently fall back to unscoped candidacy, and it is named
-    distinctly from ``_reap_stranded_lance_rows``'s ``eligible_paths``,
-    which deliberately carries the WIDER meta union (unifying them would
-    make a docs-only run reap every code-table row). Callers derive the set
-    per build from ``files_for_content`` with the standard normalization
-    (``str(f.relative_to(root)).replace("\\\\", "/")``) — never persisted, so
-    include-flag transitions re-evaluate eligibility every build. Per-branch
-    semantics at the build call site: in the walk branch, ``files_for_content``
-    is content-scoped because the include-prefix reassignment of ``files``
-    precedes ``files_for_content = files`` (docs runs exclude non-allowlisted
-    ``.wavefoundry/`` paths, code runs additionally pass ``_filter_code_files``);
-    in the explicit ``files=`` branch no content-scoped reassignment occurs,
-    so eligibility there is the normalized passed-in list (plus the code-run
-    filter). A build that writes no semantic rows at all (``content="graph"``,
-    ``build_docs`` and ``build_code`` both False) must skip drift detection
-    outright at the call site rather than pass the unfiltered walk —
-    "chunk-eligible" means "row-writable this build".
-
-    Empty-file exclusion (1p3iw): entries with explicit ``chunks_emitted == 0``
-    are skipped — the prior indexing run recorded that this file legitimately
-    produces no chunks (empty file, all-whitespace, marker-region-dominated
-    content). Re-chunking would produce zero chunks again and the next
-    incremental update would flag it again — silent thrash. Entries with
-    ``chunks_emitted`` absent (legacy ``meta.json`` from before this field
-    existed, or a fresh stat-mismatch entry built in ``_detect_changes``)
-    fall through to the drift check unchanged — for chunk-eligible paths,
-    one repair learns the true count and populates the field; subsequent
-    updates skip silently if it landed at zero. That self-healing narrative
-    holds ONLY under the eligibility precondition above: a chunk-ineligible
-    path never reaches the chunk-write path, so its field can never update —
-    eligibility, not the recorded count, is the primary gate (a stale
-    positive count recorded under earlier include flags is likewise not
-    flagged while the path is ineligible).
-
-    Implementation: pulls just the ``path`` column from each Lance table
-    (cheap on large tables — single column read, no vector data fetched),
-    unions the path sets, and returns the file_meta paths absent from the
-    union. Lance's columnar engine makes DISTINCT-on-string near-O(rows)
-    per AC-9 (sub-second on 10K rows, <200ms on 100K rows).
-
-    Returns empty set when:
-    - LanceDB cannot be opened (table missing, db unavailable)
-    - No Lance tables exist yet (fresh layer)
-    - All considered paths have rows in at least one table (happy path)
+    Respect explicit zero-chunk provenance and the current build's writable
+    corpus, avoiding retries for empty or excluded files. Registry-backed holes
+    are checked per layer: surviving code rows must not hide missing docs rows
+    from the same source file. Only path/ID columns are read, never vectors.
+    Unknown/missing state is handled by the build's schema/provenance gate.
     """
     if not file_meta:
         return set()
@@ -2569,34 +2174,29 @@ def _detect_lance_drift(
     }
     if not file_meta_paths:
         return set()
-    if not any((db_path / f"{t}.lance").is_dir() for t in tables):
+    conn = _get_index_state_store().open_read_only(db_path)
+    if conn is None:
         return set()
     try:
-        db = _get_lance_db(db_path)
-    except Exception as exc:
-        if verbose:
-            print(f"build_index: drift-detect skipped — could not open LanceDB ({exc})", flush=True)
-        return set()
-    lance_paths: set[str] = set()
-    for table_name in tables:
-        if not (db_path / f"{table_name}.lance").is_dir():
-            continue
-        try:
-            table = db.open_table(table_name)
-            # Single-column read; cheap on large tables.
-            path_arrow = table.to_arrow().column("path")
-            lance_paths.update(p for p in path_arrow.to_pylist() if p)
-        except Exception as exc:
-            if verbose:
-                print(
-                    f"build_index: drift-detect {table_name} failed ({exc})",
-                    flush=True,
-                )
-            continue
-    return file_meta_paths - lance_paths
+        canonical_paths = set()
+        missing_vectors = set()
+        for table_name in tables:
+            vector_store._layer(table_name)
+            canonical_paths.update(r[0] for r in conn.execute(f"SELECT DISTINCT path FROM chunks_{table_name}"))
+            missing_vectors.update(r[0] for r in conn.execute(
+                f"SELECT DISTINCT c.path FROM chunks_{table_name} c LEFT JOIN vectors_{table_name} v "
+                "ON c.id=v.chunk_id WHERE v.chunk_id IS NULL"))
+            missing_vectors.update(r[0] for r in conn.execute(
+                f"SELECT DISTINCT r.path FROM chunk_registry r LEFT JOIN chunks_{table_name} c "
+                f"ON c.chunk_id=r.chunk_id LEFT JOIN vectors_{table_name} v ON v.chunk_id=c.id "
+                "WHERE r.table_name=? AND (c.id IS NULL OR v.chunk_id IS NULL)", (table_name,)))
+
+    finally:
+        conn.close()
+    return (file_meta_paths - canonical_paths) | (missing_vectors & file_meta_paths)
 
 
-def _reap_stranded_lance_rows(
+def _reap_stranded_vector_rows(
     db_path: Path,
     eligible_paths: set[str],
     *,
@@ -2607,17 +2207,18 @@ def _reap_stranded_lance_rows(
     plan_only: bool = False,
     precomputed_stranded: "dict[str, set[str]] | None" = None,
     unreadable_dirs: "set[str] | None" = None,
+    prepared=None,
 ) -> dict:
-    """Delete LanceDB rows whose ``path`` is not in the current eligible set.
+    """Delete canonical rows whose ``path`` is not in the current eligible set.
 
     Closes the workflow-config-evolution blind spot: when ``workflow-config.json``
     narrows include-prefixes, the next incremental update drops the now-ineligible
     paths from the build snapshot (via ``_detect_changes``), but only paths that were
-    *still in old_meta when the narrowing was detected* get evicted from LanceDB.
+    *still in old_meta when the narrowing was detected* get evicted from canonical storage.
     Subsequent incrementals never see those paths in ``old_meta`` again, so their
-    LanceDB rows orphan silently until a full rebuild.
+    canonical rows orphan silently until a full rebuild.
 
-    This reaper reconciles the *current* LanceDB row set against the *current*
+    This reaper reconciles the *current* canonical row set against the *current*
     eligible set on every incremental update, regardless of meta state. It is
     set-difference + a single batched DELETE per table, plus (1u8o3) one
     ``stat`` per stranded candidate the walk did not already explain.
@@ -2647,7 +2248,7 @@ def _reap_stranded_lance_rows(
     the zero-change preflight (``plan_only=True``) and the build-path seam
     run; the zero-change execute step replays the preflight's
     ``paths_by_table`` (``precomputed_stranded``), so it cannot reap what the
-    plan refused. Boundary: at the build-path seam the incremental Lance write
+    plan refused. Boundary: at the build-path seam the incremental semantic write
     deletes the ``removed`` set before this reap runs, so a first-time mass
     absence with no walk error (an unmounted volume on its first build) is
     removed there and never reaches the breaker; the breaker protects rows
@@ -2675,19 +2276,11 @@ def _reap_stranded_lance_rows(
     # One classification per distinct candidate, shared across tables (the
     # same path can hold rows in both), mirroring the 1u8nz reconciliation.
     classification: dict[str, str] = {}
-    if not (db_path / "docs.lance").is_dir() and not (db_path / "code.lance").is_dir():
-        return reaped
-    try:
-        db = _get_lance_db(db_path)
-    except Exception as exc:
-        if verbose:
-            print(f"build_index: reaper skipped — could not open LanceDB ({exc})", flush=True)
+    if not (db_path / vector_store.FILENAME).exists():
         return reaped
     for table_name in tables:
-        if not (db_path / f"{table_name}.lance").is_dir():
-            continue
+        vector_store._layer(table_name)
         try:
-            table = db.open_table(table_name)
             if precomputed_stranded is not None:
                 # 1sed6: execute a previously planned reap without re-scanning
                 # (the zero-change path plans read-only FIRST, opens the build
@@ -2695,15 +2288,18 @@ def _reap_stranded_lance_rows(
                 stranded = set(precomputed_stranded.get(table_name) or set())
             else:
                 # Pull just the path column to keep the read cheap on large tables.
-                path_arrow = table.to_arrow().column("path")
-                lance_paths = {p for p in path_arrow.to_pylist() if p}
+                conn = _get_index_state_store().open_read_only(db_path)
+                try:
+                    canonical_paths = {r[0] for r in conn.execute(f"SELECT DISTINCT path FROM chunks_{table_name}") if r[0]}
+                finally:
+                    conn.close()
                 # 1sek8: per-table eligibility when provided — one corpus
                 # definition per table (the migration reap of previously-included
                 # test chunks flows through here, loudly).
                 _eligible = eligible_paths
                 if eligible_by_table is not None and table_name in eligible_by_table:
                     _eligible = eligible_by_table[table_name]
-                stranded = lance_paths - _eligible
+                stranded = canonical_paths - _eligible
                 if stranded:
                     # 1u8o3 guard 1: classify before deleting; unreadable preserves.
                     for rel in stranded:
@@ -2735,7 +2331,7 @@ def _reap_stranded_lance_rows(
                     # breaker. A deferred table keeps its absent rows searchable
                     # until the fraction dilutes or the operator rebuilds.
                     absent_here = {rel for rel in stranded if classification[rel] == "absent"}
-                    table_paths = len(lance_paths)
+                    table_paths = len(canonical_paths)
                     would_reap = len(absent_here)
                     if (
                         would_reap >= ORPHAN_RECONCILE_BREAKER_MIN_ROWS
@@ -2771,14 +2367,18 @@ def _reap_stranded_lance_rows(
                 reaped_paths[table_name] = set(stranded)
                 continue
             # Count rows-to-delete (not unique paths) for accurate operator signal.
-            count_pre = table.count_rows()
-            ordered = sorted(stranded)
-            for idx in range(0, len(ordered), 100):
-                batch = [p.replace("'", "''") for p in ordered[idx:idx + 100]]
-                in_clause = ", ".join(f"'{p}'" for p in batch)
-                table.delete(f"path IN ({in_clause})")
-            count_post = table.count_rows()
-            reaped_here = max(count_pre - count_post, 0)
+            reaped_here = _count_chunks_for_paths(db_path, table_name, stranded)
+            if prepared is not None:
+                prepared.add(table_name, paths=stranded)
+            else:
+                store = _get_index_state_store().IndexStateStore(db_path)
+                try:
+                    with store._conn:
+                        _get_index_state_store()._apply_chunk_deltas_locked(store, table_name, delete_paths=stranded)
+                        store._conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
+                                                ((table_name,p) for p in stranded))
+                finally:
+                    store.close()
             reaped[table_name] = reaped_here
             reaped["total"] += reaped_here
             reaped_paths[table_name] = set(stranded)
@@ -2798,18 +2398,16 @@ def _reap_stranded_lance_rows(
                     f"{reaped_here} row(s) reaped",
                 )
         except Exception as exc:
-            if verbose:
-                print(f"build_index: reaper {table_name} failed ({exc})", flush=True)
-            continue
+            raise RuntimeError(f"Canonical reaper {table_name} failed; previous data preserved: {exc}") from exc
     return reaped
 
 
 def _cleanup_layer_state_for_reaped(index_dir: Path, reaped_paths: "dict[str, set[str]]") -> None:
-    """Drop layer-state rows for paths whose Lance rows were just reaped (1sek8).
+    """Drop layer-state rows for paths whose canonical rows were just reaped (1sek8).
 
     Without this, a path reaped by eligibility narrowing that later becomes
     eligible again with an UNCHANGED hash would compare current against its
-    stale layer state and be skipped — indexed-per-state but rowless-in-Lance.
+    stale layer state and be skipped — indexed-per-state but missing canonical rows.
     Best-effort: a miss is caught by the drift detector on a later build.
     """
     if not reaped_paths:
@@ -2883,18 +2481,18 @@ def _plan_orphan_store_reconcile(
 ) -> dict:
     """Read-only reconciliation plan (no epoch, no mutation) for the orphan stores.
 
-    ``authority`` is the same registry/walk state the Lance reap uses
+    ``authority`` is the same registry/walk state the canonical reap uses
     (``current_file_meta`` keys: on-disk AND in-scope, or, since wave 1x54z,
     previously indexed and shadowed by a directory the walk could not read
     this build, which change detection carries forward as unchanged). A
     candidate under such a directory (``unreadable_dirs``, from ``walk_repo``)
-    classifies ``unreadable`` without a stat, so this plan and the Lance reap
+    classifies ``unreadable`` without a stat, so this plan and the canonical reap
     apply one policy to the same paths (1x54z delivery review RED-DEL-3).
     Removal semantics per store:
 
     - ``file_freshness`` and ``graph``: rows exist only for corpus paths, so a
       row outside the authority retires whether the file is deleted OR still
-      present but scope-departed, parity with the shipped Lance eligibility
+      present but scope-departed, parity with the shipped canonical eligibility
       reap (scope-narrowing config changes then delete on the next build,
       which is the documented corpus-membership semantics).
     - ``secret_scan_cache``: the standalone secrets scanner's candidate set is
@@ -3088,7 +2686,7 @@ def _log_semantic_file_delta(path: str, table_name: str, stats: dict[str, int], 
     )
 
 
-def _plan_lance_delta_rows(
+def _plan_vector_delta_rows(
     *,
     existing_rows: list[dict],
     new_chunks: list[dict],
@@ -3133,7 +2731,7 @@ def _plan_lance_delta_rows(
             if not _row_metadata_matches_current(existing, current_row):
                 delete_ids.add(chunk_id)
                 vector = existing.get("vector")
-                rows_to_add.append(_make_lance_rows([chunk], [vector])[0])
+                rows_to_add.append(_make_vector_rows([chunk], [vector])[0])
                 reused_vectors += 1
             else:
                 unchanged += 1
@@ -3151,7 +2749,7 @@ def _plan_lance_delta_rows(
             if matched_id and matched_id not in new_by_id:
                 delete_ids.add(matched_id)
                 vector = matched.get("vector")
-                rows_to_add.append(_make_lance_rows([chunk], [vector])[0])
+                rows_to_add.append(_make_vector_rows([chunk], [vector])[0])
                 reused_vectors += 1
                 continue
         elif len(hash_matches) > 1:
@@ -3172,7 +2770,7 @@ def _plan_lance_delta_rows(
 
     if chunks_to_embed:
         vecs = _embed_chunks_for_incremental(label, chunks_to_embed, embedder)
-        embedded_rows = _make_lance_rows(chunks_to_embed, vecs)
+        embedded_rows = _make_vector_rows(chunks_to_embed, vecs)
         for pos, row in zip(chunk_positions, embedded_rows):
             rows_to_add[pos] = row
 
@@ -3185,257 +2783,59 @@ def _plan_lance_delta_rows(
 
 
 def _count_chunks_for_paths(db_path: Path, table_name: str, paths: set[str]) -> int:
-    """Return the number of existing chunks in table_name belonging to the given paths."""
-    if not paths or not (db_path / f"{table_name}.lance").is_dir():
+    vector_store._layer(table_name)
+    if not paths:
+        return 0
+    conn = _get_index_state_store().open_read_only(db_path)
+    if conn is None:
         return 0
     try:
-        db = _get_lance_db(db_path)
-        table = db.open_table(table_name)
-        escaped = [p.replace("'", "''") for p in paths]
-        in_clause = ", ".join(f"'{p}'" for p in escaped)
-        return table.search().where(f"path IN ({in_clause})", prefilter=True).limit(None).to_pandas().shape[0]
-    except Exception:
-        return 0
+        return sum(conn.execute(f"SELECT COUNT(*) FROM chunks_{table_name} WHERE path=?", (p,)).fetchone()[0] for p in paths)
+    finally:
+        conn.close()
 
 
-def _lance_incremental_write(
-    db_path: Path,
-    stale: set[str],
-    new_doc_chunks: list[dict],
-    docs_embedder,
-    new_code_chunks: list[dict],
-    code_embedder,
-    build_docs: bool,
-    build_code: bool,
-    verbose: bool = False,
-    skip_exempt: "set[str] | None" = None,
-    written_paths: "dict[str, set[str]] | None" = None,
-) -> None:
-    """Apply incremental row deltas, embedding only changed/new chunks.
-
-    ``stale`` is THIS CALL's layer-scoped stale set (1sek8): each table's
-    writer treats a stale path with zero new chunks as "the file no longer
-    produces chunks for this table" and deletes its rows, so callers must
-    never pass another layer's changes here.
-
-    ``skip_exempt``: paths the registry-backed unchanged-file skip must NOT
-    apply to — drift-flagged paths, where Lance rows vanished out-of-band and
-    the registry (synced from the PRE-drift Lance state) would wrongly report
-    them unchanged, silently defeating the drift repair (Lance is the
-    authority; the skip is an optimization only).
-
-    ``written_paths`` (1sek8): when provided, each table records the stale
-    set it fully processed under its name AFTER its write block completes —
-    the caller commits those paths' walk hashes to the per-layer state, so a
-    write failure (block aborts, name never recorded) leaves the layer stale
-    and the next build retries.
-    """
-    db = _get_lance_db(db_path)
-    for table_name, build_flag, chunks, embedder, label in (
-        ("docs", build_docs, new_doc_chunks, docs_embedder, "doc"),
-        ("code", build_code, new_code_chunks, code_embedder, "code"),
-    ):
-        if not build_flag:
+def _prepare_incremental_vectors(db_path: Path, stale: set[str], new_doc_chunks: list[dict],
+        docs_embedder, new_code_chunks: list[dict], code_embedder, build_docs: bool,
+        build_code: bool, verbose=False, skip_exempt=None, written_paths=None, prepared=None):
+    """Prepare per-file deltas and reuse unchanged embeddings; publication is caller-owned."""
+    if prepared is None:
+        raise ValueError("Semantic updates require a prepared publication spool")
+    for layer, enabled, chunks, embedder, label in (
+        ("docs",build_docs,new_doc_chunks,docs_embedder,"doc"),
+        ("code",build_code,new_code_chunks,code_embedder,"code")):
+        if not enabled:
             continue
-        table_dir = db_path / f"{table_name}.lance"
-        with _table_lock(table_dir):
-            _iss = _get_index_state_store()
-            if not table_dir.is_dir():
-                # Table absent — create with new rows only (shouldn't happen after upgrade guard).
-                vecs = _embed_chunks_for_incremental(label, chunks, embedder) if chunks else None
-                if chunks and vecs is not None:
-                    _created_rows = _make_lance_rows(chunks, vecs)
-                    tbl = db.create_table(table_name, data=_created_rows, mode="create")
-                    # Wave 1rsh9 (1rrr0): derived chunk state (FTS + registry)
-                    # commits AFTER the Lance write (ordered consistency).
-                    if _iss is not None:
-                        try:
-                            _iss.apply_chunk_deltas(db_path, table_name, add_rows=_created_rows)
-                        except Exception as exc:  # noqa: BLE001 - reconcile self-heals
-                            print(
-                                f"build_index: chunk-index sync for '{table_name}' skipped "
-                                f"({exc}) — reconciliation will repair",
-                                file=sys.stderr,
-                            )
-                    chunks_by_path: dict[str, list[dict]] = {}
-                    for chunk in chunks:
-                        chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
-                    for file_path, path_chunks in sorted(chunks_by_path.items()):
-                        _log_semantic_file_delta(
-                            file_path,
-                            table_name,
-                            {"written": len(path_chunks), "removed": 0, "unchanged": 0},
-                        )
-                if written_paths is not None:
-                    written_paths[table_name] = set(stale)
+        by_path = {}
+        for chunk in chunks:
+            by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
+        registry = _get_index_state_store().registry_map_for_paths(db_path, layer, stale)
+        for path in sorted(stale):
+            fresh = by_path.get(path, [])
+            new_map = {str(c.get("id") or ""): _chunk_hash(c) for c in fresh}
+            if (new_map and registry.get(path) == new_map and not (skip_exempt and path in skip_exempt)
+                    and not os.environ.get("WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL")):
+                _log_semantic_file_delta(path,layer,{"written":0,"removed":0,"unchanged":len(new_map)})
                 continue
-            table = db.open_table(table_name)
-            chunks_by_path: dict[str, list[dict]] = {}
-            for chunk in chunks:
-                chunks_by_path.setdefault(str(chunk.get("path") or ""), []).append(chunk)
-            # Wave 1rsh9 (1rrr0): registry-backed unchanged-file skip. A stale
-            # path whose freshly-chunked {id: chunk_hash} map EXACTLY matches
-            # the chunk registry is provably a no-op for this table (id covers
-            # path/position; chunk_hash covers kind/language/section/text/tags),
-            # so its Lance rows — vectors included — are never read. Biggest
-            # win on rechunk-all passes where most chunks are content-identical.
-            # Equivalence is proven by the registry differential harness; the
-            # env kill switch restores the pure Lance-read path.
-            registry_skipped: dict[str, int] = {}
-            lance_read_paths = set(stale)
-            if _iss is not None and not os.environ.get("WAVEFOUNDRY_DISABLE_REGISTRY_INCREMENTAL"):
-                try:
-                    _reg_maps = _iss.registry_map_for_paths(db_path, table_name, stale)
-                except Exception:  # noqa: BLE001 - skip is an optimization only
-                    _reg_maps = {}
-                for file_path in stale:
-                    if skip_exempt and file_path in skip_exempt:
-                        continue  # drift repair must read Lance (the authority)
-                    path_chunks = chunks_by_path.get(file_path, [])
-                    if not path_chunks:
-                        continue
-                    new_map = {
-                        str(c.get("id") or ""): _chunk_hash(c)
-                        for c in path_chunks if c.get("id")
-                    }
-                    if new_map and _reg_maps.get(file_path) == new_map:
-                        registry_skipped[file_path] = len(new_map)
-                        lance_read_paths.discard(file_path)
-            existing_rows = _read_lance_rows_for_paths(db_path, table_name, lance_read_paths)
-            existing_by_path: dict[str, list[dict]] = {}
-            for row in existing_rows:
-                existing_by_path.setdefault(str(row.get("path") or ""), []).append(row)
-
-            rows_to_add: list[dict] = []
-            ids_to_delete: set[str] = set()
-            fallback_paths: set[str] = set()
-
-            for file_path, skipped_count in sorted(registry_skipped.items()):
-                _log_semantic_file_delta(
-                    file_path,
-                    table_name,
-                    {"written": 0, "removed": 0, "unchanged": skipped_count},
-                )
-            for file_path in lance_read_paths:
-                path_existing = existing_by_path.get(file_path, [])
-                path_chunks = chunks_by_path.get(file_path, [])
-                delete_ids, add_rows, fallback_required, stats = _plan_lance_delta_rows(
-                    existing_rows=path_existing,
-                    new_chunks=path_chunks,
-                    embedder=embedder,
-                    label=label,
-                )
-                if fallback_required:
-                    fallback_paths.add(file_path)
-                    continue
-                ids_to_delete.update(delete_ids)
-                rows_to_add.extend(add_rows)
-                if path_existing or path_chunks:
-                    _log_semantic_file_delta(file_path, table_name, stats)
-
-            _delete_lance_rows_by_ids(table, ids_to_delete)
-
-            for file_path in sorted(fallback_paths):
-                safe_path = file_path.replace("'", "''")
-                table.delete(f"path = '{safe_path}'")
-                path_chunks = chunks_by_path.get(file_path, [])
-                vecs = _embed_chunks_for_incremental(label, path_chunks, embedder) if path_chunks else None
-                if path_chunks and vecs is not None:
-                    rows_to_add.extend(_make_lance_rows(path_chunks, vecs))
-                _log_semantic_file_delta(
-                    file_path,
-                    table_name,
-                    {"written": len(path_chunks), "removed": len(existing_by_path.get(file_path, [])), "unchanged": 0},
-                    fallback=True,
-                )
-
-            if rows_to_add:
-                table.add(rows_to_add)
-            reclaimed = False
-            if _lance_fragment_count(table) > LANCEDB_COMPACT_THRESHOLD:
-                if verbose:
-                    print(f"build_index: compacting {table_name} table", flush=True)
-                if not _optimize_lance_table(table):
-                    # Wave 1p9aj: self-heal a compaction failure (the Lance list-offset corruption bug)
-                    # by rewriting the table fresh — reclaims instead of growing unbounded. The rewrite
-                    # rebuilds the vector + FTS indices, so re-point `table` and skip the redundant
-                    # index builds below. Never raise: on a rewrite failure, warn and continue.
-                    try:
-                        table = _compact_by_rewrite(db, table_name)
-                        reclaimed = True
-                        if verbose:
-                            print(
-                                f"build_index: reclaimed '{table_name}' via compact-by-rewrite (optimize failed)",
-                                flush=True,
-                            )
-                    except Exception as exc:
-                        print(
-                            f"build_index: reclaim of '{table_name}' skipped ({exc})",
-                            file=sys.stderr,
-                        )
-                if not reclaimed:
-                    try:
-                        row_count = table.count_rows()
-                    except Exception:
-                        row_count = 0
-                    if row_count >= LANCEDB_INDEX_THRESHOLD:
-                        try:
-                            table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-                            if verbose:
-                                print(
-                                    f"build_index: LanceDB IVF_HNSW_SQ index rebuilt for '{table_name}' ({row_count} rows)",
-                                    flush=True,
-                                )
-                        except Exception as exc:
-                            print(
-                                f"build_index: LanceDB index rebuild for '{table_name}' skipped ({exc})",
-                                file=sys.stderr,
-                            )
-            # Wave 1rsh9 (1sauc): the Lance/Tantivy FTS is retired — no Lance
-            # FTS index is rebuilt here (the 1p95j change-gated rebuild and its
-            # un-GC-able `_indices/` version accumulation are gone with it).
-            # The lexical layer is the index-state store's FTS5 tables, kept in
-            # sync by the chunk-delta transaction below.
-            table_changed = bool(rows_to_add) or bool(ids_to_delete) or bool(fallback_paths)
-            # Wave 1rsh9 (1rrr0): derived chunk state (SQLite FTS5 + chunk
-            # registry) commits in one store transaction ordered AFTER the
-            # Lance writes above (Lance authoritative). A failure here never
-            # fails the build — the end-of-build reconciliation pass repairs
-            # any missed sync from Lance.
-            if _iss is not None and table_changed:
-                try:
-                    _iss.apply_chunk_deltas(
-                        db_path,
-                        table_name,
-                        delete_ids=ids_to_delete,
-                        delete_paths=fallback_paths,
-                        add_rows=rows_to_add,
-                    )
-                except Exception as exc:  # noqa: BLE001 - reconcile self-heals
-                    msg = (
-                        f"build_index: chunk-index sync for '{table_name}' skipped "
-                        f"({exc}) — reconciliation will repair"
-                    )
-                    print(msg, file=sys.stderr)
-                    try:
-                        _iss.store_log(db_path, msg)  # 1sbfj: persist skip reason
-                    except Exception:
-                        pass
-            # 1sek8: this table's write block completed — record the stale set
-            # it processed so the caller commits these paths' walk hashes to
-            # the per-layer state. Placement matters: any exception above
-            # skips this line, the layer stays stale, the next build retries.
-            if written_paths is not None:
-                written_paths[table_name] = set(stale)
+            existing = _read_vector_rows_for_paths(db_path, layer, {path})
+            ids, rows, fallback, stats = _plan_vector_delta_rows(
+                existing_rows=existing, new_chunks=fresh, embedder=embedder, label=label)
+            if fallback:
+                vectors = _embed_chunks_for_incremental(label, fresh, embedder) if fresh else []
+                prepared.add(layer, paths=[path], rows=_make_vector_rows(fresh, vectors))
+            else:
+                prepared.add(layer, ids=ids, rows=rows)
+            _log_semantic_file_delta(path, layer, stats)
+        if written_paths is not None:
+            written_paths[layer] = set(stale)
 
 
 def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
-    """Force-rebuild the derived chunk state (FTS5 + registry) from Lance (1sek8).
+    """Repair FTS5 and registry from canonical chunks without altering vectors.
 
     The operator-facing from-scratch recovery behind
     ``index_build(content='fts')``: drops and repopulates each table's
-    FTS/registry rows from the authoritative Lance tables using the
-    schema-tolerant projection, records fresh sync counts, and clears the
+    FTS/registry rows from the canonical chunk tables, records fresh sync counts, and clears the
     cold flag. Derived-only and embedding-free — seconds, not minutes.
     Caller holds the index-build lock.
     """
@@ -3468,145 +2868,52 @@ def rebuild_derived_chunk_state(index_dir: Path, verbose: bool = False) -> dict:
 
 
 def _chunk_index_needs_heal(index_dir: Path) -> bool:
-    """Cheap coverage probe: does the derived chunk index need a reconcile? (1sbfj)
-
-    Guards the zero-change fall-through in ``build_index``: the up-to-date
-    early return previously exited before the end-of-build reconcile, so an
-    under-covered store (the field defect: reconcile failing silently for
-    months) could never heal on an idle repo — exactly the upgrade-then-retest
-    scenario. Cost is bounded: the cold flag, one SQLite ``count(*)`` and one
-    Lance ``count_rows()`` per table, plus (1wpag) one FTS liveness/parity
-    probe and one linear keyed-digest scan per table (a probe-boundary read,
-    never on the public query path). The reconcile
-    itself only runs when this returns True. Material gap = more than
-    ``max(8, lance_rows // 50)`` rows in either direction (proportional, so
-    legitimately-small repos still heal and a 1-row crash window can wait for
-    the next changed build). Never raises; any probe error reads as healthy
-    (the end-of-build reconcile on the next changed build still owns repair).
-    """
+    if not (index_dir / vector_store.FILENAME).exists():
+        return False
     iss = _get_index_state_store()
-    if iss is None:
-        return False
-    try:
-        if iss.chunk_index_is_cold(index_dir):
+    if iss.chunk_index_is_cold(index_dir):
+        return True
+    for layer, count in vector_store.layer_counts(index_dir).items():
+        if count != iss.registry_chunk_count(index_dir,layer):
             return True
-        for table_name in ("docs", "code"):
-            if not (index_dir / f"{table_name}.lance").is_dir():
-                continue
-            lance_rows = _get_lance_db(index_dir).open_table(table_name).count_rows()
-            registry_rows = iss.registry_chunk_count(index_dir, table_name)
-            if registry_rows is None:
-                continue  # store absent/unreadable — nothing to heal into
-            # Exact-first: compare against the counts recorded at the last
-            # successful reconcile. Lance ids are NOT unique (duplicate-id
-            # rows from incremental churn inflate ``count_rows`` above the
-            # registry's unique count — observed live: +294 on this repo), so
-            # a raw-vs-registry threshold misreads a fully-synced store as
-            # under-covered and re-reconciles it every build. Any drift from
-            # the recorded counts is genuine divergence — heal it.
-            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
-            if synced_raw is not None and synced_unique is not None:
-                if lance_rows != synced_raw or registry_rows != synced_unique:
-                    return True
-            # Fallback (store never reconciled under this code): proportional
-            # material-gap threshold, dup-margin tolerant by looseness.
-            elif abs(lance_rows - registry_rows) > max(8, lance_rows // 50):
-                return True
-            # 1wpag (wave 1wpif): registry/Lance count parity cannot see
-            # FTS-only damage (a dropped, emptied, or truncated FTS table,
-            # shadow-table loss, FTS-ahead orphan rows, an equal-count payload
-            # substitution). This zero-change branch IS the ordinary reconcile
-            # path for an idle repo, so it is a probe boundary: one bounded
-            # liveness/parity probe plus one linear keyed-digest scan per
-            # table. A damaged verdict routes to the reconcile, which heals
-            # under the build lock and writes the per-epoch heal marker.
-            if hasattr(iss, "fts_state_verdict"):
-                verdict = iss.fts_state_verdict(index_dir, table_name)
-                if not verdict.get("ok") and verdict.get("reason") not in ("store_absent", "fts_disabled"):
-                    return True
-    except Exception:  # noqa: BLE001 - probe is advisory
-        return False
+        verdict = iss.fts_state_verdict(index_dir,layer)
+        if not verdict.get("ok"):
+            return True
     return False
 
 
-def _sync_chunk_derived_state(
-    index_dir: Path, *, expected: bool = False, verbose: bool = False, force: bool = False
-) -> dict:
-    """Wave 1rsh9 (1rrr0): reconcile FTS/registry with Lance (crash-window repair).
-
-    Ordered-consistency safety net: compares the chunk-id set per table between
-    Lance (authoritative) and the index-state store; on mismatch the derived
-    tables are rebuilt from Lance rows (id/path/kind/lines/text/chunk_hash —
-    vectors never read). Runs at the end of every build; ``expected=True``
-    marks a full rebuild / cold store so the rebuild is not logged as a repair.
-    Never raises — a failure just leaves the reconcile for the next build.
-    """
-    stats: dict = {}
+def _sync_chunk_derived_state(index_dir: Path, *, expected=False, verbose=False, force=False) -> dict:
     iss = _get_index_state_store()
-    if iss is None:
-        return stats
-    for table_name in ("docs", "code"):
-        table_dir = index_dir / f"{table_name}.lance"
-        if not table_dir.is_dir():
-            continue
+    stats = {}
+    for layer in ("docs", "code"):
         try:
-            db = _get_lance_db(index_dir)
-            table = db.open_table(table_name)
-            id_rows = table.search().select(["id"]).limit(None).to_arrow().to_pylist()
-            lance_ids = {str(r.get("id") or "") for r in id_rows}
-
-            def _fetch_rows(_table=table):
-                # 1sbfj: project only columns present in the table's ACTUAL
-                # schema — Lance raises on absent columns, and production
-                # tables have never had `tags` (the chunker doesn't emit it,
-                # so schema inference never creates the column; only test
-                # fixtures did). The store's row coercion defaults missing
-                # keys, so absent optional columns come back empty. Only
-                # id/path/text are load-bearing: a table without those is
-                # genuinely unreadable and takes the fail-safe skip path.
-                wanted = ["id", "path", "kind", "language", "tags", "lines", "text", "chunk_hash"]
-                present = {f.name for f in _table.schema}
-                missing_required = [c for c in ("id", "path", "text") if c not in present]
-                if missing_required:
-                    raise ValueError(
-                        f"table schema missing required columns {missing_required} "
-                        f"(present: {sorted(present)})"
-                    )
-                cols = [c for c in wanted if c in present]
-                return _table.search().select(cols).limit(None).to_arrow().to_pylist()
-
-            result = iss.reconcile_chunk_index(
-                index_dir, table_name, lance_ids, _fetch_rows, expected=expected,
-                raw_rows=len(id_rows), force=force,
-            )
-            stats[table_name] = result
-            if result.get("id_collisions"):
-                # 1wngv: surface the store-recorded same-ID/distinct-content
-                # census in build output — derived coverage is not complete
-                # for the colliding content until a rebuild under the fixed
-                # chunker clears it.
-                print(
-                    f"build_index: chunk-id collision census for '{table_name}': "
-                    f"{result['id_collisions']} colliding id(s) with distinct content "
-                    f"(sample: {', '.join(result.get('id_collision_sample') or [])})",
-                    file=sys.stderr,
-                )
-            if verbose and result.get("reconciled"):
-                print(
-                    f"build_index: chunk-index for '{table_name}' rebuilt from Lance "
-                    f"({result.get('rows_written', 0)} rows)",
-                    flush=True,
-                )
-        except Exception as exc:  # noqa: BLE001 - derived state must never fail a build
-            msg = f"build_index: chunk-index reconcile for '{table_name}' skipped ({exc})"
-            print(msg, file=sys.stderr)
-            stats[table_name] = {"reconciled": False, "error": str(exc)}
-            # 1sbfj: persist the skip reason — this exact message was
-            # stdout-only in the field and cost an investigation hours.
+            count = vector_store.layer_counts(index_dir)[layer]
+            store = iss.IndexStateStore(index_dir)
             try:
-                iss.store_log(index_dir, msg)
-            except Exception:
-                pass
+                store._conn.execute("BEGIN IMMEDIATE")
+                verdict = iss.fts_state_verdict(index_dir, layer, _writer_conn=store._conn)
+                needs_repair = force or not verdict.get("ok")
+                if needs_repair:
+                    store._conn.execute("ROLLBACK")
+                    iss.rebuild_chunk_index(index_dir, layer, [])
+                    store._conn.execute("BEGIN IMMEDIATE")
+                with store._conn:
+                    store.set_meta({iss.META_CHUNK_INDEX_COLD: "0"})
+                    if needs_repair and not verdict.get("ok"):
+                        epoch = store._conn.execute("SELECT attempt_id FROM build_state WHERE id=1").fetchone()
+                        if epoch:
+                            store.set_meta({iss.META_FTS_HEAL_ATTEMPT_PREFIX + layer: epoch[0]})
+                    # Compatibility metadata for the public coverage report, now one engine.
+                    store.set_meta({iss.META_CHUNK_SYNC_RAW_PREFIX + layer: str(count)})
+                    store.set_meta({iss.META_CHUNK_SYNC_UNIQUE_PREFIX + layer: str(count)})
+                store._conn.execute("COMMIT")
+            finally:
+                store.close()
+            stats[layer] = {"reconciled": bool(needs_repair), "rows_written": count if needs_repair else 0,
+                            "fts_repaired": bool(needs_repair and not verdict.get("ok")),
+                            "fts_reason": verdict.get("reason")}
+        except Exception as exc:
+            stats[layer] = {"error": str(exc)}
     return stats
 
 
@@ -3807,53 +3114,6 @@ def _index_build_lock(index_dir: Path):
                 lock.release()
             except OSError:
                 pass
-
-
-@contextmanager
-def _table_lock(table_dir: Path, *, create_dir: bool = False):
-    """Acquire a per-table build lock at ``table_dir/.lock``.
-
-    ``table_dir`` is the Lance table directory (e.g. ``index_dir/docs.lance``).
-    Set ``create_dir=True`` for the full-rebuild path where the directory may not
-    exist yet.  The incremental path should leave it False so that the caller's
-    "table absent" guard still fires when the Lance dir is missing.
-
-    The lock file contains the owning process PID; its mtime is used by server.py
-    to detect stale locks older than LOCK_STALE_SECONDS.  Using ``O_CREAT | O_EXCL``
-    provides the same atomic-create guarantee as ``mkdir()`` on POSIX.
-    Readers see ``docs.lance/.lock`` only while their specific table is being
-    written — the other table remains unlocked and fully readable.
-    """
-    if create_dir:
-        table_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = table_dir / TABLE_LOCK_NAME
-    # If the table directory doesn't exist and create_dir wasn't requested, skip locking —
-    # the caller's "table absent" guard will handle this case.
-    if not table_dir.exists():
-        yield
-        return
-    acquired = False
-    while not acquired:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                os.write(fd, str(os.getpid()).encode())
-            finally:
-                os.close(fd)
-            acquired = True
-        except FileExistsError:
-            try:
-                age = time.time() - lock_path.stat().st_mtime
-            except OSError:
-                age = 0
-            if age > LOCK_STALE_SECONDS:
-                lock_path.unlink(missing_ok=True)
-                continue
-            time.sleep(0.2)
-    try:
-        yield
-    finally:
-        lock_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -4334,6 +3594,31 @@ def _build_secrets_artifacts(
         return {"error": str(exc)}
 
 
+def preflight_rebuild_sources(root: Path, index_dir: Path | None = None, *,
+                              respect_ignore: bool = True, include_prefixes=(),
+                              project_include_prefixes=(), include_tests=False,
+                              include_generated=False) -> dict:
+    """Strict current-source census for receipt-owned rebuilds, without embeddings."""
+    root = Path(root)
+    index_dir = index_dir or root / INDEX_DIR_NAME
+    unreadable = set()
+    files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable)
+    if unreadable:
+        raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(unreadable))
+    files = _filter_by_prefixes([p for p in files if not _is_relative_to(p, index_dir)], root, include_prefixes)
+    files = _filter_project_index_excludes(files, root, include_prefixes,
+        project_include_prefixes=_project_meta_include_prefixes(root, project_include_prefixes))
+    code = _filter_code_files(_filter_project_index_excludes(files, root, include_prefixes,
+        project_include_prefixes=_effective_project_include_prefixes(root,index_dir,"code",project_include_prefixes)),
+        root, include_tests=include_tests, include_generated=include_generated)
+    docs = _filter_project_index_excludes(files, root, include_prefixes,
+        project_include_prefixes=_effective_project_include_prefixes(root,index_dir,"docs",project_include_prefixes))
+    layers = {"docs": set(docs) | set(code), "code": set(code)}
+    hashes = {p: _sha256(p) for p in layers["docs"] | layers["code"]}
+    return {layer: {str(p.relative_to(root)).replace("\\", "/"): hashes[p]
+                    for p in sorted(paths)} for layer, paths in layers.items()}
+
+
 def _chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict]]:
     chunker = _get_chunker()
     raw = chunker.chunk_file(content, rel_path)
@@ -4398,7 +3683,7 @@ def build_index(
             verbose=verbose,
             dry_run=True,
         )
-    with _index_build_lock(index_dir):
+    with _index_build_lock(index_dir), vector_store.PreparedUpdates(index_dir) as prepared:
         return _build_index_locked(
             root,
             full=full,
@@ -4413,7 +3698,56 @@ def build_index(
             files=files,
             verbose=verbose,
             dry_run=dry_run,
+            prepared=prepared,
         )
+
+
+def _validate_prepared_removals(
+    root, index_dir, removed_meta, removed_by_layer, *, requested_files,
+    respect_ignore, include_prefixes, project_include_prefixes, include_tests, include_generated,
+):
+    """Recheck destructive membership decisions against the current source census.
+
+    A deleted source can reappear while another file embeds. Existing excluded
+    files must still be removable, so existence alone is not the desired-state
+    test. Only builds actually removing paths pay for this second census.
+    """
+    removals = set(removed_meta).union(*removed_by_layer.values())
+    if not removals:
+        return
+    unreadable = set()
+    if requested_files is None:
+        current = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable)
+        current = [path for path in current if not _is_relative_to(path, index_dir)]
+        current = _filter_by_prefixes(current, root, include_prefixes)
+    else:
+        current = [path if path.is_absolute() else root / path for path in requested_files]
+        current = [path for path in current if _is_relative_to(path, root) and path.is_file()]
+        for exclude in (_filter_canonical_wave_event_ledgers, _filter_memory_archive_bodies,
+                        _filter_legacy_memory_pointers, _filter_secret_scan_findings):
+            current = exclude(current, root)
+    if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
+        current = _filter_framework_pack_artifacts(current, root)
+    if _graph_layer_for_index_dir(index_dir) == "project":
+        current = _filter_project_index_excludes(
+            current, root, include_prefixes,
+            project_include_prefixes=_project_meta_include_prefixes(root, project_include_prefixes))
+    def relative(paths):
+        return {str(path.relative_to(root)).replace("\\", "/") for path in paths}
+    code = _filter_code_files(_filter_project_index_excludes(
+        current, root, include_prefixes,
+        project_include_prefixes=_effective_project_include_prefixes(root, index_dir, "code", project_include_prefixes)),
+        root, include_tests=include_tests, include_generated=include_generated)
+    code_paths = relative(code)
+    docs_paths = relative(_filter_project_index_excludes(
+        current, root, include_prefixes,
+        project_include_prefixes=_effective_project_include_prefixes(root, index_dir, "docs", project_include_prefixes))) | code_paths
+    invalid = (set(removed_meta) & relative(current)) | (removed_by_layer.get("docs", set()) & docs_paths) | (
+        removed_by_layer.get("code", set()) & code_paths)
+    invalid |= {path for path in removals if _shadowed_by_unreadable(path, unreadable)}
+    if invalid:
+        raise RuntimeError("Removal source changed during embedding or became unreadable: "
+                           + ", ".join(sorted(invalid)[:5]) + "; retry indexing")
 
 
 def _build_index_locked(
@@ -4431,11 +3765,13 @@ def _build_index_locked(
     files: Optional[list[Path]] = None,
     verbose: bool = False,
     dry_run: bool = False,
+    prepared=None,
 ) -> dict:
     """Build or incrementally update the index at root/.wavefoundry/index/.
 
     Returns a summary dict with counts.
     """
+    requested_files = tuple(files) if files is not None else None
     try:
         import numpy as np
     except ImportError:
@@ -4448,6 +3784,30 @@ def _build_index_locked(
 
     if content not in CONTENT_CHOICES:
         raise ValueError(f"content must be one of: {', '.join(CONTENT_CHOICES)}")
+
+    import sqlite_storage_migration
+    try:
+        sqlite_storage_migration.require_ready(index_dir)
+    except sqlite_storage_migration.MigrationRequired as exc:
+        return _build_failed_result(files or [], str(exc))
+    storage_receipt = sqlite_storage_migration.read_receipt(index_dir)
+    storage_rebuild = (sqlite_storage_migration.rebuild_requested(storage_receipt)
+                       and storage_receipt["state"] != "complete")
+    rebuild_inventory = None
+    rebuild_options = dict(respect_ignore=respect_ignore, include_prefixes=include_prefixes,
+        project_include_prefixes=project_include_prefixes, include_tests=include_tests,
+        include_generated=include_generated)
+    if storage_rebuild:
+        if requested_files is not None:
+            raise RuntimeError("storage_rebuild_requires_complete_source_walk")
+        if content != "graph":
+            content, full = "all", True
+        rebuild_inventory = preflight_rebuild_sources(root, index_dir, **rebuild_options)
+
+    prepared_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
+                         getattr(_get_chunker(), "CHUNKER_VERSION", ""))
+    config_path = root / "docs" / "workflow-config.json"
+    prepared_config_hash = _sha256(config_path) if config_path.is_file() else None
 
     # --- 1sed6 review fix (reset-before-decisions): settle store schema
     # currency FIRST. The version-gated reset used to fire lazily at the
@@ -4466,8 +3826,22 @@ def _build_index_locked(
                 _pre_store = _iss_pre.IndexStateStore(index_dir)
                 try:
                     _pre_store.ensure_current()
+                    if not full:
+                        for layer in ("docs", "code"):
+                            if _pre_store._conn.execute(
+                                    f"PRAGMA foreign_key_check(vectors_{layer})").fetchone():
+                                return _build_failed_result(files or [],
+                                    f"{layer}: orphan vector references require an explicit "
+                                    "all-layer rebuild; run wf setup --full. Canonical data retained.")
                 finally:
                     _pre_store.close()
+            except vector_store.runtime.CorruptionError as exc:
+                return _build_failed_result(files or [],
+                    "Canonical SQLite index is corrupt. Stop all Wavefoundry database-owning "
+                    "hosts; preserve index-state.sqlite and any sibling -wal/-shm files "
+                    "outside .wavefoundry/index, then run wf setup --full. Keep separate "
+                    "graph/memory stores and any migration receipt/rollback intact. "
+                    f"If migration is pending, resume its recorded recovery first. Detail: {exc}")
             except Exception as exc:  # noqa: BLE001 - store must be decidable before any mutation
                 return _build_failed_result(
                     files or [], f"index-state store could not be brought current: {exc}"
@@ -4477,12 +3851,12 @@ def _build_index_locked(
     # the other layers' chunker_versions/model_versions/content provenance;
     # only a full ALL-layer rebuild starts from a clean slate. (Review fix:
     # a full scoped build previously erased the untouched layer's provenance
-    # and still published a complete epoch over its surviving Lance table.)
+    # and still published a complete epoch over its surviving canonical chunk layer.)
     meta = {} if (full and content == "all") else _load_meta(index_dir)
 
     # --- 1sed6 reset escalation (Req 8 / review fix) ---
     # After a whole-store reset (or on any store that lost its bookkeeping),
-    # a Lance table can exist with NO provenance in the canonical state. A
+    # a canonical chunk layer can exist with NO provenance in the canonical state. A
     # scoped build must not publish `complete` around that hole: escalate to
     # all-layer convergence. Cost is reset-shape-dependent: a whole-store
     # reset (content list empty too) converges as one re-chunk pass with
@@ -4497,7 +3871,7 @@ def _build_index_locked(
         _known_models = meta.get("model_versions") or {}
         _unprovenanced = [
             layer for layer in ("docs", "code")
-            if (index_dir / f"{layer}.lance").is_dir()
+            if vector_store.layer_available(index_dir, layer)
             and not _known_models.get(layer)
             and not (content == layer)  # this run rebuilds that layer's provenance itself
         ]
@@ -4528,7 +3902,7 @@ def _build_index_locked(
         _stale_model_layers: list[str] = []
         for _layer, _expected_model in _expected_models.items():
             _layer_present = (
-                (index_dir / f"{_layer}.lance").is_dir()
+                vector_store.layer_available(index_dir, _layer)
                 or _layer in set(meta.get("content", []))
             )
             if not _layer_present:
@@ -4590,7 +3964,7 @@ def _build_index_locked(
             _identity_fingerprint_for_class(_predicted_precision_class(DOCS_MODEL, _onnx_providers()))
         )
         docs_index_exists = (
-            (index_dir / "docs.lance").is_dir()
+            vector_store.layer_available(index_dir, "docs")
             or "docs" in previously_built_content
         )
         model_changed = model_changed or not docs_index_exists
@@ -4607,7 +3981,7 @@ def _build_index_locked(
             _identity_fingerprint_for_class(_predicted_precision_class(CODE_MODEL, _onnx_providers()))
         )
         code_index_exists = (
-            (index_dir / "code.lance").is_dir()
+            vector_store.layer_available(index_dir, "code")
             or "code" in previously_built_content
         )
         model_changed = model_changed or not code_index_exists
@@ -4655,7 +4029,7 @@ def _build_index_locked(
 
     # Drift-flagged paths (populated by the incremental change-detection branch
     # below). Consumed by the registry-skip exemption in the incremental write
-    # (wave 1rsh9): drift repair must always read Lance, the authority.
+    # (wave 1rsh9): drift repair must always read canonical chunks, the authority.
     drifted: set[str] = set()
 
     # Wave 1x54z (1u8o3): directories ``os.walk`` could not read this build
@@ -4665,6 +4039,8 @@ def _build_index_locked(
     if files is None:
         # Walk repo
         files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=_unreadable_dirs)
+        if storage_rebuild and _unreadable_dirs:
+            raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(_unreadable_dirs))
         files = [path for path in files if not _is_relative_to(path, index_dir)]
         files = _filter_by_prefixes(files, root, include_prefixes)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
@@ -4802,6 +4178,21 @@ def _build_index_locked(
     # limitation, not a regression).
     docs_prefix_eligible_rel: set[str] = set(docs_eligible_rel)
     docs_eligible_rel |= code_eligible_rel
+    # Full replacement also removes previously indexed paths absent from its
+    # captured census. Preserve those decisions for the same publication guard.
+    _full_removed_by_layer = {"docs": set(), "code": set()}
+    if full:
+        prior_conn = _get_index_state_store().open_read_only(index_dir)
+        if prior_conn is not None:
+            try:
+                for layer, enabled, eligible in (("docs", build_docs, docs_eligible_rel),
+                                                  ("code", build_code, code_eligible_rel)):
+                    if enabled:
+                        _full_removed_by_layer[layer] = {
+                            row[0] for row in prior_conn.execute(f"SELECT DISTINCT path FROM chunks_{layer}")
+                        } - eligible
+            finally:
+                prior_conn.close()
     # Hash the broad file set so the build snapshot captures every walkable file regardless
     # of which content type (docs/code/graph) this run is building. The snapshot is
     # the WALK-STATE snapshot (stat cache, graph/reap/freshness input) — since
@@ -4850,8 +4241,8 @@ def _build_index_locked(
             print(_shadow_msg, file=sys.stderr, flush=True)
             _store_log_safe(index_dir, _shadow_msg)
         # Wave 1p3b9 (1p399): drift detection. Cross-check `file_meta` against
-        # Lance: paths claimed indexed in file_meta but with zero rows in any
-        # Lance table are "drifted" — they need re-chunk + re-embed regardless
+        # canonical chunks: paths claimed indexed in file_meta but with zero rows in any
+        # canonical chunk layer are "drifted" — they need re-chunk + re-embed regardless
         # of hash match. The historic cause was the chunker mega-chunk bug
         # (closed by 1p397) that produced zero chunks for some files; the
         # incremental loop's skip-on-hash-match optimization perpetuated the
@@ -4870,7 +4261,7 @@ def _build_index_locked(
         # would survive in that mode. The set is computed per build and
         # never persisted, so include-flag transitions stay sound. Named
         # distinctly from the idle reap's `eligible_paths` (the wider meta
-        # union) — see _detect_lance_drift's docstring.
+        # union) — see _detect_vector_drift's docstring.
         if build_docs or build_code:
             # 1sek8: drift candidacy = the PRE-union eligibility of the layers
             # being BUILT — a docs-only build can only repair docs-prefix
@@ -4881,7 +4272,7 @@ def _build_index_locked(
                 (docs_prefix_eligible_rel if build_docs else set())
                 | (code_eligible_rel if build_code else set())
             )
-            drifted = _detect_lance_drift(
+            drifted = _detect_vector_drift(
                 index_dir,
                 current_file_meta,
                 chunk_eligible_rel_paths=chunk_eligible_rel_paths,
@@ -4917,13 +4308,13 @@ def _build_index_locked(
             changed_broad |= drifted
     # Wave 1p4n4: chunker-only re-index — force every file to re-chunk so the new chunk
     # SHAPE is produced. They are all already in old_file_meta, so they flow through below as
-    # `updated` (not `added`) → existing Lance rows are fetched and the delta planner reuses
+    # `updated` (not `added`) → existing canonical rows are fetched and the delta planner reuses
     # vectors for content-unchanged chunks; only genuinely new/changed chunks re-embed.
     if rechunk_all:
         changed_broad |= set(current_file_meta.keys())
     # Wave 1ro44 (1p8gy) — memory invalidation FIRST (delivery-review round 4):
     # advance the memory generation as soon as the changed/removed path sets are
-    # known, BEFORE any optional Lance / FTS / freshness / drift work, so a
+    # known, BEFORE any optional vector / FTS / freshness / drift work, so a
     # later structured build failure cannot leave a raw-edited memory record's
     # advisory stale. Gated on actual changed/removed memory records.
     #
@@ -5001,7 +4392,7 @@ def _build_index_locked(
                 if _cur is None or _cur != _state.get(_rel):
                     _stale_set.add(_rel)
             # Drift-flagged paths re-process regardless of layer-hash match
-            # (Lance rows vanished out-of-band; Lance is the authority).
+            # (canonical rows vanished out-of-band; canonical chunks are the authority).
             _stale_set |= drifted & _eligible
             layer_stale[_layer] = _stale_set
     changed = (changed_broad & files_rel) if full else (layer_stale["docs"] | layer_stale["code"])
@@ -5011,7 +4402,7 @@ def _build_index_locked(
     stale = changed | removed
 
     if not full and not stale:
-        # Even when no files changed, LanceDB rows for paths now excluded by
+        # Even when no files changed, canonical rows for paths now excluded by
         # workflow-config narrowing must still be reaped — build-state drift is
         # invisible to ``stale`` once a prior build dropped those paths from
         # ``old_file_meta``. Reaping here ensures post-edit-hook triggers
@@ -5026,8 +4417,8 @@ def _build_index_locked(
         # tables against it is correct.
         # 1sed6: read-only preflight FIRST — a true no-op must not open the
         # build epoch or advance the generation (Req 8); mutations (reap,
-        # heal) require the durable fence before they touch Lance/FTS.
-        _reap_plan = _reap_stranded_lance_rows(
+        # heal) require the durable fence before they touch canonical/FTS.
+        _reap_plan = _reap_stranded_vector_rows(
             index_dir,
             set(current_file_meta.keys()),
             root=root,
@@ -5186,7 +4577,7 @@ def _build_index_locked(
         # Recovery guard (independent-review F1 — the inverse of the
         # publication rear guard): a dirty-epoch recovery may only republish
         # state it can actually serve. A layer whose chunk REGISTRY holds
-        # rows (content was published) but whose Lance table is gone cannot
+        # rows (content was published) but whose canonical chunk layer is gone cannot
         # be repaired here — recovery never re-embeds. Checked BEFORE the
         # reap/heal (which would resync the registry down to the absent table
         # and erase the loss signal), keyed on the registry rather than bare
@@ -5198,7 +4589,7 @@ def _build_index_locked(
         if _epoch_dirty:
             _claimed_missing = []
             for _layer in ("docs", "code"):
-                if (index_dir / f"{_layer}.lance").is_dir():
+                if vector_store.layer_available(index_dir, _layer):
                     continue
                 _reg_rows = _iss_epoch.registry_chunk_count(index_dir, _layer)
                 if _reg_rows:
@@ -5212,7 +4603,7 @@ def _build_index_locked(
                 return _build_failed_result(
                     files,
                     "zero-change recovery cannot republish: the chunk registry holds rows for "
-                    f"layer(s) {', '.join(_claimed_missing)} but the Lance table is missing — "
+                    f"layer(s) {', '.join(_claimed_missing)} but its vector layer is missing — "
                     "layer state reset; run index_build(content='all') to reconstruct",
                 )
         try:
@@ -5221,7 +4612,7 @@ def _build_index_locked(
             return _build_failed_result(files, f"could not open the build epoch: {exc}")
         reap_idle = {"docs": 0, "code": 0, "total": 0}
         if _needs_reap:
-            reap_idle = _reap_stranded_lance_rows(
+            reap_idle = _reap_stranded_vector_rows(
                 index_dir,
                 set(current_file_meta.keys()),
                 root=root,
@@ -5363,13 +4754,13 @@ def _build_index_locked(
                     flush=True,
                 )
 
-    # If no Lance tables exist yet (first build or upgrade from legacy), force a full rebuild
+    # If no canonical chunk tables exist yet (first build or upgrade from legacy), force a full rebuild
     # so tables are created from the complete corpus.
     if not full:
-        has_lance = (index_dir / "docs.lance").is_dir() or (index_dir / "code.lance").is_dir()
-        if not has_lance:
+        has_vector_layers = vector_store.layer_available(index_dir, "docs") or vector_store.layer_available(index_dir, "code")
+        if not has_vector_layers:
             print(
-                "build_index: no LanceDB tables found — full rebuild to create index",
+                "build_index: no initialized vector layers found — full rebuild to create index",
                 flush=True,
             )
             full = True
@@ -5447,7 +4838,7 @@ def _build_index_locked(
     # Wave 1p5d6: load a layer's embedder only when it has embedding work — a full rebuild always
     # does, but an incremental update only needs the model for a layer with new/changed chunks. This
     # spares a docs-only edit the shared Arctic S CoreML session init for the code layer (and vice versa). Safe because
-    # `_lance_incremental_write` only touches the embedder when chunks are present (delete-only /
+    # `_prepare_incremental_vectors` only touches the embedder when chunks are present (delete-only /
     # no-op writes never embed), so a layer with no new chunks correctly receives `None`.
     if build_docs or build_code:
         _progress(verbose, "build_index: resolving configured docs/code embedders")
@@ -5459,8 +4850,8 @@ def _build_index_locked(
         code_chunk_count=len(new_code_chunks),
     )
 
-    # Write to LanceDB — the only index format.
-    lance_db_path = index_dir
+    # Prepare the sole SQLite semantic format.
+    semantic_db_path = index_dir
 
     # Compute chunk deltas before the write so we can count removed chunks.
     # added_files produced new chunks; updated_files replaced existing ones; removed files had theirs deleted.
@@ -5472,10 +4863,10 @@ def _build_index_locked(
     code_chunks_added = sum(1 for c in new_code_chunks if c.get("path") in added_files_set)
     code_chunks_updated_new = sum(1 for c in new_code_chunks if c.get("path") in updated_files_set)
     if not full:
-        doc_chunks_removed = _count_chunks_for_paths(lance_db_path, "docs", removed_files_set | updated_files_set) if build_docs else 0
-        code_chunks_removed = _count_chunks_for_paths(lance_db_path, "code", removed_files_set | updated_files_set) if build_code else 0
-        doc_chunks_updated_old = _count_chunks_for_paths(lance_db_path, "docs", updated_files_set) if build_docs else 0
-        code_chunks_updated_old = _count_chunks_for_paths(lance_db_path, "code", updated_files_set) if build_code else 0
+        doc_chunks_removed = _count_chunks_for_paths(semantic_db_path, "docs", removed_files_set | updated_files_set) if build_docs else 0
+        code_chunks_removed = _count_chunks_for_paths(semantic_db_path, "code", removed_files_set | updated_files_set) if build_code else 0
+        doc_chunks_updated_old = _count_chunks_for_paths(semantic_db_path, "docs", updated_files_set) if build_docs else 0
+        code_chunks_updated_old = _count_chunks_for_paths(semantic_db_path, "code", updated_files_set) if build_code else 0
         # removed = old chunks for removed files; updated shows net change
         doc_chunks_removed_net = doc_chunks_removed - doc_chunks_updated_old
         code_chunks_removed_net = code_chunks_removed - code_chunks_updated_old
@@ -5484,7 +4875,7 @@ def _build_index_locked(
         code_chunks_removed_net = 0
 
     # --- 1sed6: durable pre-mutation fence ---
-    # Every path past this point mutates Lance/FTS/derived state; the FULL-
+    # Every path past this point mutates canonical/FTS/derived state; the FULL-
     # durable `building` epoch must exist FIRST so a crash can never leave
     # partially mutated data behind an apparently valid completed generation.
     # Readers fail closed (no complete token) until finalization.
@@ -5511,9 +4902,8 @@ def _build_index_locked(
         # signal-handler and pickle state. The graph layer already
         # parallelizes per-file extraction across multiple processes, so
         # threading the graph build added zero concurrency benefit anyway —
-        # it just exposed the hazard. The docs/code writes stay in the
-        # threadpool because they're I/O-bound on LanceDB and threads are
-        # the correct tool for that workload.
+        # it just exposed the hazard. Docs/code embedding and preparation use
+        # threads; semantic writes are serialized later in one SQLite transaction.
         # Secrets scan runs as a threadpool future (project layer only).
         # CORRECTION (wave 1p8gu review MP-4): the secrets scanner DOES use a
         # ProcessPoolExecutor (spawn) internally when the changed-file set is
@@ -5554,7 +4944,7 @@ def _build_index_locked(
             else:
                 # Wave 1rsh9: drift-flagged paths are exempt from the registry
                 # skip inside the incremental write — their registry rows
-                # mirror the PRE-drift Lance state and would wrongly report
+                # mirror the PRE-drift canonical state and would wrongly report
                 # "unchanged", silently defeating the drift repair.
                 _skip_exempt = set(drifted)
                 # 1sek8: each table's writer receives ITS layer's stale set
@@ -5566,7 +4956,7 @@ def _build_index_locked(
                 _layer_written: dict[str, set[str]] = {}
                 if build_docs:
                     def _write_docs_incr(
-                        _db_path=lance_db_path,
+                        _db_path=semantic_db_path,
                         _stale=(layer_stale["docs"] | removed),
                         _doc_chunks=new_doc_chunks,
                         _docs_emb=docs_embedder,
@@ -5576,12 +4966,12 @@ def _build_index_locked(
                         _written=_layer_written,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written)
+                        _prepare_incremental_vectors(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_docs_incr))
                 if build_code:
                     def _write_code_incr(
-                        _db_path=lance_db_path,
+                        _db_path=semantic_db_path,
                         _stale=(layer_stale["code"] | removed),
                         _code_chunks=new_code_chunks,
                         _code_emb=code_embedder,
@@ -5591,7 +4981,7 @@ def _build_index_locked(
                         _written=_layer_written,
                     ) -> None:
                         _t0 = time.monotonic()
-                        _lance_incremental_write(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written)
+                        _prepare_incremental_vectors(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
                         _elapsed.append(time.monotonic() - _t0)
                     futures.append(executor.submit(_write_code_incr))
             # Secrets scan runs as a future (project layer) — concurrent with graph.
@@ -5636,7 +5026,7 @@ def _build_index_locked(
             # secrets future. The incremental path used the docs/code futures submitted above.
             if full:
                 _run_streaming_full_rebuild(
-                    db_path=lance_db_path,
+                    db_path=semantic_db_path,
                     files_to_index=files_to_index,
                     root=root,
                     build_docs=build_docs,
@@ -5650,6 +5040,8 @@ def _build_index_locked(
                     code_elapsed=_code_elapsed,
                     docs_eligible_rel=docs_eligible_rel if build_docs else None,
                     code_eligible_rel=code_eligible_rel if build_code else None,
+                    prepared=prepared,
+                    strict_reads=storage_rebuild,
                 )
             # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
             # extraction runs synchronously on the main thread, concurrently
@@ -5667,8 +5059,9 @@ def _build_index_locked(
                 # Wave 1x54z (1u8o3): on an incremental build the merge keeps
                 # known paths under a directory the walk could not read (they
                 # are carried forward as unchanged everywhere else); a FULL
-                # rebuild is a rebuild from the current corpus and drops them,
-                # in parity with the Lance tables.
+                # rebuild prepares graph state from the current corpus. The
+                # semantic removal guard below refuses publication if omitted
+                # prior paths are unreadable; the global epoch stays unavailable.
                 unreadable_dirs=(_unreadable_dirs if not full else None),
                 walker_version=WALKER_VERSION,
                 chunker_version=current_chunker_version,
@@ -5687,18 +5080,8 @@ def _build_index_locked(
             if isinstance(entry, dict):
                 entry["chunks_emitted"] = count
 
-        # Get total chunk counts from Lance tables for the summary.
-        total_doc_chunks = 0
-        total_code_chunks = 0
-        try:
-            db = _get_lance_db(index_dir)
-            if (index_dir / "docs.lance").is_dir():
-                total_doc_chunks = db.open_table("docs").count_rows()
-            if (index_dir / "code.lance").is_dir():
-                total_code_chunks = db.open_table("code").count_rows()
-        except Exception:
-            total_doc_chunks = len(new_doc_chunks)
-            total_code_chunks = len(new_code_chunks)
+        # Counts are computed after the prepared transaction publishes below.
+        total_doc_chunks = total_code_chunks = 0
     except Exception as exc:
         print(f"build_index: index update failed: {exc}", file=sys.stderr)
         raise
@@ -5762,15 +5145,10 @@ def _build_index_locked(
         return _build_failed_result(
             files, "index-state store module unavailable — cannot record canonical build state"
         )
-    try:
-        _state_store.write_build_bookkeeping(index_dir, new_meta)
-    except Exception as exc:  # noqa: BLE001 - converted to a structured failure
-        return _build_failed_result(files, f"canonical build-state write failed: {exc}")
-
-    # Reap LanceDB rows whose path is no longer in the current eligible set.
+    # Reap canonical rows whose path is no longer in the current eligible set.
     # Runs on every incremental update across both tables — the workflow-
     # config-evolution blind spot is invisible from the build snapshot alone (the
-    # narrowing already updated meta), so the reaper must reconcile LanceDB
+    # narrowing already updated meta), so the reaper must reconcile canonical chunks
     # directly. Reaping both tables regardless of ``content`` arg keeps the
     # cross-content failure mode closed: a docs-only update reaps code-table
     # orphans (and vice versa). Full rebuilds drop the tables entirely so
@@ -5781,22 +5159,23 @@ def _build_index_locked(
     orphan_rows_reconciled: dict[str, int] = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
     _reap_deferred_build: dict = {}
     _reap_preserved_build: dict = {}
+    _reap_paths_by_table: dict = {}
     if not full:
-        reap_result = _reap_stranded_lance_rows(
-            lance_db_path,
+        reap_result = _reap_stranded_vector_rows(
+            semantic_db_path,
             set(current_file_meta.keys()),
             root=root,
             tables=("docs", "code"),
             verbose=verbose,
             eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
             unreadable_dirs=_unreadable_dirs,
+            prepared=prepared,
         )
         _reap_paths_by_table = reap_result.pop("paths_by_table", {})
         _reap_preserved_build = _preserved_summary(reap_result.pop("preserved_by_table", None))
         _reap_deferred_build = _deferred_summary(reap_result.pop("deferred_by_table", None))
         stranded_rows_reaped_by_table = reap_result
         stranded_rows_reaped = reap_result.get("total", 0)
-        _cleanup_layer_state_for_reaped(index_dir, _reap_paths_by_table)
         # 1u8nz: orphan-store reconciliation at the build-path reap seam (same
         # epoch). By this point the ordinary graph merge above already pruned
         # store-minus-walk, so the plan's graph set is normally empty here;
@@ -5819,47 +5198,73 @@ def _build_index_locked(
                 verbose=verbose,
             )
 
-    # --- 1sek8: commit each layer's last-embedded hashes ---
-    # Ordered AFTER the Lance writes (same posture as the chunk deltas): a
-    # layer records a path's walk hash only once its table's write block
-    # completed this build, so a failed write leaves the layer stale and the
-    # next build retries. Full rebuilds replace the whole layer state from
-    # the eligibility set. Never fails the build — a skipped commit just
-    # means re-processing next build (idempotent, vectors reused).
-    if _state_store is not None:
+    # One native writer transaction publishes vectors, text, FTS and all indexing state.
+    store = _state_store.IndexStateStore(index_dir)
+    try:
+        conn = store._conn
+        conn.execute("BEGIN IMMEDIATE")
         try:
+            epoch = conn.execute("SELECT attempt_id,status FROM build_state WHERE id=1").fetchone()
+            if epoch != (_build_attempt,"building"):
+                raise RuntimeError("Prepared index attempt is no longer current")
+            def validate_sources():
+                if storage_rebuild and preflight_rebuild_sources(root, index_dir, **rebuild_options) != rebuild_inventory:
+                    raise RuntimeError("storage_rebuild_source_changed: retry the complete rebuild")
+                current_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
+                                    getattr(_get_chunker(), "CHUNKER_VERSION", ""))
+                current_config = _sha256(config_path) if config_path.is_file() else None
+                if current_identity != prepared_identity or current_config != prepared_config_hash:
+                    raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
+                for rel in chunks_emitted_by_file:
+                    expected = current_file_meta.get(rel,{}).get("hash")
+                    if expected and _sha256(root / rel) != expected:
+                        raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
+                _validate_prepared_removals(
+                    root, index_dir, removed_broad,
+                    {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
+                     for layer in ("docs", "code")}, requested_files=requested_files,
+                    respect_ignore=respect_ignore, include_prefixes=include_prefixes,
+                    project_include_prefixes=project_include_prefixes,
+                    include_tests=include_tests, include_generated=include_generated)
+            validate_sources()
+            prepared.apply(store)
+            _state_store.write_build_bookkeeping_locked(conn,new_meta)
             if full:
-                for _layer, _flag, _eligible in (
-                    ("docs", build_docs, docs_eligible_rel),
-                    ("code", build_code, code_eligible_rel),
-                ):
-                    if not _flag:
-                        continue
-                    _state_store.replace_layer_hashes(
-                        index_dir, _layer,
-                        {r: current_file_meta[r]["hash"] for r in _eligible if r in current_file_meta},
-                    )
+                for layer, enabled, eligible in (("docs",build_docs,docs_eligible_rel),("code",build_code,code_eligible_rel)):
+                    if enabled:
+                        conn.execute("DELETE FROM layer_path_state WHERE layer=?", (layer,))
+                        conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?)",
+                            ((layer,r,current_file_meta[r]['hash']) for r in eligible if r in current_file_meta))
             else:
-                for _layer, _written in _layer_written.items():
-                    _state_store.update_layer_hashes(
-                        index_dir, _layer,
-                        set_hashes={
-                            r: current_file_meta[r]["hash"]
-                            for r in _written if r in current_file_meta
-                        },
-                        remove_paths=removed_broad,
-                    )
-        except Exception as exc:  # noqa: BLE001 - converted to structured failure (1sed6)
-            # Per-layer hashes are a mandatory resident: a failed commit
-            # must not finalize the epoch (the un-committed layer would
-            # read current-by-generation while carrying stale hashes).
-            return _build_failed_result(files, f"layer-state commit failed: {exc}")
+                for layer, written in _layer_written.items():
+                    conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?) "
+                        "ON CONFLICT(layer,path) DO UPDATE SET hash=excluded.hash",
+                        ((layer,r,current_file_meta[r]['hash']) for r in written if r in current_file_meta))
+                    conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
+                        ((layer,r) for r in set(removed_broad) | set(_reap_paths_by_table.get(layer,()))))
+            for layer in ("docs", "code"):
+                integrity = vector_store.vector_integrity(conn, layer)
+                if integrity['missing_vectors'] or integrity['orphan_vectors']:
+                    raise RuntimeError(f"{layer}: vector integrity failed "
+                                       f"({integrity['missing_vectors']} missing, "
+                                       f"{integrity['orphan_vectors']} orphaned); explicit full rebuild required")
+            if storage_rebuild and build_docs and build_code:
+                sqlite_storage_migration.record_rebuild_proof(
+                    conn, storage_receipt, rebuild_inventory, rebuild_options, new_meta, _build_attempt)
+            validate_sources()
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    except Exception as exc:
+        return _build_failed_result(files, f"Atomic semantic publication failed: {exc}")
+    finally:
+        store.close()
+    _counts = vector_store.layer_counts(index_dir)
+    total_doc_chunks, total_code_chunks = _counts["docs"], _counts["code"]
 
-    # Wave 1rsh9 (1rrr0): ordered-consistency reconciliation — repair any
-    # crash window between the Lance writes and the store's FTS/registry
-    # transaction, and absorb the reap above. Expected (quiet) after a full
-    # rebuild, where the derived tables are rebuilt from fresh Lance state
-    # by design.
+    # Verify derived FTS/registry state against the canonical rows just
+    # committed. Repair derived damage without replacing vectors or text.
     _reconcile_stats = _sync_chunk_derived_state(
         index_dir,
         expected=bool(full or rechunk_all or stranded_rows_reaped),
@@ -5877,7 +5282,7 @@ def _build_index_locked(
     # Wave 1rsh9 (1rq4h): refresh the index-state store's freshness/attribution
     # tables in one transaction per build pass — still inside the index-build
     # lock. Zero-change builds skip on the git-HEAD + path-set fingerprint;
-    # end-of-build maintenance (WAL truncate + incremental vacuum) keeps the
+    # end-of-build maintenance (passive WAL checkpoint + bounded incremental reclamation) keeps the
     # store bounded under the long-lived MCP server. Never fails the build.
     if _state_store is not None:
         _state_store.update_freshness_from_build(
@@ -5916,12 +5321,12 @@ def _build_index_locked(
     # ranking decay, not readiness). Only this CAS advances the generation
     # readers trust; a miss means a newer attempt superseded this build.
     # Rear guard (review fix): completion may only publish when every PRESENT
-    # Lance table has provenance in the canonical state just written. The
+    # canonical chunk layer has provenance in the canonical state just written. The
     # front gate escalates scoped builds around the hole; this catches any
     # path that slipped through so `complete` can be trusted globally.
     _unprovenanced_at_publish = [
         layer for layer in ("docs", "code")
-        if (index_dir / f"{layer}.lance").is_dir()
+        if vector_store.layer_available(index_dir, layer)
         and not (new_meta.get("model_versions") or {}).get(layer)
     ]
     if _unprovenanced_at_publish:
@@ -5959,7 +5364,7 @@ def _build_index_locked(
     if build_docs:
         if full:
             # Wave 1p5ch: the streaming rebuild never materializes new_doc_chunks,
-            # so report the rows actually written (from the Lance table count above).
+            # so report the rows actually written (from the canonical chunk layer count above).
             doc_chunk_summary = f"{total_doc_chunks} new"
         else:
             doc_chunk_summary = f"{doc_chunks_added} added, {doc_chunks_updated_new} updated, {doc_chunks_removed_net} removed"

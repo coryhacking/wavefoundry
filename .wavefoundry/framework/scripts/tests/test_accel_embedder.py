@@ -429,10 +429,8 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertEqual(self.ae.STATIC_BATCH, 32)
         self.assertNotEqual(self.ae.RERANK_STATIC_BATCH, self.ae.STATIC_BATCH)
 
-    def test_rerank_ranking_identical_across_batch_sizes(self):
-        # 1p66v faithfulness guard: batch size is a latency knob ONLY — the per-passage logit is
-        # identical regardless of RERANK_STATIC_BATCH, including when the pool spans multiple chunks
-        # (the same (query,passage) pair gets the same score wherever it lands in the batching).
+    def test_gpu_rerank_preserves_content_order_across_batch_sizes(self):
+        # This content-independent fake checks GPU batching/order, not real INT8 invariance.
         ae = self.ae
 
         class _ContentTok:
@@ -458,7 +456,7 @@ class AccelEmbedderTests(unittest.TestCase):
                 return [np.asarray([[float(ids[r, 0])] for r in range(b)], dtype=np.float32)]
 
         rr = ae.StaticShapeReranker.__new__(ae.StaticShapeReranker)
-        rr.model_name = "fake"; rr.provider = "CPUExecutionProvider"
+        rr.model_name = "fake"; rr.provider = "CoreMLExecutionProvider"
         rr.session = _ContentSess()
         rr.input_names = ["input_ids", "attention_mask"]; rr.output_name = "logits"
         rr.tokenizer = _ContentTok()
@@ -470,6 +468,71 @@ class AccelEmbedderTests(unittest.TestCase):
         self.assertEqual(results[2], results[4])    # multi-chunk vs multi-chunk
         self.assertEqual(results[4], results[40])    # multi-chunk vs single-pass
         self.assertEqual(results[40], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+
+    def test_cpu_rerank_isolates_passages_from_batch_dependent_scores(self):
+        class ContentTokenizer:
+            def encode_batch(self, pairs):
+                encoded = []
+                for _, passage in pairs:
+                    row = _Enc(512)
+                    row.ids = [int(passage) if passage else 0] * 512
+                    encoded.append(row)
+                return encoded
+
+        class PeerDependentSession(_FakeRerankSession):
+            def __init__(self):
+                super().__init__()
+                self.batches = []
+
+            def run(self, _, feed):
+                values = feed["input_ids"][:, 0].astype(np.float32)
+                self.batches.append(len(values))
+                # A deliberately peer-dependent model; padding also affects the mean.
+                return [(values + values.mean()).reshape(-1, 1)]
+
+        rr = _make_reranker(self.ae)
+        rr.provider = "CPUExecutionProvider"
+        rr.tokenizer = ContentTokenizer()
+        rr.session = PeerDependentSession()
+        for count in (0, 1, 39, 40, 41, 81):
+            with self.subTest(count=count):
+                passages = list(range(1, count + 1))
+                rr.session.batches.clear()
+                self.assertEqual(rr.rerank("q", iter(passages)), [2.0 * p for p in passages])
+                self.assertEqual(rr.session.batches, [1] * count)
+                self.assertEqual(rr.rerank("q", reversed(passages)), [2.0 * p for p in reversed(passages)])
+        # The same oracle detects the known-bad batched behavior.
+        rr.provider = "CoreMLExecutionProvider"
+        self.assertNotEqual(rr.rerank("q", [1, 9]), [2.0, 18.0])
+        self.assertEqual(rr.session.batches[-1], 40)
+
+    def test_cpu_reranker_builds_static_singleton_and_reuses_cache(self):
+        ae = self.ae
+        ort = MagicMock()
+        ort.InferenceSession.return_value = _FakeRerankSession()
+        tokenizer = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(sys.modules, {"onnxruntime": ort, "tokenizers": tokenizer}), \
+             patch.object(ae, "_resolve_reranker_cpu_files", return_value=("cached/model_int8.onnx", "cached/tokenizer.json")), \
+             patch.object(ae, "_ONNX_CACHE", Path(tmp)), \
+             patch.object(ae, "build_static_onnx") as build:
+            expected = Path(tmp) / "fake" / "rerank_cpu_int8_static_1x512.onnx"
+            def publish(source, destination, **kwargs):
+                Path(destination).parent.mkdir(parents=True, exist_ok=True)
+                Path(destination).write_bytes(b"completed graph")
+            build.side_effect = publish
+            rr = ae.StaticShapeReranker("fake", ["CPUExecutionProvider"])
+            self.assertEqual(rr.batch_size, 1)
+            self.assertEqual(ort.InferenceSession.call_args.args[0], str(expected))
+            self.assertEqual(ort.InferenceSession.call_args.kwargs["providers"], ["CPUExecutionProvider"])
+            build.assert_called_once_with("cached/model_int8.onnx", str(expected), output_is_logit=True, batch=1)
+            tokenizer.Tokenizer.from_file.return_value.enable_truncation.assert_called_once_with(max_length=512)
+            tokenizer.Tokenizer.from_file.return_value.enable_padding.assert_called_once_with(length=512)
+            build.reset_mock()
+            warm = ae.StaticShapeReranker("fake", ["CPUExecutionProvider"])
+            self.assertEqual(warm.batch_size, 1)
+            build.assert_not_called()
+            self.assertEqual(ort.InferenceSession.call_args.args[0], str(expected))
 
     def test_make_reranker_cpu_int8_when_no_gpu(self):
         # No GPU → build the CPU INT8 reranker on CPUExecutionProvider (not None — CPU machines rerank).
@@ -640,6 +703,8 @@ class AccelEmbedderTests(unittest.TestCase):
         rr = self.ae.make_reranker(model_name, [])
         if rr is None:
             self.skipTest("GPU reranker unavailable (model not cached?)")
+        if rr.provider == "CPUExecutionProvider":
+            self.skipTest("GPU probe fell back to CPU INT8; FP16 comparison unavailable")
         # FP32 reference: the SAME repo's onnx/model.onnx on CPU.
         try:
             from huggingface_hub import hf_hub_download

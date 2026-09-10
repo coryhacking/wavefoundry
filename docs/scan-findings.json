@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "id": "1xi51-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 7185,
+    "line_hash": "adbd87162acc",
+    "context_hash": "d23dfb15744d",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/desi****702\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Verified source provenance: value exactly equals git hash-object for .wavefoundry/framework/scripts/design_token_build.py; this is a Git blob content fingerprint in implementation evidence, not a credential.",
+        "confirmed_at": "2026-09-09T10:09:54.160045+00:00"
+      }
+    ]
+  }
+]

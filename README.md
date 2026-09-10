@@ -155,7 +155,7 @@ After `Install Wavefoundry` finishes, your repository has the following shape. I
 .wavefoundry/
   framework/         Framework code, seeds, dashboard assets
   bin/               Repo-local CLI shims
-  index/             Local semantic, lexical + graph indexes (LanceDB + SQLite)  *
+  index/             Local semantic, lexical + graph indexes
   logs/              Build, upgrade, dashboard logs                *
 docs/
   prompts/           Public command catalog
@@ -186,7 +186,7 @@ What each `docs/` subdirectory carries — the agent reads these to ground its w
 
 | Path | What it is |
 |---|---|
-| `~/.wavefoundry/venv/` | Shared tool venv (dependencies — LanceDB, ONNX, etc.) |
+| `~/.wavefoundry/venv/` | Shared tool venv (dependencies — APSW, sqlite-vec, ONNX, etc.) |
 | `~/.wavefoundry/cache/fastembed/` | Embedding + reranker model weights (FastEmbed-quantized ONNX), fetched from Hugging Face on first index build, cached thereafter |
 | `~/.wavefoundry/dist/` | Feature packages and, when published for a changed model set, `wavefoundry-models-<set>.zip` offline model assets |
 

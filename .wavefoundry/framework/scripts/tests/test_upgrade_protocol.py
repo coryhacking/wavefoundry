@@ -484,12 +484,18 @@ class UpgradeProtocolTests(unittest.TestCase):
             self.assertEqual(payload["bridge_state"], "bridge_installed")
             self.assertEqual(payload["source_version"], "1.8.0")
             self.assertEqual(payload["target_version"], "1.15.0")
-            # This fixture proves the bridge invokes the hash-bound feature hop;
-            # its deliberately minimal feature package has no runnable product
-            # payload and therefore exits with the documented preflight code.
-            # Successful product-upgrade validation belongs to a real project.
-            self.assertEqual(payload["feature_exit_code"], 2)
+            # The real feature hop must checkpoint even a never-indexed OLD
+            # framework before its new setup can create schema7. This fixture
+            # proves bridge dispatch plus that restart boundary, not completed
+            # product publication (the target remains deliberately minimal).
+            self.assertEqual(payload["feature_exit_code"], 3)
             self.assertTrue(payload["restart_required"])
+            index = target / ".wavefoundry/index"
+            receipt = json.loads((index / "sqlite-migration.json").read_text("utf-8"))
+            self.assertEqual(receipt["state"], "restart_required")
+            self.assertEqual(receipt["reason"], "existing_framework_without_index")
+            self.assertFalse((index / "index-state.sqlite").exists())
+            self.assertTrue((target / ".wavefoundry/upgrade-in-progress.json").is_file())
             self.assertTrue((framework / "UPGRADE-PROTOCOL.json").is_file())
             retained = target / ".wavefoundry/upgrade-assets" / feature.name
             with zipfile.ZipFile(feature, "r") as package:

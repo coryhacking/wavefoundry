@@ -247,16 +247,10 @@ DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-sum
 VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
 VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
 
-# LanceDB tables live directly in the index directory: index_dir/docs.lance/, index_dir/code.lance/.
-# ANN query tuning (wave 1wpif, 1wpah): the former LANCEDB_NPROBES / LANCEDB_REFINE_FACTOR
-# constants (declared here and in indexer.py, applied nowhere) were retired. `_lance_search`
-# submits every query with neither `nprobes` nor `refine_factor` set, so an IVF_HNSW_SQ-indexed
-# table runs at the installed Lance engine defaults (lancedb 0.33.0 `explain_plan`:
-# `minimum_nprobes=20, maximum_nprobes=Some(20)`, no refine stage) and a table below the
-# indexer's LANCEDB_INDEX_THRESHOLD is a flat exact scan. Measured tuning is owned by `1wpih`.
+# Docs and code share index-state.sqlite with separate vector and FTS populations.
 
 # Bounded candidate-window refill (wave 1wpif, 1wpah). Exact predicates (kind, tags, an
-# allowlisted language or category) are pushed into the Lance `where` / FTS5 `WHERE` BEFORE the
+# allowlisted language or category) are pushed into the vector SQL / FTS5 `WHERE` BEFORE the
 # bounded top-k, so they never need a refill. Constraints that cannot be pushed down (a per-file
 # cap; a language value outside the fixed allowlist) continue bounded retrieval over these
 # monotonic, nested windows: each source/table is queried at most len(REFILL_WINDOWS) times and
@@ -284,7 +278,7 @@ KEYWORD_PASS_WINDOW = 50  # the live keyword pass's window: code_keyword_respons
 
 # --- Substrate-query accounting (wave 1wpif, 1wpah) -------------------------
 # A public retrieval call opens a ledger scope; every substrate query issued
-# beneath it (a Lance vector search, an FTS5 MATCH per table, a live keyword
+# beneath it (a SQLite vector search, an FTS5 MATCH per table, a live keyword
 # pass) records its source, window, and returned-row count. Nested refill
 # windows on the SAME query text re-examine a prefix, so a source's
 # ``examined_rows`` is the sum over distinct query texts of the LARGEST
@@ -499,7 +493,7 @@ def _language_pushdown_ok(names: "Iterable[str] | None") -> bool:
 
 
 def _language_where_clause(names: "Iterable[str]") -> "str | None":
-    """Lance ``where`` fragment for an allowlisted language set; ``None`` when
+    """SQLite predicate fragment for an allowlisted language set; ``None`` when
     the set is empty or not pushdown-safe (the row guard then applies alone)."""
     ordered = sorted({str(n) for n in names})
     if not _language_pushdown_ok(ordered):
@@ -678,11 +672,6 @@ _GRAPH_OUTGOING_INTENT_RE = re.compile(
 # INT8). Two reranked=false cases (wave 1seav): healthy-path vector/coverage ordering with
 # confidence CAPPED at medium (low with zero citations; the raw
 # shared-embedder cosine is uncalibrated).
-# Wave 1wsc8: the single certified ANN tuning value, named so the query-builder
-# receipt test can assert exactly this and nothing else. NOT an inert constant:
-# it is read at the one call site below, and its value is the output of a
-# fail-closed certification that rejected two sibling candidates.
-ANN_REFINE_FACTOR = 2
 CONF_AGENT_RERANK_HIGH = 0.5       # reranked top sigmoid ≥ this (with ≥2 citations) → "high"
 CONF_AGENT_RERANK_LOW = 0.1        # reranked top sigmoid < this → "low" (nothing relevant retrieved)
 
@@ -806,13 +795,18 @@ def _audit_build_summary(index_dir: Path) -> dict[str, Any]:
         return {}
 
 
+def _vector_layer_available(index_dir: Path, layer: str) -> bool:
+    """Bounded, read-only schema/layer availability; absence never creates a store."""
+    return bool(_load_script("sqlite_vector_store").layer_available(index_dir, layer))
+
+
 def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
     """Bounded metadata-only index readiness for ``wf_audit`` (wave 1t59p).
 
     Reads ONLY the index control plane: the completed-build epoch (SQLite),
-    Lance table DIRECTORY presence (never a table open), the bounded build
+    SQLite layer/schema presence (never vector payloads), the bounded build
     summary (layer scalars plus one COUNT — never per-file rows), and the
-    configured include-prefixes. It must never import LanceDB, open a table,
+    configured include-prefixes. It must never read vector payloads,
     load a model, hash the working tree, or materialize per-file store rows —
     those are the unbounded first-call costs this snapshot exists to avoid
     (the native-Windows field report). Freshness is therefore UNKNOWN here by
@@ -820,8 +814,8 @@ def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
     verification.
     """
     epoch_complete = _store_has_completed_build(index_dir)
-    docs_present = (index_dir / "docs.lance").is_dir()
-    code_present = (index_dir / "code.lance").is_dir()
+    docs_present = _vector_layer_available(index_dir, "docs")
+    code_present = _vector_layer_available(index_dir, "code")
     snapshot = _audit_build_summary(index_dir) if epoch_complete else {}
     try:
         code_prefixes = tuple(
@@ -831,7 +825,7 @@ def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
         code_prefixes = ()
     # Operator review repair (1t59p cycle 1): readiness derives from NO
     # per-file metadata — configuration is the scope authority. Prefixes
-    # configured with no code.lance is the 1p7is missing-layer signal
+    # configured with no code vector layer is the 1p7is missing-layer signal
     # (e.g. an OOM-killed code embedding pass), read fail-closed.
     code_sources_in_scope = bool(code_prefixes)
     code_layer_missing = code_sources_in_scope and not code_present
@@ -952,8 +946,8 @@ class WaveIndex:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.index_dir = root / ".wavefoundry" / "index"
-        self._docs_lance_table = None   # LanceDB Table object for docs, None if not loaded
-        self._code_lance_table = None   # LanceDB Table object for code, None if not loaded
+        self._docs_vector_layer = None   # SQLite docs layer token, None if not loaded
+        self._code_vector_layer = None   # SQLite code layer token, None if not loaded
         self._reranker = None
         # Wave 1p4wz: serialize the one-time lazy build of the reranker / embedders. FastMCP dispatches
         # tools on a thread pool, so N concurrent first queries could otherwise each pay the CoreML
@@ -969,25 +963,14 @@ class WaveIndex:
         self._meta: dict = {}
         self._loaded = False
         self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
-        self._lance_available: set[tuple[str, str]] = set()
+        self._vector_available: set[tuple[str, str]] = set()
 
-    def _open_lance_table(self, layer: str, kind: str):
-        """Open a LanceDB table fresh on every call — never returns a stale handle."""
-        available = getattr(self, "_lance_available", None)
-        if available is not None and (layer, kind) not in available:
+    def _open_vector_layer(self, layer: str, kind: str):
+        """Resolve a current SQLite layer without retaining a database handle."""
+        if layer != "project":
             return None
-        index_dir = getattr(self, "index_dir", None)
-        if index_dir is None:
-            return object() if available and (layer, kind) in available else None
-        table_path = index_dir / f"{kind}.lance"
-        if not table_path.is_dir():
-            return object() if available and (layer, kind) in available else None
-        try:
-            import lancedb
-            db = lancedb.connect(str(index_dir))
-            return db.open_table(kind)
-        except Exception:
-            return None
+        vectors = _load_script("sqlite_vector_store")
+        return kind if vectors.layer_available(self.index_dir, kind) else None
 
     @staticmethod
     def _fts_query(query: str) -> str:
@@ -1090,7 +1073,6 @@ class WaveIndex:
         """
         layer = "project"
         index_dir = self.index_dir
-        docs_lance_path = index_dir / "docs.lance"
         meta = self._meta.get(layer) if self._loaded else {}
         if not isinstance(meta, dict):
             meta = {}
@@ -1120,7 +1102,7 @@ class WaveIndex:
             if path not in current_hashes
         )
         stale_paths = sorted(set(modified_paths) | set(added_paths) | set(removed_paths))
-        docs_present = docs_lance_path.is_dir()
+        docs_present = _vector_layer_available(index_dir, "docs")
         meta_present = _store_has_completed_build(index_dir)  # 1sed6: epoch, not a file
         raw_chunker_versions = meta.get("chunker_versions", {})
         indexed_chunker_versions: dict[str, str] = (
@@ -1129,8 +1111,8 @@ class WaveIndex:
         current_chunker_version: str = _read_chunker_version()
         # 1p7is: detect a silently-absent code layer. Code sources are "in scope" only when code
         # include-prefixes are configured AND at least one indexed-eligible file matches them — so a
-        # docs-only repo (no code prefixes) is never flagged for a missing code.lance.
-        code_present = (index_dir / "code.lance").is_dir()
+        # docs-only repo (no code prefixes) is never flagged for a missing code vector layer.
+        code_present = _vector_layer_available(index_dir, "code")
         try:
             code_prefixes = self._indexer_module()._workflow_project_include_prefixes(self.root).get("code", ())
         except Exception:
@@ -1162,8 +1144,8 @@ class WaveIndex:
         project = self._layer_health("project")
         project["readiness"] = _index_layer_readiness(project)
         compatible_chunks = (
-            getattr(self, "_docs_lance_table", None) is not None
-            or getattr(self, "_code_lance_table", None) is not None
+            getattr(self, "_docs_vector_layer", None) is not None
+            or getattr(self, "_code_vector_layer", None) is not None
         )
         has_any_index = project["meta_present"]
         stale_layers = [project["layer"]] if project["stale_paths"] else []
@@ -1171,7 +1153,7 @@ class WaveIndex:
             project["layer"]
         ] if project["has_sources"] and (not project["meta_present"] or not project["docs_present"]) else []
         # 1p7is: a configured-but-absent code layer (e.g. the code embedding pass was OOM-killed)
-        # makes the index incomplete, not ready — surface it instead of letting docs.lance mask it.
+        # makes the index incomplete, not ready — surface it instead of letting the docs layer mask it.
         code_layer_missing = project["code_sources_in_scope"] and not project["code_present"]
         if code_layer_missing and "code" not in missing_layers:
             missing_layers = [*missing_layers, "code"]
@@ -1312,7 +1294,10 @@ class WaveIndex:
             return None
         try:
             return iss.build_epoch_token(index_dir)
-        except Exception:
+        except Exception as exc:
+            import sqlite_runtime as runtime
+            if isinstance(exc, (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired)):
+                raise
             return None
 
     def _ensure_loaded(self) -> None:
@@ -1336,43 +1321,18 @@ class WaveIndex:
                 "or index_build(content='all', mode='update')."
             )
 
-        def _load_lance_table(index_dir: Path, table_name: str):
-            """Return an open LanceDB Table, or None if the table directory is absent."""
-            table_path = index_dir / f"{table_name}.lance"
-            if not table_path.is_dir():
-                return None
-            try:
-                import lancedb
-                db = lancedb.connect(str(index_dir))
-                return db.open_table(table_name)
-            except ImportError:
-                print(
-                    "[wavefoundry] LanceDB index found but lancedb is not installed — "
-                    "run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py",
-                    file=sys.stderr,
-                )
-                return None
-            except Exception:
-                return None
-
-        proj_docs_table = _load_lance_table(self.index_dir, "docs")
-        proj_code_table = _load_lance_table(self.index_dir, "code")
-
-        if not any(t is not None for t in (proj_docs_table, proj_code_table)):
+        proj_docs_table = self._open_vector_layer("project", "docs")
+        proj_code_table = self._open_vector_layer("project", "code")
+        if proj_docs_table is None and proj_code_table is None:
             raise IndexNotReadyError(
-                "[wavefoundry] No index found. "
-                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
+                "[wavefoundry] No compatible SQLite index found. Run wf setup."
             )
-
-        # 1p4ww: single project layer — the framework index is folded into the project docs index.
-        self._docs_lance_table = proj_docs_table
-        self._code_lance_table = proj_code_table
-        self._proj_docs_lance_table = proj_docs_table
-        self._proj_code_lance_table = proj_code_table
-        self._lance_available = set()
-        for kind in ("docs", "code"):
-            if (self.index_dir / f"{kind}.lance").is_dir():
-                self._lance_available.add(("project", kind))
+        self._docs_vector_layer = self._proj_docs_vector_layer = proj_docs_table
+        self._code_vector_layer = self._proj_code_vector_layer = proj_code_table
+        self._vector_available = {
+            ("project", kind) for kind in (proj_docs_table, proj_code_table)
+            if kind is not None
+        }
 
         def _load_meta_only(index_dir: Path) -> dict:
             # 1sed6: build-state snapshot from the store (meta.json retired).
@@ -1568,7 +1528,7 @@ class WaveIndex:
             self._reranker = reranker
             _wf_log(
                 f"[wavefoundry] using cross-encoder reranker: {reranker.model_name} "
-                f"({reranker.provider}, static {accel_embedder.RERANK_STATIC_BATCH}x{accel_embedder.STATIC_SEQ})"
+                f"({reranker.provider}, batch {reranker.batch_size}x{accel_embedder.STATIC_SEQ})"
             )
             return self._reranker
 
@@ -1725,7 +1685,7 @@ class WaveIndex:
     def _direct_artifact_owner_rows(self, cue: str) -> list[dict]:
         """Return the published rows owned by a directly named path/basename.
 
-        Reads the published Lance tables only (no vector pass, no rebuild) so the
+        Reads the published SQLite chunks only (no vector pass, no rebuild) so the
         artifact-anchored rank-one pin never depends on semantic recall of a tiny
         ignore file or manifest. Bare-extension cues name a class, not an owner,
         and inject nothing. Bounded by ``DIRECT_ARTIFACT_OWNER_ROWS`` per table.
@@ -1764,14 +1724,14 @@ class WaveIndex:
             return Path(lowered).name == owned_name
 
         rows: list[dict] = []
-        for table in (getattr(self, "_proj_docs_lance_table", None),
-                      getattr(self, "_proj_code_lance_table", None)):
+        for table in (getattr(self, "_proj_docs_vector_layer", None),
+                      getattr(self, "_proj_code_vector_layer", None)):
             if table is None:
                 continue
             try:
-                found = table.search().where(where, prefilter=True).limit(
-                    DIRECT_ARTIFACT_OWNER_ROWS
-                ).to_list()
+                found = _load_script("sqlite_vector_store").payload_rows(
+                    self.index_dir, table, predicate=where, limit=DIRECT_ARTIFACT_OWNER_ROWS
+                )
             except Exception:
                 continue
             kept = 0
@@ -2237,7 +2197,7 @@ class WaveIndex:
     def _lexical_candidates(self, query: str) -> list[dict]:
         """Wave 1rsh9 (1rrr0): BM25 candidates from the index-state store's FTS5 tables.
 
-        Returns candidate dicts shaped like ``_lance_search`` output (path,
+        Returns candidate dicts shaped like ``_vector_search`` output (path,
         kind, lines, text, score=0.0 — the rerank scores them) ordered
         best-first by BM25 across both tables. Every degrade path — store
         absent, FTS unavailable, FTS-hostile query, any sqlite error — returns
@@ -2290,29 +2250,14 @@ class WaveIndex:
         # stored under their real ``.wavefoundry/framework/...`` path, so no requalification.
         return str(path or "").replace("\\", "/")
 
-    def _lance_search(self, table, query_vec: "np.ndarray", top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
-        """Search a LanceDB table with cosine metric.
+    def _vector_search(self, table, query_vec: "np.ndarray", top_n: int, where: Optional[str] = None, layer: str = "project") -> list[dict]:
+        """Search a SQLite vector layer with exact cosine distance.
 
         Returns a list of chunk dicts with a ``score`` field (1 - distance, higher = more similar).
         """
-        try:
-            q = table.search(query_vec.tolist()).metric("cosine").limit(top_n)
-            if where:
-                q = q.where(where, prefilter=True)
-            # Wave 1wsc8: the ONE certified ANN tuning value. It cleared every
-            # branch of the fail-closed certifier rather than being chosen:
-            # ANN-vs-exact macro overlap 0.96 -> 1.00 across five frozen slices
-            # with no slice losing any overlap, and the standing 35-fixture gate
-            # then moved code_ask nDCG@10 0.5167 -> 0.5185 with zero metrics
-            # worse and no new violation. Two sibling candidates were REJECTED
-            # by the same certifier (nprobes=20 gained 3.8% latency against a
-            # required 10%; nprobes=50 was slower), which is why this value is
-            # a measured receipt and not a guess. No other tuning may appear
-            # here without its own certification.
-            q = q.refine_factor(ANN_REFINE_FACTOR)
-            results = q.to_list()
-        except Exception:
-            return []
+        results = _load_script("sqlite_vector_store").dense_rows(
+            self.index_dir, table, query_vec, top_n, predicate=where
+        )
         out = []
         for r in results:
             d = dict(r)
@@ -2320,7 +2265,7 @@ class WaveIndex:
             d.pop("vector", None)
             d["path"] = self._qualify_index_path(d.get("path", ""), layer)
             if score is not None:
-                # LanceDB cosine distance = 1 - cosine_similarity; convert to similarity
+                # Cosine distance = 1 - cosine_similarity; convert to similarity
                 d["score"] = float(1.0 - score)
             else:
                 d["score"] = 0.0
@@ -2334,20 +2279,25 @@ class WaveIndex:
         qvec = self._embed_query(query, DOCS_MODEL)
 
         where_parts = []
-        if kind:
+        if kind == "architecture":
+            # Virtual kind: architecture prose is stored as doc, not architecture.
+            # Filter before the candidate cap, matching _doc_matches_kind.
+            where_parts.append("kind = 'doc' AND (path = 'docs/ARCHITECTURE.md' "
+                               "OR path LIKE 'docs/architecture/%')")
+        elif kind:
             safe_kind = kind.replace("'", "''")
             where_parts.append(f"kind = '{safe_kind}'")
         if tags:
             tag_clauses = [f"tags LIKE '%{t.replace(chr(39), chr(39)*2)}%'" for t in tags]
             where_parts.append(f"({' OR '.join(tag_clauses)})")
         where = " AND ".join(where_parts) if where_parts else None
-        tables = [t for t in [getattr(self, "_proj_docs_lance_table", None)] if t is not None]
+        tables = [t for t in [getattr(self, "_proj_docs_vector_layer", None)] if t is not None]
         if not tables:
             return [], False
         fetch_n = max(top_n, VECTOR_TOP_K)
         all_candidates: list[dict] = []
-        if getattr(self, "_proj_docs_lance_table", None) is not None:
-            _docs_hits = self._lance_search(self._proj_docs_lance_table, qvec, fetch_n, where=where, layer="project")
+        if getattr(self, "_proj_docs_vector_layer", None) is not None:
+            _docs_hits = self._vector_search(self._proj_docs_vector_layer, qvec, fetch_n, where=where, layer="project")
             _ledger_record("docs_dense", query, fetch_n, len(_docs_hits))
             all_candidates.extend(_docs_hits)
         all_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
@@ -2401,21 +2351,21 @@ class WaveIndex:
         rerank_window = max(top_n * 4 if (language or max_per_file is not None) else top_n, VECTOR_TOP_K)
         windows = _refill_windows(top_n) if refill else (rerank_window,)
 
-        hybrid = bool(getattr(self, "_lance_available", None))
+        hybrid = bool(getattr(self, "_vector_available", None))
         fixed_table = None
         if hybrid:
-            if ("project", "code") not in self._lance_available:
+            if ("project", "code") not in self._vector_available:
                 return [], False
         else:
-            fixed_table = getattr(self, "_proj_code_lance_table", None)
+            fixed_table = getattr(self, "_proj_code_vector_layer", None)
             if fixed_table is None:
                 return [], False
 
         def _code_dense(window: int) -> list[dict]:
-            table = fixed_table if fixed_table is not None else self._open_lance_table("project", "code")
+            table = fixed_table if fixed_table is not None else self._open_vector_layer("project", "code")
             if table is None:
                 return []
-            rows = self._lance_search(table, qvec, window, where=where, layer="project")
+            rows = self._vector_search(table, qvec, window, where=where, layer="project")
             _ledger_record("code_dense", query, window, len(rows))
             return sorted(rows, key=lambda x: x.get("score", 0.0), reverse=True)
 
@@ -2621,8 +2571,8 @@ class WaveIndex:
         docs_qvec = self._embed_query(query, DOCS_MODEL)
         code_qvec = self._embed_query(query, CODE_MODEL)
         docs_candidates = []
-        if getattr(self, "_proj_docs_lance_table", None) is not None:
-            _docs_hits = self._lance_search(self._proj_docs_lance_table, docs_qvec, top_k, layer="project")
+        if getattr(self, "_proj_docs_vector_layer", None) is not None:
+            _docs_hits = self._vector_search(self._proj_docs_vector_layer, docs_qvec, top_k, layer="project")
             _ledger_record("docs_dense", query, top_k, len(_docs_hits))
             docs_candidates.extend(_docs_hits)
         assessment_evidence_query = ""
@@ -2635,10 +2585,10 @@ class WaveIndex:
             assessment_evidence_query = (
                 f"{query.strip()} {_ASSESSMENT_EVIDENCE_SUFFIX}"
             ).strip()
-            if getattr(self, "_proj_docs_lance_table", None) is not None:
+            if getattr(self, "_proj_docs_vector_layer", None) is not None:
                 evidence_qvec = self._embed_query(assessment_evidence_query, DOCS_MODEL)
-                evidence_hits = self._lance_search(
-                    self._proj_docs_lance_table,
+                evidence_hits = self._vector_search(
+                    self._proj_docs_vector_layer,
                     evidence_qvec,
                     top_k,
                     layer="project",
@@ -2660,8 +2610,8 @@ class WaveIndex:
                         existing["score"] = candidate.get("score")
         docs_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         code_candidates = []
-        if getattr(self, "_proj_code_lance_table", None) is not None:
-            _code_hits = self._lance_search(self._proj_code_lance_table, code_qvec, top_k, layer="project")
+        if getattr(self, "_proj_code_vector_layer", None) is not None:
+            _code_hits = self._vector_search(self._proj_code_vector_layer, code_qvec, top_k, layer="project")
             _ledger_record("code_dense", query, top_k, len(_code_hits))
             code_candidates.extend(_code_hits)
         code_candidates.sort(key=lambda x: x.get("score", 0.0), reverse=True)
@@ -2972,12 +2922,14 @@ class WaveIndex:
     def get_seed(self, name: str) -> Optional[dict]:
         self._ensure_loaded()
         name_lower = name.lower().strip()
-        # First: query the project Lance docs table for seed chunks (1p4ww: folded layer).
+        # First: query the project SQLite docs layer for seed chunks (1p4ww: folded layer).
         for table in filter(None, [
-            getattr(self, "_proj_docs_lance_table", None),
+            getattr(self, "_proj_docs_vector_layer", None),
         ]):
             try:
-                rows = table.search().where("kind = 'seed'", prefilter=True).to_list()
+                rows = _load_script("sqlite_vector_store").payload_rows(
+                    self.index_dir, table, predicate="kind = 'seed'"
+                )
             except Exception:
                 rows = []
             for row in rows:
@@ -5021,17 +4973,25 @@ def _epoch_token(root: Path) -> "tuple[str, int] | None":
         return None
 
 
-def _epoch_state(root: Path) -> "tuple[str, str, int] | None":
+def _epoch_state(root: Path, *, propagate_runtime_errors: bool = False) -> "tuple[str, str, int] | None":
     """The ABA-proof consistency token (1sed6 review fix): the full build-state
     row ``(attempt_id, status, generation)`` in ANY state; None only when the
     store is absent/unreadable. Used for the pre/post seqlock compare at every
     tool — unlike the complete-only ``_epoch_token``, it distinguishes
     ``building A`` from ``building B``, so an operation that straddled a
-    finalize + re-fence (both endpoints "not ready") is still discarded."""
+    finalize + re-fence (both endpoints "not ready") is still discarded.
+
+    Registered seqlock boundaries request typed runtime failures so an unusable
+    runtime cannot be mistaken for a legitimately missing or building epoch.
+    """
     try:
         iss = _load_script("index_state_store")
         return iss.build_epoch_state_token(root / ".wavefoundry" / "index")
-    except Exception:
+    except Exception as exc:
+        if propagate_runtime_errors:
+            import sqlite_runtime as runtime
+            if isinstance(exc, (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired)):
+                raise
         return None
 
 
@@ -5114,6 +5074,23 @@ def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
     return _attach_retrieval_failure_context(tool, response)
 
 
+def _index_runtime_failure_response(tool: str, root: Path, payload: dict, exc: Exception) -> dict[str, Any]:
+    """Discard the complete operation when either epoch probe cannot use storage."""
+    payload = {**payload, "search_mode": None, "fallback_reason": _REASON_QUERY_FAILED,
+               "results": []}
+    response = _response(
+        "error", payload,
+        diagnostics=[_diagnostic(
+            getattr(exc, "code", _REASON_QUERY_FAILED),
+            "Semantic index runtime is unusable: " + _bounded_failure_detail(root, exc)
+            + " Results were discarded; resolve the runtime or filesystem issue and retry.",
+            recovery_tools=["index_health"], recovery_usage="index_health()",
+        )],
+        next_tools=["index_health"], usage="index_health()",
+    )
+    return _attach_retrieval_failure_context(tool, response)
+
+
 def _store_has_completed_build(index_dir: Path) -> bool:
     """True when the store's build epoch is `complete` (1sed6 readiness)."""
     try:
@@ -5136,14 +5113,9 @@ def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             meta = {}
 
-    # Try Lance tables for chunk counts; fall back to 0 if unavailable.
     try:
-        import lancedb
-        db = lancedb.connect(str(index_dir))
-        if (index_dir / "docs.lance").is_dir():
-            doc_chunks = db.open_table("docs").count_rows()
-        if (index_dir / "code.lance").is_dir():
-            code_chunks = db.open_table("code").count_rows()
+        counts = _load_script("sqlite_vector_store").layer_counts(index_dir)
+        doc_chunks, code_chunks = counts.get("docs", 0), counts.get("code", 0)
     except Exception:
         pass
 
@@ -5263,46 +5235,41 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
 def _chunk_index_coverage(
     root: Path, tables: "tuple[str, ...]" = ("docs", "code"),
 ) -> dict[str, Any]:
-    """Per-table registry coverage against Lance (1sbfj): ``{table:
-    {lance_rows, registry_rows, covered, id_collisions?}}``.
+    """Compare native vector and registry populations exactly without reading payloads.
 
-    ONE producer for the two consumers that report coverage —
-    ``_state_store_health_summary`` (``chunk_index``) and the probed-serving
-    boundary's ``_fts_serving_coverage`` — so the health readout and the
-    serving envelope can never drift. ``covered`` mirrors the zero-change heal
-    probe: an exact match against the counts recorded at the last successful
-    reconcile when available (Lance ids are not unique, so a raw-vs-registry
-    compare misreads duplicate-id rows as under-coverage), else the
-    proportional ``max(8, lance_rows // 50)`` gap.
-
-    1wpag delivery repair (PERF-DEL-3): extracting this out of the health
-    summary is what lets the serving boundary compute coverage WITHOUT
-    ``probe_state_store`` — the structural quick_check that measured 674 ms on
-    this repository's store and re-established what ``fts_state_verdict`` had
-    already established for the same epoch. The reads kept here are cheap
-    (a Lance metadata row count, ~1 ms, and one indexed registry ``count(*)``).
+    SQLite chunk IDs are unique. Even one missing vector is a real coverage
+    defect; the legacy duplicate-row tolerance no longer applies.
     """
     coverage: dict[str, Any] = {}
     index_dir = root / ".wavefoundry" / "index"
     try:
         iss = _load_script("index_state_store")
-        import lancedb  # local import: keep module import cheap and optional
-        db = lancedb.connect(str(index_dir))
+        vectors = _load_script("sqlite_vector_store")
+        counts = vectors.layer_counts(index_dir)
+        conn = iss.open_read_only(index_dir)
+        if conn is None:
+            return coverage
+        try:
+            populations = {table: vectors.vector_integrity(conn, table) for table in tables}
+        finally:
+            conn.close()
         for table_name in tables:
-            if not (index_dir / f"{table_name}.lance").is_dir():
+            population = populations[table_name]
+            if not any(population.values()) and not vectors.layer_available(index_dir, table_name):
                 continue
-            lance_rows = int(db.open_table(table_name).count_rows())
+            vector_rows = int(counts.get(table_name, 0))
             registry_rows = iss.registry_chunk_count(index_dir, table_name)
             if registry_rows is None:
                 continue
-            synced_raw, synced_unique = iss.chunk_sync_counts(index_dir, table_name)
-            if synced_raw is not None and synced_unique is not None:
-                covered = lance_rows == synced_raw and registry_rows == synced_unique
-            else:
-                covered = abs(lance_rows - registry_rows) <= max(8, lance_rows // 50)
+            covered = (vector_rows == registry_rows and not population["missing_vectors"]
+                       and not population["orphan_vectors"])
             entry: dict[str, Any] = {
-                "lance_rows": lance_rows,
+                "vector_rows": vector_rows,
                 "registry_rows": int(registry_rows),
+                "canonical_rows": population["canonical"],
+                "raw_vector_rows": population["vectors"],
+                "missing_vectors": population["missing_vectors"],
+                "orphan_vectors": population["orphan_vectors"],
                 "covered": covered,
             }
             # 1wngv: same-ID/distinct-content census recorded at the last
@@ -5329,20 +5296,18 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
         {"present": bool, "schema_version": str | None,
          "integrity": "ok" | "structural-fail" | "stale-fingerprint" | None,
          "size_bytes": int,
-         "chunk_index": {table: {"lance_rows": int, "registry_rows": int,
+         "chunk_index": {table: {"vector_rows": int, "registry_rows": int,
                                  "covered": bool}}}
     Absence of the store (or of the module in an older pack) reports
     ``present: False`` with no diagnostics — a normal not-yet-built state.
 
-    ``chunk_index`` (1sbfj): registry coverage vs Lance per table. The field
+    ``chunk_index`` (1sbfj): registry coverage vs vectors per table. The field
     defect left the FTS/registry near-empty (lexical retrieval silently
     blind) while ``integrity`` read ``ok`` — structural soundness says
     nothing about coverage, so coverage is now reported and diagnosed
     explicitly. ``covered`` mirrors the zero-change heal probe: exact match
-    against the counts recorded at the last successful reconcile when
-    available (Lance ids are not unique, so a raw-vs-registry compare
-    misreads duplicate-id rows as under-coverage), else the proportional
-    ``max(8, lance_rows // 50)`` gap.
+    between canonical rows, registry entries, and vectors, including explicit
+    missing-vector and orphan-vector diagnostics.
     """
     index_dir = root / ".wavefoundry" / "index"
     summary: dict[str, Any] = {
@@ -5627,7 +5592,7 @@ def run_index_rebuild(
 
     # Wave 1sc7c (1sek8): content="fts" — from-scratch rebuild of the DERIVED
     # chunk state (FTS5 lexical tables + chunk registry) from the
-    # authoritative Lance tables. Embedding-free and in-process (seconds):
+    # canonical SQLite chunks. Embedding-free and in-process (seconds):
     # the clean recovery for an under-covered/corrupt lexical layer without a
     # semantic build. Runs under the whole-index build lock.
     if content == "fts":
@@ -5680,7 +5645,7 @@ def run_index_rebuild(
             "tables": tables,
             "duration_ms": _fts_ms,
             "notice": (
-                "Derived chunk state (FTS5 + registry) rebuilt from Lance: "
+                "Derived chunk state (FTS5 + registry) rebuilt from SQLite chunks: "
                 + ", ".join(f"{k}={v}" for k, v in rows.items())
                 if rows and not errors else
                 "FTS rebuild completed with issues — see tables."
@@ -5733,19 +5698,10 @@ def run_index_rebuild(
 
     # rechunk must NOT short-circuit on an up-to-date index — re-chunking unchanged files is the point.
     if not full and not rechunk and _index_is_up_to_date(root, layer, content):
-        # Wave 1p31b (1p312): even when files are up-to-date, LanceDB rows for
-        # paths now excluded by workflow-config narrowing must be reaped. The
-        # bug is invisible to ``_index_is_up_to_date`` (the build state was already
-        # cleaned of the dropped paths) but the LanceDB rows persist until a
-        # full rebuild. Run the reaper directly here — no subprocess spawn
-        # needed; the reaper is O(LanceDB row count) and finishes in <100ms
-        # on tables up to ~5K rows.
-        # 1sed6: the former in-process reaper here was a WRITER BYPASS — it
-        # mutated Lance without the build lock or epoch. Reaping now lives
-        # exclusively in the indexer's zero-change maintenance path (read-only
-        # plan → fenced execute), which every real build (including the
-        # content=all hook builds) runs; the short-circuit response no longer
-        # mutates anything.
+        # Paths excluded by workflow configuration can outlive walk bookkeeping.
+        # Reaping belongs exclusively to the indexer's zero-change maintenance
+        # path (read-only plan, then fenced execution under the build lock).
+        # This up-to-date response must never mutate storage itself.
         reaped_uptd: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
         return {
             "passed": True,
@@ -5806,6 +5762,7 @@ def run_index_rebuild(
                 "mode": "rebuild" if _prev_state.get("full") else "update",
             })
 
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     try:
@@ -6157,7 +6114,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
     except IndexNotReadyError as exc:
         if _epoch_complete:
             # Published epoch but the semantic tables cannot serve (e.g. a
-            # missing Lance table): the FTS layer is still the published one.
+            # missing canonical vector layer): the FTS layer is still the published one.
             _fts_fallback(_REASON_INDEX_MISSING, str(exc))
         else:
             _live_walk(_REASON_STORE_ABSENT if epoch_state is None else _REASON_INDEX_NOT_READY, str(exc))
@@ -6368,7 +6325,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
             )
     except IndexNotReadyError as exc:
         # A complete epoch with unservable semantic tables (e.g. missing
-        # code.lance): the published FTS layer is still the honest source.
+        # the code vector layer): the published FTS layer is still the honest source.
         results = _fts_fallback(_REASON_INDEX_MISSING, str(exc)) if _epoch_complete else None
         if results is None:
             _log_degradation_transition(index.root, "code_search", fallback_reason or _REASON_INDEX_NOT_READY)
@@ -7029,16 +6986,16 @@ def _index_chunk_matching_address(index: WaveIndex, address: str, parsed: dict[s
     scheme = parsed["scheme"]
     want = address.strip()
     path = (parsed.get("path") or "").replace("\\", "/").replace("'", "''")
-    # Determine which Lance table(s) to scan and which prefix(es) to match.
+    # Determine which SQLite layer(s) to read and which prefix(es) to match.
     if scheme == "code":
-        table_prefixes = [(getattr(index, "_code_lance_table", None), "code")]
+        table_prefixes = [(getattr(index, "_code_vector_layer", None), "code")]
     elif scheme == "seed":
         table_prefixes = [
-            (getattr(index, "_docs_lance_table", None), "seed"),
-            (getattr(index, "_docs_lance_table", None), "doc"),
+            (getattr(index, "_docs_vector_layer", None), "seed"),
+            (getattr(index, "_docs_vector_layer", None), "doc"),
         ]
     else:
-        table_prefixes = [(getattr(index, "_docs_lance_table", None), "doc")]
+        table_prefixes = [(getattr(index, "_docs_vector_layer", None), "doc")]
     seen_tables: set[int] = set()
     for table, prefix in table_prefixes:
         if table is None:
@@ -7049,10 +7006,9 @@ def _index_chunk_matching_address(index: WaveIndex, address: str, parsed: dict[s
         seen_tables.add(table_id)
         try:
             where = f"path = '{path}'" if path else None
-            q = table.search()
-            if where:
-                q = q.where(where, prefilter=True)
-            rows = q.to_list()
+            rows = _load_script("sqlite_vector_store").payload_rows(
+                index.index_dir, table, predicate=where
+            )
         except Exception:
             rows = []
         for row in rows:
@@ -7853,60 +7809,13 @@ def _lock_is_fresh(lock_path: Path) -> bool:
     return age < BACKGROUND_INDEX_LOCK_STALE_SECONDS
 
 
-def _table_lock_paths(index_dir: Path) -> list[Path]:
-    """Return the per-table ``.lock`` file paths for the given index directory."""
-    return [index_dir / f"{kind}.lance" / ".lock" for kind in ("docs", "code")]
-
-
-def _cleanup_stale_table_locks(index_dir: Path, *, remove_stale_running_pid: bool = False) -> list[dict[str, Any]]:
-    """Remove dead Lance table lock markers and return cleanup details."""
-    import time as _time
-
-    cleaned: list[dict[str, Any]] = []
-    for lock_path in _table_lock_paths(index_dir):
-        if not lock_path.exists():
-            continue
-        pid: Optional[int] = None
-        try:
-            raw_pid = lock_path.read_text(encoding="utf-8").strip()
-            pid = int(raw_pid) if raw_pid else None
-        except (OSError, ValueError):
-            pid = None
-        try:
-            age = _time.time() - lock_path.stat().st_mtime
-        except OSError:
-            continue
-        pid_dead = pid is None or not _pid_is_running(pid)
-        lock_stale = age >= BACKGROUND_INDEX_LOCK_STALE_SECONDS
-        if not pid_dead and not (remove_stale_running_pid and lock_stale):
-            continue
-        try:
-            lock_path.unlink()
-            removed = True
-        except OSError:
-            removed = False
-        cleaned.append({
-            "path": str(lock_path),
-            "pid": pid,
-            "age_seconds": int(age),
-            "reason": "stale" if lock_stale and remove_stale_running_pid else "pid_dead",
-            "removed": removed,
-        })
-    return cleaned
-
-
 def _background_refresh_active(state_path: Path) -> bool:
     # Reap server-owned children before consulting their durable PID record.
     # Otherwise a completed POSIX child remains os.kill-alive as a zombie and
     # this predicate prevents the monitor from ever reaching the launcher that
     # historically owned the reap sweep.
     _reap_background_build_pids()
-    # Primary guard: if any per-table .lock file exists and is fresh, a build is actively
-    # running — regardless of what the state file says.
     index_dir = state_path.parent
-    _cleanup_stale_table_locks(index_dir, remove_stale_running_pid=True)
-    if any(_lock_is_fresh(p) for p in _table_lock_paths(index_dir)):
-        return True
     # The whole-index OS lock is the cross-process authority. It can be held
     # before a child has written its background state or acquired a per-table
     # lock, so consult it before using either weaker carrier to permit a spawn.
@@ -9765,7 +9674,7 @@ def _path_size_bytes(p: Path) -> int:
 def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
     """Wave 1p9a9: total + top-level component on-disk size of the index dir. Read-only, best-effort;
     a missing dir or any stat error yields ``None`` (never raises). The per-component breakdown
-    (``docs.lance`` / ``code.lance`` / ``graph`` / …) is what makes LanceDB bloat diagnosable."""
+    (``index-state.sqlite`` / ``graph`` / …) makes storage growth diagnosable."""
     try:
         if not index_dir.exists():
             return None
@@ -9780,14 +9689,9 @@ def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
     return {"total_bytes": total, "total_human": _human_bytes(total), "components": components}
 
 
-# Wave 1rycf: bloat-gated, tier-1-only index optimize run at wave close as an interim reclaim.
-# Background: LanceDB's incremental FTS rebuild (`create_fts_index(replace=True)`) leaves un-GC'd
-# `_indices/` versions, so `docs.lance` balloons (698 MB observed, 640 MB reclaimable) between the deep
-# optimizes that only run at install/upgrade. Until the SQLite FTS5 migration removes the leak at the
-# source, reclaim opportunistically at close — but ONLY when the table is genuinely bloated, ONLY tier-1
-# in-place (never spawn a synchronous rebuild), and NEVER at the expense of the close itself.
-CLOSE_OPTIMIZE_BLOAT_RATIO = 3.0      # on-disk / logical-floor ratio at/above which a table is "bloated"
-CLOSE_OPTIMIZE_MIN_ROW_BYTES = 2048   # conservative per-row logical floor (chunk text + vector + FTS)
+# Close-time reclamation remains opportunistic: retain reusable pages until
+# free space exceeds 40 percent. Maintenance owns the bounded reclaim policy.
+CLOSE_OPTIMIZE_BLOAT_RATIO = 1.0 / 0.6
 
 
 def _close_optimize_enabled(root: Path) -> bool:
@@ -9805,51 +9709,59 @@ def _close_optimize_enabled(root: Path) -> bool:
 
 
 def _index_table_bloat_ratios(root: Path) -> dict[str, float]:
-    """Wave 1rycf. Best-effort on-disk-bloat ratio per Lance table (``docs``/``code``): on-disk
-    component bytes divided by a conservative logical floor (``rows * CLOSE_OPTIMIZE_MIN_ROW_BYTES``).
-    A ratio well above 1.0 means the table's physical footprint far exceeds what its live rows require —
-    the FTS-version-leak signature. Read-only, fail-safe: any error (missing dir, unreadable table,
-    zero rows) drops that table from the result rather than raising, and returns ``{}`` on total failure."""
+    """Page bloat in the shared semantic file and separate graph; no payload scans."""
     ratios: dict[str, float] = {}
+    index_dir = root / ".wavefoundry" / "index"
     try:
-        index_dir = root / ".wavefoundry" / "index"
-        sizes = _index_dir_size(index_dir)
-        if not sizes:
-            return {}
-        components = sizes.get("components") or {}
-        import lancedb  # local import: keep module import cheap and optional
-        db = lancedb.connect(str(index_dir))
-        for table in ("docs", "code"):
-            on_disk = int(components.get(f"{table}.lance") or 0)
-            if on_disk <= 0:
-                continue
+        vectors = _load_script("sqlite_vector_store")
+        space = vectors.storage_space(index_dir)
+        pages, free = int(space["page_count"]), int(space["freelist_count"])
+        if pages > 0 and free > 0:
+            ratio = pages / max(1, pages - free)
+            ratios.update({layer: ratio for layer in ("docs", "code")
+                           if vectors.layer_available(index_dir, layer)})
+    except Exception:
+        pass
+    try:
+        import sqlite3
+        iss = _load_script("index_state_store")
+        path = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+        if path.is_file():
+            conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.1)
             try:
-                rows = int(db.open_table(table).count_rows())
-            except Exception:  # noqa: BLE001 — missing/unreadable table: skip, don't fail the sweep
-                continue
-            floor = rows * CLOSE_OPTIMIZE_MIN_ROW_BYTES
-            if floor <= 0:
-                continue
-            ratios[table] = on_disk / floor
-    except Exception:  # noqa: BLE001 — the gate is advisory; never let it raise into the close
-        return {}
+                pages = int(conn.execute("PRAGMA page_count").fetchone()[0])
+                free = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+                if pages > 0 and free > 0:
+                    ratios["graph"] = pages / max(1, pages - free)
+            finally:
+                conn.close()
+    except Exception:
+        pass
     return ratios
 
 
+def _sqlite_maintenance_failure(results: dict[str, Any]) -> Optional[str]:
+    """Keep nested maintenance failures visible in both operator response paths."""
+    errors = []
+    # A top-level error with store results means maintenance started but
+    # publication failed. A bare error is the pre-maintenance epoch refusal.
+    if "stores" in results and results.get("error"):
+        errors.append(str(results["error"]))
+    for name, res in results.get("stores", {}).items():
+        if res.get("error") or res.get("integrity") not in (None, "ok"):
+            errors.append(f"{name}: {res.get('error') or res.get('integrity')}")
+    finalize = results.get("finalize")
+    if isinstance(finalize, dict) and finalize.get("error"):
+        errors.append(str(finalize["error"]))
+    return "; ".join(errors) or None
+
+
 def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
-    """Wave 1rycf. If the close-time optimize is enabled and a Lance table is genuinely bloated
-    (ratio >= ``CLOSE_OPTIMIZE_BLOAT_RATIO``), run a tier-1 in-place ``optimize_index_tables`` over the
-    bloated tables to reclaim leaked FTS versions. Contract:
+    """Opportunistically maintain stores when either has at least 40 percent free pages.
 
-    - **Gated** — no-op (returns ``None``) when disabled or when no table is bloated (the common case).
-    - **Lock-aware** — if a build already holds the index lock, ``optimize_index_tables`` raises
-      ``IndexBuildAlreadyRunning``; we skip (report ``skipped: index_build_lock_held``) rather than wait.
-    - **Tier-1 only** — calls ``optimize_index_tables`` directly, which never spawns a rebuild; any
-      ``needs_rebuild`` table is reported and deferred (the tier-3 spawn lives only in the response
-      wrapper, not here), so close never blocks on a synchronous re-embed.
-    - **Fail-safe** — any error is swallowed; a close must never fail because of opportunistic reclaim.
-
-    Returns a compact summary dict for attachment to the close response, or ``None`` when nothing ran."""
+    Skip when disabled, unnecessary, lock-busy, or maintenance fails. Never
+    rebuild or re-embed during close; report any recovery requirement instead.
+    """
     try:
         if not _close_optimize_enabled(root):
             return None
@@ -9861,7 +9773,7 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
         idx = _load_script("indexer")
         already_running = getattr(idx, "IndexBuildAlreadyRunning", None)
         try:
-            results = idx.optimize_index_tables(index_dir, tuple(bloated))
+            results = idx.optimize_index_tables(index_dir, tuple(t for t in bloated if t in ("docs", "code")))
         except Exception as exc:  # noqa: BLE001
             if already_running is not None and isinstance(exc, already_running):
                 return {"ran": False, "skipped": "index_build_lock_held",
@@ -9869,10 +9781,24 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
                         "ratios": {t: round(ratios[t], 2) for t in bloated}}
             return {"ran": False, "skipped": "optimize_error", "error": str(exc),
                     "bloated_tables": bloated}
-        if isinstance((results or {}).get("error"), str):
+        if not results:
+            return {"ran": False, "skipped": _REASON_INDEX_NOT_READY,
+                    "error": "Maintenance did not run: no initialized shared index is available.",
+                    "bloated_tables": bloated,
+                    "recovery_tools": ["index_health"], "recovery_usage": "index_health()"}
+        failure = _sqlite_maintenance_failure(results)
+        if failure:
+            return {"ran": False, "skipped": "optimize_error", "error": failure,
+                    "bloated_tables": bloated, "stores": results.get("stores", {}),
+                    "recovery_tools": ["index_health"], "recovery_usage": "index_health()"}
+        if isinstance(results.get("error"), str):
             return {"ran": False, "skipped": _REASON_INDEX_NOT_READY, "error": results["error"],
-                    "bloated_tables": bloated}
-        reclaimed_total = 0
+                    "bloated_tables": bloated,
+                    "recovery_tools": ["index_build"], "recovery_usage": "index_build(content='all')"}
+        stores = results.pop("stores", {})
+        results.pop("finalize", None)
+        reclaimed_total = sum(int(value.get("reclaimed_bytes") or 0)
+                              for value in stores.values() if isinstance(value, dict))
         deferred_rebuild: list[str] = []
         tables_out: dict[str, Any] = {}
         for t, res in (results or {}).items():
@@ -9891,6 +9817,7 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
             "bloated_tables": bloated,
             "ratios": {t: round(ratios[t], 2) for t in bloated},
             "tables": tables_out,
+            "stores": stores,
             "reclaimed_bytes": reclaimed_total,
             "reclaimed": _human_bytes(reclaimed_total),
             # Tier-3 rebuild is DEFERRED at close (never spawned inline) — surface it so a follow-up
@@ -9912,9 +9839,27 @@ def index_health_response(
     ready state.  Wave 1p4ww folded the framework docs into this single project
     index.  Intended as an explicit diagnostic tool; not on the search hot path.
     """
+    setup_usage = "wf setup --root ."
+    update_usage = "index_build(content='all', mode='update')"
+    rebuild_usage = "index_build(content='all', mode='rebuild')"
+    preserve_usage = (
+        "Preserve index-state.sqlite, its WAL/SHM files, and any migration receipt. "
+        "Diagnose the storage failure and use explicit recovery before retrying; "
+        "do not delete or rebuild the only copy."
+    )
     try:
         health = index.docs_health()
     except Exception as exc:
+        code = getattr(exc, "code", "index_health_error")
+        if code == "storage_runtime_unavailable":
+            recovery_usage = setup_usage
+            message = f"{exc} From the target repository, run {setup_usage}, then restart the MCP host."
+        elif code == "storage_recovery_required":
+            recovery_usage = str(exc)
+            message = str(exc)
+        else:
+            recovery_usage = "Resolve the reported error before retrying index_health(). " + preserve_usage
+            message = str(exc)
         return _response(
             "error",
             {
@@ -9927,14 +9872,14 @@ def index_health_response(
             },
             diagnostics=[
                 _diagnostic(
-                    "index_health_error",
-                    f"Could not compute index health: {exc}",
+                    code,
+                    f"Could not compute index health: {message}",
                     recovery_tools=["wf_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                    recovery_usage=recovery_usage,
                 )
             ],
             next_tools=["wf_help"],
-            usage="index_health()",
+            usage=recovery_usage,
         )
 
     diagnostics: list[dict[str, Any]] = []
@@ -9942,18 +9887,18 @@ def index_health_response(
         diagnostics.append(
             _diagnostic(
                 _REASON_INDEX_MISSING,
-                f"Index layer missing: {layer}. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                f"Index layer missing: {layer}. From the target repository, run {setup_usage}.",
                 recovery_tools=["wf_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                recovery_usage=setup_usage,
             )
         )
     for layer in health.get("stale_layers", []):
         diagnostics.append(
             _diagnostic(
                 "index_stale",
-                f"Index layer stale: {layer}. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full",
-                recovery_tools=["wf_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full",
+                f"Index layer stale: {layer}. Refresh: {rebuild_usage if health.get('chunker_version_mismatch_layers') else update_usage}",
+                recovery_tools=["index_build"],
+                recovery_usage=rebuild_usage if health.get("chunker_version_mismatch_layers") else update_usage,
             )
         )
     overview = health.get("readiness_overview")
@@ -9962,8 +9907,8 @@ def index_health_response(
             _diagnostic(
                 "index_degraded",
                 "Index metadata is present but merged semantic chunks did not load; search may fall back to lexical retrieval.",
-                recovery_tools=["wf_help", "index_build"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                recovery_tools=["wf_help"],
+                recovery_usage=setup_usage,
             )
         )
     elif overview == "absent":
@@ -9972,14 +9917,14 @@ def index_health_response(
                 "index_absent",
                 "No index metadata found under the project index dir (nothing to search semantically yet).",
                 recovery_tools=["wf_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                recovery_usage=setup_usage,
             )
         )
     if health.get("code_layer_missing"):
         diagnostics.append(
             _diagnostic(
                 "code_layer_missing",
-                "Code sources are in scope but the code index layer (code.lance) is absent — likely an "
+                "Code sources are in scope but the code SQLite vector layer is absent — likely an "
                 "interrupted or OOM-killed code embedding pass. code_ask / code_search have no code layer "
                 "until it is rebuilt: index_build(content='code').",
                 recovery_tools=["index_build"],
@@ -9991,9 +9936,9 @@ def index_health_response(
             _diagnostic(
                 "chunker_version_mismatch",
                 f"Index layer '{layer}' was built with an older chunker version. "
-                "A full rebuild is required: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full",
+                f"A full rebuild is required: {rebuild_usage}",
                 recovery_tools=["index_build"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full",
+                recovery_usage=rebuild_usage,
             )
         )
     background_build_status = _background_build_status(index.root)
@@ -10054,6 +9999,32 @@ def index_health_response(
     # integrity verdict (quick_check + freshness-fingerprint binding). Absence
     # is a normal not-yet-built state, never an error (AC-2/AC-6).
     health["state_store"] = _state_store_health_summary(index.root)
+    try:
+        vector_store = _load_script("sqlite_vector_store")
+        counts = vector_store.layer_counts(index.root / ".wavefoundry" / "index")
+        health["capacity"] = vector_store.capacity_qualification(counts)
+        if not health["capacity"]["qualified"]:
+            diagnostics.append(_diagnostic(
+                "capacity_unqualified",
+                "The local vector index exceeds the measured retrieval-latency envelope for "
+                + ", ".join(health["capacity"]["exceeded_layers"])
+                + ". Indexing and exact search continue normally; performance at this size "
+                "needs qualification on this machine. No files or results are dropped.",
+            ))
+    except Exception:
+        pass  # Store absence/corruption has its own health diagnostics.
+    vector_defects = {
+        layer: {key: details.get(key, 0) for key in ("missing_vectors", "orphan_vectors")}
+        for layer, details in (health["state_store"].get("chunk_index") or {}).items()
+        if details.get("missing_vectors") or details.get("orphan_vectors")
+    }
+    if vector_defects:
+        diagnostics.append(_diagnostic(
+            "vector_population_mismatch",
+            "Canonical chunks and vectors differ: " + json.dumps(vector_defects, sort_keys=True)
+            + ". Run an index update to reconcile the native vector population.",
+            recovery_tools=["index_build"], recovery_usage="index_build(content='all', mode='update')",
+        ))
     # Wave 1x6ti (1x551): the reap's persisted deferral / preservation record,
     # the same reader index_build_status uses, plus one diagnostic per
     # non-empty map (a deferral the operator must act on; a preserved subtree
@@ -10062,33 +10033,22 @@ def index_health_response(
     if _reap_block is not None:
         health["reap"] = _reap_block
         diagnostics.extend(_reap_state_diagnostics(_reap_block))
-    if health["state_store"].get("integrity") == "structural-fail":
-        diagnostics.append(
-            _diagnostic(
-                "state_store_structural_fail",
-                "The index-state store failed its structural integrity check. It is "
-                "derived-only: the next index build drops and rebuilds it automatically, "
-                "or run index_optimize() to verify and reclaim now.",
-                recovery_tools=["index_optimize", "index_build"],
-                recovery_usage="index_optimize()",
-            )
-        )
     # 1sbfj: coverage advisory — a structurally-sound store whose chunk
-    # registry/FTS covers materially less than Lance means lexical retrieval
+    # registry/FTS covers fewer rows than the canonical SQLite tables, so retrieval
     # is running partially blind (the field defect read as `integrity: ok`).
-    # The next index build heals it (the reconcile backfills from Lance,
+    # The next index build heals it (the reconcile backfills from canonical chunks,
     # including on zero-change builds).
     _uncovered = [
-        f"{t} (registry {c.get('registry_rows')} of {c.get('lance_rows')} Lance rows)"
+        f"{t} (registry {c.get('registry_rows')} of {c.get('vector_rows')} vector rows)"
         for t, c in (health["state_store"].get("chunk_index") or {}).items()
-        if c.get("covered") is False
+        if c.get("covered") is False and not c.get("missing_vectors") and not c.get("orphan_vectors")
     ]
     if _uncovered:
         diagnostics.append(
             _diagnostic(
                 "chunk_index_undercovered",
                 "The derived chunk index (FTS/registry) covers materially less than the "
-                "Lance tables: " + "; ".join(sorted(_uncovered)) + ". Lexical (BM25) "
+                "Vector layers: " + "; ".join(sorted(_uncovered)) + ". Lexical (BM25) "
                 "retrieval is running partially blind until it heals. Rebuild the derived "
                 "lexical layer directly (embedding-free, seconds): "
                 "index_build(content='fts') — or any ordinary build backfills it.",
@@ -10143,14 +10103,34 @@ def index_health_response(
             )
         )
 
-    semantic_ready = health.get("semantic_ready")
-    return _response(
-        "ok",
-        health,
-        diagnostics=diagnostics,
-        next_tools=["docs_search"] if semantic_ready else ["index_build"],
-        usage="docs_search(query='...')" if semantic_ready else "index_build(content='docs', mode='update')",
-    )
+    if health["state_store"].get("integrity") == "structural-fail":
+        # Retain concurrent findings (including FTS damage), but never suggest
+        # competing writes while the canonical store needs explicit recovery.
+        for diagnostic in diagnostics:
+            diagnostic["message"] = (
+                "Additional finding: " + diagnostic["code"].replace("_", " ")
+                + ". Details remain in the health data. Canonical storage recovery "
+                "takes precedence over other index maintenance."
+            )
+            diagnostic["recovery_tools"] = ["wf_help"]
+            diagnostic["recovery_usage"] = preserve_usage
+        diagnostics.insert(0, _diagnostic(
+            "state_store_structural_fail",
+            "The canonical index store failed its structural integrity check. " + preserve_usage,
+            recovery_tools=["wf_help"], recovery_usage=preserve_usage,
+        ))
+        next_tools, usage = ["wf_help"], preserve_usage
+    elif lock_info.get("held") or background_build_status == "running":
+        next_tools, usage = ["index_build_status"], "index_build_status()"
+    elif health.get("chunker_version_mismatch_layers"):
+        next_tools, usage = ["index_build"], rebuild_usage
+    elif health.get("missing_layers") or overview in {"absent", "incomplete", "degraded"}:
+        next_tools, usage = ["wf_help"], setup_usage
+    elif health.get("stale_layers") or not health.get("semantic_ready"):
+        next_tools, usage = ["index_build"], update_usage
+    else:
+        next_tools, usage = ["docs_search"], "docs_search(query='...')"
+    return _response("ok", health, diagnostics=diagnostics, next_tools=next_tools, usage=usage)
 
 
 # ---------------------------------------------------------------------------
@@ -12280,6 +12260,8 @@ def wf_audit_response(
     except Exception as exc:  # pragma: no cover
         index_data = {
             "error": str(exc),
+            "error_code": getattr(exc, "code", "index_runtime_error"),
+            "readiness_overview": "unusable",
             "metadata_ready": False,
             "freshness_checked": False,
             "freshness": "unknown",
@@ -13216,19 +13198,11 @@ def _index_optimize_response(
     rebuild_if_needed: bool = True,
     cache: Optional[McpRepoCache] = None,
 ) -> dict[str, Any]:
-    """Wave 1p9aj. Reclaim on-disk index bloat by running the tiered ladder — optimize (compact) →
-    copy-and-replace rewrite (on the Lance list-offset corruption) → full rebuild (only when a table is
-    unreadable) — over the ``docs``/``code`` Lance tables, with **no** re-embedding in the common case.
-    Returns per-table ``{tier, rows, size_before, size_after, reclaimed}`` plus a total. When
-    ``rebuild_if_needed`` and a table was unreadable (Tier 3), a full rebuild is spawned in the
-    background after the build lock is released.
+    """Maintain the shared SQLite index and graph store once under the build lock.
 
-    Wave 1rsh9 (1rq4h): this is now the unified maintenance verb for EVERY index. After the Lance
-    pass it also runs SQLite maintenance — WAL checkpoint/truncate, ``VACUUM``, ``PRAGMA optimize``,
-    and the two-layer integrity check — across every reachable SQLite store: the index-state store
-    and the graph state store (closing the old "graph index is not reclaimed this way" gap).
-    SQLite maintenance runs under the same index-build lock, is on-demand only (never alters the
-    graph build path), and reports per-store ``size_before/size_after/reclaimed`` under ``stores``."""
+    Preserve per-layer statistics and per-store integrity results. Reclaim free
+    pages incrementally without re-embedding or routinely rewriting the database.
+    """
     content_s = (content or "all").strip().lower()
     layer_map = {"docs": ("docs",), "code": ("code",), "all": ("docs", "code"), "": ("docs", "code")}
     tables = layer_map.get(content_s)
@@ -13238,9 +13212,9 @@ def _index_optimize_response(
             {"content": content, "operation": "optimize"},
             diagnostics=[_diagnostic(
                 "invalid_arguments",
-                f"index_optimize's content selects the Lance tables — it must be 'docs', 'code', or "
+                f"index_optimize's content selects the vector layers — it must be 'docs', 'code', or "
                 f"'all' (got {content!r}). The SQLite stores (index-state + graph state) are always "
-                f"maintained alongside whichever Lance selection runs.",
+                f"maintained alongside whichever vector selection runs.",
             )],
             next_tools=["index_health"],
             usage="index_optimize(content='all')",
@@ -13272,24 +13246,19 @@ def _index_optimize_response(
             next_tools=["index_health"],
             usage="index_health()",
         )
-    # Wave 1rsh9 (1rq4h): unified maintenance — SQLite stores (index-state +
-    # graph state) get WAL checkpoint/truncate, full VACUUM, PRAGMA optimize,
-    # and the deep integrity check, under the same index-build lock discipline
-    # as the Lance pass. Best-effort: a lock conflict or error is reported as
-    # a diagnostic, never a failure of the Lance results.
+    maintenance_failure = _sqlite_maintenance_failure(results)
     stores_out: dict[str, Any] = {}
     store_diagnostics: list[dict[str, Any]] = []
     stores_reclaimed = 0
     try:
-        iss = _load_script("index_state_store")
-        with idx._index_build_lock(index_dir):
-            raw_stores = iss.optimize_state_stores(index_dir, full_vacuum=True, deep_integrity=True)
+        raw_stores = results.pop("stores", {})
         for name, res in raw_stores.items():
             s_before = int(res.get("size_before_bytes") or 0)
             s_after = int(res.get("size_after_bytes") or 0)
             s_reclaimed = int(res.get("reclaimed_bytes") or 0)
             stores_reclaimed += s_reclaimed
             stores_out[name] = {
+                **res,
                 "present": bool(res.get("present")),
                 "integrity": res.get("integrity"),
                 "size_before_bytes": s_before,
@@ -13303,10 +13272,14 @@ def _index_optimize_response(
             if res.get("present") and res.get("integrity") == "structural-fail":
                 store_diagnostics.append(_diagnostic(
                     "state_store_structural_fail",
-                    f"SQLite store '{name}' failed its integrity check. Stores are derived-only: "
-                    f"the next build (or graph rebuild) drops and repopulates it automatically.",
-                    recovery_tools=["index_build"],
-                    recovery_usage="index_build(content='all', mode='update')",
+                    (f"SQLite store '{name}' failed its integrity check. "
+                     "Preserve index-state.sqlite and any -wal/-shm companions before explicit "
+                     "recovery; a pending migration must follow its retained receipt. "
+                     "The shared semantic store is not automatically discarded."
+                     if name == "index-state" else
+                     f"SQLite store '{name}' failed its integrity check; rebuild the derived graph store."),
+                    recovery_tools=["index_health"] if name == "index-state" else ["index_build"],
+                    recovery_usage="index_health()" if name == "index-state" else "index_build(content='graph', mode='rebuild')",
                 ))
     except Exception as exc:  # noqa: BLE001
         if already_running is not None and isinstance(exc, already_running):
@@ -13321,6 +13294,18 @@ def _index_optimize_response(
             store_diagnostics.append(_diagnostic(
                 "state_store_maintenance_failed", f"SQLite store maintenance failed: {exc}",
             ))
+    if maintenance_failure:
+        return _response(
+            "error",
+            {"content": content_s, "operation": "optimize", "tables": {}, "stores": stores_out,
+             "error": maintenance_failure, "total_reclaimed_bytes": stores_reclaimed,
+             "total_reclaimed": _human_bytes(stores_reclaimed)},
+            diagnostics=store_diagnostics + [_diagnostic(
+                "state_store_maintenance_failed", maintenance_failure,
+                recovery_tools=["index_health"], recovery_usage="index_health()",
+            )],
+            next_tools=["index_health"], usage="index_health()",
+        )
     if not results:
         return _response(
             "ok",
@@ -13328,7 +13313,7 @@ def _index_optimize_response(
              "stores": stores_out,
              "total_reclaimed_bytes": stores_reclaimed,
              "total_reclaimed": _human_bytes(stores_reclaimed),
-             "note": "No matching Lance tables present to optimize."},
+             "note": "No matching vector layers present to optimize."},
             diagnostics=store_diagnostics,
             next_tools=["index_health"],
             usage="index_health()",
@@ -13350,7 +13335,7 @@ def _index_optimize_response(
         )
     # 1sed6: a dirty optimize deliberately leaves the epoch un-finalized —
     # surface that as a diagnostic instead of listing "finalize" as a table.
-    _finalize_note = results.pop("finalize", None) if isinstance(results, dict) else None
+    results.pop("finalize", None)
     tables_out: dict[str, Any] = {}
     needs_rebuild: list[str] = []
     total_before = 0
@@ -13380,13 +13365,6 @@ def _index_optimize_response(
     if cache:
         cache.invalidate()
     diagnostics = list(store_diagnostics)
-    if isinstance(_finalize_note, dict) and _finalize_note.get("error"):
-        diagnostics.append(_diagnostic(
-            "index_epoch_not_finalized",
-            f"{_finalize_note['error']} Readers fail closed until a build restores readiness.",
-            recovery_tools=["index_build"],
-            recovery_usage="index_build(content='all')",
-        ))
     rebuilt: list[str] = []
     if needs_rebuild and rebuild_if_needed:
         # Tier 3: a table was unreadable for a rewrite. The build lock is released now (optimize_index_tables
@@ -13762,7 +13740,7 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
     state_path = _index_build_state_path(root, layer_s)
     log_path = _index_build_log_path(root, layer_s)
     index_dir = state_path.parent
-    stale_locks_cleaned = _cleanup_stale_table_locks(index_dir)
+    stale_locks_cleaned: list[dict[str, Any]] = []
     background_status = _background_build_status(root) if layer_s == "project" else "none"
 
     if not state_path.exists():
@@ -15162,6 +15140,8 @@ def wf_upgrade_response(
     root: Path,
     phase: str = "preflight_to_docs_gate",
     mode: str = "apply",
+    confirm_hosts_stopped: bool = False,
+    rebuild_storage: bool = False,
 ) -> dict[str, Any]:
     """Invoke upgrade_wavefoundry.py for the requested phase (12r0b).
 
@@ -15196,6 +15176,15 @@ def wf_upgrade_response(
           every index/cleanup phase refuse while review projection or docs lint
           has a retained failed phase; recover through "resume_after_gate".
     """
+    if type(confirm_hosts_stopped) is not bool:
+        return _response("error", {}, diagnostics=[_diagnostic(
+            "invalid_arguments", "confirm_hosts_stopped must be an explicit boolean.")])
+    if type(rebuild_storage) is not bool:
+        return _response("error", {}, diagnostics=[_diagnostic(
+            "invalid_arguments", "rebuild_storage must be an explicit boolean.")])
+    if rebuild_storage and mode == "apply" and phase != "preflight_to_docs_gate":
+        return _response("error", {}, diagnostics=[_diagnostic(
+            "invalid_arguments", "Select rebuild_storage during ordinary upgrade resume (preflight_to_docs_gate); the receipt retains it for later phases.")])
     valid_modes = ("apply", "dry_run")
     if mode not in valid_modes:
         return _response(
@@ -15252,13 +15241,22 @@ def wf_upgrade_response(
             cmd.append("--resume-after-gate")  # rebuild review projection, then re-run docs gate
         elif phase == "resume_after_memory":
             cmd.append("--resume-after-memory")
+        if confirm_hosts_stopped:
+            cmd.append("--confirm-hosts-stopped")
+        if rebuild_storage:
+            cmd.append("--rebuild-storage")
         # phase == "preflight_to_docs_gate": --yes only (default run)
 
+    # Bind an expected restart response to this child invocation. A previous
+    # receipt (or exit 3 by itself) must never disguise a new upgrade failure.
+    storage_invocation = uuid.uuid4().hex
     try:
         result = _mcp_subprocess_run(
             cmd,
             cwd=str(root),
             check=False,
+            env={**os.environ, "WAVEFOUNDRY_STORAGE_OLD_MCP_PID": str(os.getpid()),
+                 "WAVEFOUNDRY_STORAGE_INVOCATION": storage_invocation},
         )
     except OSError as exc:
         return _bounded_upgrade_response_envelope(
@@ -15362,6 +15360,37 @@ def wf_upgrade_response(
             "cleanup remain blocked until that recovery succeeds."
         )
         _next_tools = ["wf_upgrade_status", "wf_upgrade"]
+
+    if result.returncode == 3 and mode == "apply":
+        try:
+            migration = _load_script("sqlite_storage_migration")
+            storage_action = migration.read_restart_action(root, 3, storage_invocation)
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            storage_action = None
+        if isinstance(storage_action, dict):
+            storage_action = dict(storage_action)
+            hosts = storage_action.get("old_hosts", [])
+            storage_action["old_hosts"] = hosts[:50]
+            storage_action["old_hosts_total"] = len(hosts)
+            storage_action["old_hosts_omitted"] = max(0, len(hosts) - 50)
+            storage_action["receipt_path"] = str(root / ".wavefoundry/index/sqlite-migration.json")
+            response = _response(
+                "ok",
+                {**data, "state": "restart_required", "restart_required": True,
+                 "code": "storage_restart_required", "action_required": storage_action,
+                 "failed_phase": None},
+                diagnostics=[],
+                next_tools=["wf_upgrade_status"],
+            )
+            response["next_step"] = (
+                "Save action_required.command_argv before stopping MCP. Stop all "
+                "Wavefoundry dashboard and MCP servers for this repository, including "
+                "other editors and this invoking server. Run the exact command through "
+                "the ordinary non-MCP shell; do not start another MCP server to resume. "
+                "Preserve the migration receipt and selected package. Follow the CLI "
+                "recovery instructions before restarting hosts."
+            )
+            return _bounded_upgrade_response_envelope(response)
 
     if result.returncode == 4:
         memory_gate: dict[str, Any] = {}
@@ -19798,10 +19827,9 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             transitioned_to_closed = True
             if cache:
                 cache.invalidate()
-            # Wave 1rycf: interim bloat reclaim. Run BEFORE the close's own background refresh so the
-            # index build lock is still free; the optimize is gated (only bloated tables), lock-aware
-            # (skips if a build holds the lock), tier-1-only (never spawns a synchronous rebuild), and
-            # fail-safe (never affects the close). Superseded later by the SQLite FTS5 migration.
+            # Run opportunistic SQLite maintenance before the close's background
+            # refresh competes for the build lock. Skip unnecessary/locked work,
+            # preserve failure guidance, and never rebuild or re-embed here.
             close_optimize = _maybe_optimize_index_on_close(root)
             # Defensive fallback: the pre-close validation gate normally means
             # every source already has a disposition. If evidence changed after
@@ -20784,9 +20812,9 @@ def _fts_serving_coverage(
     the ``_state_store_health_summary`` wrapper whose ``probe_state_store``
     structural quick_check measured 674 ms on this repository's store and
     re-established for the same epoch what ``fts_state_verdict`` had just
-    established (liveness, parity, keyed digest). What remains is a Lance
-    metadata row count and one indexed registry ``count(*)`` per table.
-    Tables without a Lance table fall back to the counts recorded at the last
+    established (liveness, parity, keyed digest). The compare uses SQLite
+    vector population counts and one indexed registry ``count(*)`` per table.
+    Tables without live coverage fall back to the counts recorded at the last
     successful reconcile, so degraded ``index_missing`` envelopes still carry
     coverage."""
     if epoch_state == "__compute__":
@@ -20802,10 +20830,11 @@ def _fts_serving_coverage(
                 iss = _load_script("index_state_store")
                 index_dir = root / ".wavefoundry" / "index"
                 for table in still_missing:
-                    lance_rows, registry_rows = iss.chunk_sync_counts(index_dir, table)
+                    vector_rows, registry_rows = iss.chunk_sync_counts(index_dir, table)
                     if registry_rows is not None:
                         cached[table] = {
-                            "lance_rows": lance_rows, "registry_rows": registry_rows,
+                            "vector_rows": vector_rows,
+                            "registry_rows": registry_rows,
                         }
             except Exception:  # noqa: BLE001 - advisory only
                 pass
@@ -21333,7 +21362,7 @@ def code_lexical_response(
             diagnostics.append(_diagnostic(
                 "chunk_index_undercovered",
                 "The lexical index for " + ", ".join(sorted(uncovered)) + " covers materially "
-                "less than the Lance tables — results may be partial until it heals. "
+                "less than the vector layers — results may be partial until it heals. "
                 "Rebuild it directly (embedding-free, seconds): index_build(content='fts').",
                 recovery_tools=["index_build", "index_health"],
                 recovery_usage="index_build(content='fts')",
@@ -27088,7 +27117,7 @@ def _candidate_merge_key(candidate: "dict") -> tuple:
     substrates (1wpah delivery repair, RED-DEL-2 / CODE-DEL-1).
 
     The chunk ``id`` is the identity: it is unique per file from chunker 40,
-    and both substrates carry it (Lance rows keep the column;
+    and both substrates carry it (canonical chunk rows keep the column;
     ``_lexical_candidates`` and ``_fts5_lexical_search`` copy it out of the
     FTS row). The former ``(path, tuple(lines))`` key collapsed DISTINCT
     chunks that share coordinates — 433 docs and 17 code such groups in the
@@ -30070,12 +30099,14 @@ class ImplHandler:
             pass
         self.cache.invalidate()
         self.index._loaded = False
-        self.index._docs_lance_table = None
-        self.index._code_lance_table = None
+        self.index._docs_vector_layer = None
+        self.index._code_vector_layer = None
+        self.index._proj_docs_vector_layer = None
+        self.index._proj_code_vector_layer = None
         self.index._reranker = None
         self.index._model_downloads_started = False
         self.index._loaded_meta_signature = {}
-        self.index._lance_available = set()
+        self.index._vector_available = set()
 
 
 def build_handler(root: Path) -> ImplHandler:
@@ -30964,30 +30995,35 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # whole operation; discard results if it changed underneath. A None
         # pre-token is allowed here — docs_search's live-filesystem fallback
         # is the explicitly degraded path for a not-ready index.
-        _tok = _epoch_state(get_handler().root)
-        # The CAPTURED token drives the fallback serve decisions inside the
-        # response fn (1seaq single-capture discipline — no second read).
-        result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None, epoch_state=_tok)
-        # Review fix (ABA-hardened): the post-compare is UNCONDITIONAL and
-        # uses the FULL state row. A stable pair (same attempt/status/
-        # generation — including a stable not-ready store) is the sanctioned
-        # degraded live-walk; ANY transition — publish mid-operation, or
-        # building A → complete → building B (invisible to the complete-only
-        # token, both endpoints None) — discards the results.
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("docs_search", {"query": query})
-        return _record_retrieval_context(
-            get_handler(),
-            "docs_search",
-            result,
-            indexed_epoch_stable=bool(_tok and _tok[1] == "complete"),
-            request_arguments={
-                "query": query,
-                "kind": kind,
-                "tags": tags,
-                "limit": limit,
-            },
-        )
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            # The CAPTURED token drives the fallback serve decisions inside the
+            # response fn (1seaq single-capture discipline — no second read).
+            result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None, epoch_state=_tok)
+            # Review fix (ABA-hardened): the post-compare is UNCONDITIONAL and
+            # uses the FULL state row. A stable pair (same attempt/status/
+            # generation — including a stable not-ready store) is the sanctioned
+            # degraded live-walk; ANY transition — publish mid-operation, or
+            # building A → complete → building B (invisible to the complete-only
+            # token, both endpoints None) — discards the results.
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("docs_search", {"query": query})
+            return _record_retrieval_context(
+                get_handler(),
+                "docs_search",
+                result,
+                indexed_epoch_stable=bool(_tok and _tok[1] == "complete"),
+                request_arguments={
+                    "query": query,
+                    "kind": kind,
+                    "tags": tags,
+                    "limit": limit,
+                },
+            )
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'docs_search', get_handler().root, {'query': query}, exc)
 
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list = [], limit: int = 7, graph: bool = True, graph_limit: int = 5, layer: str = "project", **kwargs: Any) -> dict[str, Any]:
@@ -31022,7 +31058,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           Use "web" (category) if you want TypeScript + JavaScript + HTML + CSS + SCSS together.
 
         Candidate generation (wave 1wpif): language (single name, extension, or category), kind, and tags
-        are pushed into BOTH candidate sources (the Lance where clause and the FTS5 WHERE) before the
+        are pushed into BOTH candidate sources (the SQLite vector WHERE clause and the FTS5 WHERE) before the
         bounded top-k, so a selected-language match is never lost past a global window; the language
         value resolves through a fixed allowlist and never enters a predicate verbatim. max_per_file
         cannot be pushed down: retrieval continues over bounded candidate windows 30 -> 60 -> 120 -> 240
@@ -31066,37 +31102,42 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # state-capture pair left a between-reads window where a writer could
         # fence and the unchanged building==building post-check passed). The
         # completeness gate checks the CAPTURED token's own status.
-        _tok = _epoch_state(get_handler().root)
-        if _tok is None or _tok[1] != "complete":
-            return _index_rebuilding_response("code_search", {"query": query})
-        result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None, epoch_state=_tok)
-        result = _augment_with_graph_neighbors_if_enabled(
-            result, get_handler().root,
-            tool_key="code_search", graph=graph, graph_limit=graph_limit, layer=layer,
-        )
-        # Review fix (P0): the post-compare closes the fence AFTER graph
-        # augmentation — the graph read is part of the indexed operation, so
-        # a build fencing during augmentation must discard the WHOLE result,
-        # not just the pre-augmentation half.
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("code_search", {"query": query})
-        return _record_retrieval_context(
-            get_handler(),
-            "code_search",
-            _inject_timing(result, t_start, "code_search"),
-            indexed_epoch_stable=True,
-            request_arguments={
-                "query": query,
-                "language": language,
-                "kind": kind,
-                "max_per_file": max_per_file,
-                "tags": tags,
-                "limit": limit,
-                "graph": graph,
-                "graph_limit": graph_limit,
-                "layer": layer,
-            },
-        )
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is None or _tok[1] != "complete":
+                return _index_rebuilding_response("code_search", {"query": query})
+            result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None, epoch_state=_tok)
+            result = _augment_with_graph_neighbors_if_enabled(
+                result, get_handler().root,
+                tool_key="code_search", graph=graph, graph_limit=graph_limit, layer=layer,
+            )
+            # Review fix (P0): the post-compare closes the fence AFTER graph
+            # augmentation — the graph read is part of the indexed operation, so
+            # a build fencing during augmentation must discard the WHOLE result,
+            # not just the pre-augmentation half.
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("code_search", {"query": query})
+            return _record_retrieval_context(
+                get_handler(),
+                "code_search",
+                _inject_timing(result, t_start, "code_search"),
+                indexed_epoch_stable=True,
+                request_arguments={
+                    "query": query,
+                    "language": language,
+                    "kind": kind,
+                    "max_per_file": max_per_file,
+                    "tags": tags,
+                    "limit": limit,
+                    "graph": graph,
+                    "graph_limit": graph_limit,
+                    "layer": layer,
+                },
+            )
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'code_search', get_handler().root, {'query': query}, exc)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def seed_get(name: str, **kwargs: Any) -> dict[str, Any]:
@@ -31116,11 +31157,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # 1sed6 seqlock read (review fix): seed_get reads indexed chunks (with
         # a sanctioned disk fallback), so it takes the same whole-operation
         # fence as docs_search — unconditional post-compare, None pre allowed.
-        _tok = _epoch_state(get_handler().root)
-        result = seed_get_response(get_handler().index, name)
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("seed_get", {"name": name})
-        return result
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            result = seed_get_response(get_handler().index, name)
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("seed_get", {"name": name})
+            return result
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'seed_get', get_handler().root, {'name': name}, exc)
 
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_dependencies(path: str, **kwargs: Any) -> dict[str, Any]:
@@ -31722,19 +31768,24 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # keyword/graph stages return citations labeled current.
         # ONE state-token capture; completeness gate on the captured token
         # (review fix — no separate probe pair, no between-reads window).
-        _tok = _epoch_state(get_handler().root)
-        if _tok is None or _tok[1] != "complete":
-            return _index_rebuilding_response("code_ask", {"question": question})
-        result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank, epoch_state=_tok)
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("code_ask", {"question": question})
-        return _record_retrieval_context(
-            get_handler(),
-            "code_ask",
-            result,
-            indexed_epoch_stable=True,
-            request_arguments={"question": question, "rerank": rerank},
-        )
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is None or _tok[1] != "complete":
+                return _index_rebuilding_response("code_ask", {"question": question})
+            result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank, epoch_state=_tok)
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("code_ask", {"question": question})
+            return _record_retrieval_context(
+                get_handler(),
+                "code_ask",
+                result,
+                indexed_epoch_stable=True,
+                request_arguments={"question": question, "rerank": rerank},
+            )
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'code_ask', get_handler().root, {'question': question}, exc)
 
     # --- Wave inspection ---
 
@@ -31915,11 +31966,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # fallback — the same class as seed_get, so it takes the same
         # whole-operation fence (stable non-complete state allowed; any
         # transition discards).
-        _tok = _epoch_state(get_handler().root)
-        result = wf_map_response(get_handler().root, address, get_handler().index)
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("wf_map", {"address": address})
-        return result
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            result = wf_map_response(get_handler().root, address, get_handler().index)
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("wf_map", {"address": address})
+            return result
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'wf_map', get_handler().root, {'address': address}, exc)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_create_wave(slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
@@ -32878,8 +32934,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         signals when planning a refresh.
 
         Index size (wave 1p9a9): the response carries a ``size`` object — ``total_bytes``,
-        ``total_human``, and a per-component ``components`` map (``docs.lance`` / ``code.lance`` /
-        ``graph`` / …) for the on-disk index — so growth and LanceDB bloat are visible without ``du``.
+        ``total_human``, and a per-component ``components`` map (``index-state.sqlite`` /
+        ``graph`` / …) for the on-disk index — so storage growth is visible without ``du``.
 
         ``background_monitors`` reports the MCP-owned index refresh and Context
         Efficiency projection monitors: configured/alive state plus each
@@ -32992,7 +33048,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           options, start a fresh turn first; reconnect only if the schema is still stale, and
           restart the host last. The server cannot observe whether a client adopted the change.
         - ``fts`` — rebuild **only the derived lexical layer** (the index-state store's FTS5
-          tables + chunk registry) from scratch off the authoritative Lance tables (wave 1sc7c).
+          tables + chunk registry) from scratch off the canonical SQLite chunks (wave 1sc7c).
           Embedding-free and in-process — seconds. The clean recovery when
           ``index_health`` reports ``chunk_index_undercovered`` or the lexical layer is
           suspected corrupt/stale; no semantic re-embed, vectors untouched. ``mode`` is
@@ -33021,37 +33077,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def index_optimize(content: str = "all", rebuild_if_needed: bool = True, **kwargs: Any) -> dict[str, Any]:
-        """Reclaim on-disk index bloat by compacting the Lance tables — **no re-embedding** in the
-        common case.
+        """Maintain the local SQLite index without regenerating embeddings.
 
-        The semantic index tables (`docs.lance`, `code.lance`) accumulate on-disk bloat from incremental
-        append churn (superseded data fragments, stale FTS artifacts, old index versions). This tool runs
-        a tiered ladder over the selected tables under the index-build lock:
-
-        1. **optimize (compact)** — the normal path; reclaims fragments/versions in place.
-        2. **copy-and-replace rewrite** — when in-place optimize fails on the Lance list-offset
-           corruption bug, the table is rewritten fresh (`create_table(mode="overwrite")`), which
-           recomputes offsets from clean in-memory data and sidesteps the bug. Rebuilds the vector + FTS
-           indices. Still **no re-embedding** (reads succeed on the corrupted table).
-        3. **rebuild from scratch** — only when a table is entirely unreadable; a full re-embed rebuild
-           is spawned in the background (when `rebuild_if_needed=True`).
-
-        This is the safe way to shrink a bloated index (proven: `docs.lance` 1.6 GB → 55 MB) without the
-        minutes-long full re-embed a `index_build(mode='rebuild')` costs. It also runs automatically
-        at the end of `setup` (install) and `upgrade`.
-
-        **Unified maintenance verb (wave 1rsh9):** alongside the Lance pass, every reachable SQLite
-        store — the index-state store (`index-state.sqlite`) and the graph state store — gets WAL
-        checkpoint/truncate, `VACUUM`, `PRAGMA optimize`, and a full integrity check, under the same
-        index-build lock. One command maintains every index.
-
-        Response: per-table `{tier, rows, size_before, size_after, reclaimed}`, per-store equivalents
-        under `stores` (with an `integrity` verdict each), a `total_reclaimed`, plus
-        `needs_rebuild`/`rebuild_spawned` for any Tier-3 table. Reads `lock`-busy via `index_build_status`.
+        Runs under the index-build lock, preserves reusable space, checkpoints
+        passively and reclaims free pages in bounded batches. Reports reclaimed
+        bytes and integrity results. Graph storage remains independently maintained.
 
         Args:
-            content: `docs`, `code`, or `all` — selects the Lance tables; the SQLite stores are always maintained.
-            rebuild_if_needed: when a table is unreadable (Tier 3), spawn a full background rebuild for it.
+            content: docs, code, or all; the shared SQLite file is maintained once.
+            rebuild_if_needed: permit recovery rebuild when the index is unreadable.
         """
         bad = _ensure_no_extra_args("index_optimize", kwargs)
         if bad is not None:
@@ -33160,13 +33194,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wf_restart_dashboard_response(get_handler().root)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_upgrade(phase: str = "preflight_to_docs_gate", **kwargs: Any) -> dict[str, Any]:
+    def wf_upgrade(phase: str = "preflight_to_docs_gate", confirm_hosts_stopped: bool = False, rebuild_storage: bool = False, **kwargs: Any) -> dict[str, Any]:
         """Run the automated Wavefoundry framework upgrade script.
 
         Invokes ``upgrade_wavefoundry.py`` for the requested phase. Always runs
         non-interactively (equivalent to ``upgrade-wavefoundry --yes``).
 
         Args:
+            confirm_hosts_stopped: Explicit operator assertion that other index
+                hosts have been stopped for storage conversion. Never infer it
+                from --yes. Recorded known hosts must also be proven stopped.
+            rebuild_storage: Explicitly regenerate legacy semantic storage from
+                current source during ordinary upgrade resume. The receipt keeps
+                this choice across later phases and retries. After a storage
+                restart pause, use the retained external CLI command with
+                --rebuild-storage; do not start an MCP host to resume.
             phase: Which upgrade phase to run.
 
               - ``"preflight_to_docs_gate"`` *(default)* — phases 0–3: pre-flight
@@ -33249,7 +33291,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 ],
                 usage="Resolve the projection failure, then retry wf_upgrade.",
             )
-        return wf_upgrade_response(handler.root, phase=phase)
+        return wf_upgrade_response(handler.root, phase=phase,
+                                   confirm_hosts_stopped=confirm_hosts_stopped,
+                                   rebuild_storage=rebuild_storage)
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_upgrade_status(**kwargs: Any) -> dict[str, Any]:
@@ -33907,7 +33951,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - results: [{id, path, kind, language, lines, text, text_truncated, bm25, table}]
           ordered best-first (BM25 is smaller-is-better; already sorted).
-        - coverage: per-table lexical coverage vs Lance (present when the store reports it).
+        - coverage: per-table lexical coverage vs vectors (present when the store reports it).
         - A `chunk_index_undercovered` diagnostic when a searched table is materially behind —
           zero results on an under-covered store mean "store not healed yet", not "absent".
         - Typed failure (wave 1wpif, `1wpag`): every FTS read goes through one probed-serving
@@ -33926,29 +33970,34 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 bad["data"].setdefault("fallback_reason", None)
             return bad
         t_start = time.monotonic()
-        # 1sed6: FTS is derived from Lance — mid-build/uninitialized state is
+        # 1sed6: FTS is derived from canonical chunks — mid-build/uninitialized state is
         # mixed and never served as current. Fail closed on a missing epoch,
         # and discard on a mid-operation change.
         # ONE state-token capture; completeness gate on the captured token
         # (review fix — no separate probe pair, no between-reads window).
-        _tok = _epoch_state(get_handler().root)
-        if _tok is None or _tok[1] != "complete":
-            return _index_rebuilding_response("code_lexical", {"query": query})
-        result = code_lexical_response(get_handler().root, query, table=table, kind=kind, limit=limit)
-        if _epoch_state(get_handler().root) != _tok:
-            return _index_rebuilding_response("code_lexical", {"query": query})
-        return _record_retrieval_context(
-            get_handler(),
-            "code_lexical",
-            _inject_timing(result, t_start, "code_lexical"),
-            indexed_epoch_stable=True,
-            request_arguments={
-                "query": query,
-                "table": table,
-                "kind": kind,
-                "limit": limit,
-            },
-        )
+        import sqlite_runtime as runtime
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is None or _tok[1] != "complete":
+                return _index_rebuilding_response("code_lexical", {"query": query})
+            result = code_lexical_response(get_handler().root, query, table=table, kind=kind, limit=limit)
+            if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
+                return _index_rebuilding_response("code_lexical", {"query": query})
+            return _record_retrieval_context(
+                get_handler(),
+                "code_lexical",
+                _inject_timing(result, t_start, "code_lexical"),
+                indexed_epoch_stable=True,
+                request_arguments={
+                    "query": query,
+                    "table": table,
+                    "kind": kind,
+                    "limit": limit,
+                },
+            )
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+            return _index_runtime_failure_response(
+                'code_lexical', get_handler().root, {'query': query}, exc)
 
     @mcp.tool(annotations=_OBSERVATIONAL_TOOL)
     def code_constants(symbols: list[str], glob: str = "", **kwargs: Any) -> dict[str, Any]:

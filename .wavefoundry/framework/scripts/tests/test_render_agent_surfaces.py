@@ -3244,6 +3244,39 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                 "After the merge, skip the final `wf render-surfaces` pass",
         }
         mapping_contracts = {
+            "**Storage recovery guidance in existing upgrade prompts (seed 160).**": {
+                "On every upgrade, including same-version retries":
+                    "Only when the release version changes",
+                "even when the pre-apply diff reports no seed change":
+                    "skip when the pre-apply diff reports no seed change",
+                "freshly extracted `160-upgrade-wavefoundry.prompt.md`":
+                    "previously installed `160-upgrade-wavefoundry.prompt.md`",
+                "existing `docs/prompts/upgrade-wavefoundry.prompt.md`":
+                    "existing `docs/prompts/install-wavefoundry.prompt.md`",
+                "during the same installing run": "during a later upgrade",
+                "restart checkpoint and retained CLI continuation": "restart as an upgrade failure",
+                "`--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary":
+                    "reconnect MCP to rebuild after the pause",
+                "package identity and receipt prohibitions": "receipt editing escape hatches",
+                "publication/verification gate before cleanup": "cleanup before verification",
+                "Preserve project-only additions, metadata and all renderer-owned marker regions":
+                    "Discard project-only additions, metadata and renderer-owned marker regions",
+                "merge only missing or stale storage guidance outside those regions":
+                    "replace prose inside managed regions",
+                "never replace the project-owned prompt as a whole":
+                    "replace the project-owned prompt as a whole",
+                "If no prior storage section exists": "Ignore a missing storage section",
+                "add a single section at an unambiguous location":
+                    "append a duplicate section on every retry",
+                "already-current guidance remains unchanged": "always rewrite current guidance",
+                "old clause or insertion location cannot be identified uniquely":
+                    "old clauses may be selected by best effort",
+                "local wording conflicts with the new contract":
+                    "local wording conflicts may be overwritten",
+                "stop and present the conflict to the operator": "guess and continue",
+                "Re-run `wf render-surfaces` and the docs gate after the merge":
+                    "Skip rendering and docs validation after the merge",
+            },
             "**Changed Prepare Serialization Points carrier.**": {
                 "`170-plan-feature.prompt.md` changed":
                     "`170-plan-feature.prompt.md` was unchanged",
@@ -3327,6 +3360,8 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                         all(clause in mapping_line for clause in clauses),
                         f"{label}: incomplete mapping {heading}",
                     )
+                if mapping_line is None:
+                    continue  # The missing-mapping assertion already failed.
                 for clause, known_bad in clauses.items():
                     with self.subTest(surface=label, mapping=heading, mutant=clause):
                         mutant = mapping_line.replace(clause, known_bad, 1)

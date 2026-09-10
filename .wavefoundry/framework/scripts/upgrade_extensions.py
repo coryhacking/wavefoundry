@@ -79,6 +79,8 @@ import os
 import re
 import shlex
 import subprocess
+import stat
+import tempfile
 import sys
 import traceback
 import uuid
@@ -550,9 +552,97 @@ def _reconcile_graph_builder_doc_claim(ctx) -> bool:
     return _reconcile_docs_scalar_claims(ctx)
 
 
+def _preserve_original_manifest(ctx) -> None:
+    """Carry root-owned pruning authority across an old runner's fatal restart.
+
+    Old runners erase their process-global temp copy when post_extract pauses.
+    This incoming hook therefore writes the existing new-runner recovery format
+    before extraction, using only stdlib APIs available in the old process.
+    """
+    if getattr(ctx, "dry_run", False):
+        return
+    target = str(getattr(ctx, "to_version", "") or "")
+    if not target:
+        return
+    parent = Path(ctx.root) / ".wavefoundry"
+    snapshot = parent / "upgrade-manifest-old.json"
+    manifest = parent / "framework/MANIFEST"
+    version = parent / "framework/VERSION"
+    for path in (parent, parent / "framework", manifest, version, snapshot):
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            continue
+        if (stat.S_ISLNK(metadata.st_mode) or
+                getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError("upgrade MANIFEST recovery paths may not use links or reparse points")
+    installed = version.read_text(encoding="utf-8").strip() if version.exists() else ""
+    # Match the coordinator's byte-preserving snapshot, including CRLF from
+    # Windows checkouts; universal-newline reads would reject the same manifest.
+    original = manifest.read_bytes().decode("utf-8") if manifest.exists() else None
+    if snapshot.exists():
+        value = json.loads(snapshot.read_text(encoding="utf-8"))
+        if (not isinstance(value, dict) or set(value) != {"target_version", "manifest"}
+                or value.get("target_version") != target or not isinstance(value.get("manifest"), str)):
+            raise ValueError("divergent upgrade MANIFEST recovery snapshot; preserve it and retry its original target")
+        if installed != target and original is not None and value["manifest"] != original:
+            raise ValueError("original MANIFEST differs from its retained recovery snapshot")
+        return
+    if original is None or installed == target:
+        return
+    # The upgrade lifecycle lock owns this write. Stage and fsync before the
+    # atomic replace, matching the new coordinator's existing snapshot format.
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                         dir=parent, prefix=".manifest-", delete=False) as stream:
+            staged = Path(stream.name)
+            json.dump({"target_version": target, "manifest": original}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if snapshot.exists() or snapshot.is_symlink():
+            raise ValueError("upgrade MANIFEST recovery appeared during capture; preserve both copies")
+        os.replace(staged, snapshot)
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+    try:
+        fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return  # Windows does not expose directory fsync through this API.
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _protect_existing_root_bootstrap(ctx) -> None:
+    """Keep the installing old runner from overwriting/deleting project files."""
+    if getattr(ctx, "dry_run", False):
+        return
+    root = Path(ctx.root).resolve()
+    path = root / "install-wavefoundry.md"
+    if not (path.exists() or path.is_symlink()):
+        return
+    parent = sys.modules.get(type(ctx).__module__)
+    members = getattr(parent, "_EXTRACT_ROOT_MEMBERS", None)
+    if parent is None or members is None:
+        raise RuntimeError("upgrade_root_installer_unowned: cannot prove the old runner will preserve the existing install-wavefoundry.md")
+    parent._EXTRACT_ROOT_MEMBERS = frozenset(members) - {path.name}
+    original = getattr(parent, "_remove_root_bootstrap_file", None)
+    if callable(original):
+        def preserve_existing(candidate_root):
+            parent._remove_root_bootstrap_file = original
+            if Path(candidate_root).resolve() != root:
+                return original(candidate_root)
+        parent._remove_root_bootstrap_file = preserve_existing
+
+
 def pre_extract(ctx):
     """Snapshot lint-bound facts, then quiesce old dedicated lock carriers."""
 
+    _protect_existing_root_bootstrap(ctx)
+    _preserve_original_manifest(ctx)
     _snapshot_graph_builder_doc_claim(ctx)
     _cut_over_runtime_locks(ctx.root)
 
@@ -1963,6 +2053,17 @@ def post_extract(ctx):
     keys are present. (Wave 1p5b4: the rename map is now a self-contained hardcoded
     table — the canonical-names manifest was retired; this convergence is removed at 2.0.0.)
     """
+    # Storage conversion must stop the old installing coordinator before it
+    # can call an old indexer or cleanup. Load the newly extracted, stdlib-only
+    # helper explicitly; never hide this safety failure in migration reports.
+    if not getattr(ctx, "dry_run", False):
+        migration_path = Path(ctx.root) / ".wavefoundry/framework/scripts/sqlite_storage_migration.py"
+        if migration_path.is_file():
+            spec = importlib.util.spec_from_file_location("_installed_storage_migration", migration_path)
+            migration = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(migration)
+            migration.prepare_upgrade(ctx)
+
     # Wave 1p3iv (1p3j7): convergence half — runs on every upgrade.
     _run_convergence_migration(ctx)
 

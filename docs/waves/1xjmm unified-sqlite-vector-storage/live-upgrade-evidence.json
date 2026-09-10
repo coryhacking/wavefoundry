@@ -1,0 +1,1488 @@
+{
+  "status": "migration_cleanup_and_smoke_complete",
+  "package": "/tmp/1xjmm-package-test3/dist/wavefoundry-1.22.0.test3.zip",
+  "package_sha256": "551186b1ee4b88df7268a62011e6661ee0a53c17900ea9951bac4d988312ae0f",
+  "migration_id": "d58137b3904847318ea09187308cfbd8",
+  "memory": {
+    "data": {
+      "candidates_drafted": 241,
+      "candidates_pending": 132,
+      "eligible_waves": 261,
+      "entry_path": "upgrade",
+      "failures": 0,
+      "last_failure": "",
+      "limits": {
+        "candidates": 20,
+        "response_bytes": 65536,
+        "waves": 10
+      },
+      "mode": "create",
+      "processed": [
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "extracted",
+          "wave_id": "1x5tr scanner-correctness-and-visibility"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "extracted",
+          "wave_id": "1x6ti reap-state-visibility-and-dangling-edges"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "extracted",
+          "wave_id": "1xa00 table-chunk-source-coverage"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "extracted",
+          "wave_id": "1xdlx techdocs-boundary-guidance"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "extracted",
+          "wave_id": "1xfbh upgrade-retry-pruning"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "no_source",
+          "wave_id": "1xgbc lexical-index-dashboard-stats"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "no_source",
+          "wave_id": "1xgbe context-efficiency-marker-placement"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "no_source",
+          "wave_id": "1xhbo lancedb-038-evaluation"
+        },
+        {
+          "candidates_written": 0,
+          "exhausted": true,
+          "outcome": "no_source",
+          "wave_id": "1xhgc brief-readback-and-gap-review"
+        }
+      ],
+      "promoted": 54,
+      "rejected": 42,
+      "remaining_waves": 0,
+      "retained": 0,
+      "rewritten": 13,
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "state": "awaiting_validation",
+      "validation_worklist": [
+        {
+          "memory_id": "1u8p4-mem decision-chunk-id-format-path-symbolname-path-section-pat",
+          "source_event": "decision-log:12926-feat wavefoundry-mcp-index:dbda8c1d27bfd883",
+          "state": "missing",
+          "wave_id": "1293d mcp-server-foundation"
+        },
+        {
+          "memory_id": "1u7qw-mem decision-use-mcp-as-a-control-plane-for-a-watcher-process-no",
+          "source_event": "decision-log:129q6-enh mcp-index-watch-control:227a9c1312ca45d9",
+          "state": "missing",
+          "wave_id": "129p8 mcp-docs-search-reliability"
+        },
+        {
+          "memory_id": "1u757-mem decision-lifecycle-id-py-kept-and-unchanged",
+          "source_event": "decision-log:1297t-feat mcp-change-creation-coverage:99672ec115abe1c5",
+          "state": "missing",
+          "wave_id": "12ahv mcp-agent-surface"
+        },
+        {
+          "memory_id": "1u75n-mem decision-extend-chunker-py-to-treat-docs-design-json-as-doc",
+          "source_event": "decision-log:12akr-enh design-system-directory-structure-extraction:188f02ff5fa22860",
+          "state": "missing",
+          "wave_id": "12as1 design-system-extraction"
+        },
+        {
+          "memory_id": "1u7jt-mem decision-use-datetime-date-today-isoformat-for-scaffold-date",
+          "source_event": "decision-log:12as3-bug wave-create-scaffold-and-admit-placement:88ae4a47f56e75cc",
+          "state": "missing",
+          "wave_id": "12as7 wave-lifecycle-tool-fixes"
+        },
+        {
+          "memory_id": "1u7bu-mem decision-diagnostic-aggregates-with-lint-garden-rather-than-",
+          "source_event": "decision-log:12as6-enh single-active-wave-guard:deb279d8cf63eab9",
+          "state": "missing",
+          "wave_id": "12as7 wave-lifecycle-tool-fixes"
+        },
+        {
+          "memory_id": "1u6re-mem decision-chunker-version-in-chunker-py-indexer-reads-it-into",
+          "source_event": "decision-log:12avx-enh markdown-chunker-heading-hierarchy:c9cfadd10f252bb3",
+          "state": "missing",
+          "wave_id": "12axj chunker-and-pack-improvements"
+        },
+        {
+          "memory_id": "1u6mt-mem decision-lifecycle-tag-restricted-to-docs-subtree-and-exclud",
+          "source_event": "decision-log:12dv9-enh chunk-tags:563755489c10e593",
+          "state": "missing",
+          "wave_id": "12dv9 chunk-tags"
+        },
+        {
+          "memory_id": "1u7lg-mem decision-use-dashboard-html-as-the-seeded-browser-entrypoint",
+          "source_event": "decision-log:12g47-enh generic-project-dashboard:c31f1894db4d9dbe",
+          "state": "missing",
+          "wave_id": "12g47 dashboard-framework"
+        },
+        {
+          "memory_id": "1u6f5-mem decision-ship-react-18-umd-production-builds-as-local-static",
+          "source_event": "decision-log:12g47-enh generic-project-dashboard:c8a4eda0d007633b",
+          "state": "missing",
+          "wave_id": "12g47 dashboard-framework"
+        },
+        {
+          "memory_id": "1u8xb-mem decision-legacy-npy-fallback-retained-not-auto-migrated",
+          "source_event": "decision-log:12nb2-enh hnsw-vector-index:f309381639e1c7a7",
+          "state": "missing",
+          "wave_id": "12nbr code-intelligence-expansion"
+        },
+        {
+          "memory_id": "1u71i-mem decision-upgrade-lib-py-as-shared-module",
+          "source_event": "decision-log:12r08-feat automated-upgrade-script:bc26545af5ce848e",
+          "state": "missing",
+          "wave_id": "12r09 automated-upgrade"
+        },
+        {
+          "memory_id": "1u7ge-mem decision-calls-upgrade-wavefoundry-py-as-subprocess-with-yes",
+          "source_event": "decision-log:12r0b-feat wave-upgrade-mcp-tool:343c53e0f0b852bd",
+          "state": "missing",
+          "wave_id": "12r09 automated-upgrade"
+        },
+        {
+          "memory_id": "1u76r-mem decision-keep-entry-point-as-server-py-impl-in-server-impl-p",
+          "source_event": "decision-log:12rb9-enh mcp-impl-hot-reload:8b4c79a047a6f974",
+          "state": "missing",
+          "wave_id": "12rbc mcp-impl-hot-reload"
+        },
+        {
+          "memory_id": "1u6qr-mem decision-ac-3-reload-runs-in-wave-upgrade-response-not-mcp-c",
+          "source_event": "decision-log:12rb9-enh mcp-impl-hot-reload:ff1cabf516f435f0",
+          "state": "missing",
+          "wave_id": "12rbc mcp-impl-hot-reload"
+        },
+        {
+          "memory_id": "1u7x7-mem decision-complete-the-dead-wavefoundry-tool-venv-tool-venv-p",
+          "source_event": "decision-log:12t9a-change standardize-python-tool-environment:9dd6e3b5b4bc7119",
+          "state": "missing",
+          "wave_id": "12t9b public-rollout-readiness-decisions"
+        },
+        {
+          "memory_id": "1u8pi-mem decision-default-build-pack-py-output-to-wavefoundry-dist-d",
+          "source_event": "decision-log:12tm5-enh migrate-versioning-to-semver:d882ba56706f671a",
+          "state": "missing",
+          "wave_id": "12tms python-env-and-semver-implementation"
+        },
+        {
+          "memory_id": "1u7yb-mem decision-commit-codex-config-toml-and-also-wire-it-into-rend",
+          "source_event": "decision-log:12ww2-ops codex-project-local-mcp-config:de7f0f864a59dd72",
+          "state": "missing",
+          "wave_id": "12wsj framework-cleanup"
+        },
+        {
+          "memory_id": "1u8sc-mem decision-keep-graph-extraction-inside-the-existing-rebuild-l",
+          "source_event": "decision-log:12xsz-feat graph-index-extraction-and-persistence:a51cc76cd07469f6",
+          "state": "missing",
+          "wave_id": "12xr1 graph-index-extraction-and-visualization"
+        },
+        {
+          "memory_id": "1u8l8-mem decision-always-enable-timestampedwriter-in-indexer-py-uncon",
+          "source_event": "decision-log:12yk0-enh timestamped-index-logs:031cc4680a1816e1",
+          "state": "missing",
+          "wave_id": "12xr1 graph-index-extraction-and-visualization"
+        }
+      ],
+      "validation_worklist_count": 132,
+      "validation_worklist_remaining": 112,
+      "waves_complete": 106,
+      "waves_no_source": 64,
+      "waves_unsupported": 91
+    },
+    "diagnostics": [],
+    "next_tools": [
+      "memory_validate",
+      "memory_backfill"
+    ],
+    "status": "ok",
+    "usage": "validate each data.validation_worklist[].memory_id, then call memory_backfill(mode='create') for the next exact page"
+  },
+  "missing_sources": [
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1293d mcp-server-foundation",
+      "source_event": "decision-log:12926-feat wavefoundry-mcp-index:dbda8c1d27bfd883",
+      "memory_id": "1u8p4-mem decision-chunk-id-format-path-symbolname-path-section-pat"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12ahv mcp-agent-surface",
+      "source_event": "decision-log:1297t-feat mcp-change-creation-coverage:99672ec115abe1c5",
+      "memory_id": "1u757-mem decision-lifecycle-id-py-kept-and-unchanged"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "129p8 mcp-docs-search-reliability",
+      "source_event": "decision-log:129q6-enh mcp-index-watch-control:227a9c1312ca45d9",
+      "memory_id": "1u7qw-mem decision-use-mcp-as-a-control-plane-for-a-watcher-process-no"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12as1 design-system-extraction",
+      "source_event": "decision-log:12akr-enh design-system-directory-structure-extraction:188f02ff5fa22860",
+      "memory_id": "1u75n-mem decision-extend-chunker-py-to-treat-docs-design-json-as-doc"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12as7 wave-lifecycle-tool-fixes",
+      "source_event": "decision-log:12as3-bug wave-create-scaffold-and-admit-placement:88ae4a47f56e75cc",
+      "memory_id": "1u7jt-mem decision-use-datetime-date-today-isoformat-for-scaffold-date"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12as7 wave-lifecycle-tool-fixes",
+      "source_event": "decision-log:12as6-enh single-active-wave-guard:deb279d8cf63eab9",
+      "memory_id": "1u7bu-mem decision-diagnostic-aggregates-with-lint-garden-rather-than-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12axj chunker-and-pack-improvements",
+      "source_event": "decision-log:12avx-enh markdown-chunker-heading-hierarchy:c9cfadd10f252bb3",
+      "memory_id": "1u6re-mem decision-chunker-version-in-chunker-py-indexer-reads-it-into"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12dv9 chunk-tags",
+      "source_event": "decision-log:12dv9-enh chunk-tags:563755489c10e593",
+      "memory_id": "1u6mt-mem decision-lifecycle-tag-restricted-to-docs-subtree-and-exclud"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12g47 dashboard-framework",
+      "source_event": "decision-log:12g47-enh generic-project-dashboard:c31f1894db4d9dbe",
+      "memory_id": "1u7lg-mem decision-use-dashboard-html-as-the-seeded-browser-entrypoint"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12g47 dashboard-framework",
+      "source_event": "decision-log:12g47-enh generic-project-dashboard:c8a4eda0d007633b",
+      "memory_id": "1u6f5-mem decision-ship-react-18-umd-production-builds-as-local-static"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12nbr code-intelligence-expansion",
+      "source_event": "decision-log:12nb2-enh hnsw-vector-index:f309381639e1c7a7",
+      "memory_id": "1u8xb-mem decision-legacy-npy-fallback-retained-not-auto-migrated"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12r09 automated-upgrade",
+      "source_event": "decision-log:12r08-feat automated-upgrade-script:bc26545af5ce848e",
+      "memory_id": "1u71i-mem decision-upgrade-lib-py-as-shared-module"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12r09 automated-upgrade",
+      "source_event": "decision-log:12r0b-feat wave-upgrade-mcp-tool:343c53e0f0b852bd",
+      "memory_id": "1u7ge-mem decision-calls-upgrade-wavefoundry-py-as-subprocess-with-yes"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12rbc mcp-impl-hot-reload",
+      "source_event": "decision-log:12rb9-enh mcp-impl-hot-reload:8b4c79a047a6f974",
+      "memory_id": "1u76r-mem decision-keep-entry-point-as-server-py-impl-in-server-impl-p"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12rbc mcp-impl-hot-reload",
+      "source_event": "decision-log:12rb9-enh mcp-impl-hot-reload:ff1cabf516f435f0",
+      "memory_id": "1u6qr-mem decision-ac-3-reload-runs-in-wave-upgrade-response-not-mcp-c"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12t9b public-rollout-readiness-decisions",
+      "source_event": "decision-log:12t9a-change standardize-python-tool-environment:9dd6e3b5b4bc7119",
+      "memory_id": "1u7x7-mem decision-complete-the-dead-wavefoundry-tool-venv-tool-venv-p"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12tms python-env-and-semver-implementation",
+      "source_event": "decision-log:12tm5-enh migrate-versioning-to-semver:d882ba56706f671a",
+      "memory_id": "1u8pi-mem decision-default-build-pack-py-output-to-wavefoundry-dist-d"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12wsj framework-cleanup",
+      "source_event": "decision-log:12ww2-ops codex-project-local-mcp-config:de7f0f864a59dd72",
+      "memory_id": "1u7yb-mem decision-commit-codex-config-toml-and-also-wire-it-into-rend"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12xr1 graph-index-extraction-and-visualization",
+      "source_event": "decision-log:12xsz-feat graph-index-extraction-and-persistence:a51cc76cd07469f6",
+      "memory_id": "1u8sc-mem decision-keep-graph-extraction-inside-the-existing-rebuild-l"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12xr1 graph-index-extraction-and-visualization",
+      "source_event": "decision-log:12yk0-enh timestamped-index-logs:031cc4680a1816e1",
+      "memory_id": "1u8l8-mem decision-always-enable-timestampedwriter-in-indexer-py-uncon"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "12xr1 graph-index-extraction-and-visualization",
+      "source_event": "decision-log:12yli-enh anonymized-council-synthesis-and-agreement-score:38dd6b6280fcbe05",
+      "memory_id": "1u6wu-mem decision-keep-the-aggregate-score-in-narrative-review-checkp"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "130et framework-bin-mcp-server-launcher",
+      "source_event": "decision-log:130f9-ref wave-gate-launcher-rearchitecture:1897e8d494e157be",
+      "memory_id": "1u7ua-mem decision-resolve-repo-root-from-file-with-an-optional-root"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "130et framework-bin-mcp-server-launcher",
+      "source_event": "decision-log:130f9-ref wave-gate-launcher-rearchitecture:cf0c28a7d10fc119",
+      "memory_id": "1u7tr-mem decision-move-logic-to-wave-gate-py-rather-than-inline-into-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "130rj graph-tools-field-feedback-tier-1-and-2",
+      "source_event": "decision-log:130rj-enh aop-advice-empty-incoming-detection:fc6c9e5be103c441",
+      "memory_id": "1u8l3-mem decision-recovery-hint-uses-code-keyword-scoped-to-instrumen"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "130rj graph-tools-field-feedback-tier-1-and-2",
+      "source_event": "decision-log:130su-enh generated-code-collapse-mode:44661e6faf368903",
+      "memory_id": "1u60t-mem decision-drop-line-snippet-info-on-rewritten-edges"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1312h-enh collapse-class-module-pairs:becded4e334a3270",
+      "memory_id": "1u5wi-mem decision-name-match-detection-only-file-basename-top-level-t"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1312l-enh graph-builder-java-receiver-type-attribution:1fd3a0ebf7045649",
+      "memory_id": "1u8mp-mem decision-pin-shared-helpers-to-graph-indexer-py-rather-than-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1312l-enh graph-builder-java-receiver-type-attribution:68763b78865dfde7",
+      "memory_id": "1u858-mem decision-initial-implementation-deviated-from-ac-1-duplicate"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1316j-enh fix-module-simple-name-extraction:574ad340dc6e9912",
+      "memory_id": "1u72u-mem decision-extract-basename-without-extension-for-module-nodes"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1319i-enh class-module-merge-rust-snake-to-pascal:140275ad1dce0ed2",
+      "memory_id": "1u7ox-mem decision-try-both-snake-derived-pascalcase-and-literal-basen"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "13129 graph-tools-field-feedback-round-2",
+      "source_event": "decision-log:1319k-enh class-module-merge-ruby-snake-to-pascal:7074dc8fb92da8e4",
+      "memory_id": "1u8cz-mem decision-include-module-kind"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319m-enh go-file-grouping-package-to-directory:565933ee7179f7d6",
+      "memory_id": "1u7vu-mem decision-swift-uses-convention-only-detection-no-build-targe"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319m-enh go-file-grouping-package-to-directory:f9ea3b6c7e4c2f47",
+      "memory_id": "1u75o-mem decision-pep-420-namespace-packages-skip-collapse-silently"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319o-enh class-module-merge-python-dominant-class:6bf1d998a45d03d1",
+      "memory_id": "1u6q0-mem decision-multiple-basename-match-strategies-per-language-sna"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:23d2ea7a83780ba6",
+      "memory_id": "1u8d0-mem decision-call-expression-new-typename-factory-convention"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:272612aa92133ca0",
+      "memory_id": "1u71o-mem decision-verdict-a-no-risk-no-integration-change-needed-wa"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:5956bdc33e2b2745",
+      "memory_id": "1u72v-mem decision-call-expression-new-builtin"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:6e485167f2a3b3df",
+      "memory_id": "1u84s-mem decision-object-creation-expression-identifier"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:8486190eafd67519",
+      "memory_id": "1u893-mem decision-empirical-baseline-complete-per-shape-findings-in-t"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:b561672b2acbb279",
+      "memory_id": "1u83l-mem decision-call-expression-scoped-identifier-ending-new-conv"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:b5b28c6a6b716439",
+      "memory_id": "1u8f8-mem decision-new-expression-identifier"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:1319s-bug construction-call-edges-to-class-node:ca1db038315e70c1",
+      "memory_id": "1u7a4-mem decision-object-creation-expression-type-identifier"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "131bt field-feedback-round-3",
+      "source_event": "decision-log:131bu-bug mcp-reload-description-refresh-host-restart-signal-plus-polish:70c163c8ec2ead0f",
+      "memory_id": "1u8a5-mem decision-qualified-id-alias-check-uses-collapsed-pair-true-a"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p2q3 field-feedback-round-4",
+      "source_event": "decision-log:1p2wd-bug parallel-extraction-fork-deadlock-spawn-mode-fix:f46e7277520d7125",
+      "memory_id": "1u7l7-mem decision-spawn-over-forkserver"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p2q3 field-feedback-round-4",
+      "source_event": "decision-log:1p314-bug seed-surface-stale-tool-reference-drift:d29613e725e4eae9",
+      "memory_id": "1u7pq-mem decision-treat-wave-mcp-reload-references-as-false-positive"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p31b public-launch-prep",
+      "source_event": "decision-log:1p318-enh public-launch-surface-doc-rewrite:b7cdd239f7de0b56",
+      "memory_id": "1u8al-mem decision-latest-stable-release-zip-named-explicitly-in-step-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p31b public-launch-prep",
+      "source_event": "decision-log:1p318-enh public-launch-surface-doc-rewrite:d29e74882fa489a5",
+      "memory_id": "1u6m7-mem decision-rewrite-install-walkthrough-so-the-agent-drives-ste"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p347 build-pack-release-mode-retire-ci-publish",
+      "source_event": "decision-log:1p349-enh build-pack-release-cli-with-optional-tag-and-publish:c78d7041cf2d1acd",
+      "memory_id": "1u8ge-mem decision-make-build-pack-py-itself-the-release-cli-rather-th"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3b9 chunker-indexer-correctness-and-1-5-0-hardening",
+      "source_event": "decision-log:1p397-bug chunker-mega-chunk-fallback-for-unstructured-prompts:a1dbb270fb01c927",
+      "memory_id": "1u907-mem decision-per-kind-chunk-caps-code-1500-everything-else-2000-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p35d install-flow-two-phase-with-log-and-audit",
+      "source_event": "decision-log:1p3ay-feat upgrade-migration-for-1-5-0-breaking-changes:841443af0b475ea6",
+      "memory_id": "1u8xc-mem decision-implement-migration-in-upgrade-extensions-py-post-e"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3hd-enh share-treesitter-cache-across-mcp-tools:6edb9dca85f83820",
+      "memory_id": "1u83u-mem decision-refactor-each-tool-s-parse-site-individually-in-ser"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3hd-enh share-treesitter-cache-across-mcp-tools:8c624e0f79d564b4",
+      "memory_id": "1u66d-mem decision-graph-index-out-of-scope-per-operator-direction"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3ho-enh upgrade-detects-chunker-bump-forces-rebuild:79c6c844f37cace0",
+      "memory_id": "1u688-mem decision-detect-chunker-bump-in-wave-upgrade-itself-and-rout"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3ho-enh upgrade-detects-chunker-bump-forces-rebuild:f7aed1c3a22c0341",
+      "memory_id": "1u8c3-mem decision-read-chunker-version-via-regex-against-chunker-py-t"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3i6-enh flatten-changelog-single-source:ed2ae2a84d173760",
+      "memory_id": "1u6fj-mem decision-root-changelog-md-is-canonical-build-pack-py-copies"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p3dk framework-drift-convergence",
+      "source_event": "decision-log:1p3i9-maint remove-package-prompt-seed-from-pack:78004f9f8781c52d",
+      "memory_id": "1u802-mem decision-delete-the-seed-entirely-do-not-maintain-an-exclusi"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p41l graph-tools-field-feedback-round-5",
+      "source_event": "decision-log:1p41q-enh code-graph-path-narrate-mode:d7a7a41151ce6143",
+      "memory_id": "1u6o0-mem decision-trimmed-pre-impl-review-removed-the-external-bridge"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44p-bug upgrade-from-version-and-version-sources:64bb03fb803d4b50",
+      "memory_id": "1u83l-mem decision-read-installed-revision-from-framework-revision-in-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44p-bug upgrade-from-version-and-version-sources:808bb51e609f124f",
+      "memory_id": "1u6eo-mem decision-consolidate-to-one-version-resolver-helper-and-have"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44r-enh resumable-upgrade-after-gate-failure:2f45292bd0d77a89",
+      "memory_id": "1u89g-mem decision-add-a-dedicated-resume-after-gate-phase-that-runs-o"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44u-enh generic-api-key-docs-path-scope:e9f508b5a8784ea6",
+      "memory_id": "1u6fq-mem decision-implement-as-rule-data-only-with-no-cel-filter-py-c"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44y-enh false-positive-confirmation-override:6eb49613d5774937",
+      "memory_id": "1u6ps-mem decision-ship-both-an-override-reason-dismissal-parity-with-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p44z-enh secrets-confirmation-bootstrap-ordering:41520634890f4e00",
+      "memory_id": "1u8v0-mem decision-attribute-the-first-gate-threshold-to-the-framework"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p450-enh secrets-full-scan-baseline-at-install-upgrade:4043c4e770f8b4a9",
+      "memory_id": "1u7hy-mem decision-document-the-run-secrets-scan-py-126-128-first-run-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p450-enh secrets-full-scan-baseline-at-install-upgrade:fe5a2a7681d801bb",
+      "memory_id": "1u7jb-mem decision-add-an-explicit-scan-all-true-baseline-at-both-inst"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p456-bug engine-ignores-global-value-filter:b9af6009965c31e1",
+      "memory_id": "1u7k8-mem decision-wire-the-existing-allowlist-regexes-stopwords-mirro"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p458 dashboard-progress-rendering-fixes",
+      "source_event": "decision-log:1p45a-enh deferred-items-count-as-completed:44e9b0b709eb7484",
+      "memory_id": "1u6hf-mem decision-implement-consistently-across-dashboard-lib-py-and-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p44n framework-1p6-hardening",
+      "source_event": "decision-log:1p45b-bug lifecycle-id-dedup-across-plans-waves-adrs:063675341a3d3450",
+      "memory_id": "1u7ka-mem decision-the-lifecycle-id-py-cli-emits-an-mcp-first-reminder"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p4hi code-ask-agent-rerank",
+      "source_event": "decision-log:1p4mf-enh chunk-constant-declarations:1955a944f6c67dcf",
+      "memory_id": "1u66q-mem decision-req-7-four-surface-reconciliation-scope-the-two-leg"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p61u graph-layer-map-quality",
+      "source_event": "decision-log:1p64t-enh map-vendored-axis:2e8f397ebfbf3f66",
+      "memory_id": "1u6fm-mem decision-explicit-path-marker-signals-only-no-minified-by-na"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p6d5 windows-python-exec-hardening-and-wsl2-support",
+      "source_event": "decision-log:1p6d6-bug native-windows-python-exec-guards:1d4696899fd5e12c",
+      "memory_id": "1u6kq-mem decision-reuse-the-setup-index-py-341-os-execv-loses-exit-co"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p6d5 windows-python-exec-hardening-and-wsl2-support",
+      "source_event": "decision-log:1p6d6-bug native-windows-python-exec-guards:aa75be8d8c620e86",
+      "memory_id": "1u8lh-mem decision-exclude-os-replace-indexer-py-1096-and-the-secrets-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p6d5 windows-python-exec-hardening-and-wsl2-support",
+      "source_event": "decision-log:1p6et-enh gpu-provider-diagnostic-command:6bd7a1e30b06629c",
+      "memory_id": "1u8sg-mem decision-check-short-circuits-setup-wavefoundry-main-wave-gp"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p75h design-system-foundation",
+      "source_event": "decision-log:1p6z6-enh design-token-extraction-reconciliation:074a979fa5f16726",
+      "memory_id": "1u8nx-mem decision-divergent-pre-plan-selected-curated-extraction-grou"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p75h design-system-foundation",
+      "source_event": "decision-log:1p6z6-enh design-token-extraction-reconciliation:dd9577234c0b5503",
+      "memory_id": "1u67r-mem decision-treat-dashboard-css-as-source-of-truth-reconcile-no"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p75h design-system-foundation",
+      "source_event": "decision-log:1p72v-ref dashboard-primitive-abstraction:3ff7ce9b9b65b5ed",
+      "memory_id": "1u667-mem decision-divergent-pre-plan-selected-single-shared-primitive"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p7pk native-windows-launchers",
+      "source_event": "decision-log:1p7pm-enh interpreter-direct-launcher-rendering:a60dd07d75671817",
+      "memory_id": "1u889-mem decision-scope-all-config-surfaces-bin-forwarders-single-run"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p7pk native-windows-launchers",
+      "source_event": "decision-log:1p7tz-enh wf-cli-dispatcher:c67a1de84ca0294b",
+      "memory_id": "1u8rg-mem decision-single-cross-os-wf-python-dispatcher-wf-wf-cmd-shim"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p939 ca-bundle-corp-proxy",
+      "source_event": "decision-log:1p92t-bug ca-bundle-non-setup-launchers:98a55f2cea6ea16d",
+      "memory_id": "1swjs-mem decision-apply-the-ca-bundle-at-the-model-download-choke-poi"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p939 ca-bundle-corp-proxy",
+      "source_event": "decision-log:1p92t-bug ca-bundle-non-setup-launchers:d7876e49a647e4de",
+      "memory_id": "1sw0p-mem decision-correction-the-original-claim-all-non-setup-launche"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p939 ca-bundle-corp-proxy",
+      "source_event": "decision-log:1p92t-bug ca-bundle-non-setup-launchers:fc3a321c00264acc",
+      "memory_id": "1sxas-mem decision-add-a-log-line-at-accel-embedder-py-s-two-hf-downlo"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p93v lancedb-autoinstall-tls",
+      "source_event": "decision-log:1p93u-bug lancedb-autoinstall-bare-pip-tls:ac1d86e2172714b8",
+      "memory_id": "1sw6m-mem decision-reuse-setup-index-pip-tls-env-at-the-indexer-py-cal"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p93a embedding-precision-policy",
+      "source_event": "decision-log:1p95u-enh version-aware-dependency-sync:623f3716a49f605a",
+      "memory_id": "1svw6-mem decision-make-missing-in-venv-version-aware-rather-than-wire"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9hn windows-portability-round-2",
+      "source_event": "decision-log:1p9hm-enh windows-line-endings-and-paths:6c2c5466a944d548",
+      "memory_id": "1swwx-mem decision-narrow-the-propagated-gitattributes-block-to-framew"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9hn windows-portability-round-2",
+      "source_event": "decision-log:1p9io-bug windows-stdout-purity:e4f5e70483942e76",
+      "memory_id": "1suxz-mem decision-add-defense-in-depth-wrapper-at-graph-query-py-220"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9j0 windows-portability-round-3",
+      "source_event": "decision-log:1p9iw-bug atomic-write-windows-share-retry:36a47dc2f0993804",
+      "memory_id": "1sv1p-mem decision-keep-it-a-small-local-helper-inline-guard-in-indexe"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9j0 windows-portability-round-3",
+      "source_event": "decision-log:1p9ix-bug windows-path-newline-stragglers:4c6909d24b66cfaa",
+      "memory_id": "1sv00-mem decision-keep-the-other-in-place-path-write-text-patchers-in"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9j0 windows-portability-round-3",
+      "source_event": "decision-log:1p9iy-bug dev-test-infra-windows-hardening:b3eeeb617bdee79c",
+      "memory_id": "1svrq-mem decision-mirror-dashboard-lib-py-s-os-name-fcntl-msvcrt-spli"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9pe post-release-followup-hardening",
+      "source_event": "decision-log:1p9p6-bug python-parse-filename-and-invalid-escape:207aa97f7c37d8b5",
+      "memory_id": "1svgs-mem decision-prefer-raw-stringing-the-test-wf-cli-py-docstring-o"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9pe post-release-followup-hardening",
+      "source_event": "decision-log:1p9p6-bug python-parse-filename-and-invalid-escape:d5ca400b55c815e6",
+      "memory_id": "1suy6-mem decision-scope-filename-to-the-indexing-path-sites-only-not"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9q0 lifecycle-id-v2-collision-resistance",
+      "source_event": "decision-log:1p9pt-enh collision-resistant-lifecycle-ids-daily-entropy:9aafccccc72a2dcf",
+      "memory_id": "1sxbw-mem decision-provisioning-is-a-code-script-compute-in-lifecycle"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9q3 graph-index-efficiency",
+      "source_event": "decision-log:1p9q1-enh graph-buildtime-betweenness:f2edffe9df914dad",
+      "memory_id": "1swvv-mem decision-default-artifact-placement-clusters-artifact"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9q8 graph-index-accuracy",
+      "source_event": "decision-log:1p9q4-enh python-receiver-annotation-resolution:c1f2e761fcabba2a",
+      "memory_id": "1sx3u-mem decision-emit-existing-confidence-levels-receiver-resolved-c"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1p9qi sql-graph-accuracy",
+      "source_event": "decision-log:1p9qd-enh sql-structured-statement-extraction:4693022da5852890",
+      "memory_id": "1sx7m-mem decision-decided-new-writes-relation-writes-insert-into-up"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rsh9 sqlite-index-substrate",
+      "source_event": "decision-log:1rq4h-enh sqlite-index-state-store:98f55a77417ca4de",
+      "memory_id": "1sx7q-mem decision-shared-helpers-extracted-alongside-the-graph-store"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rtnn dashboard-lifecycle-reliability",
+      "source_event": "decision-log:1rswx-bug dashboard-zombie-child-reaping:96dc5b5f8d5980d8",
+      "memory_id": "1suok-mem decision-fix-via-proactive-reaping-1p98u-registry-wnohang-pa"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rvfy release-1p11-preship-hardening",
+      "source_event": "decision-log:1rvfx-bug upgrade-graph-version-transition-log:6cbe53f749f757c2",
+      "memory_id": "1swpt-mem decision-inline-a-small-stdlib-sqlite3-json-reader-in-upgrad"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rycd install-upgrade-root-cleanup",
+      "source_event": "decision-log:1rxyi-bug cleanup-root-install-bootstrap-file:06157fca6ab23243",
+      "memory_id": "1sxb8-mem decision-delete-the-root-install-wavefoundry-md-after-instal"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rycd install-upgrade-root-cleanup",
+      "source_event": "decision-log:1rxyi-bug cleanup-root-install-bootstrap-file:363bb11eca1ec0bc",
+      "memory_id": "1svvq-mem decision-upgrade-cleanup-in-upgrade-wavefoundry-py-code-inst"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1rycg post-1p11-field-feedback-hardening",
+      "source_event": "decision-log:1rycf-enh index-bloat-gated-optimize-at-close:c18f076a7e9c25f9",
+      "memory_id": "1swor-mem decision-interim-bloat-gated-optimize-at-wave-close-before-t"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1t3gt mcp-tool-hygiene",
+      "source_event": "decision-log:1t3gs-ref mcp-tool-prefix-rename:1cf715487e05e4dd",
+      "memory_id": "1t2i4-mem decision-ac-6-verification-fresh-process-tools-list-probe-co"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tskc context-efficiency-projection-freshness",
+      "source_event": "decision-log:1txzt-bug mcp-index-monitor-stale-child-recovery:ab84c0e667026a16",
+      "memory_id": "1twmx-mem decision-launch-automatic-project-refresh-with-explicit-cont"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "decision-log:1u2ay-bug server-runner-version-never-distinguishes-stale-runner:3c87c60838c7e12b",
+      "memory_id": "1u4hd-mem test-launch-captured-runner-identity-by-injection-not-by-a-f"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "decision-log:1u2ay-bug server-runner-version-never-distinguishes-stale-runner:6892998ab378d0ef",
+      "memory_id": "1u2vw-mem decision-hash-implementation-lives-once-in-server-impl-compu"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "decision-log:1u2az-enh rendered-mcp-permission-allowlist:9566d9ec8bd807dc",
+      "memory_id": "1u384-mem decision-reload-survivor-roster-membership-runner-registered"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u8o5 rename-summary-schema-version-key",
+      "source_event": "decision-log:1u8o4-ref rename-summary-schema-to-schema-version:094374b7875512eb",
+      "memory_id": "1u6kg-mem decision-fold-the-readiness-council-census-into-requirement-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1seax lifecycle-ops-hardening",
+      "source_event": "finding:1seax:contract-vocabularies-not-consumed-by-handlers",
+      "memory_id": "1t4em-mem repaired-defect-contract-vocabularies-not-consumed-by-handle"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1seax lifecycle-ops-hardening",
+      "source_event": "finding:1seax:slowdown-guard-does-not-exercise-real-budgets",
+      "memory_id": "1t71u-mem repaired-defect-slowdown-guard-does-not-exercise-real-budget"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1slep external-wave-event-ledger",
+      "source_event": "finding:1slep:qa-build-pack-direct-run",
+      "memory_id": "1sv95-mem repaired-defect-qa-build-pack-direct-run"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1sxj7 self-populating-memory-and-telemetry-reconciliation",
+      "source_event": "finding:1sxj7:memory-test-runner-premature-main",
+      "memory_id": "1sxzi-mem repaired-defect-memory-test-runner-premature-main"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1t8la memory-archival-and-retention",
+      "source_event": "finding:1t8la:pending-archive-disposition-invisible",
+      "memory_id": "1taym-mem repaired-defect-pending-archive-disposition-invisible"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1t8la memory-archival-and-retention",
+      "source_event": "finding:1t8la:pending-archive-docs-gate-has-no-recovery",
+      "memory_id": "1tb6q-mem repaired-defect-pending-archive-docs-gate-has-no-recovery"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1t9wa retire-wave-journals",
+      "source_event": "finding:1t9wa:stale-journal-watchpoints-envelope-key",
+      "memory_id": "1t8bq-mem repaired-defect-stale-journal-watchpoints-envelope-key"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1to78 preship-events-authority-hardening",
+      "source_event": "finding:1to78:DF1-orphan-guard-dir-rename-evasion",
+      "memory_id": "1tr7x-mem repaired-defect-df1-orphan-guard-dir-rename-evasion"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1to78 preship-events-authority-hardening",
+      "source_event": "finding:1to78:DF4-ac1c-sweep-derivation-annotation",
+      "memory_id": "1tsv2-mem repaired-defect-df4-ac1c-sweep-derivation-annotation"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1to78 preship-events-authority-hardening",
+      "source_event": "finding:1to78:DF7-spec-authority-paragraph-overclaim",
+      "memory_id": "1tsdq-mem repaired-defect-df7-spec-authority-paragraph-overclaim"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tsyx review-lifecycle-simplification",
+      "source_event": "finding:1tsyx:narrative-declaration-token-bypasses-legacy-prepare-lint",
+      "memory_id": "1tqjg-mem repaired-defect-narrative-declaration-token-bypasses-legacy-"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tsyx review-lifecycle-simplification",
+      "source_event": "finding:1tsyx:upgrade-removal-names-wrong-heading-and-validates-clean",
+      "memory_id": "1tvw2-mem repaired-defect-upgrade-removal-names-wrong-heading-and-vali"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "finding:1tz6l:evaluator-v2-transition-unpinned",
+      "memory_id": "1twon-mem repaired-defect-evaluator-v2-transition-unpinned"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "finding:1tz6l:release-main-bundle-wiring-unpinned",
+      "memory_id": "1ty1e-mem repaired-defect-release-main-bundle-wiring-unpinned"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1ti11 remove-unused-context-efficiency-schema",
+      "source_event": "repeated-repairs:1ti11:.wavefoundry/framework/scripts/tests/test_server_tools.py",
+      "memory_id": "1tlbl-mem fragile-wavefoundry-framework-scripts-tests-test-server-tool"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1to7k lifecycle-evidence-and-focus-integrity",
+      "source_event": "repeated-repairs:1to7k:probe_1to7k_reverify.py",
+      "memory_id": "1tntn-mem fragile-probe-1to7k-reverify-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tsyx review-lifecycle-simplification",
+      "source_event": "repeated-repairs:1tsyx:server_impl.py",
+      "memory_id": "1tuxx-mem fragile-server-impl-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tsyx review-lifecycle-simplification",
+      "source_event": "repeated-repairs:1tsyx:test_server_tools.py",
+      "memory_id": "1ttm1-mem fragile-test-server-tools-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "repeated-repairs:1tz6l:.wavefoundry/framework/scripts/upgrade_bridge_bootstrap.py",
+      "memory_id": "1tx0a-mem fragile-wavefoundry-framework-scripts-upgrade-bridge-bootstr"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "repeated-repairs:1tz6l:.wavefoundry/framework/scripts/upgrade_bundle.py",
+      "memory_id": "1tyn3-mem fragile-wavefoundry-framework-scripts-upgrade-bundle-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "repeated-repairs:1tz6l:test_build_pack.py",
+      "memory_id": "1u1k6-mem fragile-test-build-pack-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1tz6l release-upgrade-hardening",
+      "source_event": "repeated-repairs:1tz6l:test_upgrade_protocol.py",
+      "memory_id": "1u1rc-mem fragile-test-upgrade-protocol-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "repeated-repairs:1u2b0:server.py",
+      "memory_id": "1u2yv-mem fragile-server-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "repeated-repairs:1u2b0:test_upgrade_wavefoundry.py",
+      "memory_id": "1u5dd-mem fragile-test-upgrade-wavefoundry-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "repeated-repairs:1u2b0:tests/test_render_platform_surfaces.py",
+      "memory_id": "1u5g4-mem fragile-tests-test-render-platform-surfaces-py"
+    },
+    {
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "wave_id": "1u2b0 host-surface-hardening",
+      "source_event": "repeated-repairs:1u2b0:upgrade_wavefoundry.py",
+      "memory_id": "1u4no-mem fragile-upgrade-wavefoundry-py"
+    }
+  ],
+  "observations": [
+    "Explicit --pack is ignored by dry-run; apply selected the exact hash-bound test3 package.",
+    "No preexisting source file changed; VERSION and prompt-surface-manifest revision changed.",
+    "Standard first storage restart and sandbox surface-render recovery observed.",
+    "Historical memory references 132 missing records; no per-source purge authority was found. No bookkeeping or safety gate bypassed."
+  ],
+  "logs": [
+    "/tmp/1xjmm-live-upgrade-dry-run.log",
+    "/tmp/1xjmm-live-upgrade-apply.log",
+    "/tmp/1xjmm-live-upgrade-resume.log",
+    "/tmp/1xjmm-live-upgrade-resume-access.log"
+  ],
+  "source_bytes": {
+    "docs.lance": 164877380,
+    "code.lance": 39776754,
+    "__manifest": 1015,
+    "index-state.sqlite": 127737856
+  },
+  "operator_confirmation": "2026-09-09: user confirmed that the 132 missing records were intentionally removed.",
+  "confirmed_purge_recovery": {
+    "removed_obsolete_links": 132,
+    "remaining_source_links": 109,
+    "confirmed_source_hashes": 132,
+    "run_rows_unchanged": true,
+    "backup": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/logs/confirmed-purge-recovery-memory-before.sqlite",
+    "backup_sha256": "18b371ea0e05dfa7546cb036220819342361b594019f1700086b598f31e7be92"
+  },
+  "memory_after_recovery": {
+    "data": {
+      "candidates_drafted": 109,
+      "candidates_pending": 0,
+      "eligible_waves": 261,
+      "entry_path": "upgrade",
+      "failures": 0,
+      "last_failure": "",
+      "limits": {
+        "candidates": 20,
+        "response_bytes": 65536,
+        "waves": 10
+      },
+      "mode": "create",
+      "processed": [],
+      "promoted": 54,
+      "rejected": 42,
+      "remaining_waves": 0,
+      "retained": 0,
+      "rewritten": 13,
+      "run_id": "571d8ffe33a5d51e10c0c6639b6820fe",
+      "state": "ready_for_index",
+      "validation_worklist": [],
+      "validation_worklist_count": 0,
+      "validation_worklist_remaining": 0,
+      "waves_complete": 106,
+      "waves_no_source": 64,
+      "waves_unsupported": 91
+    },
+    "diagnostics": [],
+    "next_tools": [
+      "wf_upgrade"
+    ],
+    "status": "ok",
+    "usage": "wf_upgrade(phase='resume_after_memory')"
+  },
+  "recovery_method": "Local data repair, first exercised on a disposable database copy; canonical hash-only purge authority recorded, only the exact 132 approved absent-source links removed under publication lock/memory fence/SQLite transaction, affected candidate counts recomputed, run and upgrade/migration checkpoints preserved. Normal backfill derived ready_for_index; no framework source changes.",
+  "migration_receipt": {
+    "receipt_version": 1,
+    "migration_id": "d58137b3904847318ea09187308cfbd8",
+    "index_dir": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/index",
+    "root_identity": {
+      "device": 16777231,
+      "inode": 428221259
+    },
+    "source_version": "1.22.0+pomi",
+    "target_version": "1.22.0+test3",
+    "pack_path": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-verified-pack-f11uzka3.zip",
+    "state": "complete",
+    "old_hosts": [],
+    "reason": "legacy_storage",
+    "source_sqlite_identity": {
+      "device": 16777231,
+      "inode": 635682939
+    },
+    "artifacts": {
+      "docs.lance": {
+        "device": 16777231,
+        "inode": 549198077
+      },
+      "code.lance": {
+        "device": 16777231,
+        "inode": 549198024
+      },
+      "__manifest": {
+        "device": 16777231,
+        "inode": 549198014
+      }
+    },
+    "updated_at": 1788967137.235285,
+    "hosts_stopped_confirmed": true,
+    "confirmed_at": 1788963470.046495,
+    "capacity_qualification": {
+      "qualified": true,
+      "counts": {
+        "docs": 28156,
+        "code": 8904
+      },
+      "qualified_max_rows": {
+        "docs": 55990,
+        "code": 50000
+      },
+      "exceeded_layers": [],
+      "qualification_scope": "macOS ARM64; 384-dimensional float32 exact cosine; local wave 1xjmm measurements",
+      "candidate_caps": {
+        "docs": 50,
+        "code": 240
+      }
+    },
+    "source_preflight_counts": {
+      "docs": 28156,
+      "code": 8904
+    },
+    "work_dir": "sqlite-migration-d58137b3904847318ea09187308cfbd8",
+    "work_identity": {
+      "device": 16777231,
+      "inode": 668705625
+    },
+    "source_counts": {
+      "docs": 28156,
+      "code": 8904
+    },
+    "staging_pid": 58494,
+    "candidate_sha256": "5b120345c8fc86fcb9f810590291527277410b549cb5d16a88f7bed7962fcfb0",
+    "published_sqlite_identity": {
+      "device": 16777231,
+      "inode": 668705627
+    },
+    "original_sha256": "7e0ca09bb69100525a952ea02ad88ff32f475b4d602b43d403f9d662493480c9",
+    "cutover_pid": 58494,
+    "upgrade_publication": {
+      "semantic_exit": 0,
+      "graph_exit": 0,
+      "coordinator_pid": 58494,
+      "completed_at": 1788967101.767522
+    },
+    "verification": {
+      "pid": 59540,
+      "last_check_pid": 59562,
+      "attempt_id": "f00fbbbd4d474eeba90a97fef770bb6e",
+      "generation": 1107,
+      "schema": "7",
+      "counts": {
+        "docs": 31642,
+        "code": 8995
+      },
+      "verified_at": 1788967136.552922
+    },
+    "removed": [
+      "__manifest",
+      "code.lance",
+      "docs.lance"
+    ],
+    "reclaimed_bytes": 332393005,
+    "dependency_disposition": "retained: shared/unregistered consumers not proven absent"
+  },
+  "upgrade_summary": {
+    "review_sidecar_cleanup": {
+      "removed_sidecars": 0,
+      "removed_stale_root_lock": 0,
+      "restart_required": false
+    },
+    "from_version": "1.22.0+pomi",
+    "to_version": "1.22.0+test3",
+    "zip_applied": "wf-verified-pack-4ypuic4m.zip",
+    "pruned_count": 0,
+    "docs_gate": "PASSED",
+    "index_update": "docs and code layers complete",
+    "failed_phase": null,
+    "is_major_or_minor": false,
+    "reconciliation": [],
+    "reconciliation_disposition_diagnostics": [],
+    "host_permission_flags": [],
+    "renderer_provenance_flags": [],
+    "renderer_warnings": [],
+    "permissions_file": ".claude/settings.json",
+    "permissions_added": [],
+    "permissions_removed": [],
+    "permissions_changed": 0,
+    "permissions_unmanaged_present": 0,
+    "skipped_scan_locations": [],
+    "retired_model_cleanup_status": "complete",
+    "retired_model_cleanup_removed": [],
+    "retired_model_cleanup_absent": [
+      "clean-onnx:default:models--Xenova--bge-reranker-base",
+      "clean-onnx:default:models--Xenova--bge-small-en-v1.5",
+      "coreml:default:BAAI__bge-base-en-v1.5",
+      "coreml:default:BAAI__bge-reranker-base",
+      "coreml:default:BAAI__bge-small-en-v1.5",
+      "fastembed:default:models--BAAI--bge-base-en-v1.5",
+      "fastembed:default:models--BAAI--bge-reranker-base",
+      "fastembed:default:models--BAAI--bge-small-en-v1.5",
+      "fastembed:default:models--qdrant--bge-base-en-v1.5-onnx-q",
+      "fastembed:default:models--qdrant--bge-small-en-v1.5-onnx-q",
+      "static-onnx:default:BAAI__bge-base-en-v1.5",
+      "static-onnx:default:BAAI__bge-reranker-base",
+      "static-onnx:default:BAAI__bge-small-en-v1.5"
+    ],
+    "retired_model_cleanup_unowned": [],
+    "retired_model_cleanup_failed": [],
+    "summary_schema_version": 1
+  },
+  "recovery_script": "import sys,json,sqlite3,hashlib,shutil,tempfile\nfrom pathlib import Path\nsys.path.insert(0,'/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts')\nimport memory_records as mem\nfrom review_evidence import project_state_publication_lock\nimport index_state_store as state\n\nAPPROVED=Path('/Users/coryhacking/Developer/wavefoundry/docs/waves/1xjmm unified-sqlite-vector-storage/live-upgrade-evidence.json')\nrows=json.loads(APPROVED.read_text())['missing_sources']\nassert len(rows)==132 and len({r['source_event'] for r in rows})==132\n\ndef recover(root,backup):\n db=root/'.wavefoundry/index/memory-state.sqlite'\n assert db.is_file() and not db.is_symlink()\n with project_state_publication_lock(root):\n  c=sqlite3.connect(db,isolation_level=None);c.row_factory=sqlite3.Row\n  runs_before=[tuple(r) for r in c.execute('SELECT * FROM memory_backfill_runs ORDER BY run_id')]\n  sources_before=[dict(r) for r in c.execute('SELECT * FROM memory_backfill_sources ORDER BY run_id,source_event')]\n  for row in rows:\n   assert row in sources_before, f'Changed source reference: {row}'\n   for directory in ['docs/agents/memory','docs/agents/memory/archive','docs/agents/memory/archive/.purge-staging']:\n    assert not (root/directory/(row['memory_id']+'.md')).exists(), 'Body reappeared; refuse recovery'\n  assert not backup.exists(), 'Backup already exists; inspect prior recovery'\n  backup.parent.mkdir(parents=True,exist_ok=True)\n  b=sqlite3.connect(backup);c.backup(b);b.close()\n  prior=mem.load_purged_source_event_digests(root)\n  token=state.memory_fence(root/'.wavefoundry/index')\n  assert token\n  try:\n   for row in rows: mem.record_purged_source_event(root,row['source_event'])\n   actual=mem.load_purged_source_event_digests(root)\n   assert actual==prior|{mem.source_event_digest(r['source_event']) for r in rows}\n   c.execute('BEGIN IMMEDIATE')\n   removed=0\n   for r in rows:\n    removed+=c.execute('DELETE FROM memory_backfill_sources WHERE run_id=? AND wave_id=? AND source_event=? AND memory_id=?',tuple(r[k] for k in ['run_id','wave_id','source_event','memory_id'])).rowcount\n   assert removed==132\n   for run,wave in {(r['run_id'],r['wave_id']) for r in rows}:\n    c.execute('UPDATE memory_backfill_waves SET candidate_count=(SELECT COUNT(*) FROM memory_backfill_sources WHERE run_id=? AND wave_id=?) WHERE run_id=? AND wave_id=?',(run,wave,run,wave))\n   assert runs_before==[tuple(r) for r in c.execute('SELECT * FROM memory_backfill_runs ORDER BY run_id')]\n   expected=[r for r in sources_before if r not in rows]\n   assert expected==[dict(r) for r in c.execute('SELECT * FROM memory_backfill_sources ORDER BY run_id,source_event')]\n   c.execute('COMMIT')\n  except BaseException:\n   if c.in_transaction:c.execute('ROLLBACK')\n   raise\n  finally:\n   state.memory_finalize(root/'.wavefoundry/index',token)\n   c.close()\n  return {'removed_obsolete_links':removed,'remaining_source_links':len(expected),'confirmed_source_hashes':len(actual),'run_rows_unchanged':True,'backup':str(backup),'backup_sha256':hashlib.sha256(backup.read_bytes()).hexdigest()}\n\nif sys.argv[1]=='probe':\n with tempfile.TemporaryDirectory(prefix='wf-confirmed-purge-probe-') as td:\n  root=Path(td); (root/'.wavefoundry/index').mkdir(parents=True)\n  src=sqlite3.connect('file:/Users/coryhacking/Developer/wavefoundry/.wavefoundry/index/memory-state.sqlite?mode=ro',uri=True)\n  dst=sqlite3.connect(root/'.wavefoundry/index/memory-state.sqlite');src.backup(dst);src.close();dst.close()\n  print(json.dumps(recover(root,root/'before.sqlite'),indent=2))\n  try: recover(root,root/'second.sqlite')\n  except AssertionError as e: print('Replay refused without further mutation:',e)\n  else: raise AssertionError('Expected exact-precondition refusal')\nelse:\n root=Path('/Users/coryhacking/Developer/wavefoundry')\n print(json.dumps(recover(root,root/'.wavefoundry/logs/confirmed-purge-recovery-memory-before.sqlite'),indent=2))\n",
+  "fresh_mcp_smoke": {
+    "tool_count": 90,
+    "wf_server_info": {
+      "status": "ok",
+      "protocol_error": false,
+      "elapsed_seconds": 0.02204804215580225,
+      "diagnostics": [],
+      "data": {
+        "repo_root": "/Users/coryhacking/Developer/wavefoundry",
+        "repo_name": "wavefoundry",
+        "project_slug": "wavefoundry",
+        "framework_version": "1.22.0+test3",
+        "server_runner_version": "aef48c3d35ac",
+        "runner_disk_identity": "aef48c3d35ac",
+        "runner_stale": false,
+        "server_impl_version": "1.22.0+test3",
+        "impl_matches_disk": true
+      }
+    },
+    "index_health": {
+      "status": "ok",
+      "protocol_error": false,
+      "elapsed_seconds": 2.0187608748674393,
+      "diagnostics": [
+        {
+          "code": "index_stale",
+          "message": "Index layer stale: project. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full",
+          "recovery_tools": [
+            "wf_help"
+          ],
+          "recovery_usage": "python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --full"
+        }
+      ],
+      "data": {
+        "project": {
+          "layer": "project",
+          "index_dir": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/index",
+          "meta_present": true,
+          "docs_present": true,
+          "code_present": true,
+          "code_sources_in_scope": true,
+          "has_sources": true,
+          "stale_paths": [
+            "docs/references/codebase-map.md",
+            "docs/repo-index.md"
+          ],
+          "stale_paths_count": 2,
+          "modified_paths_count": 2,
+          "added_paths_count": 0,
+          "removed_paths_count": 0,
+          "current_hash_count": 2182,
+          "indexed_chunker_versions": {
+            "docs": "42",
+            "code": "42"
+          },
+          "current_chunker_version": "42",
+          "readiness": "stale"
+        },
+        "has_any_index": true,
+        "stale_layers": [
+          "project"
+        ],
+        "missing_layers": [],
+        "compatible_chunks": true,
+        "readiness_overview": "needs_update",
+        "semantic_ready": false,
+        "code_layer_missing": false,
+        "chunker_version_mismatch_layers": [],
+        "size": {
+          "total_bytes": 227611566,
+          "total_human": "217.1 MB",
+          "components": {
+            "background-refresh.json": 67,
+            "graph": 11882897,
+            "hook-reindex.last-spawn": 17,
+            "index-build.lock": 355,
+            "index-state.sqlite": 215408640,
+            "index-state.sqlite-shm": 32768,
+            "index-state.sqlite-wal": 0,
+            "memory-state.sqlite": 282624,
+            "scan": 1687,
+            "sqlite-migration.json": 2511
+          }
+        },
+        "lock": {
+          "held": false,
+          "present": true,
+          "owner_pid": 59501,
+          "owner_cmdline": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/indexer.py --root /Users/coryhacking/Developer/wavefoundry --content graph --project-include-prefix .wavefoundry/framework/scripts --project-include-prefix .wavefoundry/framework/dashboard",
+          "started_at": 1788967099.214747,
+          "ended_at": 1788967101.7329469,
+          "note": "The last build finished cleanly; the lock is not held. The lock file persists as a last-owner record \u2014 its presence does not mean a build is running."
+        },
+        "graph": {
+          "project": {
+            "present": true,
+            "last_built_at": "2026-09-09T15:17:39.640326+00:00",
+            "node_count": 35462,
+            "edge_count": 99233
+          }
+        },
+        "background_monitors": {
+          "index": {
+            "configured": true,
+            "last_checked_at": null,
+            "stale": null,
+            "triggered": false,
+            "reason": "not_checked",
+            "alive": true
+          },
+          "context_efficiency_projection": {
+            "configured": true,
+            "last_checked_at": null,
+            "triggered": false,
+            "reason": "not_checked",
+            "alive": true,
+            "quiet_period_seconds": 120.0
+          }
+        },
+        "state_store": {
+          "present": true,
+          "schema_version": "7",
+          "integrity": "ok",
+          "size_bytes": 215441408,
+          "chunk_index": {
+            "docs": {
+              "vector_rows": 31642,
+              "lance_rows": 31642,
+              "registry_rows": 31642,
+              "canonical_rows": 31642,
+              "raw_vector_rows": 31642,
+              "missing_vectors": 0,
+              "orphan_vectors": 0,
+              "covered": true
+            },
+            "code": {
+              "vector_rows": 8995,
+              "lance_rows": 8995,
+              "registry_rows": 8995,
+              "canonical_rows": 8995,
+              "raw_vector_rows": 8995,
+              "missing_vectors": 0,
+              "orphan_vectors": 0,
+              "covered": true
+            }
+          },
+          "fts": {
+            "docs": {
+              "ok": true,
+              "reason": null,
+              "live": true,
+              "fts_rows": 31642,
+              "registry_rows": 31642,
+              "digest": "ok",
+              "digest_recorded": true,
+              "heal_attempt": null,
+              "epoch": [
+                "f00fbbbd4d474eeba90a97fef770bb6e",
+                "complete",
+                1107
+              ]
+            },
+            "code": {
+              "ok": true,
+              "reason": null,
+              "live": true,
+              "fts_rows": 8995,
+              "registry_rows": 8995,
+              "digest": "ok",
+              "digest_recorded": true,
+              "heal_attempt": null,
+              "epoch": [
+                "f00fbbbd4d474eeba90a97fef770bb6e",
+                "complete",
+                1107
+              ]
+            }
+          }
+        },
+        "capacity": {
+          "qualified": true,
+          "counts": {
+            "docs": 31642,
+            "code": 8995
+          },
+          "qualified_max_rows": {
+            "docs": 55990,
+            "code": 50000
+          },
+          "exceeded_layers": [],
+          "qualification_scope": "macOS ARM64; 384-dimensional float32 exact cosine; local wave 1xjmm measurements",
+          "candidate_caps": {
+            "docs": 50,
+            "code": 240
+          }
+        }
+      }
+    },
+    "docs_search": {
+      "status": "ok",
+      "protocol_error": false,
+      "elapsed_seconds": 4.903101583011448,
+      "diagnostics": [],
+      "search_mode": "semantic",
+      "reranked": true,
+      "result_count": 7,
+      "paths": [
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+        "docs/architecture/decisions/1xjmn-adr unified-sqlite-vector-storage.md"
+      ]
+    },
+    "code_search": {
+      "status": "ok",
+      "protocol_error": false,
+      "elapsed_seconds": 0.78887370810844,
+      "diagnostics": [],
+      "search_mode": "hybrid",
+      "reranked": true,
+      "result_count": 7,
+      "paths": [
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py"
+      ]
+    },
+    "code_lexical": {
+      "status": "ok",
+      "protocol_error": false,
+      "elapsed_seconds": 0.07927100011147559,
+      "diagnostics": [],
+      "search_mode": null,
+      "reranked": null,
+      "result_count": 7,
+      "paths": [
+        "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+      ]
+    }
+  },
+  "post_upgrade_framework_tests": {
+    "result": "OK",
+    "tests": 8637,
+    "files": 84,
+    "skipped": 5,
+    "elapsed_seconds": 208.621,
+    "log": "/tmp/1xjmm-live-upgrade-framework-tests.log"
+  },
+  "final_docs_lint": {
+    "passed": true,
+    "log": "/tmp/1xjmm-live-final-docs.log"
+  }
+}

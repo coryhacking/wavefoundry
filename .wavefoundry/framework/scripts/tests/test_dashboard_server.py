@@ -223,11 +223,6 @@ def _seed_index_store(root: Path, payload: dict, *, complete: bool = True) -> No
 
 
 def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, code_chunks: list[dict] | None = None) -> None:
-    try:
-        import lancedb
-    except ImportError as exc:
-        raise unittest.SkipTest("lancedb not installed in invoking interpreter") from exc
-
     index_dir = root / ".wavefoundry" / "index"
     index_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, object] = {
@@ -241,11 +236,18 @@ def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None =
     if code_chunks is not None:
         meta["content"].append("code")
     _seed_index_store(root, meta)
-    db = lancedb.connect(str(index_dir))
-    if docs_chunks:
-        db.create_table("docs", data=[{**chunk, "vector": [0.0, 0.0, 0.0, 0.0]} for chunk in docs_chunks], mode="overwrite")
-    if code_chunks:
-        db.create_table("code", data=[{**chunk, "vector": [0.0, 0.0, 0.0, 0.0]} for chunk in code_chunks], mode="overwrite")
+    import index_state_store as iss
+    import sqlite_vector_store as vectors
+    store = iss.IndexStateStore(index_dir)
+    try:
+        with store._conn:
+            for layer, chunks in (("docs", docs_chunks), ("code", code_chunks)):
+                if chunks:
+                    vectors.write_rows(store._conn, layer,
+                        [{**chunk, "vector": [1.] + [0.] * 383} for chunk in chunks])
+    finally:
+        store.close()
+
 
 
 def _make_planned_wave(root: Path) -> None:
@@ -3716,7 +3718,7 @@ class LexicalDashboardTests(unittest.TestCase):
         self.lib, _ = load_dashboard_modules()
 
     def _snapshot(self):
-        with patch.object(self.lib, "_lance_table_stats", return_value=(0, 0)):
+        with patch.object(self.lib, "_vector_table_stats", return_value=(0, 0)):
             return self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
 
     def test_snapshot_publishes_real_cached_lexical_counts_and_hides_incomplete_build(self):
@@ -4144,7 +4146,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertEqual(proj.get("source"), "background")
         self.assertIn("embedding code chunks", proj.get("progress", ""))
 
-    def test_stale_lock_cleanup_surfaces_in_snapshot_health(self):
+    def test_retired_lock_markers_are_preserved_for_migration(self):
         self._disable_auto_index()
         lock_path = self.root / ".wavefoundry" / "index" / "docs.lance" / ".lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4154,9 +4156,8 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         snap = store.get()
         proj = snap.get("health", {}).get("index", {}).get("project", {})
 
-        self.assertEqual(len(proj.get("stale_locks_cleaned", [])), 1)
-        self.assertEqual(proj["stale_locks_cleaned"][0]["reason"], "pid_dead")
-        self.assertFalse(lock_path.exists())
+        self.assertEqual(proj.get("stale_locks_cleaned", []), [])
+        self.assertTrue(lock_path.exists())
 
     def test_background_build_files_are_watched(self):
         store = self._track(self.srv.SnapshotStore(self.root))

@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import statistics
 import sys
 import tempfile
@@ -1424,9 +1423,13 @@ class FullRunnerTests(unittest.TestCase):
 
     def _tree(self, root: Path):
         index_dir = root / ".wavefoundry" / "index"
-        (index_dir / "docs.lance").mkdir(parents=True)
-        (index_dir / "code.lance").mkdir()
-        sqlite3.connect(index_dir / "index-state.sqlite").close()
+        import index_state_store as native_state
+        store = native_state.IndexStateStore(index_dir)
+        try:
+            store.ensure_current()
+        finally:
+            store.close()
+        native_state.write_build_bookkeeping(index_dir, {"content": ["docs", "code"]})
         (root / "target.py").write_text("needle\n", encoding="utf-8")
         scripts = root / "scripts"
         scripts.mkdir()

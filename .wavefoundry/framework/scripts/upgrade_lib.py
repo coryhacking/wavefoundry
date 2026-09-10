@@ -118,6 +118,11 @@ def write_upgrade_lock(
         port = prior.get("dashboard_restart_port")
         if isinstance(port, int):
             data["dashboard_restart_port"] = port
+    # Storage receipts survive old finalizers; preserve their active fence
+    # when a full standard retry refreshes the ordinary upgrade checkpoint.
+    for field in ("storage_migration_id", "storage_migration_state"):
+        if field in prior:
+            data[field] = prior[field]
     prior_snapshot = prior.get("graph_builder_doc_claim_pre_extract")
     prior_pack_sha = prior.get("graph_builder_doc_claim_pack_sha256")
     prior_scalar_snapshot = prior.get("docs_scalar_claims_pre_extract")

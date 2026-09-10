@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-09-09
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -56,3 +56,4 @@ Update this hub and relevant child docs when:
 - `docs/specs/mcp-tool-surface.md`: behavioral contract for the MCP tool surface, the governing contract for follow-on MCP work (repository path outside the published TechDocs site; named in `docs/architecture/current-state.md`, Current Risk Areas)
 - `docs/architecture/decisions/README.md` — ADR index
 - `docs/architecture/decisions/1tsbu-adr review-policy-and-upgrade-protocol.md` — review-policy authority, shared evaluator, lock order, reconciliation, and protocol-2 bridge
+- [Unified SQLite storage ADR](architecture/decisions/1xjmn-adr%20unified-sqlite-vector-storage.md) — proposed docs/code consolidation, database location, migration and cleanup constraints

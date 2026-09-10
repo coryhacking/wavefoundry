@@ -138,7 +138,7 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
     a child spawned via ``sys.executable`` that IS the venv Python).
 
     **Version guard:** if the venv was built for a different Python ``(major, minor)`` than the
-    running interpreter, its compiled deps (onnxruntime/lancedb/fastembed) are ABI-incompatible —
+    running interpreter, its compiled deps (onnxruntime/apsw/fastembed) are ABI-incompatible —
     print a clear "run ``wf setup``" message to STDERR and ``sys.exit(2)`` rather than activating
     an unloadable site-packages or falling back to the (Windows-broken) re-exec.
 

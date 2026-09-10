@@ -14,6 +14,7 @@ import contextlib
 import hashlib
 import importlib.util
 import inspect
+import io
 import json
 import math
 import os
@@ -40,7 +41,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _store_read_meta,
     _seed_store_state,
     _write_index_layer,
-    _write_lance_index,
+    _write_sqlite_index,
 )
 
 
@@ -518,9 +519,6 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         "setup_index.py": {
             '"-m", "venv"': "venv creation — console-visible bootstrap, before any tool venv exists",
             '"-m", "pip", "install"': "pip install — operator must see the streaming install progress",
-        },
-        "indexer.py": {
-            '"-m", "pip", "install"': "pip install lancedb — console-visible install progress",
         },
         # Operator-terminal CLI re-exec — runs on a real console with the operator watching.
         "wf_cli.py": {
@@ -4707,6 +4705,56 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_storage_pause_carries_external_continuation_and_rejects_stale_action(self):
+        migration = self.srv._load_script("sqlite_storage_migration")
+        index = self.root / ".wavefoundry/index"
+        (index / "docs.lance").mkdir(parents=True, exist_ok=True)
+        context = types.SimpleNamespace(
+            root=self.root, from_version="1.22.0+test", to_version="1.23.0+test",
+            zip_path=None, dry_run=False, storage_migration_protocol=1,
+        )
+        invocation_tokens = []
+
+        def pause_child(cmd, **kwargs):
+            invocation_tokens.append(kwargs["env"][migration.INVOCATION_ENV])
+            stream = io.StringIO()
+            with patch.dict(os.environ, {**kwargs["env"], migration.CONFIRM_ENV: "0"}), \
+                 contextlib.redirect_stdout(stream):
+                with self.assertRaises(SystemExit) as paused:
+                    migration.prepare_upgrade(context)
+            return subprocess.CompletedProcess(cmd, paused.exception.code,
+                                               stdout=stream.getvalue(), stderr="")
+
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=pause_child):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["state"], "restart_required")
+        self.assertIsNone(result["data"]["failed_phase"])
+        action = result["data"]["action_required"]
+        self.assertEqual(action["invocation_token"], invocation_tokens[0])
+        self.assertIn(str(self.root.resolve()), action["command_argv"])
+        self.assertIn("--confirm-hosts-stopped", action["command_argv"])
+        self.assertIn("non-MCP shell", result["next_step"])
+        self.assertNotIn("wf_reload_mcp", result["next_tools"])
+        self.assertTrue((index / migration.RECEIPT).exists())
+
+        # Same durable receipt, different child invocation: a real exit 3 must
+        # remain an error even if its output repeats the old pause message.
+        stale = subprocess.CompletedProcess([], 3, stdout=json.dumps(action), stderr="real failure")
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=stale):
+            failed = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(failed["status"], "error")
+        self.assertIn("upgrade_failed", [d["code"] for d in failed["diagnostics"]])
+
+    def test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses(self):
+        proc = subprocess.CompletedProcess([], 3, stdout='{"code":"storage_restart_required"}', stderr="")
+        for mode in ("apply", "dry_run"):
+            with self.subTest(mode=mode), \
+                 patch.object(self.srv, "_mcp_subprocess_run", return_value=proc):
+                result = self.srv.wf_upgrade_response(self.root, mode=mode)
+            self.assertEqual(result["status"], "error")
+            self.assertNotIn("action_required", result["data"])
+
     def test_invalid_phase_returns_error(self):
         result = self.srv.wf_upgrade_response(self.root, phase="bad_phase")
         self.assertEqual(result["status"], "error")
@@ -6187,15 +6235,15 @@ class ImplHandlerCloseTests(unittest.TestCase):
         """AC-6: close() must set Lance table refs and reranker to None so no double-open occurs."""
         handler = self.srv.build_handler(self.root)
         # Force-populate internal table refs with sentinel values to confirm they are cleared.
-        handler.index._docs_lance_table = object()
-        handler.index._code_lance_table = object()
+        handler.index._docs_vector_layer = object()
+        handler.index._code_vector_layer = object()
         handler.index._reranker = object()
         handler.index._loaded = True
 
         handler.close()
 
-        self.assertIsNone(handler.index._docs_lance_table, "_docs_lance_table must be None after close()")
-        self.assertIsNone(handler.index._code_lance_table, "_code_lance_table must be None after close()")
+        self.assertIsNone(handler.index._docs_vector_layer, "_docs_vector_layer must be None after close()")
+        self.assertIsNone(handler.index._code_vector_layer, "_code_vector_layer must be None after close()")
         self.assertIsNone(handler.index._reranker, "_reranker must be None after close()")
         self.assertFalse(handler.index._loaded, "_loaded must be False after close()")
 

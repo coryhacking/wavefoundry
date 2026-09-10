@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-05
+Last verified: 2026-09-09
 
 ## Reliability Posture
 
@@ -35,7 +35,7 @@ modes explicitly instead of guessing.
   check could not run, never "assume fresh".
 - **Persisted build log + versioned state:** index builds append to the
   persisted build log under `.wavefoundry/logs/`; the index-state store
-  (SQLite, state-store schema version `6`) carries builder/walker versions,
+  (SQLite, state-store schema version `7`) carries builder/walker versions,
   the build epoch, and per-file state, so an interrupted build is detected
   and superseded on the next pass, never trusted.
 - **Per-layer freshness and the heal:** each layer records its builder

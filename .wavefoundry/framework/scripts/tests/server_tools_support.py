@@ -124,77 +124,39 @@ def _seed_store_state(index_dir: Path, meta: dict) -> None:
 
 
 def _write_index_layer(root: Path, chunks: list[dict], vectors, *, model: str = "test-model") -> None:
-    import numpy as np
-    import lancedb
+    _write_sqlite_index(root, docs_chunks=chunks, docs_vectors=vectors, model=model)
+
+
+def _write_sqlite_index(root: Path, *, docs_chunks: list[dict] | None = None, docs_vectors=None, code_chunks: list[dict] | None = None, code_vectors=None, model: str = "test-model") -> None:
+    """Write the current native SQLite index fixture.
+
+    Zero-padding synthetic low-dimensional fixtures preserves their cosine geometry.
+    """
+    import index_state_store as iss
+    import sqlite_vector_store as storage
     root.mkdir(parents=True, exist_ok=True)
-    _seed_store_state(root, {"model_versions": {"docs": model}, "content": ["docs"], "file_hashes": {}})
-    if not chunks:
-        return
-    vecs = np.array(vectors, dtype=np.float32)
-    # Pad/truncate vecs to match chunks length (handles mismatched-vector-count tests)
-    rows = []
-    for i, chunk in enumerate(chunks):
-        row = dict(chunk)
-        if "tags" not in row:
-            row["tags"] = ""
-        elif isinstance(row["tags"], list):
-            row["tags"] = " ".join(str(t) for t in row["tags"])
-        if "language" not in row:
-            row["language"] = None
-        if "section" not in row:
-            row["section"] = None
-        if i < len(vecs):
-            row["vector"] = vecs[i].tolist()
-        else:
-            row["vector"] = vecs[0].tolist()
-        rows.append(row)
-    db = lancedb.connect(str(root))
-    db.create_table("docs", data=rows, mode="overwrite")
-
-
-def _write_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, docs_vectors=None, code_chunks: list[dict] | None = None, code_vectors=None, model: str = "test-model") -> None:
-    import numpy as np
-    import lancedb
-
-    root.mkdir(parents=True, exist_ok=True)
-    meta: dict[str, object] = {
-        "model_versions": {},
-        "content": [],
-        "file_hashes": {},
-    }
-    if docs_chunks is not None:
-        meta["model_versions"]["docs"] = model
-        meta["content"].append("docs")
-    if code_chunks is not None:
-        meta["model_versions"]["code"] = model
-        meta["content"].append("code")
-    _seed_store_state(root, meta)
-
-    db = lancedb.connect(str(root))
-
-    def _rows(chunks: list[dict], vectors) -> list[dict]:
-        if not chunks:
-            return []
-        vecs = np.array(vectors, dtype=np.float32)
-        rows: list[dict] = []
-        for i, chunk in enumerate(chunks):
-            row = dict(chunk)
-            if "tags" not in row:
-                row["tags"] = ""
-            elif isinstance(row["tags"], list):
-                row["tags"] = " ".join(str(t) for t in row["tags"])
-            if "language" not in row:
-                row["language"] = None
-            if "section" not in row:
-                row["section"] = None
-            row["vector"] = vecs[i].tolist() if i < len(vecs) else vecs[0].tolist()
-            rows.append(row)
-        return rows
-
-    if docs_chunks is not None and docs_chunks:
-        db.create_table("docs", data=_rows(docs_chunks, docs_vectors), mode="overwrite")
-    if code_chunks is not None and code_chunks:
-        db.create_table("code", data=_rows(code_chunks, code_vectors), mode="overwrite")
+    content = [layer for layer, chunks in (("docs", docs_chunks), ("code", code_chunks)) if chunks is not None]
+    store = iss.IndexStateStore(root)
+    try:
+        with store._conn:
+            for layer, chunks, vectors in (("docs", docs_chunks, docs_vectors), ("code", code_chunks, code_vectors)):
+                if chunks is None:
+                    continue
+                store._conn.execute(f"DELETE FROM chunks_{layer}")
+                rows = []
+                for i, chunk in enumerate(chunks):
+                    row = dict(chunk)
+                    vector = list(vectors[i] if i < len(vectors) else vectors[0])
+                    row["vector"] = [float(v) for v in vector] + [0.] * (storage.DIMENSIONS - len(vector))
+                    row.setdefault("language", None)
+                    row.setdefault("section", None)
+                    row["tags"] = " ".join(map(str, row["tags"])) if isinstance(row.get("tags"), list) else row.get("tags", "")
+                    rows.append(row)
+                storage.write_rows(store._conn, layer, rows)
+    finally:
+        store.close()
+    _seed_store_state(root, {"model_versions": {layer: model for layer in content},
+                            "content": content, "file_hashes": {}})
 
 
 def _subprocess_aliases(tree) -> tuple[set, set]:

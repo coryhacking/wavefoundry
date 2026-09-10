@@ -1134,7 +1134,7 @@ def _reexec_with_venv_if_needed() -> None:
     """Activate the wavefoundry venv in-process when numpy is not importable (wave 1p7pl/1p802).
 
     The index build step loads indexer.py in-process, which requires numpy and
-    lancedb. When build_pack.py is invoked with system Python those imports fail.
+    the pinned SQLite runtime. When build_pack.py is invoked with system Python those imports fail.
     In-process activation (``site.addsitedir`` via the single bootstrap) makes the
     venv packages importable in this process — no re-exec, no child. The numpy
     short-circuit is preserved so an interpreter that already has numpy (e.g. a CI

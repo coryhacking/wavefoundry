@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-09-09
 
 ## Allowed Dependencies
 
@@ -35,3 +35,15 @@ Last verified: 2026-08-21
 
 - Dependency violations: currently informal (no import linter); enforce through code review using this doc.
 - Boundary invariants: enforced through MCP **`wf_validate_docs`** (agents) or **`wf docs-lint`** (hooks/CI), plus seed protection hook and framework plan gate hook.
+
+## Shared semantic storage (wave 1xjmm)
+
+`sqlite_runtime` is the sole connection policy for `index-state.sqlite`.
+`sqlite_vector_store` owns canonical chunk/vector schema and bounded retrieval;
+`index_state_store` owns bookkeeping, FTS validation and publication fences;
+`indexer` owns the transaction combining their mutations. Query consumers open
+read-only connections and cannot repair or migrate persistent data.
+`sqlite_storage_migration` may load the pinned legacy reader only during standard
+upgrade conversion. Its durable receipt records recovery and cleanup progress;
+the existing build epoch remains publication authority. Graph and memory retain
+separate ownership and are not folded into the semantic database.

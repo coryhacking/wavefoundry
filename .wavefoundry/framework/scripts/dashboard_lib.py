@@ -148,31 +148,16 @@ def _read_store_build_meta(index_dir: Path) -> dict:
         return {}
 
 
-def _lance_table_stats(index_dir: Path | None) -> tuple[int, int]:
-    """Return (doc_chunks, code_chunks) via Lance row-count metadata reads.
-
-    1sed6 review fix: bounded — never materializes table contents. The
-    files-indexed count comes from the store's bounded ``file_count``
-    summary, not from scanning Lance paths.
-    """
+def _vector_table_stats(index_dir: Path | None) -> tuple[int, int]:
+    """Read bounded canonical layer counts without loading models or vectors."""
     if index_dir is None:
         return 0, 0
-    doc_chunks = 0
-    code_chunks = 0
-    docs_lance = index_dir / "docs.lance"
-    code_lance = index_dir / "code.lance"
-    if not docs_lance.is_dir() and not code_lance.is_dir():
-        return 0, 0
     try:
-        import lancedb
-        db = lancedb.connect(str(index_dir))
-        if docs_lance.is_dir():
-            doc_chunks = db.open_table("docs").count_rows()
-        if code_lance.is_dir():
-            code_chunks = db.open_table("code").count_rows()
+        import sqlite_vector_store
+        counts = sqlite_vector_store.layer_counts(index_dir)
+        return counts.get("docs", 0), counts.get("code", 0)
     except Exception:
         return 0, 0
-    return doc_chunks, code_chunks
 
 
 def read_workflow_config(root: Path) -> dict[str, Any]:
@@ -1503,7 +1488,7 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
     """Merge the store build snapshot + index-build-stats.json into a flat stats dict.
 
     Files and chunk counts are read from the actual chunk data when index_dir is
-    provided. The pack now ships Lance tables directly (`docs.lance` / `code.lance`),
+    provided. The local index uses SQLite vector layers,
     so the dashboard no longer reads legacy `docs.json` / `code.json` chunks.
     """
     m = meta if isinstance(meta, dict) else {}
@@ -1513,7 +1498,7 @@ def _index_stats(meta: Any, build_stats: Any, index_dir: "Path | None" = None) -
     doc_chunks = 0
     code_chunks = 0
     if index_dir is not None:
-        doc_chunks, code_chunks = _lance_table_stats(index_dir)
+        doc_chunks, code_chunks = _vector_table_stats(index_dir)
     # Files-indexed: the store's bounded file_count (review fix), then the
     # build-stats sidecar, then chunk totals as the last resort.
     files_indexed = int(

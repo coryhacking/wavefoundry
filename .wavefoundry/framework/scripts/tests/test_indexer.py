@@ -15,6 +15,7 @@ import types
 import textwrap
 import time
 import unittest
+from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -46,39 +47,23 @@ def load_build_index():
     return mod
 
 
-def _make_embedder_mock(dim: int = 4, calls: list[list[str]] | None = None):
-    """Return a mock embedder whose .embed() yields zero vectors of given dimension."""
+def _make_embedder_mock(dim: int = 384, calls: list[list[str]] | None = None):
+    """Deterministic nonzero384D embeddings exercise the actual cosine store."""
     import numpy as np
-
-    def fake_embed(texts, batch_size=256):
-        text_list = list(texts)
-        if calls is not None:
-            calls.append(text_list)
-        for _ in text_list:
-            yield np.zeros(dim, dtype=np.float32)
-
-    mock = MagicMock()
-    mock.embed.side_effect = fake_embed
+    def fake_embed(texts,batch_size=256):
+        values=list(texts)
+        if calls is not None: calls.append(values)
+        for text in values:
+            vector=np.zeros(384,dtype=np.float32);vector[0]=1;vector[1]=(len(text)%13)/13
+            yield vector
+    mock=MagicMock();mock.embed.side_effect=fake_embed
     return mock
 
 
 def _read_index_chunks(index_dir: Path, table_name: str) -> list[dict]:
-    """Read all chunks from a LanceDB table if available, else fall back to the legacy JSON file."""
-    lance_dir = index_dir / f"{table_name}.lance"
-    if lance_dir.is_dir():
-        try:
-            import lancedb
-            db = lancedb.connect(str(index_dir))
-            tbl = db.open_table(table_name)
-            arrow_tbl = tbl.to_arrow()
-            cols = [c for c in arrow_tbl.column_names if c != "vector"]
-            return arrow_tbl.select(cols).to_pylist()
-        except Exception:
-            pass
-    json_path = index_dir / f"{table_name}.json"
-    if json_path.exists():
-        return json.loads(json_path.read_text(encoding="utf-8"))
-    return []
+    import sqlite_vector_store as vectors
+    if not (index_dir / vectors.FILENAME).is_file(): return []
+    return vectors.payload_rows(index_dir,table_name)
 
 
 def _store_mod():
@@ -1224,11 +1209,7 @@ class IncrementalBuildTests(unittest.TestCase):
         # 1sed6: SQLite is the only state authority — no meta.json is written.
         self.assertFalse((index_dir / "meta.json").exists())
         self.assertTrue(_read_meta_store(index_dir).get("file_meta"))
-        # Index may be stored as LanceDB tables or legacy JSON files.
-        has_index = (
-            (index_dir / "docs.lance").is_dir() or (index_dir / "docs.json").exists()
-            or (index_dir / "code.lance").is_dir() or (index_dir / "code.json").exists()
-        )
+        has_index = (index_dir / "index-state.sqlite").is_file()
         self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
 
@@ -1566,7 +1547,7 @@ class IncrementalBuildTests(unittest.TestCase):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
 
         import lancedb
-        rows = lancedb.connect(str(self.root / ".wavefoundry" / "index")).open_table("docs").search().limit(10000).to_list()
+        rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "docs")
         paths = {r.get("path") for r in rows}
         self.assertIn(".wavefoundry/framework/seeds/100-install.prompt.md", paths,
                       "framework seed must be folded into the project docs index")
@@ -1906,8 +1887,8 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         code_chunks = _read_index_chunks(index_dir, "code")
         docs_chunks = _read_index_chunks(index_dir, "docs")
-        self.assertTrue((index_dir / "code.lance").is_dir())
-        self.assertTrue((index_dir / "docs.lance").is_dir())
+        self.assertTrue((index_dir / "index-state.sqlite").is_file())
+        self.assertTrue((index_dir / "index-state.sqlite").is_file())
         self.assertGreater(len(code_chunks), 0)
         self.assertGreater(len(docs_chunks), 0)
 
@@ -2349,13 +2330,14 @@ class StatCacheTests(unittest.TestCase):
             return self.bi.build_index(self.root, full=full, content="all", verbose=False)
 
     def test_stat_cache_hit_skips_hash_on_clean_pass(self):
-        """On a clean incremental pass, _sha256 must not be called for any file."""
+        """Clean source files retain stat-cache hits; configuration is fenced separately."""
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         self._run_build(full=True)
         with patch.object(self.bi, "_sha256", wraps=self.bi._sha256) as mock_hash:
             result = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertTrue(result["up_to_date"])
-        mock_hash.assert_not_called()
+        self.assertEqual(mock_hash.call_args_list,
+                         [unittest.mock.call(self.root / "docs" / "workflow-config.json")])
 
     def test_stat_cache_miss_on_content_change(self):
         """A file whose content changes is detected and re-chunked."""
@@ -2788,7 +2770,7 @@ class OnnxProviderSelectionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _make_lance_rows null-normalization tests (12qmp-bug)
+# _make_vector_rows null-normalization tests (12qmp-bug)
 # ---------------------------------------------------------------------------
 
 class MakeLanceRowsNullNormalizationTests(unittest.TestCase):
@@ -2804,7 +2786,7 @@ class MakeLanceRowsNullNormalizationTests(unittest.TestCase):
     def _call(self, chunk):
         import numpy as np
         vecs = np.zeros((1, 4), dtype=np.float32)
-        return self.mod._make_lance_rows([chunk], vecs)[0]
+        return self.mod._make_vector_rows([chunk], vecs)[0]
 
     def test_language_none_normalized_to_empty_string(self):
         """AC-1: language=None in chunk dict produces row['language']==''."""
@@ -2833,7 +2815,7 @@ class MakeLanceRowsNullNormalizationTests(unittest.TestCase):
         self.assertEqual(row["section"], "auth")
 
     def test_original_chunk_not_mutated(self):
-        """_make_lance_rows must not mutate the input chunk dict."""
+        """_make_vector_rows must not mutate the input chunk dict."""
         chunk = {"text": "x", "path": "a.md", "kind": "doc", "language": None, "section": None}
         self._call(chunk)
         self.assertIsNone(chunk["language"])
@@ -2850,7 +2832,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
     def test_missing_chunk_hash_key_forces_full_rebuild(self):
         existing = [{"id": "c1", "text": "old"}]  # no chunk_hash key
         new_chunks = [self._chunk("c1", "new")]
-        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=existing,
             new_chunks=new_chunks,
             embedder=_make_embedder_mock(),
@@ -2863,7 +2845,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
     def test_empty_chunk_hash_value_forces_full_rebuild(self):
         existing = [{"id": "c1", "text": "old", "chunk_hash": "   "}]  # present but blank
         new_chunks = [self._chunk("c1", "new")]
-        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=existing,
             new_chunks=new_chunks,
             embedder=_make_embedder_mock(),
@@ -2873,7 +2855,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
 
     def test_distinct_unicode_java_owner_ids_survive_delta_planning(self):
         # Wave 1shv4 final-review P1: the supported Java fallback previously gave
-        # `A` and `A` + combining acute the same initializer id. `_plan_lance_delta_rows`
+        # `A` and `A` + combining acute the same initializer id. `_plan_vector_delta_rows`
         # keys by id, so that collision silently reduced two source chunks to one row.
         chunker = self.mod._get_chunker()
         accented = "A\u0301"
@@ -2894,7 +2876,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         self.assertEqual({chunk["id"] for chunk in new_chunks}, expected)
         self.assertEqual(len(new_chunks), 2)
 
-        _delete_ids, rows, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        _delete_ids, rows, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=[],
             new_chunks=new_chunks,
             embedder=_make_embedder_mock(),
@@ -2928,7 +2910,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         self.assertEqual({chunk["id"] for chunk in new_chunks}, expected)
         self.assertEqual(len(new_chunks), 3)
 
-        _delete_ids, rows, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        _delete_ids, rows, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=[],
             new_chunks=new_chunks,
             embedder=_make_embedder_mock(),
@@ -2951,7 +2933,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
             row["vector"] = [0.0, 0.0, 0.0, 0.0]
             existing.append(row)
         calls: list[list[str]] = []
-        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=existing,
             new_chunks=[dict(c) for c in chunks],
             embedder=_make_embedder_mock(calls=calls),
@@ -2976,7 +2958,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
         changed = [dict(c) for c in chunks]
         changed[2]["text"] = "text 2 EDITED"
         calls: list[list[str]] = []
-        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_lance_delta_rows(
+        delete_ids, rows_to_add, fallback_required, stats = self.mod._plan_vector_delta_rows(
             existing_rows=existing,
             new_chunks=changed,
             embedder=_make_embedder_mock(calls=calls),
@@ -2995,7 +2977,7 @@ class PlanLanceDeltaRowsTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class LanceDriftDetectionTests(unittest.TestCase):
-    """AC-1, AC-2, AC-7, AC-8: `_detect_lance_drift` returns the file_meta
+    """AC-1, AC-2, AC-7, AC-8: `_detect_vector_drift` returns the file_meta
     paths that have zero rows in any Lance table — those are "drifted" and
     must be re-chunked even when file_meta hash matches.
 
@@ -3011,35 +2993,31 @@ class LanceDriftDetectionTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _make_db_with_paths(self, table_to_paths: dict[str, set[str]]):
-        """Build a mock LanceDB-like object whose tables expose the given path
-        sets via `.to_arrow().column("path").to_pylist()`."""
-        from unittest.mock import MagicMock
-        db = MagicMock()
+    def _make_db_with_paths(self, table_to_paths):
+        return table_to_paths
 
-        def open_table(name):
-            paths = list(table_to_paths.get(name, set()))
-            tbl = MagicMock()
-            arrow = MagicMock()
-            col = MagicMock()
-            col.to_pylist.return_value = paths
-            arrow.column.return_value = col
-            tbl.to_arrow.return_value = arrow
-            return tbl
+    @contextmanager
+    def _native_paths(self, tables):
+        import index_state_store as iss
+        index_dir=self.root/'index'
+        store=iss.IndexStateStore(index_dir)
+        try:
+            for layer,paths in tables.items():
+                with store._conn:
+                    iss._apply_chunk_deltas_locked(store,layer,add_rows=[
+                        {'id':str(i),'path':path,'text':path,'vector':[1.0]+[0.0]*383} for i,path in enumerate(sorted(paths))])
+            yield
+        finally:
+            store.close()
 
-        db.open_table.side_effect = open_table
-        return db
-
-    def _index_dir_with_tables(self, table_names: set[str]) -> Path:
-        """Create the table directory markers `_detect_lance_drift` looks for."""
-        index_dir = self.root / "index"
-        index_dir.mkdir(parents=True, exist_ok=True)
-        for t in table_names:
-            (index_dir / f"{t}.lance").mkdir(exist_ok=True)
+    def _index_dir_with_tables(self, table_names):
+        import index_state_store as iss
+        index_dir=self.root/'index'
+        store=iss.IndexStateStore(index_dir);store.close()
         return index_dir
 
     def _as_meta(self, paths, chunks_emitted=None):
-        """Build the dict shape `_detect_lance_drift` expects (wave 1p3iw).
+        """Build the dict shape `_detect_vector_drift` expects (wave 1p3iw).
         Empty dict per entry means `chunks_emitted` is absent → falls through
         to the drift check unchanged (legacy / first-pass behavior).
         Pass `chunks_emitted=0` (or a mapping) to test the skip behavior."""
@@ -3051,14 +3029,14 @@ class LanceDriftDetectionTests(unittest.TestCase):
         return {p: {"chunks_emitted": chunks_emitted} for p in paths}
 
     def test_returns_empty_when_file_meta_empty(self):
-        result = self.bi._detect_lance_drift(
+        result = self.bi._detect_vector_drift(
             self.root, {}, chunk_eligible_rel_paths={"docs/a.md"}, verbose=False,
         )
         self.assertEqual(result, set())
 
     def test_returns_empty_when_no_lance_tables_present(self):
         # No `.lance` dirs at index_dir → fresh layer, no drift
-        result = self.bi._detect_lance_drift(
+        result = self.bi._detect_vector_drift(
             self.root,
             self._as_meta({"docs/a.md"}),
             chunk_eligible_rel_paths={"docs/a.md"},
@@ -3072,8 +3050,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
         from unittest.mock import patch
         index_dir = self._index_dir_with_tables({"docs"})
         db = self._make_db_with_paths({"docs": {"docs/present.md"}})
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir,
                 self._as_meta({"docs/present.md", "docs/drifted.md"}),
                 chunk_eligible_rel_paths={"docs/present.md", "docs/drifted.md"},
@@ -3091,8 +3069,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs": {"docs/a.md", "docs/b.md"},
             "code": {"src/foo.py"},
         })
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir,
                 self._as_meta({"docs/a.md", "docs/b.md", "src/foo.py"}),
                 chunk_eligible_rel_paths={"docs/a.md", "docs/b.md", "src/foo.py"},
@@ -3110,8 +3088,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs": {"docs/a.md"},
             "code": {"src/foo.py"},
         })
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir,
                 self._as_meta({"docs/a.md", "src/foo.py", "docs/missing.md"}),
                 chunk_eligible_rel_paths={"docs/a.md", "src/foo.py", "docs/missing.md"},
@@ -3119,20 +3097,13 @@ class LanceDriftDetectionTests(unittest.TestCase):
             )
         self.assertEqual(result, {"docs/missing.md"})
 
-    def test_lance_open_failure_returns_empty_set(self):
-        """Defensive: if Lance can't be opened, treat as "no drift detected"
-        rather than spuriously flagging everything. The reaper / build path
-        handles the table-missing case separately."""
-        from unittest.mock import patch
-        index_dir = self._index_dir_with_tables({"docs"})
-        with patch.object(self.bi, "_get_lance_db", side_effect=RuntimeError("simulated")):
-            result = self.bi._detect_lance_drift(
-                index_dir,
-                self._as_meta({"docs/a.md"}),
-                chunk_eligible_rel_paths={"docs/a.md"},
-                verbose=False,
-            )
-        self.assertEqual(result, set())
+    def test_native_open_failure_preserves_source_and_surfaces(self):
+        index_dir=self._index_dir_with_tables({'docs'})
+        import index_state_store as iss
+        with patch.object(self.bi,'_get_index_state_store',return_value=iss), patch.object(iss,'open_read_only',side_effect=OSError('disk unavailable')):
+            with self.assertRaises(OSError):
+                self.bi._detect_vector_drift(index_dir,self._as_meta({'docs/a.md'}),
+                    chunk_eligible_rel_paths={'docs/a.md'})
 
     # --- Wave 1p3iw: chunks_emitted skip behavior ---
 
@@ -3148,8 +3119,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/present.md": {},
             "docs/empty.md": {"chunks_emitted": 0},
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths=set(file_meta), verbose=False,
             )
@@ -3169,8 +3140,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/present.md": {},
             "docs/legacy-missing.md": {},  # No chunks_emitted field
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths=set(file_meta), verbose=False,
             )
@@ -3190,8 +3161,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/present.md": {"chunks_emitted": 3},
             "docs/real-drift.md": {"chunks_emitted": 5},
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths=set(file_meta), verbose=False,
             )
@@ -3208,12 +3179,12 @@ class LanceDriftDetectionTests(unittest.TestCase):
         db = self._make_db_with_paths({"docs": set()})  # Lance has zero rows
         file_meta = {"docs/legitimately-empty.md": {"chunks_emitted": 0}}
         eligible = set(file_meta)
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            r1 = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            r1 = self.bi._detect_vector_drift(
                 index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
-            r2 = self.bi._detect_lance_drift(
+            r2 = self.bi._detect_vector_drift(
                 index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
-            r3 = self.bi._detect_lance_drift(
+            r3 = self.bi._detect_vector_drift(
                 index_dir, file_meta, chunk_eligible_rel_paths=eligible, verbose=False)
         self.assertEqual(r1, set())
         self.assertEqual(r2, set())
@@ -3260,8 +3231,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/present.md": {},
             ".wavefoundry/framework/scripts/tests/test_x.py": {},  # excluded upstream
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths={"docs/present.md"}, verbose=False,
             )
@@ -3279,8 +3250,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/present.md": {},
             "tests/test_helper.py": {"chunks_emitted": 99},  # stale positive, now excluded
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths={"docs/present.md"}, verbose=False,
             )
@@ -3298,8 +3269,8 @@ class LanceDriftDetectionTests(unittest.TestCase):
             "docs/drifted.md": {},
             ".wavefoundry/framework/scripts/tests/test_x.py": {},
         }
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            result = self.bi._detect_lance_drift(
+        with self._native_paths(db):
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths={"docs/present.md", "docs/drifted.md"},
                 verbose=False,
@@ -3317,9 +3288,9 @@ class LanceDriftDetectionTests(unittest.TestCase):
             ".wavefoundry/framework/scripts/tests/test_x.py": {},
         }
         out = io.StringIO()
-        with patch.object(self.bi, "_get_lance_db", return_value=db), \
+        with self._native_paths(db), \
                 contextlib.redirect_stdout(out):
-            result = self.bi._detect_lance_drift(
+            result = self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths={"docs/present.md"}, verbose=True,
             )
@@ -3338,102 +3309,35 @@ class LanceDriftDetectionTests(unittest.TestCase):
         db = self._make_db_with_paths({"docs": {"docs/present.md"}})
         file_meta = {"docs/present.md": {}}
         out = io.StringIO()
-        with patch.object(self.bi, "_get_lance_db", return_value=db), \
+        with self._native_paths(db), \
                 contextlib.redirect_stdout(out):
-            self.bi._detect_lance_drift(
+            self.bi._detect_vector_drift(
                 index_dir, file_meta,
                 chunk_eligible_rel_paths={"docs/present.md"}, verbose=True,
             )
         self.assertNotIn("chunk-ineligible", out.getvalue())
 
 
-class LanceDriftDetectionScaleTests(unittest.TestCase):
-    """AC-9 / MF-1: drift query latency on enterprise-scale corpora.
-
-    Bounds:
-    - 10K rows → sub-second (1.0s)
-    - 100K rows → < 200ms
-
-    Synthetic test: the bottleneck is the file_meta set-difference against a
-    paths set; the Lance query is mocked. This measures the set-difference
-    half (always cheap) and the Python-level path enumeration (the actual
-    overhead). A real-Lance scale benchmark is out of scope (would require
-    actual LanceDB infrastructure); this test guards against accidental
-    O(N²) regressions in the set-difference + diagnostic-formatting path."""
-
-    def setUp(self):
-        self.bi = load_build_index()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _index_dir_with_tables(self, table_names: set[str]) -> Path:
-        index_dir = self.root / "index"
-        index_dir.mkdir(parents=True, exist_ok=True)
-        for t in table_names:
-            (index_dir / f"{t}.lance").mkdir(exist_ok=True)
-        return index_dir
-
-    def _run_with_n_rows(self, n_rows: int) -> float:
-        """Run a drift-check with `n_rows` Lance paths and a 1% drifted
-        set (≈ n_rows / 100 paths claimed by file_meta but absent from
-        Lance). Returns elapsed seconds."""
-        from unittest.mock import MagicMock, patch
+class SQLiteDriftDetectionScaleTests(unittest.TestCase):
+    setUp = LanceDriftDetectionTests.setUp
+    tearDown = LanceDriftDetectionTests.tearDown
+    _native_paths = LanceDriftDetectionTests._native_paths
+    _index_dir_with_tables = LanceDriftDetectionTests._index_dir_with_tables
+    _as_meta = LanceDriftDetectionTests._as_meta
+    def _scale(self,count):
         import time
-
-        lance_paths = [f"docs/file-{i:07d}.md" for i in range(n_rows)]
-        # file_meta = all Lance paths + a small drift set
-        n_drifted = max(1, n_rows // 100)
-        drifted_paths = [f"docs/drifted-{i:07d}.md" for i in range(n_drifted)]
-        # Wave 1p3iw: drift check now takes the file_meta dict (not just paths).
-        # Empty entry per path → no chunks_emitted field → falls through to
-        # the original drift detection unchanged.
-        file_meta = {p: {} for p in (set(lance_paths) | set(drifted_paths))}
-
-        db = MagicMock()
-        def open_table(name):
-            tbl = MagicMock()
-            arrow = MagicMock()
-            col = MagicMock()
-            col.to_pylist.return_value = lance_paths if name == "docs" else []
-            arrow.column.return_value = col
-            tbl.to_arrow.return_value = arrow
-            return tbl
-        db.open_table.side_effect = open_table
-
-        index_dir = self._index_dir_with_tables({"docs"})
-
-        with patch.object(self.bi, "_get_lance_db", return_value=db):
-            t0 = time.perf_counter()
-            result = self.bi._detect_lance_drift(
-                index_dir, file_meta,
-                chunk_eligible_rel_paths=set(file_meta), verbose=False,
-            )
-            elapsed = time.perf_counter() - t0
-        self.assertEqual(len(result), n_drifted)
-        return elapsed
-
-    def test_10k_rows_sub_second(self):
-        """AC-9: 10K Lance rows + ~100 drifted paths → < 1.0 second."""
-        elapsed = self._run_with_n_rows(10_000)
-        self.assertLess(elapsed, 1.0,
-            f"10K-row drift detection took {elapsed:.3f}s (expected < 1.0s)")
-
-    def test_100k_rows_contention_safe_budget(self):
-        """AC-9 / MF-1, rebudgeted by 1t3zv: 100K Lance rows + ~1000 drifted
-        paths. Isolated reference 0.120s; worst observed contended 0.276s
-        (six-worker suite, 2026-07-20). Budget 1.0s = 8.3x isolated / 3.6x
-        worst-contended headroom, still an order of magnitude under a real
-        O(rows) regression at this scale."""
-        try:
-            from tests.perf_budget_policy import assert_operation_within_budget
-        except ImportError:
-            from perf_budget_policy import assert_operation_within_budget
-
-        elapsed = self._run_with_n_rows(100_000)
+        paths={f'src/p{i}.py' for i in range(count)}
+        index_dir=self._index_dir_with_tables({'code'})
+        with self._native_paths({'code':paths}):
+            start=time.monotonic()
+            result=self.bi._detect_vector_drift(index_dir,self._as_meta(paths | {'src/missing.py'}),
+                chunk_eligible_rel_paths=paths | {'src/missing.py'})
+            elapsed=time.monotonic()-start
+        self.assertEqual(result,{'src/missing.py'})
+        from perf_budget_policy import assert_operation_within_budget
         assert_operation_within_budget(self, "100K-row drift detection", elapsed)
+    def test_10k_rows_sub_second(self): self._scale(10000)
+    def test_100k_rows_contention_safe_budget(self): self._scale(100000)
 
 
 class LanceDriftEligibilityBuildTests(unittest.TestCase):
@@ -3558,9 +3462,12 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         self._neutralize_per_kind_residual()
         index_dir = self.root / ".wavefoundry" / "index"
         # Simulate real drift: rows vanish for an eligible docs file.
-        import lancedb
-        db = lancedb.connect(str(index_dir))
-        db.open_table("docs").delete("path = 'docs/guide.md'")
+        import sqlite_runtime
+        conn = sqlite_runtime.connect(index_dir / "index-state.sqlite")
+        try:
+            conn.execute("DELETE FROM vectors_docs WHERE chunk_id IN (SELECT id FROM chunks_docs WHERE path=?)", ("docs/guide.md",))
+        finally:
+            conn.close()
         result, err, _ = self._build(full=False, content="docs")
         self.assertIn("repairing 1 drifted file(s)", err)
         self.assertIn("docs/guide.md", err)
@@ -3607,7 +3514,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
 
     def test_ac6_graph_only_incremental_performs_no_drift_detection(self):
         """AC-6 (write-capability guard, Req-7): a ``content="graph"``
-        incremental build never calls ``_detect_lance_drift`` — in that mode
+        incremental build never calls ``_detect_vector_drift`` — in that mode
         ``files_for_content`` is the UNFILTERED code walk while zero semantic
         rows are writable, so any eligibility intersection would be a no-op
         and the loop would survive."""
@@ -3618,7 +3525,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
             calls.append((args, kwargs))
             return set()
         err = io.StringIO()
-        with patch.object(self.bi, "_detect_lance_drift", side_effect=spy), \
+        with patch.object(self.bi, "_detect_vector_drift", side_effect=spy), \
                 redirect_stderr(err):
             self.bi.build_index(self.root, full=False, content="graph", verbose=False)
         self.assertEqual(calls, [], "graph-only build must skip drift detection outright")
@@ -3641,7 +3548,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
 
     def test_idle_reap_still_receives_wide_meta_union(self):
         """1rmaf security tripwire (Req-8): the idle-path
-        ``_reap_stranded_lance_rows`` call still receives the WIDE meta union
+        ``_reap_stranded_vector_rows`` call still receives the WIDE meta union
         — including chunk-INELIGIBLE paths — never the narrow eligibility
         set. The zero-change fast path is the common path post-fix; a set
         mix-up here would be high-frequency destructive (a docs-only run
@@ -3654,7 +3561,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
             captured["eligible_paths"] = set(eligible_paths)
             return {"total": 0}
         err = io.StringIO()
-        with patch.object(self.bi, "_reap_stranded_lance_rows", side_effect=fake_reap), \
+        with patch.object(self.bi, "_reap_stranded_vector_rows", side_effect=fake_reap), \
                 patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)), \
                 redirect_stderr(err):
             result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
@@ -3914,19 +3821,8 @@ class StreamingRebuildParityTests(unittest.TestCase):
     def setUp(self):
         self.bi = load_build_index()
 
-    @staticmethod
-    def _fake_embedder():
-        import numpy as np
-
-        class _Fake:
-            # Deterministic, finite per-text vector — batching boundaries cannot change it.
-            def embed(self, texts, batch_size=256):
-                import hashlib as _h
-                for t in texts:
-                    digest = _h.sha256(t.encode("utf-8")).digest()
-                    yield np.array([float(b) for b in digest[:4]], dtype=np.float32)
-
-        return _Fake()
+    def _fake_embedder(self):
+        return _make_embedder_mock()
 
     def _chunks(self, n):
         return [
@@ -3936,36 +3832,24 @@ class StreamingRebuildParityTests(unittest.TestCase):
         ]
 
     def test_streamed_table_is_buffer_invariant(self):
-        import tempfile
-        chunks = self._chunks(25)
-
-        with tempfile.TemporaryDirectory() as ta, tempfile.TemporaryDirectory() as tb:
-            # Batch reference: one add() with every chunk == a single create_table with all rows.
-            db_a = self.bi._get_lance_db(Path(ta))
-            w_a = self.bi._StreamingLayerWriter(db_a, "code", self._fake_embedder(), "code")
-            w_a.add([dict(c) for c in chunks])
-            w_a.finalize()
-
-            # Streamed: tiny buffer → many flushes / append calls.
-            db_b = self.bi._get_lance_db(Path(tb))
-            w_b = self.bi._StreamingLayerWriter(db_b, "code", self._fake_embedder(), "code")
-            buf = []
-            for c in chunks:
-                buf.append(dict(c))
-                if len(buf) >= 3:
-                    w_b.add(buf); buf = []
-            if buf:
-                w_b.add(buf)
-            w_b.finalize()
-
-            rows_a = {r["id"]: r for r in db_a.open_table("code").to_arrow().to_pylist()}
-            rows_b = {r["id"]: r for r in db_b.open_table("code").to_arrow().to_pylist()}
-
-        self.assertEqual(set(rows_a), set(rows_b), "streamed table must hold the same chunk ids")
-        for cid in rows_a:
-            self.assertEqual(rows_a[cid]["text"], rows_b[cid]["text"], cid)
-            self.assertEqual(rows_a[cid]["vector"], rows_b[cid]["vector"], cid)
-            self.assertEqual(rows_a[cid]["chunk_hash"], rows_b[cid]["chunk_hash"], cid)
+        import sqlite_vector_store as vectors
+        import index_state_store as iss
+        chunks=self._chunks(25)
+        outputs=[]
+        for batch_size in (25,3):
+            with tempfile.TemporaryDirectory() as temp, vectors.PreparedUpdates(Path(temp)) as prepared:
+                index_dir=Path(temp)
+                writer=self.bi._StreamingLayerWriter(prepared,'code',self._fake_embedder(),'code')
+                for start in range(0,len(chunks),batch_size):
+                    writer.add(chunks[start:start+batch_size])
+                writer.finalize()
+                store=iss.IndexStateStore(index_dir)
+                try:
+                    with store._conn: prepared.apply(store)
+                finally: store.close()
+                outputs.append({r['id']:r for r in vectors.payload_rows(index_dir,'code',include_vector=True)})
+        self.assertEqual(outputs[0],outputs[1])
+        self.assertEqual(len(outputs[0]),25)
 
     def test_resolve_embed_buffer_chunks_override_and_floor(self):
         import tempfile
@@ -4024,9 +3908,11 @@ class StreamingRebuildParityTests(unittest.TestCase):
         import tempfile, io, contextlib, re
         import unittest.mock as mock
 
+        import sqlite_vector_store as vectors
+        import index_state_store as iss
         buffer_chunks = 4
         n_files = 14
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, vectors.PreparedUpdates(Path(tmp) / "lance") as prepared:
             root = Path(tmp)
             files = []
             for i in range(n_files):
@@ -4063,10 +3949,15 @@ class StreamingRebuildParityTests(unittest.TestCase):
                     verbose=False,
                     docs_elapsed=[],
                     code_elapsed=[],
+                    prepared=prepared,
                 )
             log = out.getvalue()
 
-            total_code = self.bi._get_lance_db(db_path).open_table("code").count_rows()
+            store=iss.IndexStateStore(db_path)
+            try:
+                with store._conn: prepared.apply(store)
+            finally: store.close()
+            total_code = vectors.layer_counts(db_path)['code']
 
             # AC-1: streamed, not one big write — multiple flushes, and every batch is
             # bounded by the buffer plus a single file's chunk count (corpus-independent).
@@ -4084,6 +3975,37 @@ class StreamingRebuildParityTests(unittest.TestCase):
             self.assertIn("indexed file %d/%d files" % (n_files, n_files), log)
             self.assertNotIn("/%d code chunks" % total_code, log)
             self.assertNotRegex(log, r"chunks \d+[–-]\d+/\d+")
+
+
+class StorageRebuildSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_strict_census_rejects_unreadable_directory_even_without_prior_rows(self):
+        def denied(root, **kwargs):
+            kwargs["unreadable_dirs"].add("src")
+            return []
+        with patch.object(self.bi, "walk_repo", side_effect=denied):
+            with self.assertRaisesRegex(RuntimeError, "storage_rebuild_source_unreadable"):
+                self.bi.preflight_rebuild_sources(self.root)
+
+    def test_strict_census_hashes_current_sources_and_allows_empty_layers(self):
+        self.assertEqual(self.bi.preflight_rebuild_sources(self.root), {"docs": {}, "code": {}})
+        (self.root / "guide.md").write_text("# Source\nCurrent text")
+        before = self.bi.preflight_rebuild_sources(self.root)
+        (self.root / "guide.md").write_text("# Changed")
+        self.assertNotEqual(before, self.bi.preflight_rebuild_sources(self.root))
+
+    def test_full_rebuild_read_failure_is_fatal_when_receipt_owned(self):
+        missing = self.root / "missing.py"
+        with self.assertRaises(FileNotFoundError):
+            self.bi._run_streaming_full_rebuild(db_path=self.root, files_to_index=[missing],
+                root=self.root, build_docs=False, build_code=False, docs_embedder=None,
+                code_embedder=None, chunks_emitted_by_file={}, buffer_chunks=10,
+                verbose=False, docs_elapsed=[], code_elapsed=[], strict_reads=True)
 
 
 class CachedFirstEmbedderTests(unittest.TestCase):
@@ -4476,128 +4398,10 @@ class ContentScopeFreshnessTests(unittest.TestCase):
         )
 
 
-class LanceIndexCleanupTests(unittest.TestCase):
-    """Wave 1p95j: the index build must compact + clean after building indices so stale FTS/vector
-    artifacts don't accumulate unbounded (the observed 400M+ / 11-`_indices`-dir bloat)."""
-
-    def setUp(self):
-        self.bi = load_build_index()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_streaming_finalize_optimizes_and_builds_no_lance_fts(self):
-        # Wave 1rsh9 (1sauc): the Lance/Tantivy FTS is retired — finalize
-        # compacts the table but creates NO Lance FTS index (the lexical layer
-        # is the index-state store's FTS5 tables).
-        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
-        w.table = MagicMock()
-        w.table_name = "docs"
-        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
-        with patch.object(self.bi, "_optimize_lance_table") as opt:
-            w._finalize_inner(verbose=False)
-        opt.assert_called_once_with(w.table)
-        w.table.create_fts_index.assert_not_called()
-
-    def test_streaming_finalize_none_table_is_noop(self):
-        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
-        w.table = None
-        with patch.object(self.bi, "_optimize_lance_table") as opt:
-            self.assertEqual(w._finalize_inner(verbose=False), 0)
-        opt.assert_not_called()
-
-    def test_optimize_lance_table_swallows_exceptions(self):
-        # AC-5: a compaction/cleanup failure must never propagate (best-effort/advisory).
-        t = MagicMock()
-        t.optimize.side_effect = RuntimeError("boom")
-        self.bi._optimize_lance_table(t)  # must not raise
-
-    def test_full_rebuild_runs_cleanup(self):
-        # AC-1 (integration): a real full rebuild calls the compaction/cleanup at finalize.
-        _make_repo(self.root, {"docs/g.md": "## A\n\nhello docs.\n", "src/f.py": "def f():\n    return 1\n"})
-        docs_mock = _make_embedder_mock(dim=4)
-        code_mock = _make_embedder_mock(dim=4)
-        with patch.object(self.bi, "_optimize_lance_table") as opt, \
-             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
-            self.bi.build_index(self.root, full=True, content="all", verbose=False)
-        self.assertTrue(opt.called, "a full rebuild must run the compaction/cleanup at finalize")
-
-    def test_no_lance_fts_created_anywhere(self):
-        # Wave 1rsh9 (1sauc): source-assertion removal lock — no build path
-        # creates or refreshes a Lance FTS index. The only permitted
-        # `create_fts_index` mention is inside the legacy-cleanup helper's
-        # detection logic or comments; the call itself must be gone.
-        src = (Path(self.bi.__file__)).read_text(encoding="utf-8")
-        self.assertNotIn("_create_fts_index", src)
-        self.assertNotIn(".create_fts_index(", src)
-        # The legacy drop helper exists and is wired into the reclaim path.
-        self.assertIn("def _drop_legacy_fts_indices(", src)
-        reclaim_pos = src.index("def reclaim_lance_table(")
-        drop_pos = src.index(
-            "_drop_legacy_fts_indices(table, table_name, index_dir=index_dir)",
-            reclaim_pos,
-        )
-        self.assertGreater(drop_pos, reclaim_pos)
-
-    def test_incremental_change_creates_no_lance_fts(self):
-        # Wave 1rsh9 (1sauc): an incremental pass that changes a table must
-        # NOT create/rebuild a Lance FTS index (the 1p95j rebuild is retired).
-        _make_repo(self.root, {"docs/g.md": "## A\n\nhello docs.\n"})
-        docs_mock = _make_embedder_mock(dim=4)
-        code_mock = _make_embedder_mock(dim=4)
-        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
-            self.bi.build_index(self.root, full=True, content="all", verbose=False)
-        (self.root / "docs" / "g.md").write_text("## A\n\nchanged content now.\n", encoding="utf-8")
-        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
-            self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        import lancedb
-        db = lancedb.connect(str(self.root / ".wavefoundry" / "index"))
-        table = db.open_table("docs")
-        fts_indices = [i for i in (table.list_indices() or [])
-                       if "FTS" in str(getattr(i, "index_type", "")).upper()]
-        self.assertEqual(fts_indices, [], "no Lance FTS index may exist after builds")
 
 
-class LanceDbAutoInstallTlsTests(unittest.TestCase):
-    """Wave 1p93v: ``_auto_install_lancedb()``'s pip subprocess call must apply the same pip
-    TLS-conflict mitigation (``setup_index._pip_tls_env()``) used at every other pip/uv install call
-    site in this codebase — it was the one unwired call site found in a post-1p939 sweep."""
 
-    def setUp(self):
-        self.bi = load_build_index()
 
-    def test_applies_pip_tls_env_when_ca_var_set(self):
-        # AC-1: a host-agent/operator CA var set → the pip subprocess receives the merged-bundle env.
-        fake_bundle_env = {"SSL_CERT_FILE": "/fake/merged-bundle.pem", "REQUESTS_CA_BUNDLE": "/fake/merged-bundle.pem"}
-        fake_result = MagicMock(returncode=0)
-        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
-             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result) as run_mock, \
-             patch("setup_index._pip_tls_env", return_value=fake_bundle_env):
-            self.bi._auto_install_lancedb()
-        run_mock.assert_called_once()
-        _, kwargs = run_mock.call_args
-        self.assertEqual(kwargs.get("env"), fake_bundle_env)
-
-    def test_no_env_override_in_plain_env(self):
-        # AC-2: no CA var set → env=None passed through (inherit unchanged), no regression.
-        fake_result = MagicMock(returncode=0)
-        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
-             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result) as run_mock, \
-             patch("setup_index._pip_tls_env", return_value=None):
-            self.bi._auto_install_lancedb()
-        run_mock.assert_called_once()
-        _, kwargs = run_mock.call_args
-        self.assertIsNone(kwargs.get("env"), "plain env must pass env=None (inherit unchanged)")
-
-    def test_raises_on_install_failure(self):
-        fake_result = MagicMock(returncode=1)
-        with patch.object(self.bi.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
-             patch.object(self.bi.subprocess_util, "isolated_run", return_value=fake_result), \
-             patch("setup_index._pip_tls_env", return_value=None):
-            with self.assertRaises(ImportError):
-                self.bi._auto_install_lancedb()
 
 
 class IndexBuildLockHeldTests(unittest.TestCase):
@@ -4653,241 +4457,16 @@ class IndexBuildLockHeldTests(unittest.TestCase):
         self.assertEqual(self.bi._index_build_lock_held(self.index_dir), (False, None))
 
 
-class _ReclaimFakeArrow:
-    def __init__(self, n):
-        self.num_rows = n
 
 
-class _ReclaimFakeTable:
-    """A LanceDB-table stand-in for exercising the reclaim tiers without a real Lance corruption."""
-
-    def __init__(self, rows, optimize_ok=True, arrow_ok=True):
-        self.rows = rows
-        self.optimize_ok = optimize_ok
-        self.arrow_ok = arrow_ok
-        self.created_indices = []
-        self.existing_indices = []
-        self.dropped_indices = []
-
-    def optimize(self, cleanup_older_than=None):
-        if not self.optimize_ok:
-            # The real Lance list-offset corruption signature (lance #7538).
-            raise RuntimeError("Max offset 99 exceeds length of values 10")
-
-    def count_rows(self):
-        return self.rows
-
-    def to_arrow(self):
-        if not self.arrow_ok:
-            raise RuntimeError("corrupt read — data unreadable")
-        return _ReclaimFakeArrow(self.rows)
-
-    def create_index(self, **kw):
-        self.created_indices.append(("vector", kw))
-
-    def create_fts_index(self, *a, **kw):
-        self.created_indices.append(("fts", kw))
-
-    def list_indices(self):
-        return list(self.existing_indices)
-
-    def drop_index(self, name):
-        self.dropped_indices.append(name)
 
 
-class _ReclaimFakeDB:
-    def __init__(self, table):
-        self._table = table
-        self.rename_called = False
-        self.created = []
-
-    def open_table(self, name):
-        if self._table is None:
-            raise ValueError(f"Table '{name}' was not found")
-        return self._table
-
-    def create_table(self, name, data=None, mode=None):
-        self.created.append((name, mode))
-        self._table = _ReclaimFakeTable(rows=data.num_rows)
-        return self._table
-
-    def rename_table(self, *a, **k):
-        self.rename_called = True
-        raise NotImplementedError("LanceDBError: not supported: rename_table is not supported in LanceDB OSS")
 
 
-class IndexReclaimTests(unittest.TestCase):
-    """Wave 1p9aj: tiered LanceDB reclaim (optimize -> compact-by-rewrite -> full rebuild)."""
 
-    def setUp(self):
-        self.bi = load_build_index()
 
-    def test_optimize_lance_table_returns_bool(self):
-        ok = MagicMock()
-        self.assertTrue(self.bi._optimize_lance_table(ok))
-        bad = MagicMock()
-        bad.optimize.side_effect = RuntimeError("Max offset exceeds length of values")
-        self.assertFalse(self.bi._optimize_lance_table(bad))  # must not raise, returns False
 
-    def test_tier1_optimize_success(self):
-        db = _ReclaimFakeDB(_ReclaimFakeTable(rows=2000, optimize_ok=True))
-        res = self.bi.reclaim_lance_table(db, "docs")
-        self.assertEqual(res["tier"], 1)
-        self.assertEqual(res["rows"], 2000)
-        self.assertFalse(res["needs_rebuild"])
-        self.assertEqual(db.created, [])  # no rewrite on the happy path
 
-    def test_tier2_compact_by_rewrite_preserves_rows_and_indices_no_rename(self):
-        # AC-2: optimize fails -> rewrite via create_table(overwrite); rows preserved; both indices
-        # rebuilt; rename_table NEVER called; no re-embed.
-        t = _ReclaimFakeTable(rows=2000, optimize_ok=False, arrow_ok=True)
-        db = _ReclaimFakeDB(t)
-        res = self.bi.reclaim_lance_table(db, "docs")
-        self.assertEqual(res["tier"], 2)
-        self.assertFalse(res["needs_rebuild"])
-        self.assertEqual(res["rows"], 2000)
-        self.assertIn(("docs", "overwrite"), db.created)
-        self.assertFalse(db.rename_called, "reclaim must never call rename_table (unsupported in OSS)")
-        kinds = [k for k, _ in db._table.created_indices]
-        self.assertIn("vector", kinds)  # rows >= threshold
-        self.assertNotIn("fts", kinds)  # wave 1rsh9 (1sauc): Lance FTS retired
-
-    def test_tier2_below_threshold_skips_vector_index_and_builds_no_fts(self):
-        t = _ReclaimFakeTable(rows=5, optimize_ok=False, arrow_ok=True)
-        db = _ReclaimFakeDB(t)
-        res = self.bi.reclaim_lance_table(db, "docs")
-        self.assertEqual(res["tier"], 2)
-        self.assertFalse(res["needs_rebuild"])
-        kinds = [k for k, _ in db._table.created_indices]
-        self.assertNotIn("vector", kinds)  # below LANCEDB_INDEX_THRESHOLD -> flat scan
-        self.assertNotIn("fts", kinds)  # wave 1rsh9 (1sauc): Lance FTS retired
-
-    def test_reclaim_drops_legacy_fts_indices(self):
-        # Wave 1rsh9 (1sauc): a field repo carrying the retired Lance FTS index
-        # sheds it on the reclaim path (drop_index fires, versions become
-        # GC-able by the optimize cleanup); a repo without one is a no-op.
-        class _Idx:
-            def __init__(self, name, index_type):
-                self.name = name
-                self.index_type = index_type
-        t = _ReclaimFakeTable(rows=100, optimize_ok=True, arrow_ok=True)
-        t.existing_indices = [_Idx("text_idx", "FTS"), _Idx("vector_idx", "IvfHnswSq")]
-        db = _ReclaimFakeDB(t)
-        res = self.bi.reclaim_lance_table(db, "docs")
-        self.assertEqual(res["tier"], 1)
-        self.assertEqual(t.dropped_indices, ["text_idx"])
-        # No legacy index -> nothing dropped.
-        clean = _ReclaimFakeTable(rows=100, optimize_ok=True, arrow_ok=True)
-        db2 = _ReclaimFakeDB(clean)
-        self.bi.reclaim_lance_table(db2, "docs")
-        self.assertEqual(clean.dropped_indices, [])
-
-    def test_tier3_only_on_read_failure_not_optimize_failure(self):
-        # AC-3: a full rebuild (needs_rebuild) fires ONLY when to_arrow() raises, never for a mere
-        # optimize() failure (which is Tier 2).
-        read_fail = _ReclaimFakeDB(_ReclaimFakeTable(rows=100, optimize_ok=False, arrow_ok=False))
-        res = self.bi.reclaim_lance_table(read_fail, "docs")
-        self.assertEqual(res["tier"], 3)
-        self.assertTrue(res["needs_rebuild"])
-        # optimize-only failure must NOT set needs_rebuild
-        opt_fail = _ReclaimFakeDB(_ReclaimFakeTable(rows=100, optimize_ok=False, arrow_ok=True))
-        res2 = self.bi.reclaim_lance_table(opt_fail, "docs")
-        self.assertEqual(res2["tier"], 2)
-        self.assertFalse(res2["needs_rebuild"])
-
-    def test_tier3_on_open_failure(self):
-        db = _ReclaimFakeDB(None)  # open_table raises
-        res = self.bi.reclaim_lance_table(db, "docs")
-        self.assertEqual(res["tier"], 3)
-        self.assertTrue(res["needs_rebuild"])
-
-    def test_optimize_index_tables_skips_absent_and_reports_sizes(self):
-        with tempfile.TemporaryDirectory() as td:
-            index_dir = Path(td)
-            (index_dir / "docs.lance").mkdir()  # docs present; code.lance absent
-            (index_dir / "docs.lance" / "data.bin").write_bytes(b"x" * 1024)
-            # 1sed6 review fix: optimize is restore-only — it requires a
-            # completed build epoch before it may run.
-            iss = _store_mod()
-            iss.write_build_bookkeeping(index_dir, {"built_at": "x"})
-            iss.finalize_build_epoch(index_dir, iss.begin_build_epoch(index_dir, "seed"))
-            db = _ReclaimFakeDB(_ReclaimFakeTable(rows=2000, optimize_ok=True))
-            with patch.object(self.bi, "_get_lance_db", return_value=db):
-                results = self.bi.optimize_index_tables(index_dir, ("docs", "code"))
-            self.assertIn("docs", results)
-            self.assertNotIn("code", results)  # absent table skipped
-            self.assertEqual(results["docs"]["tier"], 1)
-            self.assertIn("bytes_before", results["docs"])
-            self.assertIn("bytes_after", results["docs"])
-            self.assertGreater(results["docs"]["bytes_before"], 0)
-
-    def test_finalize_self_heals_on_optimize_failure(self):
-        # AC-5: when _optimize_lance_table returns False, finalize escalates to _compact_by_rewrite,
-        # re-points the table, and returns early (no redundant FTS rebuild on the old handle).
-        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
-        w.table = MagicMock()
-        w.db = MagicMock()
-        w.table_name = "docs"
-        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
-        new_table = MagicMock()
-        with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
-             patch.object(self.bi, "_compact_by_rewrite", return_value=new_table) as rewrite:
-            result = w._finalize_inner(verbose=False)
-        rewrite.assert_called_once_with(w.db, "docs")
-        self.assertIs(w.table, new_table)
-        new_table.create_fts_index.assert_not_called()  # wave 1rsh9 (1sauc): Lance FTS retired
-        self.assertEqual(result, w.written)
-
-    def test_finalize_reclaim_failure_falls_through_and_does_not_raise(self):
-        # A rewrite failure in finalize must not raise; it falls through to a best-effort normal
-        # index build on the un-reclaimed table.
-        w = self.bi._StreamingLayerWriter.__new__(self.bi._StreamingLayerWriter)
-        w.table = MagicMock()
-        w.db = MagicMock()
-        w.table_name = "docs"
-        w.written = self.bi.LANCEDB_INDEX_THRESHOLD + 1
-        with patch.object(self.bi, "_optimize_lance_table", return_value=False), \
-             patch.object(self.bi, "_compact_by_rewrite", side_effect=RuntimeError("rewrite boom")):
-            result = w._finalize_inner(verbose=False)  # must not raise
-        w.table.create_fts_index.assert_not_called()  # wave 1rsh9 (1sauc): Lance FTS retired
-        self.assertEqual(result, w.written)
-
-    def test_optimize_index_tables_fails_fast_under_lock_contention(self):
-        # No-DEADLOCK invariant: optimize_index_tables acquires the SAME non-blocking build lock
-        # (`fcntl.LOCK_EX | LOCK_NB` / `msvcrt.LK_NBLCK`) as the main build, so a lock held by another
-        # process makes it raise IndexBuildAlreadyRunning *promptly* — it can never block/wait, so it
-        # can never deadlock. The setup/upgrade auto-run wraps this in try/except, so its worst case is a
-        # skipped optimize, never a hang.
-        with tempfile.TemporaryDirectory() as td:
-            index_dir = Path(td)
-            (index_dir / "docs.lance").mkdir()
-            (index_dir / "docs.lance" / "data.bin").write_bytes(b"x" * 32)
-            holder = textwrap.dedent(
-                f"""
-                import importlib.util, pathlib, sys, time
-                spec = importlib.util.spec_from_file_location("indexer_holder", {str(INDEXER_PATH)!r})
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                with mod._index_build_lock(pathlib.Path(sys.argv[1])):
-                    print("locked", flush=True)
-                    time.sleep(3.0)
-                """
-            )
-            proc = subprocess.Popen(
-                [sys.executable, "-B", "-c", holder, str(index_dir)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            )
-            try:
-                self.assertEqual(proc.stdout.readline().strip(), "locked")
-                start = time.monotonic()
-                with self.assertRaises(self.bi.IndexBuildAlreadyRunning):
-                    self.bi.optimize_index_tables(index_dir, ("docs",))
-                elapsed = time.monotonic() - start
-                # Well under the holder's 3s sleep -> it failed fast, it did NOT wait on the lock.
-                self.assertLess(elapsed, 2.0, "optimize_index_tables blocked on the lock (would deadlock)")
-            finally:
-                proc.terminate()
-                proc.communicate(timeout=5)
 
 
 class ReindexPendingMarkerTests(unittest.TestCase):
@@ -5234,7 +4813,7 @@ class LegacyConvergenceTests(_EpochBuildCase):
         (self.index_dir / "meta.json").write_text("{}", encoding="utf-8")
         store = self.bi._get_index_state_store()
         (self.root / "src" / "foo.py").write_text("def f(): return 2\n", encoding="utf-8")
-        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("disk full")):
+        with patch.object(store, "write_build_bookkeeping_locked", side_effect=RuntimeError("disk full")):
             result = self._run_build(full=False)
         self.assertTrue(result.get("failed"))
         self.assertTrue((self.index_dir / "meta.json").exists(),
@@ -5348,7 +4927,11 @@ class DryRunIdleMaintenanceTests(_EpochBuildCase):
         import shutil
         self._seed()
         self.iss.begin_build_epoch(self.index_dir, "interrupted")
-        shutil.rmtree(self.index_dir / "code.lance")
+        conn=self.iss.open_read_only(self.index_dir)
+        conn.close()
+        store=self.iss.IndexStateStore(self.index_dir)
+        store._conn.execute("DELETE FROM vectors_code")
+        store.close()
         before = self.iss.layer_hashes(self.index_dir, "code")
         self.assertTrue(before)
         self._preview("dirty_epoch", content="graph")
@@ -5608,14 +5191,142 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
     def test_bookkeeping_failure_leaves_epoch_incomplete(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         store = self.bi._get_index_state_store()
-        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("locked")):
+        with patch.object(store, "write_build_bookkeeping_locked", side_effect=RuntimeError("locked")):
             result = self._run_build(full=True)
         self.assertTrue(result.get("failed"))
-        self.assertIn("canonical build-state write failed", result["failure"])
+        self.assertIn("Atomic semantic publication failed", result["failure"])
         state = self.iss.read_build_state(self.index_dir)
         self.assertEqual(state["status"], "building",
                          "a swallowed mandatory-resident failure must not publish")
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_prepared_source_change_rolls_back_complete_semantic_delta(self):
+        import sqlite_vector_store as vectors
+        _make_repo(self.root, {"src/foo.py": "def f(): return 1\n"})
+        self._run_build(full=True)
+        before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
+        old_meta = self.iss.export_meta_snapshot(self.index_dir)
+        source = self.root / "src/foo.py"
+        source.write_text("def f(): return 2\n")
+        original_apply = vectors.PreparedUpdates.apply
+        def change_during_publication(prepared, store, **kwargs):
+            original_apply(prepared, store, **kwargs)
+            source.write_text("def f(): return 3\n")
+        with patch.object(vectors.PreparedUpdates, "apply", change_during_publication):
+            result = self._run_build(full=False)
+        self.assertTrue(result.get("failed"))
+        self.assertIn("Source changed during embedding", result["failure"])
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
+        self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertFalse(self._run_build(full=False).get("failed"))
+        self.assertTrue(any("return 3" in row["text"] for row in vectors.payload_rows(
+            self.index_dir, "code", predicate="path = 'src/foo.py'")))
+
+    def test_prepared_model_change_refuses_publication(self):
+        import sqlite_vector_store as vectors
+        _make_repo(self.root, {"src/foo.py": "def f(): return 1\n"})
+        self._run_build(full=True)
+        before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
+        (self.root / "src/foo.py").write_text("def f(): return 2\n")
+        original_apply = vectors.PreparedUpdates.apply
+        original_model = self.bi.CODE_MODEL
+        def change_model(prepared, store, **kwargs):
+            original_apply(prepared, store, **kwargs)
+            self.bi.CODE_MODEL = "changed-during-publication"
+        try:
+            with patch.object(vectors.PreparedUpdates, "apply", change_model):
+                result = self._run_build(full=False)
+        finally:
+            self.bi.CODE_MODEL = original_model
+        self.assertTrue(result.get("failed"))
+        self.assertIn("Model/chunker/configuration changed", result["failure"])
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_removed_source_reappearing_before_publication_refuses_apply(self):
+        import sqlite_vector_store as vectors
+        _make_repo(self.root, {"src/victim.py": "def victim(): return 1\n",
+                               "src/other.py": "def other(): return 1\n"})
+        self._run_build(full=True)
+        before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
+        old_meta = self.iss.export_meta_snapshot(self.index_dir)
+        victim = self.root / "src/victim.py"
+        victim.unlink()
+        (self.root / "src/other.py").write_text("def other(): return 2\n")
+        original_reap = self.bi._reap_stranded_vector_rows
+        def reappear_after_planning(*args, **kwargs):
+            result = original_reap(*args, **kwargs)
+            victim.write_text("def victim(): return 3\n")
+            return result
+        with patch.object(self.bi, "_reap_stranded_vector_rows", reappear_after_planning), \
+                patch.object(vectors.PreparedUpdates, "apply", side_effect=AssertionError("must not apply")) as apply:
+            result = self._run_build(full=False)
+        self.assertTrue(result.get("failed"))
+        self.assertIn("Removal source changed", result["failure"])
+        apply.assert_not_called()
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
+        self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+
+    def test_removed_source_reappearing_after_apply_rolls_back_incremental_and_full(self):
+        import sqlite_vector_store as vectors
+        for full in (False, True):
+            with self.subTest(full=full):
+                _make_repo(self.root, {"src/victim.py": "def victim(): return 1\n",
+                                       "src/other.py": "def other(): return 1\n"})
+                self._run_build(full=True)
+                before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
+                old_meta = self.iss.export_meta_snapshot(self.index_dir)
+                victim = self.root / "src/victim.py"
+                victim.unlink()
+                (self.root / "src/other.py").write_text("def other(): return 2\n")
+                original_apply = vectors.PreparedUpdates.apply
+                def reappear_after_apply(prepared, store, **kwargs):
+                    original_apply(prepared, store, **kwargs)
+                    victim.write_text("def victim(): return 3\n")
+                with patch.object(vectors.PreparedUpdates, "apply", reappear_after_apply):
+                    result = self._run_build(full=full)
+                self.assertTrue(result.get("failed"))
+                self.assertIn("Removal source changed", result["failure"])
+                self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
+                self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
+                self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+                self.assertFalse(self._run_build(full=False).get("failed"))
+                self.assertTrue(any("return 3" in row["text"] for row in vectors.payload_rows(
+                    self.index_dir, "code", predicate="path = 'src/victim.py'")))
+
+    def test_removal_guard_preserves_explicit_scope_and_excluded_code(self):
+        _make_repo(self.root, {"tests/test_victim.py": "def test_victim(): pass\n",
+                               "src/omitted.py": "def omitted(): pass\n"})
+        kwargs = dict(respect_ignore=True, include_prefixes=(), project_include_prefixes=(),
+                      include_tests=False, include_generated=False)
+        self.bi._validate_prepared_removals(
+            self.root, self.index_dir, {"src/omitted.py"}, {"code": {"tests/test_victim.py"}},
+            requested_files=(Path("tests/test_victim.py"),), **kwargs)
+        with self.assertRaisesRegex(RuntimeError, "Removal source changed"):
+            self.bi._validate_prepared_removals(
+                self.root, self.index_dir, {"src/omitted.py"}, {}, requested_files=None, **kwargs)
+
+    def test_missing_canonical_layer_is_rebuilt_despite_surviving_other_layer(self):
+        import sqlite_vector_store as vectors
+        _make_repo(self.root, {"src/foo.py": 'def f():\n    """Shared docs marker."""\n    return 1\n'})
+        self._run_build(full=True)
+        before = vectors.payload_rows(self.index_dir, "docs", predicate="path = 'src/foo.py'", include_vector=True)
+        self.assertTrue(before)
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            # Simulate a lost canonical layer with retained old bookkeeping.
+            # The surviving code rows must not hide its docs-layer hole.
+            with store._conn:
+                store._conn.execute("DELETE FROM chunks_docs WHERE path=?", ("src/foo.py",))
+        finally:
+            store.close()
+        result = self._run_build(full=False)
+        self.assertFalse(result.get("failed"))
+        after = vectors.payload_rows(self.index_dir, "docs", predicate="path = 'src/foo.py'", include_vector=True)
+        self.assertEqual(after, before)
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
 
     def test_mandatory_reconcile_failure_blocks_publication(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
@@ -5638,7 +5349,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         build converges — no manual repair step, no false completion left over."""
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         store = self.bi._get_index_state_store()
-        with patch.object(store, "write_build_bookkeeping", side_effect=RuntimeError("locked")):
+        with patch.object(store, "write_build_bookkeeping_locked", side_effect=RuntimeError("locked")):
             self._run_build(full=True)
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
         result = self._run_build(full=False)
@@ -5676,10 +5387,11 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
             "docs/guide.md": "## Intro\n\nHello.\n",
         })
         self._run_build(full=True)
-        for suffix in ("", "-wal", "-shm"):
-            p = self.index_dir / f"index-state.sqlite{suffix}"
-            if p.exists():
-                p.unlink()
+        store=self.iss.IndexStateStore(self.index_dir)
+        with store._conn:
+            store._conn.execute("DELETE FROM build_layer_meta")
+            store._conn.execute("DELETE FROM layer_path_state")
+        store.close()
         # Scoped docs request over the reset store.
         docs_mock = _make_embedder_mock(dim=4)
         code_mock = _make_embedder_mock(dim=4)
@@ -5694,48 +5406,27 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
                         "escalation must restore the code layer's provenance")
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
 
-    def test_schema_bumped_store_converges_before_decisions(self):
-        """Review reproduction (reset-after-front-gate): a store on an OLD
-        schema version still exposes its pre-reset provenance to read-only
-        loads, so the lazily-triggered reset used to fire AFTER the front
-        gate and staleness reads — a scoped build idled to a complete epoch
-        over freshly-erased state. The build must settle store currency
-        FIRST, so the reset store presents empty provenance (escalation) and
-        empty layer state (all stale)."""
-        _make_repo(self.root, {
-            "src/foo.py": "def f(): return 1\n",
-            "docs/guide.md": "## Intro\n\nHello.\n",
-        })
+    def test_unknown_schema_is_preserved_before_any_build_decision(self):
+        _make_repo(self.root, {'src/foo.py':'def f(): return 1\n','docs/guide.md':'## Intro\nHello.\n'})
         self._run_build(full=True)
-        # Force the review's exact pre-state: old schema version + no build_state.
-        import sqlite3
-        conn = sqlite3.connect(str(self.index_dir / "index-state.sqlite"))
-        with conn:
-            conn.execute("UPDATE meta SET value = '5' WHERE key = 'store_schema_version'")
-            conn.execute("DROP TABLE build_state")
-        conn.close()
-        docs_mock = _make_embedder_mock(dim=4)
-        code_mock = _make_embedder_mock(dim=4)
-        with redirect_stderr(io.StringIO()) as err, \
-             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
-            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        self.assertFalse(result.get("failed"))
-        self.assertFalse(result.get("up_to_date"),
-                         "a version-reset store must never idle to up_to_date")
-        self.assertIn("escalating content='docs' to all-layer convergence", err.getvalue())
-        state = self.iss.read_build_state(self.index_dir)
-        self.assertEqual(state["status"], "complete")
-        self.assertNotIn("idle-maintenance", state["scope"])
-        snapshot = _read_meta_store(self.index_dir)
-        self.assertTrue((snapshot.get("model_versions") or {}).get("docs"))
-        self.assertTrue((snapshot.get("model_versions") or {}).get("code"),
-                        "all-layer convergence must restore both provenances")
+        store=self.iss.IndexStateStore(self.index_dir)
+        before=store._conn.execute('SELECT COUNT(*) FROM vectors_code').fetchone()[0]
+        with store._conn:
+            store._conn.execute("UPDATE meta SET value='999' WHERE key='store_schema_version'")
+        with patch.object(self.bi,'_get_embedder') as embedder:
+            result=self.bi.build_index(self.root,full=True,content='all')
+        self.assertTrue(result.get('failed'))
+        self.assertIn('storage_schema_unsupported: 999',result['failure'])
+        embedder.assert_not_called()
+        self.assertEqual(store._conn.execute('SELECT COUNT(*) FROM vectors_code').fetchone()[0],before)
+        self.assertEqual(store._conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(),('999',))
+        store.close()
 
     def test_completion_rear_guard_is_wired_before_finalize(self):
         """Source pin for the rear guard: the unprovenanced-table verification
         sits between the bookkeeping write and the finalize CAS."""
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        bookkeeping = src.index("write_build_bookkeeping(index_dir, new_meta)")
+        bookkeeping = src.index("write_build_bookkeeping_locked(conn,new_meta)")
         guard = src.index("_unprovenanced_at_publish", bookkeeping)
         finalize = src.index("finalize_build_epoch(index_dir, _build_attempt)", guard)
         self.assertGreater(finalize, guard)
@@ -5757,7 +5448,8 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
     def test_optimize_refuses_without_completed_epoch(self):
         with tempfile.TemporaryDirectory() as td:
             index_dir = Path(td)
-            (index_dir / "docs.lance").mkdir()
+            store=self.iss.IndexStateStore(index_dir)
+            store.close()
             results = self.bi.optimize_index_tables(index_dir, ("docs",))
             self.assertIn("no completed build epoch", results.get("error", ""))
             self.assertIsNone(self.iss.build_epoch_token(index_dir))
@@ -5780,7 +5472,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
             def open_table(self, name):
                 raise RuntimeError("unreadable")
 
-        with patch.object(self.bi, "_get_lance_db", return_value=_BrokenDB()):
+        with patch.object(self.bi._get_index_state_store(), "optimize_state_stores", return_value={"index-state":{"error":"unreadable","integrity":"structural-fail"}}):
             results = self.bi.optimize_index_tables(self.index_dir)
         self.assertIn("finalize", results)
         self.assertIn("NOT finalized", results["finalize"]["error"])
@@ -5818,7 +5510,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
 
     def test_recovery_refuses_when_claimed_table_is_missing(self):
         """Independent-review F1: zero-change recovery must not republish a
-        canonical state that claims a layer whose Lance table is gone — it
+        canonical state that claims a layer whose vectors are gone — it
         resets that layer's state and fails visibly; the next ordinary build
         reconstructs the table and only then restores readiness."""
         _make_repo(self.root, {
@@ -5832,11 +5524,13 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         # the recovery guard stands between the loss and republication.
         self.iss.begin_build_epoch(self.index_dir, "code:crashed")
         import shutil
-        shutil.rmtree(self.index_dir / "docs.lance")
+        store=self.iss.IndexStateStore(self.index_dir)
+        store._conn.execute("DELETE FROM vectors_docs")
+        store.close()
         with redirect_stderr(io.StringIO()):
             result = self.bi.build_index(self.root, full=False, content="code", verbose=False)
         self.assertTrue(result.get("failed"))
-        self.assertIn("Lance table is missing", result["failure"])
+        self.assertIn("vector layer is missing", result["failure"])
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir),
                           "recovery must not publish over a missing claimed table")
         # The reset layer state makes the next ordinary build reconstruct.
@@ -5846,7 +5540,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
              patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
             recover = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertFalse(recover.get("failed"))
-        self.assertTrue((self.index_dir / "docs.lance").is_dir())
+        self.assertTrue(self.bi.vector_store.layer_available(self.index_dir,"docs"))
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
 
     def test_cli_exits_nonzero_on_structured_failure(self):
@@ -7233,7 +6927,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
             return real_stat(path)
 
         with patch.object(self.bi, "_orphan_path_stat", side_effect=spy):
-            plan = self.bi._reap_stranded_lance_rows(
+            plan = self.bi._reap_stranded_vector_rows(
                 self.index_dir,
                 {"src/app.py", "docs/guide.md"},
                 root=self.root,
@@ -7281,7 +6975,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         eligible = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
         eligible -= {"vault/a.py", "vault/b.py"}
         with redirect_stderr(io.StringIO()):
-            plan = self.bi._reap_stranded_lance_rows(
+            plan = self.bi._reap_stranded_vector_rows(
                 self.index_dir, eligible, root=self.root, tables=("docs", "code"), plan_only=True,
                 eligible_by_table={"docs": eligible, "code": eligible},
             )
@@ -7403,7 +7097,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
             (root / p).unlink()
         eligible = docs_paths - set(gone_paths)
         with redirect_stderr(io.StringIO()):
-            plan = self.bi._reap_stranded_lance_rows(
+            plan = self.bi._reap_stranded_vector_rows(
                 index_dir, eligible, root=root, tables=("docs",), plan_only=True,
                 eligible_by_table={"docs": eligible},
             )
@@ -7450,7 +7144,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         self._notes_repo(10)
         eligible = set(self._rows("docs")) - {f"docs/note_{i}.md" for i in range(9)}
         with redirect_stderr(io.StringIO()):
-            plan = self.bi._reap_stranded_lance_rows(
+            plan = self.bi._reap_stranded_vector_rows(
                 self.index_dir, eligible, root=self.root, tables=("docs",), plan_only=True,
                 eligible_by_table={"docs": eligible},
             )
@@ -7553,28 +7247,25 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         )
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
 
-    def test_full_rebuild_during_outage_drops_the_subtree_in_parity(self):
-        # ARCH-RV1-2 / CODE-RV1-1: the recorded boundary. A full rebuild passes
-        # no walk report to the graph merge, so the graph drops the subtree
-        # exactly as the Lance tables do (no store keeps rows the others lost),
-        # and the first readable build re-extracts and re-embeds it.
+    def test_full_rebuild_during_outage_refuses_destructive_publication(self):
+        # Unified publication refuses implicit full-rebuild removals whose
+        # source is unreadable. Graph preparation may already have run, but
+        # the global epoch must stay unavailable until a coherent retry.
         self._seed()
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        chunks_before = set(self._rows("code")) | set(self._rows("docs"))
         with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
             result = self._run_build(full=True)
-        self.assertNotIn("error", result, result)
-        lance = set(self._rows("code")) | set(self._rows("docs"))
-        self.assertFalse(any(p.startswith("vault/") for p in lance), lance)
-        graph_after = self._sqlite_paths(self._graph_db(), "files")
-        self.assertFalse(
-            any(p.startswith("vault/") for p in graph_after),
-            "graph parity with Lance on a full rebuild during the outage",
-        )
-        recovery = self._run_build(full=False)
-        self.assertEqual(recovery.get("files_indexed"), len(self._VAULT), recovery)
+        self.assertTrue(result.get("failed"), result)
+        self.assertIn("unreadable", result["failure"])
+        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertEqual(set(self._rows("code")) | set(self._rows("docs")), chunks_before)
+        recovery = self._run_build(full=True)
+        self.assertFalse(recovery.get("failed"), recovery)
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
-        lance_after = set(self._rows("code")) | set(self._rows("docs"))
-        self.assertTrue(set(self._VAULT) <= lance_after, lance_after)
+        chunks_after = set(self._rows("code")) | set(self._rows("docs"))
+        self.assertTrue(set(self._VAULT) <= chunks_after, chunks_after)
 
     def _edges_from_guide_into_vault(self) -> set[tuple[str, str]]:
         import gzip as _gzip

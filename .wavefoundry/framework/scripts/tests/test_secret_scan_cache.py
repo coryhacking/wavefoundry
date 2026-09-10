@@ -398,8 +398,9 @@ class SelfHealTests(_CacheCase):
         store = self.iss.IndexStateStore(self.index_dir)
         store.set_meta({"store_schema_version": "999"})
         store.close()
-        # The next write-side open resets the store (version gate); the filter
-        # then sees no rows → full scan.
+        # A mismatched canonical store is preserved. Cache readers refuse its
+        # schema and scan every candidate; failed writes cannot erase it.
+        preserved = self.iss.state_store_path(self.index_dir).read_bytes()
         stderr = io.StringIO()
         with redirect_stderr(stderr):
             self.iss.secret_scan_record(
@@ -412,6 +413,7 @@ class SelfHealTests(_CacheCase):
         )
         self.assertEqual(to_scan, ["a.py"])
         self.assertEqual(skipped, 0)
+        self.assertEqual(self.iss.state_store_path(self.index_dir).read_bytes(), preserved)
 
 
 class RuleCatalogTests(_CacheCase):

@@ -36,7 +36,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _store_read_meta,
     _seed_store_state,
     _write_index_layer,
-    _write_lance_index,
+    _write_sqlite_index,
 )
 
 
@@ -3832,7 +3832,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
     def test_snapshot_ready_from_metadata_only(self):
         """AC-1: completed epoch + table dirs + matching store meta → ready,
         with freshness explicitly unknown."""
-        (self.index_dir / "docs.lance").mkdir()
+        _seed_store_state(self.index_dir, {"content": ["docs"], "file_hashes": {}})
         current_cv = self.srv._read_chunker_version()
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
              patch.object(self.srv, "_audit_build_summary", return_value={
@@ -13638,7 +13638,7 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
             reg = src.index(f"    def {tool}(")
             end = src.index("    @mcp.tool", reg)
             body = src[reg:end]
-            self.assertEqual(body.count("_epoch_state(get_handler().root)"), 2,
+            self.assertEqual(body.count("_epoch_state(get_handler().root, propagate_runtime_errors=True)"), 2,
                              f"{tool}: exactly one capture + one post-compare")
             self.assertIn('_tok[1] != "complete"', body,
                           f"{tool}: completeness gate must check the captured token")
@@ -13711,7 +13711,8 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = _make_repo(Path(td))
             index_dir = root / ".wavefoundry" / "index"
-            (index_dir / "docs.lance").mkdir(parents=True)
+            store = srv._load_script("index_state_store").IndexStateStore(index_dir)
+            store.close()
             resp = srv._index_optimize_response(root)
             self.assertEqual(resp["status"], "error")
             codes = [d.get("code") for d in resp.get("diagnostics", [])]
@@ -14392,8 +14393,8 @@ class SeedGetDiskFallbackTests(unittest.TestCase):
         idx = self.srv.WaveIndex(self.root)
         idx._loaded = True
         idx._loaded_meta_signature = {"project": idx._index_meta_signature(idx.index_dir)}
-        idx._proj_docs_lance_table = None
-        idx._fw_docs_lance_table = None
+        idx._proj_docs_vector_layer = None
+        idx._fw_docs_vector_layer = None
         return idx
 
     def test_disk_fallback_finds_seed_by_number(self):
@@ -14446,8 +14447,8 @@ class SeedGetCoverageTest(unittest.TestCase):
 
         idx = self.srv.WaveIndex(self.repo_root)
         idx._loaded = True
-        idx._proj_docs_lance_table = None
-        idx._fw_docs_lance_table = None
+        idx._proj_docs_vector_layer = None
+        idx._fw_docs_vector_layer = None
 
         misses: list[str] = []
         for p in unique:

@@ -61,18 +61,18 @@ class VersionAwareDependencyTests(unittest.TestCase):
 
     def test_violated_exact_pin_flagged(self):
         # AC-1: an installed dep pinned to a version it does not match is flagged, with the full spec.
-        result = self.mod._missing_in_venv(self.interp, {"lancedb==999.0.0": "lancedb"})
-        self.assertIn("lancedb==999.0.0", result)
+        result = self.mod._missing_in_venv(self.interp, {"apsw==999.0.0": "apsw"})
+        self.assertIn("apsw==999.0.0", result)
 
     def test_satisfied_exact_pin_not_flagged(self):
         # AC-1/AC-2: an installed dep pinned to exactly its installed version is NOT flagged.
-        spec = f"lancedb=={self._installed('lancedb')}"
-        self.assertEqual(self.mod._missing_in_venv(self.interp, {spec: "lancedb"}), [])
+        spec = f"apsw=={self._installed('apsw')}"
+        self.assertEqual(self.mod._missing_in_venv(self.interp, {spec: "apsw"}), [])
 
     def test_satisfied_range_pin_not_flagged(self):
         # AC-2: a range pin that the installed version satisfies is NOT flagged (no churn).
         self.assertEqual(
-            self.mod._missing_in_venv(self.interp, {"lancedb>=0.1,<9999": "lancedb"}), []
+            self.mod._missing_in_venv(self.interp, {"apsw>=0.1,<9999": "apsw"}), []
         )
 
     def test_unpinned_present_not_flagged(self):
@@ -91,11 +91,11 @@ class VersionAwareDependencyTests(unittest.TestCase):
         # package is NOT flagged and the probe never raises. This is the same fallback path taken when
         # `packaging` itself is unimportable in the venv.
         self.assertEqual(
-            self.mod._missing_in_venv(self.interp, {"lancedb ??? not a spec": "lancedb"}), []
+            self.mod._missing_in_venv(self.interp, {"apsw ??? not a spec": "apsw"}), []
         )
 
     def test_real_required_imports_no_false_positives(self):
-        # AC-5: with the REAL REQUIRED_IMPORTS and versions that satisfy every pin (incl. lancedb==0.33.0),
+        # AC-5: with the REAL REQUIRED_IMPORTS and versions that satisfy every pin (incl. apsw==3.53.4.0),
         # the probe returns no false positives — guards against reinstall churn on the real dep set.
         self.assertEqual(self.mod._missing_in_venv(self.interp), [])
 
@@ -103,18 +103,18 @@ class VersionAwareDependencyTests(unittest.TestCase):
         # AC-3: if the probe subprocess fails, degrade to "reinstall everything" rather than raise.
         with patch.object(self.mod.subprocess_util, "isolated_run",
                           return_value=MagicMock(returncode=1, stdout="")):
-            result = self.mod._missing_in_venv(FAKE_VENV_PYTHON, {"lancedb==0.33.0": "lancedb"})
-        self.assertEqual(result, ["lancedb==0.33.0"])
+            result = self.mod._missing_in_venv(FAKE_VENV_PYTHON, {"apsw==3.53.4.0": "apsw"})
+        self.assertEqual(result, ["apsw==3.53.4.0"])
 
     def test_install_deps_carries_pinned_spec(self):
-        # AC-4: the flagged spec (e.g. lancedb==0.33.0) reaches the installer command verbatim, so an
-        # existing older lancedb resolves to the pinned version.
+        # AC-4: the flagged spec (e.g. apsw==3.53.4.0) reaches the installer command verbatim, so an
+        # existing older apsw resolves to the pinned version.
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             with redirect_stdout(io.StringIO()):
-                self.mod._install_deps(["lancedb==0.33.0"], FAKE_VENV_PYTHON)
+                self.mod._install_deps(["apsw==3.53.4.0"], FAKE_VENV_PYTHON)
         cmds = [c[0][0] for c in mock_run.call_args_list]
-        self.assertTrue(any("lancedb==0.33.0" in cmd for cmd in cmds),
+        self.assertTrue(any("apsw==3.53.4.0" in cmd for cmd in cmds),
                         f"pinned spec not found in any install command: {cmds}")
 
     def test_main_calls_ensure_deps_chokepoint(self):
@@ -503,11 +503,16 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("tree-sitter-sql", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["tree-sitter-sql"], "tree_sitter_sql")
 
-    def test_required_imports_include_lancedb(self):
-        # Wave 1p95j: lancedb is pinned to a validated version via LANCEDB_REQUIREMENT.
-        self.assertEqual(self.mod.LANCEDB_REQUIREMENT, "lancedb==0.33.0")
-        self.assertIn(self.mod.LANCEDB_REQUIREMENT, self.mod.REQUIRED_IMPORTS)
-        self.assertEqual(self.mod.REQUIRED_IMPORTS[self.mod.LANCEDB_REQUIREMENT], "lancedb")
+    def test_required_imports_pin_native_sqlite_without_lance(self):
+        self.assertEqual(self.mod.REQUIRED_IMPORTS['apsw==3.53.4.0'],'apsw')
+        self.assertEqual(self.mod.REQUIRED_IMPORTS['sqlite-vec==0.1.9'],'sqlite_vec')
+        self.assertNotIn('lancedb',self.mod.REQUIRED_IMPORTS.values())
+        self.assertNotIn('pyarrow',self.mod.REQUIRED_IMPORTS.values())
+        with PYPROJECT_PATH.open('rb') as handle:
+            deps=tomllib.load(handle)['project']['dependencies']
+        self.assertIn('apsw==3.53.4.0',deps)
+        self.assertIn('sqlite-vec==0.1.9',deps)
+        self.assertNotIn('lancedb',deps)
 
     def test_required_imports_include_httpx_socks(self):
         self.assertIn("httpx[socks]", self.mod.REQUIRED_IMPORTS)
@@ -910,6 +915,29 @@ class SetupIndexTests(unittest.TestCase):
         self.assertNotIn("bin/mcp-server", stdout.getvalue())
         self.assertNotIn("python3 ", stdout.getvalue())
 
+    def test_storage_prewarm_never_opens_or_publishes_legacy_index(self):
+        import sqlite_runtime
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as stack:
+            root = Path(temp)
+            index = root / '.wavefoundry/index'
+            index.mkdir(parents=True)
+            sentinel = index / 'index-state.sqlite'
+            sentinel.write_bytes(b'legacy source must remain unopened')
+            stack.enter_context(patch.object(self.mod, '_reexec_with_venv_if_needed'))
+            stack.enter_context(patch.object(self.mod, 'ensure_deps'))
+            warm = stack.enter_context(patch.object(self.mod, 'prewarm_models'))
+            build = stack.enter_context(patch.object(self.mod, 'build_index'))
+            native = stack.enter_context(patch.object(sqlite_runtime, 'preflight'))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            stack.enter_context(redirect_stderr(io.StringIO()))
+            self.assertEqual(self.mod.main(['--root', str(root), '--prewarm-only']), 0)
+            warm.assert_called_once_with(include_code=True)
+            warm.side_effect = self.mod.ModelPrewarmError('missing required model')
+            self.assertEqual(self.mod.main(['--root', str(root), '--prewarm-only']), 1)
+            build.assert_not_called()
+            native.assert_not_called()
+            self.assertEqual(sentinel.read_bytes(), b'legacy source must remain unopened')
+
     def test_workflow_project_include_prefixes_defaults_empty(self):
         root = Path("/tmp/wavefoundry-missing-config")
         with patch.object(Path, "exists", return_value=False):
@@ -957,30 +985,21 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(result["code"], (".wavefoundry/framework/scripts",))
 
 
-class IndexerToolVenvTests(unittest.TestCase):
-    def setUp(self):
-        self.mod = load_indexer()
-
-    def test_auto_install_lancedb_uses_tool_venv_python(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            venv_root = Path(tmp)
-            venv_python = venv_root / "bin" / "python"
-            venv_python.parent.mkdir(parents=True, exist_ok=True)
-            venv_python.write_text("", encoding="utf-8")
-            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_root)}):
-                with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run_mock:
-                    with redirect_stdout(io.StringIO()):
-                        self.mod._auto_install_lancedb()
-        cmd = run_mock.call_args.args[0]
-        self.assertEqual(cmd[0], str(venv_python))
-        self.assertNotEqual(cmd[0], sys.executable)
-
-    def test_auto_install_lancedb_requires_bootstrapped_venv(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": tmp}):
-                with self.assertRaises(ImportError) as raised:
-                    self.mod._auto_install_lancedb()
-        self.assertIn("tool venv is not bootstrapped", str(raised.exception))
+class MigrationReaderDependencyTests(unittest.TestCase):
+    def setUp(self): self.mod=load_setup_index()
+    def test_reader_is_installed_only_by_explicit_migration_path(self):
+        root=Path('/test/root')
+        with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
+             patch.object(self.mod,'_missing_in_venv',side_effect=[['lancedb==0.33.0'],[]]), \
+             patch.object(self.mod,'_install_deps') as install:
+            self.mod.ensure_migration_deps(root)
+        install.assert_called_once_with(['lancedb==0.33.0'],FAKE_VENV_PYTHON,root)
+        self.assertNotIn('lancedb',self.mod.REQUIRED_IMPORTS.values())
+    def test_reader_install_failure_is_not_success(self):
+        with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
+             patch.object(self.mod,'_missing_in_venv',return_value=['lancedb==0.33.0']), \
+             patch.object(self.mod,'_install_deps'):
+            with self.assertRaises(SystemExit): self.mod.ensure_migration_deps(Path('/test/root'))
 
 
 class SetupLayerSchedulingTests(unittest.TestCase):
@@ -994,6 +1013,41 @@ class SetupLayerSchedulingTests(unittest.TestCase):
         stack.enter_context(patch.object(self.mod, "report_embedding_provider_decision"))
         stack.enter_context(patch.object(self.mod, "_prewarm_gpu_accel"))
         return stack
+
+    def test_semantic_filesystem_preflight_stops_before_models_and_index(self):
+        import sqlite_runtime
+        for error in (sqlite_runtime.RuntimeUnavailable('missing native runtime'),
+                      sqlite_runtime.StorageRecoveryRequired('WAL refused; local filesystem required')):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                directory = root / '.wavefoundry' / 'index'
+                directory.mkdir(parents=True)
+                original = directory / 'index-state.sqlite'
+                original.write_bytes(b'untouched legacy source')
+                with self._runtime_patches(), patch.object(sqlite_runtime, 'preflight', side_effect=error) as preflight, \
+                     patch.object(self.mod, 'prewarm_models') as warm, \
+                     patch.object(self.mod, 'build_index') as build, redirect_stdout(io.StringIO()), \
+                     redirect_stderr(io.StringIO()) as stderr:
+                    result = self.mod.main(['--root', str(root)])
+                self.assertEqual(result, 2)
+                preflight.assert_called_once_with(directory.resolve())
+                warm.assert_not_called()
+                build.assert_not_called()
+                self.assertIn(str(error), stderr.getvalue())
+                self.assertEqual(original.read_bytes(), b'untouched legacy source')
+
+    def test_pinned_wheel_install_failure_explains_unavailable_platforms(self):
+        import sqlite_runtime
+        with patch.object(self.mod, '_uv_bin', return_value=Path('/fake/uv')), \
+             patch.object(self.mod.subprocess_util, 'isolated_run', return_value=MagicMock(returncode=1)), \
+             patch.object(self.mod, '_uv_install_env', return_value=None), \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+            with self.assertRaises(SystemExit) as exit_result:
+                self.mod._install_deps([self.mod.SQLITE_VEC_REQUIREMENT], Path(sys.executable))
+        self.assertEqual(exit_result.exception.code, 2)
+        self.assertIn(sqlite_runtime.BINARY_SUPPORT_GUIDANCE, stderr.getvalue())
+        self.assertIn('Windows ARM64', stderr.getvalue())
+        self.assertIn('no sdist', stderr.getvalue())
 
     def test_default_setup_builds_docs_and_code_synchronously(self):
         """Default setup must treat docs and code the same: one foreground docs+code build."""

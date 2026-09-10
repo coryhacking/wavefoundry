@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-09-09
 
 ## Runtime Topology
 
@@ -79,7 +79,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 
 ```
 setup_wavefoundry.py --root .
-  ├── dependency check → fastembed/fastembed-gpu, numpy, mcp[cli], tree-sitter + grammar packages in current Python
+  ├── dependency check → fastembed/fastembed-gpu, apsw, sqlite-vec, numpy, mcp[cli], tree-sitter + grammar packages in current Python
   ├── embedding provider policy → CUDA, verified CoreML, named secondary ONNX providers, or CPU
   ├── prewarm docs/code embedding models in local cache
   ├── verify cached models in offline-only mode
@@ -89,16 +89,12 @@ setup_wavefoundry.py --root .
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
   ├── embedder         →  Snowflake Arctic Embed S (FP16 GPU / INT8 CPU, batch 32)
   └── .wavefoundry/index/
-        ├── docs.lance/ / code.lance/  (LanceDB chunk + vector tables; vector index only —
-        │              the Lance/Tantivy FTS was retired in wave 1rsh9, legacy indices
-        │              dropped by the reclaim path at upgrade)
-        ├── index-state.sqlite  (waves 1rsh9/1sed7 — the SOLE semantic-index state
-        │              authority: per-path build bookkeeping + chunk registry, the
-        │              build_state readiness epoch, freshness/attribution tables, FTS5
-        │              lexical tables, per-file secret-scan cache; WAL, schema-versioned,
-        │              drop-and-rebuild recovery; maintained by index_optimize.
-        │              There is NO meta.json — a legacy file is removed after the
-        │              first successful post-upgrade build)
+        ├── index-state.sqlite  (schema 7: canonical docs/code chunks, FP32 vectors,
+        │              external-content FTS5, registry, per-path bookkeeping,
+        │              publication epoch, freshness and secret-scan cache;
+        │              one qualified APSW/SQLite binding, WAL and atomic semantic writes)
+        ├── sqlite-migration.json  (when upgrading: durable restart/recovery and
+        │              verified cleanup receipt; original Lance stores remain until safe)
         └── graph/  (graph artifacts + project-graph-state.sqlite merge store)
 
 build_pack.py

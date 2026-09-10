@@ -1,0 +1,39 @@
+{
+  "4": {
+    "source_commit": "a62d612a3b5f00581ce0265534f765702d8186dc",
+    "source_path": ".wavefoundry/framework/scripts/index_state_store.py",
+    "source_symbol": "IndexStateStore._create_tables",
+    "table_ddl": [
+      "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS file_freshness (path TEXT PRIMARY KEY, last_modified INTEGER, churn_score REAL NOT NULL DEFAULT 0.0, commit_count INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'git', updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS file_commits (path TEXT NOT NULL, commit_sha TEXT NOT NULL, commit_ts INTEGER NOT NULL, PRIMARY KEY (path, commit_sha))",
+      "CREATE TABLE IF NOT EXISTS wave_landing (wave_id TEXT NOT NULL, commit_sha TEXT NOT NULL, landed_at INTEGER, PRIMARY KEY (wave_id, commit_sha))",
+      "CREATE TABLE IF NOT EXISTS wave_change_files (wave_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY (wave_id, path))",
+      "CREATE TABLE IF NOT EXISTS doc_drift (path TEXT PRIMARY KEY, drifted INTEGER NOT NULL DEFAULT 0, drift_refs TEXT NOT NULL DEFAULT '[]', commits_since INTEGER NOT NULL DEFAULT 0, anchor_kind TEXT NOT NULL DEFAULT 'content', historical INTEGER NOT NULL DEFAULT 0, waves_behind INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS build_file_meta (path TEXT PRIMARY KEY, hash TEXT NOT NULL DEFAULT '', mtime REAL, size INTEGER, inode INTEGER, chunks_emitted INTEGER)",
+      "CREATE TABLE IF NOT EXISTS build_layer_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS chunk_registry (table_name TEXT NOT NULL, chunk_id TEXT NOT NULL, path TEXT NOT NULL, chunk_hash TEXT NOT NULL DEFAULT '', PRIMARY KEY (table_name, chunk_id))",
+      "CREATE TABLE IF NOT EXISTS secret_scan_cache (path TEXT PRIMARY KEY, content_hash TEXT NOT NULL, rules_fingerprint TEXT NOT NULL, scanned_at INTEGER NOT NULL, clean INTEGER NOT NULL DEFAULT 1, finding_refs TEXT NOT NULL DEFAULT '[]')",
+      "CREATE TABLE IF NOT EXISTS secret_rule_catalog (rules_fingerprint TEXT NOT NULL, rule_id TEXT NOT NULL, rule_hash TEXT NOT NULL, PRIMARY KEY (rules_fingerprint, rule_id))"
+    ]
+  },
+  "5": {
+    "source_commit": "2952df8f9326b87a98a44eebb90d38eebc6e7b75",
+    "source_path": ".wavefoundry/framework/scripts/index_state_store.py",
+    "source_symbol": "IndexStateStore._create_tables",
+    "table_ddl": [
+      "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS file_freshness (path TEXT PRIMARY KEY, last_modified INTEGER, churn_score REAL NOT NULL DEFAULT 0.0, commit_count INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'git', updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS file_commits (path TEXT NOT NULL, commit_sha TEXT NOT NULL, commit_ts INTEGER NOT NULL, PRIMARY KEY (path, commit_sha))",
+      "CREATE TABLE IF NOT EXISTS wave_landing (wave_id TEXT NOT NULL, commit_sha TEXT NOT NULL, landed_at INTEGER, PRIMARY KEY (wave_id, commit_sha))",
+      "CREATE TABLE IF NOT EXISTS wave_change_files (wave_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY (wave_id, path))",
+      "CREATE TABLE IF NOT EXISTS doc_drift (path TEXT PRIMARY KEY, drifted INTEGER NOT NULL DEFAULT 0, drift_refs TEXT NOT NULL DEFAULT '[]', commits_since INTEGER NOT NULL DEFAULT 0, anchor_kind TEXT NOT NULL DEFAULT 'content', historical INTEGER NOT NULL DEFAULT 0, waves_behind INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS build_file_meta (path TEXT PRIMARY KEY, hash TEXT NOT NULL DEFAULT '', mtime REAL, size INTEGER, inode INTEGER, chunks_emitted INTEGER)",
+      "CREATE TABLE IF NOT EXISTS build_layer_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS chunk_registry (table_name TEXT NOT NULL, chunk_id TEXT NOT NULL, path TEXT NOT NULL, chunk_hash TEXT NOT NULL DEFAULT '', PRIMARY KEY (table_name, chunk_id))",
+      "CREATE TABLE IF NOT EXISTS secret_scan_cache (path TEXT PRIMARY KEY, content_hash TEXT NOT NULL, rules_fingerprint TEXT NOT NULL, scanned_at INTEGER NOT NULL, clean INTEGER NOT NULL DEFAULT 1, finding_refs TEXT NOT NULL DEFAULT '[]')",
+      "CREATE TABLE IF NOT EXISTS secret_rule_catalog (rules_fingerprint TEXT NOT NULL, rule_id TEXT NOT NULL, rule_hash TEXT NOT NULL, PRIMARY KEY (rules_fingerprint, rule_id))",
+      "CREATE TABLE IF NOT EXISTS layer_path_state (layer TEXT NOT NULL, path TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY (layer, path))"
+    ]
+  }
+}

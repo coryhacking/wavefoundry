@@ -40,11 +40,9 @@ import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 cli_stdio.configure_utf8_stdio()
 
 TIMESTAMP_LOGS_ENV = "WAVEFOUNDRY_TIMESTAMP_LOGS"
-# Wave 1p95j: pin lancedb to a validated version so every install site (setup + indexer auto-install)
-# resolves the same build. 0.33.0 validated on this repo — clean single-FTS/single-vector index,
-# retrieval parity with 0.30.2, full suite green, pyarrow unchanged. Single source of truth for both
-# the setup dependency check below and indexer._auto_install_lancedb.
-LANCEDB_REQUIREMENT = "lancedb==0.33.0"
+# Qualified shared semantic runtime; migration owns the retired Lance reader.
+APSW_REQUIREMENT = "apsw==3.53.4.0"
+SQLITE_VEC_REQUIREMENT = "sqlite-vec==0.1.9"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "httpx[socks]": "socksio",
@@ -81,7 +79,8 @@ REQUIRED_IMPORTS = {
     "tree-sitter-json": "tree_sitter_json",
     "tree-sitter-css": "tree_sitter_css",
     "tree-sitter-powershell": "tree_sitter_powershell",
-    LANCEDB_REQUIREMENT: "lancedb",
+    APSW_REQUIREMENT: "apsw",
+    SQLITE_VEC_REQUIREMENT: "sqlite_vec",
     "networkx>=3.0": "networkx",
 }
 CUDA_DEPENDENCY_IMPORTS = {
@@ -157,7 +156,7 @@ def _tool_venv_python() -> Path:
 
 def _rmtree_clearing_readonly(path: Path) -> None:
     """Wave 1p9hk: ``shutil.rmtree`` that clears the Windows read-only attribute and retries the failing
-    op. On Windows a venv's pip-installed ``.pyd``/``.dll`` native extensions (onnxruntime/lancedb/
+    op. On Windows a venv's pip-installed ``.pyd``/``.dll`` native extensions (onnxruntime/apsw/
     fastembed) and mmap'd model artifacts are frequently read-only or held open, and ``os.remove`` raises
     ``PermissionError`` on a read-only file. Mirrors ``upgrade_wavefoundry._remove_deprecated_framework_
     index`` (wave 1p6d6). POSIX has no read-only-blocks-delete semantics, so the handler is a harmless
@@ -276,7 +275,7 @@ def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None 
     """Return dist specs for packages that are absent OR whose installed version violates their pin.
 
     Wave 1p95u: the check is version-aware, not presence-only. A dependency is flagged when it is not
-    importable (as before) OR when it carries a version constraint (e.g. ``lancedb==0.33.0``,
+    importable (as before) OR when it carries a version constraint (e.g. ``apsw==3.53.4.0``,
     ``tree-sitter>=0.24,<0.26``) and the version installed in the tool venv falls outside that
     specifier — so a pinned version bump reaches existing installs on ``wf setup`` / ``wf_upgrade``,
     not just fresh installs. The returned spec IS the ``REQUIRED_IMPORTS`` key, so ``_install_deps``
@@ -467,6 +466,9 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
             "Check the output above and install manually, then rerun setup_index.py.",
             file=sys.stderr,
         )
+        if SQLITE_VEC_REQUIREMENT in missing:
+            from sqlite_runtime import BINARY_SUPPORT_GUIDANCE
+            print(BINARY_SUPPORT_GUIDANCE, file=sys.stderr)
         raise SystemExit(2)
     print("Dependencies installed successfully.", flush=True)
 
@@ -488,6 +490,17 @@ def ensure_deps(root: Path | None = None) -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
+
+
+def ensure_migration_deps(root: Path) -> None:
+    """Provision the pinned reader only for an explicitly detected legacy index."""
+    venv_python = _bootstrap_venv(root)
+    requirements = {"lancedb==0.33.0": "lancedb"}
+    missing = _missing_in_venv(venv_python, requirements)
+    if missing:
+        _install_deps(missing, venv_python, root)
+    if _missing_in_venv(venv_python, requirements):
+        raise SystemExit("Legacy vector reader unavailable; index preserved for upgrade retry.")
 
 
 def _reexec_with_venv_if_needed() -> None:
@@ -538,13 +551,11 @@ def _load_indexer_module():
 
 
 def _optimize_after_build(root: Path) -> None:
-    """Wave 1p9aj: reclaim accumulated Lance-table bloat after the synchronous build.
+    """Run bounded shared/graph maintenance once after synchronous publication.
 
-    Runs on BOTH install and upgrade — upgrade's index rebuild invokes ``setup_index``. Lock-safe by
-    placement: it runs after ``build_index`` has released the build lock and BEFORE any background code
-    build is spawned, so it never races an in-flight build. Reclaim-only (the tiered ladder without a
-    re-embed); best-effort — a lock conflict or any error just skips. This reclaims version-bloat that
-    the fragment-gated incremental optimize can miss, and self-heals the Lance offset corruption."""
+    The indexer owns the build lock. Busy/error results remain visible and do
+    not turn routine setup into a full database rewrite.
+    """
     try:
         mod = _load_indexer_module()
         index_dir = root / ".wavefoundry" / "index"
@@ -555,43 +566,18 @@ def _optimize_after_build(root: Path) -> None:
     if isinstance((results or {}).get("error"), str):
         print(f"index optimize skipped: {results['error']}", flush=True)
         return
-    for name, res in (results or {}).items():
-        if not isinstance(res, dict):
+    for name, res in (results or {}).get("stores", {}).items():
+        if not isinstance(res, dict) or not res.get("present"):
             continue
-        before = int(res.get("bytes_before") or 0)
-        after = int(res.get("bytes_after") or 0)
-        if before and after < before:
-            print(
-                f"index optimize: reclaimed {name}.lance "
-                f"({before:,} -> {after:,} bytes, tier {res.get('tier')})",
-                flush=True,
-            )
-    # Wave 1rsh9 (1rq4h): the unified maintenance verb also covers the SQLite
-    # stores (index-state store + graph state store) — WAL checkpoint/truncate,
-    # VACUUM, PRAGMA optimize, integrity check — under the same build lock.
-    # Best-effort, same posture as the Lance pass above.
-    try:
-        import importlib.util as _ilu
-        _iss_path = SCRIPTS_DIR / "index_state_store.py"
-        if _iss_path.exists():
-            _spec = _ilu.spec_from_file_location("wavefoundry_iss_for_setup", _iss_path)
-            _iss = _ilu.module_from_spec(_spec)
-            assert _spec.loader is not None
-            _spec.loader.exec_module(_iss)
-            with mod._index_build_lock(index_dir):
-                store_results = _iss.optimize_state_stores(index_dir, full_vacuum=True, deep_integrity=True)
-            for name, res in (store_results or {}).items():
-                if not res.get("present"):
-                    continue
-                reclaimed = int(res.get("reclaimed_bytes") or 0)
-                verdict = res.get("integrity") or "unknown"
-                print(
-                    f"index optimize: sqlite store '{name}' — integrity {verdict}, "
-                    f"reclaimed {reclaimed:,} bytes",
-                    flush=True,
-                )
-    except Exception as exc:  # noqa: BLE001 - store maintenance is best-effort
-        print(f"sqlite store optimize skipped: {exc}", flush=True)
+        if res.get("error"):
+            print(f"index optimize: store '{name}' skipped — {res['error']}", flush=True)
+            continue
+        reclaimed = int(res.get("reclaimed_bytes") or 0)
+        verdict = res.get("integrity") or "not requested"
+        print(f"index optimize: store '{name}' — integrity {verdict}, "
+              f"reclaimed {reclaimed:,} bytes", flush=True)
+    if (results or {}).get("finalize", {}).get("error"):
+        print(f"index optimize: {results['finalize']['error']}", flush=True)
 
 
 @contextlib.contextmanager
@@ -1722,7 +1708,7 @@ def _run_indexer(
             reader.join(timeout=5)
             raise TimeoutError(
                 f"Index build produced no output for {stall_timeout:g}s and was terminated as stalled. "
-                "A hung index build is usually a resource problem — check free disk (the LanceDB store "
+                "A hung index build is usually a resource problem — check free disk (the SQLite index "
                 "and temp files), CPU load, and available memory/swap (embedding is memory-heavy; a "
                 "low-RAM or paused/frozen host can stall it). Free resources and rerun "
                 "`wf update-indexes`; raise `setup.index_build_stall_timeout_seconds` in "
@@ -2013,6 +1999,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--model-bundle", type=Path, help="Validate and materialize an offline model-set asset before setup")
     p.add_argument("--model-bundle-model-set-version", help="Expected independently versioned model set")
     p.add_argument("--full", action="store_true", help="Force full rebuild")
+    p.add_argument("--prewarm-only", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--rechunk", action="store_true", help="Re-chunk every file but reuse embeddings by content hash (no version change; only new/changed chunks re-embed)")
     p.add_argument("--include-code", action="store_true", help="Build semantic code embeddings synchronously (default; kept for explicit CI/full-build callers)")
     p.add_argument("--background-code", action="store_true", help="Build docs index synchronously (unblocks MCP immediately), then spawn a detached background process for code embedding")
@@ -2096,6 +2083,16 @@ def main(argv: list[str] | None = None) -> int:
     _ACTIVE_HF_HUB_SOCKET_TIMEOUTS = {
         config_key: _run_deadlines[config_key] for config_key in _HF_HUB_TIMEOUT_CONSTANTS.values()
     }
+    if args.prewarm_only:
+        # Storage recovery uses the canonical model provisioning path before
+        # cutover; never open the legacy database or publish an index here.
+        try:
+            prewarm_models(include_code=True)
+        except (ModelPrewarmError, ModelPrewarmTimeout) as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            return 1
+        print("Done. Both semantic models are ready; indexes were not published.", flush=True)
+        return 0
     include_prefixes = _workflow_project_include_prefixes(root)
     docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
     code_prefixes = include_prefixes.get(CODE_PREFIXES_KEY, ())
@@ -2133,6 +2130,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if (args.docs_only or args.code_only) and (args.background_docs or args.background_code):
         print("ERROR: --docs-only/--code-only cannot be combined with background layer flags.", file=sys.stderr)
+        return 2
+
+    # Probe only disposable owned storage, before model work or index publication.
+    # Graph-only and dependency-only paths above do not require semantic WAL storage.
+    import sqlite_runtime
+    import sqlite_storage_migration
+    try:
+        index_dir = sqlite_storage_migration._safe(root / ".wavefoundry" / "index")
+        sqlite_runtime.preflight(index_dir)
+    except (sqlite_runtime.RuntimeUnavailable, sqlite_runtime.StorageRecoveryRequired,
+            sqlite_storage_migration.MigrationRequired) as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
     background_code = args.background_code and not args.include_code

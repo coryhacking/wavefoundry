@@ -36,7 +36,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _store_read_meta,
     _seed_store_state,
     _write_index_layer,
-    _write_lance_index,
+    _write_sqlite_index,
 )
 
 
@@ -84,7 +84,7 @@ class LayeredIndexTests(unittest.TestCase):
         index = self.srv.WaveIndex(self.root)
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+            with patch.object(index, "_embed_query", return_value=np.array([1.] + [0.] * 383, dtype=np.float32)):
                 with patch.object(index, "_get_reranker", return_value=None):
                     results, _ = index.search_docs("framework project", top_n=5)
 
@@ -165,7 +165,7 @@ class LayeredIndexTests(unittest.TestCase):
         index = self.srv.WaveIndex(self.root)
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+            with patch.object(index, "_embed_query", return_value=np.array([1.] + [0.] * 383, dtype=np.float32)):
                 with patch.object(index, "_get_reranker", return_value=None):
                     results, _ = index.search_docs("project", top_n=5)
 
@@ -809,7 +809,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         docs_vecs = [[1.0, 0.0, 0.0, 0.0] for _ in docs_rows]
         code_rows = code_chunks or None
         code_vecs = [[1.0, 0.0, 0.0, 0.0] for _ in code_rows] if code_rows else None
-        _write_lance_index(
+        _write_sqlite_index(
             index_dir,
             docs_chunks=docs_rows,
             docs_vectors=docs_vecs,
@@ -2661,7 +2661,7 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
         right chunk and not the unrelated one.
 
         This is the highest-fidelity test: it exercises _embed_query,
-        _write to LanceDB, _ensure_loaded, _lance_search, and kind filtering
+        _write to LanceDB, _ensure_loaded, _vector_search, and kind filtering
         all in one pass with real vectors."""
         import numpy as np
         import tempfile
@@ -2694,7 +2694,7 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as idx_tmp:
             idx_dir = Path(idx_tmp)
-            _write_lance_index(
+            _write_sqlite_index(
                 idx_dir,
                 docs_chunks=chunks,
                 docs_vectors=vectors.tolist(),
@@ -2709,8 +2709,8 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
                 import shutil
                 # 1sed6: the index-state store (with its completed epoch) IS
                 # the state authority — copy it, not a meta.json.
-                shutil.copy(str(idx_dir / "index-state.sqlite"), str(project_idx / "index-state.sqlite"))
-                shutil.copytree(str(idx_dir / "docs.lance"), str(project_idx / "docs.lance"))
+                self.srv._load_script("sqlite_runtime").backup(
+                    idx_dir / "index-state.sqlite", project_idx / "index-state.sqlite")
 
                 index = self.srv.WaveIndex(root)
                 with patch.object(index, "_get_reranker", return_value=None):
@@ -3020,7 +3020,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
             (idx_dir / "code.lance").mkdir(parents=True, exist_ok=True)
         meta = {
             "built_at": "2026-01-01T00:00:00Z",
-            "content": ["docs", "code"] if code_prefix else ["docs"],
+            "content": (["docs"] if docs_lance else []) + (["code"] if code_lance else []),
             "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-s"},
             "chunker_versions": {"docs": "13"},
             "walker_version": "3",
@@ -3030,8 +3030,8 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
         wave_idx._meta = {"project": meta}
-        wave_idx._docs_lance_table = object() if docs_lance else None
-        wave_idx._code_lance_table = object() if code_lance else None
+        wave_idx._docs_vector_layer = object() if docs_lance else None
+        wave_idx._code_vector_layer = object() if code_lance else None
         return wave_idx
 
     def _health_of(self, wave_idx):
@@ -3112,7 +3112,7 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         wave_idx = self.server.WaveIndex(root)
         wave_idx._loaded = True
         wave_idx._meta = {"project": meta}
-        wave_idx._lance_available = {("project", "docs")}
+        wave_idx._vector_available = {("project", "docs")}
 
         health = wave_idx._layer_health("project")
         self.assertTrue(health["docs_present"])
@@ -3200,29 +3200,13 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
     def test_returns_false_when_no_state_and_no_lock(self):
         self.assertFalse(self.server._background_refresh_active(self.state_path))
 
-    def test_returns_true_when_lock_file_exists_and_fresh(self):
-        lock_path = self.tmp / "docs.lance" / ".lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text(str(os.getpid()), encoding="utf-8")
-        self.assertTrue(self.server._background_refresh_active(self.state_path))
-
-    def test_returns_false_when_lock_file_stale(self):
-        import time as _time
-        lock_path = self.tmp / "docs.lance" / ".lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text(str(os.getpid()), encoding="utf-8")
-        # Backdate the mtime beyond the stale threshold
-        stale_mtime = _time.time() - self.server.BACKGROUND_INDEX_LOCK_STALE_SECONDS - 10
-        os.utime(lock_path, (stale_mtime, stale_mtime))
-        self.assertFalse(self.server._background_refresh_active(self.state_path))
-        self.assertFalse(lock_path.exists())
-
-    def test_removes_dead_pid_lock_file(self):
-        lock_path = self.tmp / "docs.lance" / ".lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text("999999999", encoding="utf-8")
-        self.assertFalse(self.server._background_refresh_active(self.state_path))
-        self.assertFalse(lock_path.exists())
+    def test_retired_table_markers_neither_block_nor_get_deleted(self):
+        for pid in (str(os.getpid()), "999999999"):
+            lock_path = self.tmp / "docs.lance" / ".lock"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.write_text(pid, encoding="utf-8")
+            self.assertFalse(self.server._background_refresh_active(self.state_path))
+            self.assertEqual(lock_path.read_text(), pid)
 
     def test_returns_true_when_registered_builder_pid_is_running(self):
         child = subprocess.Popen(
@@ -3302,15 +3286,6 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self._write_state(pid=999999999, started_at=_time.time())
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
-    def test_fresh_lock_file_takes_precedence_over_dead_pid_expired_throttle(self):
-        """Fresh lock from a running PID = active, even when state file shows a dead PID."""
-        import time as _time
-        self._write_state(pid=999999999, started_at=_time.time() - 300)
-        lock_path = self.tmp / "code.lance" / ".lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text(str(os.getpid()), encoding="utf-8")
-        self.assertTrue(self.server._background_refresh_active(self.state_path))
-
     def test_authoritative_held_build_lock_prevents_refresh(self):
         with patch.object(
             self.server, "_index_build_lock_info", return_value={"held": True}
@@ -3328,21 +3303,16 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
                 self.server._BACKGROUND_BUILD_PIDS.discard(12345)
         waitpid.assert_not_called()
 
-    def test_build_status_reports_removed_stale_locks(self):
+    def test_build_status_preserves_retired_markers_for_migration(self):
         root = self.tmp
         lock_path = root / ".wavefoundry" / "index" / "docs.lance" / ".lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.write_text("999999999", encoding="utf-8")
-
         response = self.server.index_build_status_response(root, layer="project")
-
         self.assertEqual(response["status"], "ok")
-        data = response["data"]
-        self.assertEqual(data["state"], "idle")
-        self.assertEqual(len(data["stale_locks_cleaned"]), 1)
-        self.assertEqual(data["stale_locks_cleaned"][0]["reason"], "pid_dead")
-        self.assertTrue(data["stale_locks_cleaned"][0]["removed"])
-        self.assertFalse(lock_path.exists())
+        self.assertEqual(response["data"]["state"], "idle")
+        self.assertNotIn("stale_locks_cleaned", response["data"])
+        self.assertTrue(lock_path.exists())
 
     def test_build_status_keeps_old_lock_when_pid_is_alive(self):
         root = self.tmp
@@ -3662,7 +3632,7 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
 
     def _make_index(self, index_dir: Path, built_at: str, *, extra: dict[str, object] | None = None) -> None:
         index_dir.mkdir(parents=True, exist_ok=True)
-        _write_lance_index(
+        _write_sqlite_index(
             index_dir,
             docs_chunks=[{"id": "d1", "path": "docs/a.md", "kind": "doc", "text": "doc", "lines": [1, 1]}],
             docs_vectors=[[1.0, 0.0, 0.0, 0.0]],
@@ -4932,13 +4902,13 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
         # Provide the minimal attributes that search_code depends on after _ensure_loaded
         index._code_chunks = raw_chunks
         index._code_vecs = None
-        index._lance_available = {("project", "code")}
+        index._vector_available = {("project", "code")}
         # Bypass _ensure_loaded
         with patch.object(index, "_ensure_loaded"):
             with patch.object(index, "_embed_query", return_value=None):
                 with patch.object(srv, "_indexer_constant", return_value="model"):
-                    # Patch _lance_search to return chunks in score-descending order (already sorted)
-                    with patch.object(index, "_lance_search", return_value=raw_chunks):
+                    # Patch _vector_search to return chunks in score-descending order (already sorted)
+                    with patch.object(index, "_vector_search", return_value=raw_chunks):
                         with patch.object(index, "_indexer_constant", return_value="model"):
                             return index
 
@@ -4978,11 +4948,12 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/billing.py", 0.80),
             self._chunk("src/billing.py", 0.75),
         ]
-        index._lance_available = {("project", "code")}
+        index._vector_available = {("project", "code")}
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_lance_search", return_value=raw), \
+             patch.object(index, "_open_vector_layer", return_value="code"), \
+             patch.object(index, "_vector_search", return_value=raw), \
              patch.object(index, "_fts5_lexical_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=2, top_n=10)
@@ -5003,11 +4974,12 @@ class MaxPerFileFilterDirectTests(unittest.TestCase):
             self._chunk("src/auth.py", 0.95),  # highest score — should be retained
             self._chunk("src/auth.py", 0.50),  # lower score — should be dropped with max_per_file=1
         ]
-        index._lance_available = {("project", "code")}
+        index._vector_available = {("project", "code")}
         with patch.object(index, "_ensure_loaded"), \
              patch.object(index, "_embed_query", return_value=None), \
              patch.object(index, "_indexer_constant", return_value="model"), \
-             patch.object(index, "_lance_search", return_value=raw), \
+             patch.object(index, "_open_vector_layer", return_value="code"), \
+             patch.object(index, "_vector_search", return_value=raw), \
              patch.object(index, "_fts5_lexical_search", return_value=[]), \
              patch.object(index, "_get_reranker", return_value=None):
             results, _ = index.search_code("query", max_per_file=1, top_n=10)
@@ -5086,7 +5058,7 @@ class InferTagsServerTests(unittest.TestCase):
                 json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
             )
             idx = self.srv.WaveIndex(root)
-            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._embed_query = lambda q, model: np.array([1.] * 4 + [0.] * 380, dtype=np.float32)
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("anything", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
@@ -5120,7 +5092,7 @@ class InferTagsServerTests(unittest.TestCase):
                 json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
             )
             idx = self.srv.WaveIndex(root)
-            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._embed_query = lambda q, model: np.array([1.] * 4 + [0.] * 380, dtype=np.float32)
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("anything", kind="doc", tags=["wave"], top_n=5)
             ids = [r["id"] for r in results]
@@ -5155,7 +5127,7 @@ class InferTagsServerTests(unittest.TestCase):
                 json.dumps({"model_versions": {}, "content": [], "file_hashes": {}}), encoding="utf-8"
             )
             idx = self.srv.WaveIndex(root)
-            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._embed_query = lambda q, model: np.array([1.] * 4 + [0.] * 380, dtype=np.float32)
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("wave summary", kind="doc-summary", top_n=5)
             ids = [r["id"] for r in results]
@@ -5178,14 +5150,14 @@ class InferTagsServerTests(unittest.TestCase):
                 {"id": "o1", "path": "docs/other/something.md", "kind": "doc", "text": "unrelated"},
             ]
             vecs = np.ones((2, 4), dtype=np.float32)
-            _write_lance_index(
+            _write_sqlite_index(
                 root / ".wavefoundry" / "index",
                 docs_chunks=docs_chunks,
                 docs_vectors=vecs.tolist(),
                 model=_EXPECTED_DOCS_MODEL,
             )
             idx = self.srv.WaveIndex(root)
-            idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+            idx._embed_query = lambda q, model: np.array([1.] * 4 + [0.] * 380, dtype=np.float32)
             idx._ensure_loaded()
             with patch.object(idx, "_get_reranker", return_value=None):
                 results, _ = idx.search_docs("anything", tags=None, top_n=5)
@@ -5529,7 +5501,7 @@ class RerankerTests(unittest.TestCase):
         root = Path(tmp.name)
         (root / ".wavefoundry" / "index").mkdir(parents=True)
         (root / ".wavefoundry" / "framework" / "index").mkdir(parents=True)
-        _write_lance_index(
+        _write_sqlite_index(
             root / ".wavefoundry" / "index",
             docs_chunks=docs_chunks,
             docs_vectors=np.ones((max(len(docs_chunks), 1), 4), dtype=np.float32).tolist(),
@@ -5538,8 +5510,9 @@ class RerankerTests(unittest.TestCase):
             model=_EXPECTED_DOCS_MODEL,
         )
         idx = srv.WaveIndex(root)
+        idx._start_background_model_downloads_after_startup = lambda: None
         import numpy as np
-        idx._embed_query = lambda q, model: np.ones(4, dtype=np.float32)
+        idx._embed_query = lambda q, model: np.array([1.] * 4 + [0.] * 380, dtype=np.float32)
         idx._ensure_loaded()
         self._tmp = tmp  # keep alive
         return idx
@@ -6048,7 +6021,7 @@ class RerankerTests(unittest.TestCase):
                 "present": True, "schema_version": "9", "integrity": "ok",
                 "size_bytes": 1,
                 "chunk_index": {"code": {
-                    "lance_rows": 10, "registry_rows": 9, "covered": True,
+                    "vector_rows": 10, "registry_rows": 9, "covered": True,
                     "id_collisions": 2, "id_collision_sample": ["conf/x.toml#item"],
                 }},
             }
@@ -6115,36 +6088,35 @@ class RerankerTests(unittest.TestCase):
         self.assertTrue(getattr(idx, "_reranker_disabled", False), "must mark reranker disabled to avoid re-probing")
 
     def test_get_reranker_caches_on_success(self):
-        """Wave 1p52p: _get_reranker caches the StaticShapeReranker returned by
-        accel_embedder.make_reranker (GPU FP16 or CPU INT8) in self._reranker."""
+        """Report the effective CPU/GPU inference batch through the real lazy-loader seam."""
         import accel_embedder
-        idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
-        idx._reranker = None
-        mock_reranker = MagicMock()
-        mock_reranker.model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        mock_reranker.provider = "CoreMLExecutionProvider"
+        for provider, batch in (("CoreMLExecutionProvider", 40), ("CPUExecutionProvider", 1)):
+            with self.subTest(provider=provider):
+                idx = self.srv.WaveIndex.__new__(self.srv.WaveIndex)
+                idx._reranker = None
+                mock_reranker = MagicMock()
+                mock_reranker.model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                mock_reranker.provider = provider
+                mock_reranker.batch_size = batch
 
-        # Wave 1p937: _get_reranker also fetches "_onnx_providers" via _indexer_constant.
-        def _const(name):
-            if name == "RERANKER_MODEL":
-                return "cross-encoder/ms-marco-MiniLM-L-6-v2"
-            if name == "_onnx_providers":
-                return lambda: ["CoreMLExecutionProvider"]
-            raise AssertionError(f"unexpected _indexer_constant({name!r})")
+                def _const(name):
+                    if name == "RERANKER_MODEL":
+                        return mock_reranker.model_name
+                    if name == "_onnx_providers":
+                        return lambda: [provider]
+                    raise AssertionError(f"unexpected _indexer_constant({name!r})")
 
-        logs: list[str] = []
-        with patch.object(accel_embedder, "make_reranker", return_value=mock_reranker) as mk:
-            with patch.object(idx, "_indexer_constant", side_effect=_const):
-                with patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()), \
+                logs: list[str] = []
+                with patch.object(accel_embedder, "make_reranker", return_value=mock_reranker) as mk, \
+                     patch.object(idx, "_indexer_constant", side_effect=_const), \
+                     patch.object(idx, "_offline_model_env", return_value=__import__("contextlib").nullcontext()), \
                      patch.object(self.srv, "_wf_log", side_effect=logs.append):
                     result = idx._get_reranker()
-        mk.assert_called_once()
-        self.assertIs(idx._reranker, mock_reranker)
-        self.assertIs(result, mock_reranker)
-        self.assertTrue(
-            any("static 40x512" in line for line in logs),
-            f"the public success log must report the independent reranker batch: {logs}",
-        )
+                    self.assertIs(idx._get_reranker(), result)
+                mk.assert_called_once()
+                self.assertIs(idx._reranker, mock_reranker)
+                self.assertIs(result, mock_reranker)
+                self.assertTrue(any(f"batch {batch}x512" in line for line in logs), logs)
 
     # --- search_combined: question-type-aware retrieval ---
 
@@ -6182,14 +6154,14 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk("src/retrieval.py")]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         observed_top_k = []
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
 
         def capture_lance(table, qvec, top_n, where=None, layer="project"):
             observed_top_k.append(top_n)
             return original_lance(table, qvec, top_n, where=where, layer=layer)
 
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+            with patch.object(idx, "_vector_search", side_effect=capture_lance):
                 with patch(f"{self.srv.__name__}.code_keyword_response") as keyword:
                     _, _, _, _, definition_boosted, _, _, _ = idx.search_combined(
                         "what does .aiignore exclude?",
@@ -6281,12 +6253,12 @@ class RerankerTests(unittest.TestCase):
         idx = self._make_index_with_docs(docs, code_chunks=code)
         empty_kw_resp = {"status": "ok", "data": {"results": []}}
         captured = {}
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
         def capture_lance(table, qvec, top_n, where=None, layer="project"):
             captured["vector_fetch_called"] = True
             return original_lance(table, qvec, top_n, where=where, layer=layer)
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+            with patch.object(idx, "_vector_search", side_effect=capture_lance):
                 with patch(f"{self.srv.__name__}.code_keyword_response", return_value=empty_kw_resp):
                     idx.search_combined(
                         "how is the build_prefix generated?",
@@ -6372,12 +6344,12 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         captured = {}
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
         def capture_top_k(table, qvec, top_n, where=None, layer="project"):
             captured["top_k"] = top_n
             return original_lance(table, qvec, top_n, where=where, layer=layer)
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+            with patch.object(idx, "_vector_search", side_effect=capture_top_k):
                 idx.search_combined("how does billing work", top_n=5, question_type="explanatory")
         self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K_EXPLANATORY)
 
@@ -6386,14 +6358,14 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk("c0")]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         captured = {}
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
 
         def capture_top_k(table, qvec, top_n, where=None, layer="project"):
             captured["top_k"] = top_n
             return original_lance(table, qvec, top_n, where=where, layer=layer)
 
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+            with patch.object(idx, "_vector_search", side_effect=capture_top_k):
                 idx.search_combined(
                     "where are the retrieval gaps?", top_n=5, question_type="assessment",
                 )
@@ -6470,14 +6442,14 @@ class RerankerTests(unittest.TestCase):
         synthetic score is written, and citations stay reranker-ordered."""
         idx = self._report_class_index()
         observed = []
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
 
         def capture_lance(table, qvec, top_n, where=None, layer="project"):
             observed.append((top_n, where))
             return original_lance(table, qvec, top_n, where=where, layer=layer)
 
         with patch.object(idx, "_get_reranker", return_value=self._low_relevance_reranker()):
-            with patch.object(idx, "_lance_search", side_effect=capture_lance):
+            with patch.object(idx, "_vector_search", side_effect=capture_lance):
                 results, reranked, *_ = idx.search_combined(
                     "where are the biggest gaps in the audit tooling?",
                     top_n=5,
@@ -6706,7 +6678,7 @@ class RerankerTests(unittest.TestCase):
             [self._fake_doc_chunk("commit-guide", text="Commit policy lives in the agent guide.")],
             code_chunks=code,
         )
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
 
         def recall_without_owner(table, qvec, top_n, where=None, layer="project"):
             return [
@@ -6715,7 +6687,7 @@ class RerankerTests(unittest.TestCase):
             ]
 
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=recall_without_owner):
+            with patch.object(idx, "_vector_search", side_effect=recall_without_owner):
                 with patch.object(idx, "_lexical_candidates", return_value=[]):
                     response = self.srv.code_ask_response(
                         idx, idx.root, "what does AGENTS.md say about git commits?"
@@ -6736,7 +6708,7 @@ class RerankerTests(unittest.TestCase):
             [self._fake_doc_chunk("indexing-guide", text="Ignore patterns shape index scope.")],
             code_chunks=code,
         )
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
 
         def recall_without_owner(table, qvec, top_n, where=None, layer="project"):
             return [
@@ -6745,7 +6717,7 @@ class RerankerTests(unittest.TestCase):
             ]
 
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=recall_without_owner):
+            with patch.object(idx, "_vector_search", side_effect=recall_without_owner):
                 with patch.object(idx, "_lexical_candidates", return_value=[]):
                     response = self.srv.code_ask_response(
                         idx, idx.root, "what does .aiignore exclude?"
@@ -6826,7 +6798,7 @@ class RerankerTests(unittest.TestCase):
             return True
 
         with patch.object(
-            idx, "_lance_search", side_effect=[[historical], [current_report], [implementation]]
+            idx, "_vector_search", side_effect=[[historical], [current_report], [implementation]]
         ) as lance:
             with patch.object(idx, "_lexical_candidates", return_value=[]):
                 with patch.object(idx, "_agent_rerank", side_effect=rerank):
@@ -6851,12 +6823,12 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         captured = {}
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
         def capture_top_k(table, qvec, top_n, where=None, layer="project"):
             captured["top_k"] = top_n
             return original_lance(table, qvec, top_n, where=where, layer=layer)
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+            with patch.object(idx, "_vector_search", side_effect=capture_top_k):
                 idx.search_combined("where is the billing handler", top_n=5, question_type="navigational")
         self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K)
 
@@ -6866,12 +6838,12 @@ class RerankerTests(unittest.TestCase):
         code = [self._fake_code_chunk(f"c{i}") for i in range(3)]
         idx = self._make_index_with_docs(docs, code_chunks=code)
         captured = {}
-        original_lance = idx._lance_search
+        original_lance = idx._vector_search
         def capture_top_k(table, qvec, top_n, where=None, layer="project"):
             captured["top_k"] = top_n
             return original_lance(table, qvec, top_n, where=where, layer=layer)
         with patch.object(idx, "_get_reranker", return_value=None):
-            with patch.object(idx, "_lance_search", side_effect=capture_top_k):
+            with patch.object(idx, "_vector_search", side_effect=capture_top_k):
                 idx.search_combined("billing", top_n=5, question_type="")
         self.assertEqual(captured.get("top_k"), self.srv.VECTOR_TOP_K)
 
@@ -7953,7 +7925,7 @@ class BackgroundModelDownloadTests(unittest.TestCase):
     def test_semantic_docs_search_starts_background_model_downloads_after_startup(self):
         """First semantic activity may prewarm models after MCP tools are already registered."""
         idx = self._make_index()
-        idx._proj_docs_lance_table = None
+        idx._proj_docs_vector_layer = None
         with patch.object(idx, "_start_background_model_downloads_after_startup") as patched_start:
             with patch.object(idx, "_ensure_loaded"):
                 with patch.object(idx, "_indexer_constant", return_value="model-A"):
@@ -14069,8 +14041,8 @@ class TestCodeCallgraphIncludeTests(unittest.TestCase):
         self.assertTrue(result["data"]["include_tests"])
 
 
-class TestLanceDBIndex(unittest.TestCase):
-    """Tests for LanceDB vector index integration (AC-3, AC-10, AC-11)."""
+class TestSQLiteVectorIndex(unittest.TestCase):
+    """Tests for native SQLite vector integration and retired ANN configuration."""
 
     @classmethod
     def setUpClass(cls):
@@ -14092,50 +14064,31 @@ class TestLanceDBIndex(unittest.TestCase):
         spec = ilu.spec_from_file_location("indexer_for_lancedb_test", scripts_root / "indexer.py")
         mod = ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.LANCEDB_INDEX_THRESHOLD, 1000)
-        self.assertEqual(mod.LANCEDB_COMPACT_THRESHOLD, 20)
+        self.assertFalse(hasattr(mod, "LANCEDB_INDEX_THRESHOLD"))
+        self.assertFalse(hasattr(mod, "LANCEDB_COMPACT_THRESHOLD"))
         self.assertFalse(hasattr(mod, "LANCEDB_NPROBES"))
         self.assertFalse(hasattr(mod, "LANCEDB_REFINE_FACTOR"))
 
-    @unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
     def test_streaming_writer_row_counts(self):
-        """_StreamingLayerWriter creates LanceDB tables with expected row counts."""
-        import importlib.util as ilu
+        import indexer
+        import index_state_store as iss
+        import sqlite_vector_store as vectors
         import numpy as np
-        from unittest.mock import MagicMock
-        scripts_root = Path(__file__).resolve().parents[1]
-        spec = ilu.spec_from_file_location("indexer_for_stream_write_test", scripts_root / "indexer.py")
-        mod = ilu.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "lancedb"
-            db_path.mkdir(parents=True, exist_ok=True)
-            db = mod._get_lance_db(db_path)
-
-            docs_chunks = [{"text": "doc1", "path": "docs/a.md", "kind": "doc"}]
-            code_chunks = [{"text": "fn foo()", "path": "src/a.py", "kind": "function"}]
-
-            # Stub embedder: returns a 3-dim float32 vector per text
-            def _fake_embed(texts, batch_size=256):
-                return [np.array([0.1, 0.2, 0.3], dtype=np.float32) for _ in texts]
-
-            embedder = MagicMock()
-            embedder.embed.side_effect = _fake_embed
-
-            docs_writer = mod._StreamingLayerWriter(db, "docs", embedder, "doc")
-            docs_writer.add(docs_chunks)
-            docs_written = docs_writer.finalize()
-            code_writer = mod._StreamingLayerWriter(db, "code", embedder, "code")
-            code_writer.add(code_chunks)
-            code_written = code_writer.finalize()
-
-            self.assertEqual(docs_written, 1)
-            self.assertEqual(code_written, 1)
-
-            # Verify table directories exist
-            self.assertTrue((db_path / "docs.lance").is_dir())
-            self.assertTrue((db_path / "code.lance").is_dir())
+        embedder=MagicMock()
+        embedder.embed.side_effect=lambda texts,batch_size=256: [np.array([1.0]+[0.0]*383,dtype=np.float32) for _ in texts]
+        with tempfile.TemporaryDirectory() as temp, vectors.PreparedUpdates(Path(temp)) as prepared:
+            index_dir=Path(temp)
+            for layer in ('docs','code'):
+                writer=indexer._StreamingLayerWriter(prepared,layer,embedder,layer)
+                writer.add([{'id':layer,'text':'sample','path':'a.py','kind':'code'}])
+                self.assertEqual(writer.finalize(),1)
+            store=iss.IndexStateStore(index_dir)
+            try:
+                with store._conn: prepared.apply(store)
+            finally: store.close()
+            self.assertEqual(vectors.layer_counts(index_dir),{'docs':1,'code':1})
+            self.assertFalse((index_dir/'docs.lance').exists())
+            self.assertFalse((index_dir/'code.lance').exists())
 
 
 class ConstantReadsBucketTests(unittest.TestCase):
@@ -14581,7 +14534,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         must type as query_failed — never a clean zero-hit with retry-the-
         token advice (infrastructure failure masquerading as an empty corpus)."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_docs")
         conn.close()
@@ -14694,7 +14647,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         fts_docs must fail a docs+code serve as query_failed — never a
         partial docs-only result labeled available."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code")
         conn.close()
@@ -14736,8 +14689,10 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         # DELETEs, which the keyed payload digest now correctly reads as damage.
         import contextlib, io as _io
         with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
-            self.iss.reconcile_chunk_index(self.index_dir, "code", set(), lambda: [])
-            self.iss.reconcile_chunk_index(self.index_dir, "docs", set(), lambda: [])
+            for layer in ("code", "docs"):
+                self.iss.apply_chunk_deltas(self.index_dir, layer,
+                    delete_ids=self.iss.registry_chunk_ids(self.index_dir, layer))
+                self.iss.rebuild_chunk_index(self.index_dir, layer, [])
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         index._layer_health = MagicMock()
         with patch.object(self.srv, "code_keyword_response") as kw:
@@ -14765,16 +14720,16 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         types query_failed instead of serving an available zero-hit that
         blames the query."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DELETE FROM fts_code")  # empty table, registry intact
         conn.close()
         self.assertFalse(self.iss.fts_probe(self.index_dir, "code"))
-        # A legitimately empty layer (no registry rows either) stays live.
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
-        with conn:
-            conn.execute("DELETE FROM chunk_registry WHERE table_name = 'code'")
-        conn.close()
+        # A legitimately empty canonical layer must empty all derived populations.
+        self.iss.rebuild_chunk_index(self.index_dir, "code", [])
+        self.iss.apply_chunk_deltas(self.index_dir, "code",
+            delete_ids=self.iss.registry_chunk_ids(self.index_dir, "code"))
+        self.iss.rebuild_chunk_index(self.index_dir, "code", [])
         self.assertTrue(self.iss.fts_probe(self.index_dir, "code"))
 
     def test_code_ask_infrastructure_failure_answer_never_reads_as_absence(self):
@@ -14782,7 +14737,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         'No indexed evidence found' — the answer names the infrastructure
         failure and a diagnostic is attached."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code")
         conn.close()
@@ -14810,7 +14765,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         """Pre-release contract audit L2: cross-tool parity — code_search's
         failed-FTS error path names the infrastructure failure."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code")
         conn.close()
@@ -14887,26 +14842,26 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         bm25's docsize dependency — dropped or truncated _docsize/_content
         shadow tables must read dead via deterministic parity."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code_docsize")
         conn.close()
         self.assertFalse(self.iss.fts_probe(self.index_dir, "code"),
                          "dropped _docsize must read dead")
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
-            conn.execute("DELETE FROM fts_docs_content WHERE rowid IN "
-                         "(SELECT rowid FROM fts_docs_content LIMIT 1)")
+            conn.execute("DROP TRIGGER chunks_docs_delete")
+            conn.execute("DELETE FROM chunks_docs WHERE id IN (SELECT id FROM chunks_docs LIMIT 1)")
         conn.close()
         self.assertFalse(self.iss.fts_probe(self.index_dir, "docs"),
-                         "truncated _content must read dead")
+                         "canonical content/postings divergence must read dead")
 
     def test_fts_probe_detects_truncation_and_shadow_damage(self):
         """Release review P1: partial truncation (1 FTS row vs 3 registry) and
         dropped shadow tables must both read dead — the probe exercises the
         real MATCH path and enforces registry parity."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             # Truncate: delete some but not all FTS rows.
             conn.execute("DELETE FROM fts_code WHERE rowid IN (SELECT rowid FROM fts_code LIMIT 1)")
@@ -14914,7 +14869,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         self.assertFalse(self.iss.fts_probe(self.index_dir, "code"),
                          "row-count divergence must read dead")
         # Shadow-table damage on the docs side.
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE IF EXISTS fts_docs_idx")
         conn.close()
@@ -14951,7 +14906,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         honest — no keyword citations presented as indexed sources, the
         infrastructure diagnostic present, no reranker misdirection."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code")
         conn.close()
@@ -14976,8 +14931,10 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         # test_code_ask_fallback_never_mixes_live_keyword_citations).
         import contextlib, io as _io
         with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
-            self.iss.reconcile_chunk_index(self.index_dir, "code", set(), lambda: [])
-            self.iss.reconcile_chunk_index(self.index_dir, "docs", set(), lambda: [])
+            for layer in ("code", "docs"):
+                self.iss.apply_chunk_deltas(self.index_dir, layer,
+                    delete_ids=self.iss.registry_chunk_ids(self.index_dir, layer))
+                self.iss.rebuild_chunk_index(self.index_dir, layer, [])
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         index._layer_health = MagicMock()
         result = self.srv.code_ask_response(index, self.root, "zz_nothing_zz?",
@@ -15084,7 +15041,7 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         search_mode lexical_fallback at ALL three tools (docs already did;
         code_search/code_ask now match)."""
         import sqlite3
-        conn = sqlite3.connect(str(self.iss.state_store_path(self.index_dir)))
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         with conn:
             conn.execute("DROP TABLE fts_code")
         conn.close()
@@ -15396,7 +15353,7 @@ class IndexSizeHealthTests(unittest.TestCase):
 
 
 class IndexOptimizeToolTests(unittest.TestCase):
-    """Wave 1p9aj: index_optimize reclaims Lance-table bloat (tiered, no re-embed)."""
+    """index_optimize reports reclamation without unnecessary re-embedding."""
 
     def setUp(self):
         # Wave 1wpif delivery review (CODE-RV1-2): a bare `import server_impl`
@@ -15502,7 +15459,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         # isolation. Load it the way every other class here does.
         self.srv = load_server()
 
-    def _fake_modules(self, lance_results, store_results=None, lock_raises=None):
+    def _fake_modules(self, layer_results, store_results=None, lock_raises=None):
         from contextlib import contextmanager
         from types import SimpleNamespace
 
@@ -15515,8 +15472,12 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
                 raise _AlreadyRunning("a build is already running")
             yield
 
+        def optimize(index_dir, tables=("docs", "code")):
+            with _index_build_lock(index_dir):
+                return {**layer_results, "stores": store_results or {}}
+
         idx = SimpleNamespace(
-            optimize_index_tables=lambda index_dir, tables=("docs", "code"): lance_results,
+            optimize_index_tables=optimize,
             IndexBuildAlreadyRunning=_AlreadyRunning,
             _index_build_lock=_index_build_lock,
         )
@@ -15532,7 +15493,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         return load
 
     def test_optimize_reports_sqlite_stores_and_adds_reclaim_to_total(self):
-        lance = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
+        layers = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
                           "bytes_before": 1000, "bytes_after": 400}}
         stores = {
             "index-state": {"present": True, "integrity": "ok",
@@ -15544,17 +15505,17 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
-                              side_effect=self._fake_modules(lance, stores)):
+                              side_effect=self._fake_modules(layers, stores)):
                 resp = self.srv._index_optimize_response(Path(tmp), content="all")
         self.assertEqual(resp["status"], "ok")
         data = resp["data"]
         self.assertEqual(data["stores"]["index-state"]["reclaimed_bytes"], 3000)
         self.assertEqual(data["stores"]["index-state"]["integrity"], "ok")
         self.assertFalse(data["stores"]["graph-state"]["present"])
-        # 600 Lance + 3000 store
+        # 600 layer + 3000 store
         self.assertEqual(data["total_reclaimed_bytes"], 3600)
 
-    def test_optimize_runs_store_pass_even_with_no_lance_tables(self):
+    def test_optimize_runs_store_pass_even_with_no_vector_layers(self):
         stores = {
             "index-state": {"present": True, "integrity": "ok",
                             "size_before_bytes": 500, "size_after_bytes": 500,
@@ -15573,15 +15534,14 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         self.assertEqual(data["stores"]["graph-state"]["reclaimed_bytes"], 600)
         self.assertEqual(data["total_reclaimed_bytes"], 600)
 
-    def test_store_lock_busy_keeps_lance_results_with_diagnostic(self):
-        lance = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
+    def test_shared_store_lock_busy_refuses_entire_maintenance(self):
+        layers = {"docs": {"tier": 1, "rows": 10, "needs_rebuild": False, "error": None,
                           "bytes_before": 1000, "bytes_after": 400}}
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script",
-                              side_effect=self._fake_modules(lance, lock_raises="busy")):
+                              side_effect=self._fake_modules(layers, lock_raises="busy")):
                 resp = self.srv._index_optimize_response(Path(tmp), content="all")
-        self.assertEqual(resp["status"], "ok")
-        self.assertEqual(resp["data"]["tables"]["docs"]["reclaimed_bytes"], 600)
+        self.assertEqual(resp["status"], "error")
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("build_skipped_lock_busy", codes)
 
@@ -15600,6 +15560,10 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
                 resp = self.srv._index_optimize_response(Path(tmp), content="all")
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("state_store_structural_fail", codes)
+        diagnostic = next(d for d in resp["diagnostics"] if d["code"] == "state_store_structural_fail")
+        self.assertIn("not automatically discarded", diagnostic["message"])
+        self.assertIn("retained receipt", diagnostic["message"])
+        self.assertEqual(diagnostic["recovery_usage"], "index_health()")
 
     def test_health_summary_absent_store_is_normal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -15639,29 +15603,30 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         spec.loader.exec_module(iss)
         return iss
 
-    def _make_lance_code_table(self, index_dir, n):
-        import lancedb
+    def _make_sqlite_code_table(self, index_dir, n):
+        import sqlite_vector_store as vectors
         rows = [
             {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
              "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
-             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+             "chunk_hash": f"h{i}", "vector": [1.] + [0.] * 383}
             for i in range(n)
         ]
-        lancedb.connect(str(index_dir)).create_table("code", rows, mode="overwrite")
+        store = self._load_iss().IndexStateStore(index_dir)
+        try:
+            with store._conn:
+                vectors.write_rows(store._conn, "code", rows)
+        finally:
+            store.close()
 
     def test_health_summary_reports_chunk_index_coverage(self):
         # 1sbfj AC-5: the field defect — a near-empty registry beside a
-        # populated Lance table — must surface as covered: False (it used to
+        # populated canonical chunk table — must surface as covered: False (it used to
         # hide behind integrity: ok, which is structural only).
-        try:
-            import lancedb  # noqa: F401
-        except Exception:  # pragma: no cover - lancedb ships in the tool venv
-            self.skipTest("lancedb unavailable")
         iss = self._load_iss()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             index_dir = root / ".wavefoundry" / "index"
-            self._make_lance_code_table(index_dir, 60)
+            self._make_sqlite_code_table(index_dir, 60)
             # Store exists but carries only one delta-written row.
             iss.apply_chunk_deltas(
                 index_dir, "code",
@@ -15672,7 +15637,8 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
             summary = self.srv._state_store_health_summary(root)
             self.assertEqual(summary["integrity"], "ok")  # structural says ok...
             cov = summary["chunk_index"]["code"]
-            self.assertEqual(cov["lance_rows"], 60)
+            self.assertEqual(cov["vector_rows"], 60)
+            self.assertNotIn("lance_rows", cov)
             self.assertEqual(cov["registry_rows"], 1)
             self.assertFalse(cov["covered"])  # ...coverage says blind
             # After the backfill, coverage reads healthy.
@@ -15686,21 +15652,25 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
             self.assertTrue(summary["chunk_index"]["code"]["covered"])
 
     def test_health_response_diagnoses_undercovered_chunk_index(self):
-        # The advisory wiring: covered: False must produce a visible
-        # chunk_index_undercovered diagnostic in index_health.
-        src = Path(self.srv.__file__).read_text(encoding="utf-8")
-        fn_pos = src.index("def index_health_response(")
-        diag_pos = src.index('"chunk_index_undercovered"', fn_pos)
-        self.assertGreater(diag_pos, fn_pos)
-        # And the summary helper computes the covered flag exact-first
-        # (sync-time counts), with the proportional compare as fallback.
-        self.assertIn("chunk_sync_counts(index_dir, table_name)", src)
-        self.assertIn("covered = abs(lance_rows - registry_rows)", src)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            index_dir = root / '.wavefoundry/index'
+            self._make_sqlite_code_table(index_dir, 3)
+            index = self.srv.WaveIndex(root)
+            with patch.object(index, 'docs_health', return_value={'semantic_ready': True, 'layers': {}}):
+                response = self.srv.index_health_response(index)
+            coverage = response['data']['state_store']['chunk_index']['code']
+            self.assertEqual(coverage['vector_rows'], 3)
+            self.assertNotIn('lance_rows', coverage)
+            self.assertEqual(coverage['registry_rows'], 0)
+            self.assertFalse(coverage['covered'])
+            diagnostic = next(item for item in response['diagnostics'] if item['code'] == 'chunk_index_undercovered')
+            self.assertIn('registry 0 of 3 vector rows', diagnostic['message'])
 
 
 class FtsRebuildContentTests(unittest.TestCase):
     """Wave 1sc7c (1sek8): index_build(content='fts') — from-scratch
-    rebuild of the derived lexical layer off the Lance tables."""
+    rebuild of the derived lexical layer from canonical SQLite chunks."""
 
     def setUp(self):
         self.srv = load_server()
@@ -15718,18 +15688,15 @@ class FtsRebuildContentTests(unittest.TestCase):
         self.assertFalse(resp["passed"])
         self.assertIn("no completed build epoch", resp["error"])
 
-    def test_fts_rebuild_from_scratch_off_lance(self):
-        try:
-            import lancedb
-        except Exception:  # pragma: no cover - lancedb ships in the tool venv
-            self.skipTest("lancedb unavailable")
+    def test_fts_rebuild_from_scratch_off_sqlite(self):
         rows = [
             {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
              "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
-             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
+             "chunk_hash": f"h{i}", "vector": [1.] + [0.] * 383}
             for i in range(12)
         ]
-        lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
+        _write_sqlite_index(self.index_dir, code_chunks=rows,
+                           code_vectors=[row["vector"] for row in rows])
         # 1sed6 review fix: the derived rebuild is restore-only — it requires
         # a completed build epoch (a real build published this index).
         _seed_store_state(self.index_dir, {"model_versions": {"code": "m@full"}, "content": ["code"]})
@@ -15746,7 +15713,7 @@ class FtsRebuildContentTests(unittest.TestCase):
         store = iss.IndexStateStore(self.index_dir)
         try:
             store._conn.execute("DELETE FROM fts_code")
-            store._conn.commit()
+            # APSW standalone statement committed.
         finally:
             store.close()
         self.assertEqual(iss.fts_search(self.index_dir, "code", "fn_7"), [])
@@ -15799,15 +15766,15 @@ class CodeLexicalToolTests(unittest.TestCase):
             add_rows=[
                 {"id": "c1", "path": "src/hooks.py", "kind": "code", "language": "python",
                  "lines": [1, 20], "text": "def webhook_activity_inserted(row): dispatch(row)",
-                 "chunk_hash": "h1"},
+                 "chunk_hash": "h1", "vector": [1.] + [0.] * 383},
                 {"id": "c2", "path": "src/util.py", "kind": "code", "language": "python",
                  "lines": [5, 9], "text": "def unrelated_helper(): pass",
-                 "chunk_hash": "h2"},
+                 "chunk_hash": "h2", "vector": [1.] + [0.] * 383},
                 {"id": "c3", "path": "src/big.py", "kind": "code", "language": "python",
                  "lines": [1, 400],
                  "text": "def giant_block():\n" + ("    x = 'filler line'\n" * 100)
                          + "    return webhook_activity_inserted",
-                 "chunk_hash": "h3"},
+                 "chunk_hash": "h3", "vector": [1.] + [0.] * 383},
             ],
         )
         iss.apply_chunk_deltas(
@@ -15815,7 +15782,7 @@ class CodeLexicalToolTests(unittest.TestCase):
             add_rows=[
                 {"id": "d1", "path": "docs/webhooks.md", "kind": "doc",
                  "lines": [1, 12], "text": "webhook activity is recorded when inserted",
-                 "chunk_hash": "hd1"},
+                 "chunk_hash": "hd1", "vector": [1.] + [0.] * 383},
             ],
         )
 
@@ -15876,30 +15843,19 @@ class CodeLexicalToolTests(unittest.TestCase):
         codes = [d["code"] for d in resp.get("diagnostics", [])]
         self.assertIn("lexical_layer_unavailable", codes)
 
-    def test_undercovered_table_warns_partial_results(self):
-        try:
-            import lancedb  # noqa: F401
-        except Exception:  # pragma: no cover - lancedb ships in the tool venv
-            self.skipTest("lancedb unavailable")
+    def test_mismatched_populations_fail_closed_with_coverage(self):
         iss = self._load_iss()
-        # Lance holds 60 rows; the store holds ONE delta row (the field defect shape).
-        import lancedb
-        rows = [
-            {"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
-             "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
-             "chunk_hash": f"h{i}", "vector": [0.0, 0.0, 0.0, 0.0]}
-            for i in range(60)
-        ]
-        lancedb.connect(str(self.index_dir)).create_table("code", rows, mode="overwrite")
-        iss.apply_chunk_deltas(
-            self.index_dir, "code",
-            add_rows=[{"id": "c0", "path": "f0.py", "kind": "code",
-                       "lines": [1, 5], "text": "def fn_0(): pass", "chunk_hash": "h0"}],
-        )
+        rows = [{"id": f"c{i}", "path": f"f{i}.py", "kind": "code", "language": "python",
+                 "lines": [1, 5], "section": "", "text": f"def fn_{i}(): pass",
+                 "chunk_hash": f"h{i}"} for i in range(60)]
+        _write_sqlite_index(self.index_dir, code_chunks=rows,
+                           code_vectors=[[1.] + [0.] * 383] * len(rows))
+        iss.apply_chunk_deltas(self.index_dir, "code", add_rows=[rows[0]])
         resp = self.srv.code_lexical_response(self.root, "fn_59", table="code")
-        self.assertEqual(resp["data"]["result_count"], 0)  # not in the store yet...
-        codes = [d["code"] for d in resp.get("diagnostics", [])]
-        self.assertIn("chunk_index_undercovered", codes)  # ...and the response says WHY
+        self.assertEqual(resp["status"], "error")
+        self.assertFalse(resp["data"].get("results"))
+        coverage = self.srv._chunk_index_coverage(self.root)
+        self.assertFalse(coverage["code"]["covered"])
 
     def test_healthy_zero_hit_carries_token_semantics_note(self):
         iss = self._load_iss()
@@ -15919,7 +15875,7 @@ class CodeLexicalToolTests(unittest.TestCase):
 
 
 class CloseTimeOptimizeTests(unittest.TestCase):
-    """Wave 1rycf: bloat-gated, tier-1-only index optimize at wave close (interim FTS-leak reclaim).
+    """Bloat-gated SQLite maintenance at wave close.
 
     Gate/lock/tier/fail-safe behavior of the close-time helpers, plus the wiring lock that they run
     BEFORE the close's own background refresh (lock free) and never spawn a rebuild."""
@@ -15954,6 +15910,94 @@ class CloseTimeOptimizeTests(unittest.TestCase):
         return ns, calls
 
     # --- _close_optimize_enabled (kill-switch) ---
+
+    def test_returned_maintenance_failure_preserved_by_close_and_optimize(self):
+        import copy
+        failures = [
+            {"stores": {"index-state": {"present": True, "error": None, "integrity": "ok"}},
+             "error": "epoch finalization CAS miss"},
+            {"stores": {"index-state": {"present": True, "error": "disk full", "integrity": "ok"}},
+             "finalize": {"error": "SQLite maintenance failed; epoch NOT finalized"}},
+            {"stores": {"graph-state": {"present": True, "error": None, "integrity": "structural-fail"}}},
+            {"finalize": {"error": "SQLite maintenance failed; epoch NOT finalized"}},
+        ]
+        for failure in failures:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                fake, _ = self._fake_indexer(copy.deepcopy(failure))
+                with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
+                     patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 2}), \
+                     patch.object(self.srv, "_load_script", return_value=fake), \
+                     patch.object(self.srv, "run_index_rebuild") as rebuild:
+                    result = self.srv._maybe_optimize_index_on_close(Path(tmp))
+                self.assertFalse(result["ran"])
+                self.assertEqual(result["skipped"], "optimize_error")
+                self.assertTrue(result["error"])
+                self.assertEqual(result["recovery_usage"], "index_health()")
+                self.assertEqual(result["stores"], failure.get("stores", {}))
+                self.assertNotIn("finalize", result.get("tables", {}))
+                rebuild.assert_not_called()
+                fake, _ = self._fake_indexer(copy.deepcopy(failure))
+                with patch.object(self.srv, "_load_script", return_value=fake), \
+                     patch.object(self.srv, "run_index_rebuild") as rebuild:
+                    result = self.srv._index_optimize_response(Path(tmp))
+                self.assertEqual(result["status"], "error")
+                self.assertIn("state_store_maintenance_failed", [d["code"] for d in result["diagnostics"]])
+                self.assertEqual(result["usage"], "index_health()")
+                self.assertNotIn("finalize", result["data"]["tables"])
+                rebuild.assert_not_called()
+
+    def test_graph_only_bloat_triggers_close_maintenance_without_vector_scan(self):
+        import sqlite3
+        iss = self.srv._load_script("index_state_store")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_dir = root / ".wavefoundry" / "index"
+            store = iss.IndexStateStore(index_dir)
+            store.close()
+            graph = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+            graph.parent.mkdir(parents=True)
+            conn = sqlite3.connect(str(graph))
+            conn.execute("CREATE TABLE payload(data BLOB)")
+            conn.executemany("INSERT INTO payload VALUES(?)", [(bytes(4096),)] * 300)
+            conn.commit()
+            conn.execute("DELETE FROM payload")
+            conn.commit()
+            conn.close()
+            ratios = self.srv._index_table_bloat_ratios(root)
+            self.assertIn("graph", ratios)
+            self.assertGreater(ratios["graph"], self.srv.CLOSE_OPTIMIZE_BLOAT_RATIO)
+            fake, calls = self._fake_indexer({"stores": {"graph-state": {"reclaimed_bytes": 4096}}})
+            loader = self.srv._load_script
+            with patch.object(self.srv, "_load_script", side_effect=lambda n: fake if n == "indexer" else loader(n)):
+                result = self.srv._maybe_optimize_index_on_close(root)
+            self.assertTrue(result["ran"])
+            self.assertEqual(result["bloated_tables"], ["graph"])
+            self.assertEqual(calls["tables"], ())
+            self.assertEqual(result["stores"]["graph-state"]["reclaimed_bytes"], 4096)
+
+    def test_graph_without_shared_epoch_reports_skip_and_preserves_database(self):
+        import sqlite3
+        iss = self.srv._load_script("index_state_store")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index_dir = root / ".wavefoundry" / "index"
+            graph = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+            graph.parent.mkdir(parents=True)
+            conn = sqlite3.connect(str(graph))
+            conn.execute("CREATE TABLE payload(data BLOB)")
+            conn.executemany("INSERT INTO payload VALUES(?)", [(bytes(4096),)] * 300)
+            conn.commit()
+            conn.execute("DELETE FROM payload WHERE rowid>1")
+            conn.commit()
+            conn.close()
+            before = graph.read_bytes()
+            result = self.srv._maybe_optimize_index_on_close(root)
+            self.assertIsNotNone(result)
+            self.assertFalse(result["ran"])
+            self.assertEqual(result["skipped"], "index_not_ready")
+            self.assertEqual(result["recovery_usage"], "index_health()")
+            self.assertEqual(graph.read_bytes(), before)
+            self.assertFalse(iss.state_store_path(index_dir).exists())
 
     def test_enabled_default_true_when_no_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -16631,13 +16675,13 @@ class DocCodeKindFilterTests(unittest.TestCase):
         index = self.srv.WaveIndex(self.root)
         import numpy as np
         with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+            with patch.object(index, "_embed_query", return_value=np.array([1.] + [0.] * 383, dtype=np.float32)):
                 with patch.object(index, "_get_reranker", return_value=None):
                     results, _ = index.search_docs("install command", kind="doc-code", top_n=5)
         self.assertTrue(results, "raw-SQL kind filter must find real doc-code rows")
         self.assertEqual({r["kind"] for r in results}, {"doc-code"})
         with patch.object(index, "_indexer_constant", return_value="test-model"):
-            with patch.object(index, "_embed_query", return_value=np.array([1, 0], dtype=np.float32)):
+            with patch.object(index, "_embed_query", return_value=np.array([1.] + [0.] * 383, dtype=np.float32)):
                 with patch.object(index, "_get_reranker", return_value=None):
                     doc_only, _ = index.search_docs("install command", kind="doc", top_n=5)
         self.assertEqual({r["kind"] for r in doc_only}, {"doc"},

@@ -2,7 +2,13 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-07-26
+Last verified: 2026-09-09
+
+## SQLite conversion qualification (1xjmm)
+
+Native Windows support currently requires an x64 Python environment for the pinned sqlite-vec 0.1.9 binary. Native ARM64 and 32-bit Python have no matching wheel or source distribution; they are unavailable through this pinned setup path, not merely untested. WSL2 uses the Linux dependency path (glibc 2.28 or newer for APSW); keep the checkout on its local Linux filesystem. A compatible wheel does not prove native execution: Windows package tests for this conversion remain pending.
+
+The semantic index needs local WAL-capable storage. If setup reports WAL/runtime failure, correct the filesystem or native environment and retry without deleting the index. On cutover access/sharing failure, release database handles or correct permissions and resume the ordinary upgrade; the migration receipt and recoverable data remain. A checkout reached through a trusted resolved profile/junction is distinct from an unowned reparse point inside its index tree; cleanup continues to refuse the latter.
 
 ## Context
 

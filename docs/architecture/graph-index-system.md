@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-07
+Last verified: 2026-09-09
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -270,6 +270,21 @@ Written by `_write_json()` as gzip-compressed compact JSON with sorted keys (wav
 | Project state store | `.wavefoundry/index/graph/project-graph-state.sqlite` |
 
 **Per-file state store (wave `1p9q2`).** The state is a stdlib-`sqlite3` database (`GraphStateStore`), not a JSON artifact: a `files` table holds one row per source file (`path`, `source_hash`, and a gzip compact-JSON record `{"source_hash":…, "artifact":…}` — the same record shape and byte format the artifacts use), a `meta` table carries the store/schema/builder/walker/chunker/layer versions plus the payload crash-consistency binding, and a `blobs` table carries the `merge_state` sidecar (the persistent merged maps: per-file raw node lists + resolved edge fragments with provenance). `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout` for concurrent hook-spawned builds; all per-build mutations commit in one transaction. A one-file build reads and writes O(changed) rows instead of parsing and rewriting a monolithic state document. The legacy monolithic `project-graph-state.json` is **discarded** one-time when the store first opens (a full re-extract follows, matching the established version-bump upgrade cost); it also remains the pre-upgrade fallback for the version-staleness probe (`read_state_builder_version()`, used by `graph_query`'s auto-rebuild check).
+
+**Free-space maintenance (wave `1xjmm`).** New graph stores enable incremental
+auto-vacuum before creating tables. Controlled `index_optimize` maintenance
+(also run by ordinary setup/upgrade) checks integrity before converting an older
+graph store once to incremental auto-vacuum; a store with auto-vacuum disabled
+needs one full `VACUUM` for that conversion. It then uses bounded incremental
+reclamation of at most 5,000 pages. This one-time conversion preserves graph
+rows and does not re-extract source or regenerate embeddings. Failed maintenance
+retains the store and reports recovery guidance. Routine passes thereafter use
+passive checkpointing and bounded reclamation, retaining reusable free pages.
+
+Close-time maintenance is opportunistic: at least 40% free pages in either the
+semantic or graph database triggers maintenance of both. An older graph store's
+auto-vacuum setting alone does not force work during close; setup/upgrade or an
+explicit `index_optimize` call handles that conversion without waiting for bloat.
 
 ### Determinism and the input fingerprint (wave 1p66e)
 
@@ -560,7 +575,7 @@ index_build(content='graph')
       → graph_cluster.update_graph_clusters() → project-graph-clusters.json
 ```
 
-Semantic embedding (LanceDB) is skipped entirely in graph mode (`indexer.py:1938-1939`).
+Semantic embedding and vector writes are skipped in graph-only mode; the graph retains its separate state store.
 
 ### Incremental vs. Full Rebuild
 
@@ -581,7 +596,7 @@ Additionally, when code files change, doc artifacts whose cached `mentioned_symb
 
 The merge-state blob is loaded once and reused for eligibility and merge work; its decode cost scales with the whole blob, while unaffected artifact rows and document text remain unread. The outer `build_index` idle path uses `read_pending_doc_link_repairs()` to read the same state without constructing a mutating graph store. A real build forwards that snapshot to the graph session under its build lock and epoch, and the session checks the snapshot's metadata before reuse. An existing incompatible builder/version is reported as pending re-extraction. Dry runs report pending graph work and return before execution; a healthy idle build with no pending work opens no epoch. Graph recovery also performs graph orphan retirement, so a combined idle pass reconciles the other sidecars without running a second graph merge.
 
-**Orphan retirement (wave 1u8o2):** store rows whose path the walk no longer knows (out-of-band deletions, older-pack residue) are pruned by the merge's known-minus-current diff on any build with real work, but a zero-change idle build never reached the merge, so such rows previously survived it forever. The indexer's orphan-store reconciliation now detects them read-only on every incremental and, when removable orphans exist, invokes `retire_orphaned_graph_paths()` inside the build epoch: a thin retirement API that delegates to `update_graph_index()` with an empty changed set, so the ordinary merge prunes rows, re-resolves edges into the removed paths, and rewrites the payload and merge state atomically (a raw row delete would desync the store from the served payload). The caller gates the invocation on per-path absence classification and a mass-removal circuit breaker; once the merge is triggered the prune is walk-parity (a preserved-classified unreadable path can still be pruned by the merge, since an unreadable file is invisible to the walk), so per-path preservation binds at the trigger and the breaker, not inside the merge, with one exception since wave `1x54z`: a known path under a directory the walk reported unreadable (`GraphIndexSession(unreadable_dirs=...)`) counts as current at both entry points, the ordinary `update_graph_index` merge and `retire_orphaned_graph_paths`, so it is neither pruned nor re-extracted (the impacted-docs rescan skips it too, so a symbol change elsewhere leaves its stored artifact, cached mentions and fragment edges included, as it was until the doc is next re-scanned: the served payload drops its edge to a removed symbol for that build and misses any new edge; a later merge re-emits the stored fragment's stale edge, which the assembly-time dangling-endpoint filter of wave `1x6ti` / `1x5pc` drops again at payload assembly, so the served graph never carries it), and the session's current-path set carries the same paths so a doc re-extracted during the outage still resolves its links into the subtree; preservation for the stat-seam class (a file whose parent directory walked) still binds at the trigger and the breaker. A full rebuild passes no directories and keeps parity with the Lance tables. See `data-and-control-flow.md` item 15.
+**Orphan retirement (wave 1u8o2):** store rows whose path the walk no longer knows (out-of-band deletions, older-pack residue) are pruned by the merge's known-minus-current diff on any build with real work, but a zero-change idle build never reached the merge, so such rows previously survived it forever. The indexer's orphan-store reconciliation now detects them read-only on every incremental and, when removable orphans exist, invokes `retire_orphaned_graph_paths()` inside the build epoch: a thin retirement API that delegates to `update_graph_index()` with an empty changed set, so the ordinary merge prunes rows, re-resolves edges into the removed paths, and rewrites the payload and merge state atomically (a raw row delete would desync the store from the served payload). The caller gates the invocation on per-path absence classification and a mass-removal circuit breaker; once the merge is triggered the prune is walk-parity (a preserved-classified unreadable path can still be pruned by the merge, since an unreadable file is invisible to the walk), so per-path preservation binds at the trigger and the breaker, not inside the merge, with one exception since wave `1x54z`: a known path under a directory the walk reported unreadable (`GraphIndexSession(unreadable_dirs=...)`) counts as current at both entry points, the ordinary `update_graph_index` merge and `retire_orphaned_graph_paths`, so it is neither pruned nor re-extracted (the impacted-docs rescan skips it too, so a symbol change elsewhere leaves its stored artifact, cached mentions and fragment edges included, as it was until the doc is next re-scanned: the served payload drops its edge to a removed symbol for that build and misses any new edge; a later merge re-emits the stored fragment's stale edge, which the assembly-time dangling-endpoint filter of wave `1x6ti` / `1x5pc` drops again at payload assembly, so the served graph never carries it), and the session's current-path set carries the same paths so a doc re-extracted during the outage still resolves its links into the subtree; preservation for the stat-seam class (a file whose parent directory walked) still binds at the trigger and the breaker. A full rebuild prepares the graph from the current walk. If previously indexed paths are omitted because a directory is unreadable, the semantic removal guard refuses publication and the global epoch stays unavailable until a coherent retry. See `data-and-control-flow.md` item 15.
 
 ### Staleness Check
 
@@ -589,7 +604,7 @@ The merge-state blob is loaded once and reused for eligibility and merge work; i
 
 ### Separation from Semantic Index
 
-`content="graph"` and `content="docs"` / `content="code"` are completely independent pipelines. The graph pipeline writes JSON artifacts only. The semantic pipeline runs LanceDB embedding and does not call `_build_graph_artifacts()`. `content="all"` (the default setup path) runs both.
+Graph artifacts and their state remain separate from the shared semantic SQLite database. `content="graph"` normally performs graph work without embedding; missing semantic provenance or incompatible model identity can escalate a scoped request to all-layer convergence. The default `content="all"` setup path prepares graph and semantic work together, then publishes behind the shared build epoch. Graph preparation is outside the semantic transaction, so a failed semantic publication keeps readers unavailable until recovery.
 
 ---
 

@@ -879,21 +879,27 @@ def _read_installed_graph_builder_version(root: Path) -> str:
 
 # Wave 1rxyi: the distribution zip ships the single-use bootstrap `install-wavefoundry.md` at the ZIP
 # ROOT (build_pack.py — the agent must discover it before .wavefoundry/ is known). It therefore
-# extracts into the PROJECT ROOT on every install and upgrade (`unzip -o`/`extractall`). The prune step
-# is MANIFEST-scoped to .wavefoundry/framework/ and never touches a root file, so the bootstrap file
-# would otherwise linger after install and be re-dropped on every upgrade. Remove it after extraction —
-# it is transient (the canonical install instructions live in docs/prompts/install-wavefoundry.prompt.md).
+# can extract into the PROJECT ROOT. Preserve any preexisting file there; only
+# remove an unchanged bootstrap whose creation this invocation observed.
 _ROOT_BOOTSTRAP_FILENAME = "install-wavefoundry.md"
+_CREATED_ROOT_BOOTSTRAPS: dict[Path, tuple[int, int, str]] = {}
 
 
 def _remove_root_bootstrap_file(root: Path) -> None:
-    """Delete the extracted root ``install-wavefoundry.md`` bootstrap file (wave 1rxyi).
+    """Remove only an unchanged installer created by this invocation.
 
-    Fail-safe: a missing file is a no-op and an unlink error is logged and swallowed — this is cosmetic
-    project-root hygiene and must never fail or gate the upgrade."""
+    A retry or a standalone index phase cannot infer ownership from the name.
+    Pre-existing, tracked, modified and replaced files remain project-owned.
+    """
     path = root / _ROOT_BOOTSTRAP_FILENAME
+    created = _CREATED_ROOT_BOOTSTRAPS.pop(root.resolve(), None)
+    if created is None:
+        return
     try:
-        if path.exists():
+        metadata = path.lstat()
+        if (stat.S_ISREG(metadata.st_mode)
+                and not getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                and (metadata.st_dev, metadata.st_ino, _file_sha256_no_follow(path)) == created):
             path.unlink()
             _log(f"  Removed transient bootstrap file {_ROOT_BOOTSTRAP_FILENAME} from the project root.")
     except OSError as exc:  # non-fatal — never abort the upgrade over a cleanup unlink
@@ -918,13 +924,23 @@ def _extract_feature_members(zf: "zipfile.ZipFile", root: Path) -> int:
     else (the zipapp runner members, or any unexpected root member — including backslash-separator
     names that would otherwise land as literal root files on POSIX) is skipped, never written.
     Returns the count of skipped members; a feature-only archive skips zero."""
+    bootstrap = root / _ROOT_BOOTSTRAP_FILENAME
+    preexisting_bootstrap = bootstrap.exists() or bootstrap.is_symlink()
     allowed = [
         name
         for name in zf.namelist()
         if name.startswith(_EXTRACT_MEMBER_PREFIX) or name in _EXTRACT_ROOT_MEMBERS
+        if name != _ROOT_BOOTSTRAP_FILENAME or not preexisting_bootstrap
     ]
     skipped = len(zf.namelist()) - len(allowed)
     zf.extractall(str(root), members=allowed)
+    if _ROOT_BOOTSTRAP_FILENAME in allowed:
+        metadata = bootstrap.lstat()
+        if (stat.S_ISREG(metadata.st_mode)
+                and not getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            _CREATED_ROOT_BOOTSTRAPS[root.resolve()] = (
+                metadata.st_dev, metadata.st_ino, _file_sha256_no_follow(bootstrap)
+            )
     return skipped
 
 
@@ -1054,6 +1070,7 @@ class UpgradeContext:
         # define it, which lets a protocol-2 feature pack refuse them before
         # extraction through ``post_preflight``.
         self.runner_protocol = 2
+        self.storage_migration_protocol = 1
         # Wave 1p3b9 (1p3b6): when True, post_extract migrations call their
         # `_preview_*` variants (zero filesystem mutations) and write a
         # preview-log instead of the action log. Propagated from the upgrade
@@ -1437,6 +1454,10 @@ def phase_dry_run(root: Path) -> int:
 
 def _clear_stale_upgrade_lock_for_preflight(root: Path, upgrade_lib: Any) -> None:
     """Clear ordinary stale locks, but retain failed dashboard restart intent."""
+    import sqlite_storage_migration
+    migration = sqlite_storage_migration.restore_checkpoint(root)
+    if migration is not None and migration["state"] != "complete":
+        return
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is None or not upgrade_lib.is_lock_stale(root):
         return
@@ -1474,7 +1495,16 @@ def phase_preflight(
     # Check for existing lock
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is not None:
-        if upgrade_lib.is_lock_stale(root):
+        import sqlite_storage_migration
+        receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+        restored_owner = bool(receipt and receipt["state"] != "complete"
+                              and existing_lock.get("pid") == os.getpid()
+                              and existing_lock.get("storage_migration_id") == receipt["migration_id"])
+        if restored_owner:
+            # main restored the receipt-owned fence before this preflight.
+            # It belongs to this new coordinator, not a concurrent upgrade.
+            pass
+        elif upgrade_lib.is_lock_stale(root):
             _clear_stale_upgrade_lock_for_preflight(root, upgrade_lib)
         else:
             _err(
@@ -2322,6 +2352,23 @@ def _record_index_publication_outcome(root: Path, published: bool) -> None:
         )
 
 
+def _verify_storage_publication(root: Path) -> None:
+    """Verify migration only after its authoritative epoch has been published."""
+    import sqlite_storage_migration
+
+    receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+    if receipt is None or receipt["state"] == "complete":
+        return
+    if receipt["state"] not in {"published", "verified", "cleanup_pending"}:
+        raise RuntimeError("storage_publication_incomplete: resume standard wf_upgrade; receipt retained")
+    verification = subprocess_util.isolated_run(
+        [_preferred_python(), str(SCRIPTS_DIR / "sqlite_storage_migration.py"),
+         "--verify", str(root)], cwd=str(root), check=False,
+    )
+    if verification.returncode != 0:
+        raise RuntimeError("storage_new_process_verification_failed: cleanup remains blocked")
+
+
 def phase_index_update(root: Path) -> bool:
     """Incremental index update — re-embeds only changed files.
 
@@ -2332,9 +2379,41 @@ def phase_index_update(root: Path) -> bool:
     successful, False when the child exited non-zero (1u44n: the outcome is
     OBSERVED, not assumed; callers derive the summary field from it).
     """
+    import sqlite_storage_migration
+    migration_receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+    migration_pending = migration_receipt is not None and migration_receipt["state"] != "complete"
+    rebuild_storage = migration_pending and migration_receipt.get("strategy") == "rebuild"
+    migration_state = sqlite_storage_migration.detect(root / ".wavefoundry/index")
+    if migration_state["migration_required"]:
+        # Dependency provisioning stays on canonical setup, before native
+        # conversion is imported. The reader remains migration-only.
+        import setup_index
+        setup_index.ensure_deps(root)
+        if not rebuild_storage and any(name in migration_state["legacy"] for name in ("docs.lance", "code.lance")):
+            setup_index.ensure_migration_deps(root)
+        if rebuild_storage:
+            # Validate the normal setup model path before replacing the live
+            # database. This process must not attempt indexing a legacy store.
+            import upgrade_lib
+            model_lock = upgrade_lib.read_upgrade_lock(root) or {}
+            model_env = dict(os.environ)
+            if model_lock.get("model_bundle_path"):
+                model_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(model_lock["model_bundle_path"])
+                model_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(model_lock.get("model_bundle_model_set_version") or "")
+            warm = subprocess_util.isolated_run(
+                [_preferred_python(), str(SCRIPTS_DIR / "setup_index.py"), "--root", str(root), "--prewarm-only"],
+                cwd=str(root), check=False, env=model_env,
+            )
+            if warm.returncode != 0:
+                raise sqlite_storage_migration.MigrationRequired(
+                    "storage_rebuild_models_unavailable: model preflight failed; legacy sources and receipt retained")
+        sqlite_storage_migration.migrate_legacy(root)
+    sqlite_storage_migration.begin_upgrade_publication(root)
     _log("\n── Phase 4: Index update ──")
     setup_script = SCRIPTS_DIR / "setup_index.py"
     if not setup_script.exists():
+        if migration_pending:
+            raise RuntimeError("storage_publication_unavailable: setup_index.py missing; receipt retained")
         _log("  setup_index.py not found — skipping index update.")
         return True
 
@@ -2355,13 +2434,15 @@ def phase_index_update(root: Path) -> bool:
         child_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
     result = subprocess_util.isolated_run(
-        [_preferred_python(), str(setup_script), "--root", str(root)],
+        [_preferred_python(), str(setup_script), "--root", str(root)] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
         check=False,
         env=child_env,
     )
     if result.returncode != 0:
         message = f"Semantic index update exited {result.returncode}"
+        if migration_pending:
+            raise RuntimeError(message + " — storage migration retains its receipt and legacy sources")
         if memory_run_id:
             raise RuntimeError(
                 message
@@ -2402,22 +2483,32 @@ def phase_index_update(root: Path) -> bool:
     if grant_token:
         graph_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     graph_result = subprocess_util.isolated_run(
-        [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"],
+        [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
         check=False,
         env=graph_env,
     )
     if graph_result.returncode != 0:
+        if migration_pending:
+            raise RuntimeError("Graph index update failed during storage migration; receipt and legacy sources retained")
         # 1u44n recorded justification: the graph store sits outside the
         # semantic build epoch and the first-query rebuild remains its safety
         # net, so this stays a warning — it cannot produce a false-success
         # `index_update` field.
         _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
 
-    _log(
-        "  Phase 4c: skipped — the foreground setup pass already published "
-        "one complete docs+code semantic epoch."
-    )
+    if os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip():
+        _log("  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.")
+    else:
+        _log(
+            "  Phase 4c: skipped — the foreground setup pass already published "
+            "one complete docs+code semantic epoch."
+        )
+    migration_receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+    if published and migration_receipt is not None and migration_receipt["state"] in {"published", "verified", "cleanup_pending"}:
+        sqlite_storage_migration.record_upgrade_publication(root)
+        if not os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip():
+            _verify_storage_publication(root)
     return published
 
 
@@ -2436,6 +2527,25 @@ def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
             return False
         if not isinstance(receipt, dict):
             return False
+        import sqlite_storage_migration
+        storage_receipt = sqlite_storage_migration.read_receipt(index_dir)
+        if storage_receipt is not None and storage_receipt["state"] != "complete":
+            observed = storage_receipt.get("upgrade_publication", {})
+            if observed.get("semantic_exit") != 0 or observed.get("graph_exit") != 0:
+                # A staging receipt proves the child attempt, not that both
+                # ordinary child processes exited successfully. Retry Phase 4.
+                return False
+            try:
+                sqlite_storage_migration.validate_rebuild_publication(root, receipt)
+            except sqlite_storage_migration.MigrationRequired:
+                # A prior child stage cannot substitute for this migration's
+                # complete, source-derived semantic rebuild proof.
+                return False
+        import memory_backfill
+        if memory_backfill.run_state(root, memory_run_id) != "publishing_index":
+            # Standard recovery may retire the old attempt's authorization.
+            # Recompute through the ordinary children under the current census.
+            return False
         if not index_state_store.finalize_staged_build_epoch(
             index_dir, receipt, memory_run_id
         ):
@@ -2445,6 +2555,7 @@ def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
 
     if _finalize_existing():
         _log("  Recovered verified child staging receipt; parent finalized index epoch.")
+        _verify_storage_publication(root)
         return
     receipt_path.unlink(missing_ok=True)
     previous = os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT")
@@ -2461,6 +2572,7 @@ def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
             "index child did not produce a valid staging receipt; authoritative "
             "index state remains unpublished"
         )
+    _verify_storage_publication(root)
 
 
 def phase_index_rebuild(root: Path) -> bool:
@@ -2771,15 +2883,15 @@ def _remove_retired_component_no_follow(target: Path) -> str:
     swapped for a symlink or junction in the lstat-to-descent window is
     therefore refused rather than walked (the bare ``os.walk`` root followed
     such a swap because ``followlinks=False`` governs only sub-symlinks). A
-    Windows directory junction (not a symlink on CPython 3.12+, so
-    ``DirEntry.is_symlink()`` is False) is classified via ``os.path.isjunction``
-    and unlinked as a node instead of walked into. Regular files are unlinked
+    Windows junctions and other reparse points are classified from non-followed
+    ``st_file_attributes`` metadata, including on Python 3.11 where junction
+    convenience APIs do not exist, and unlinked as nodes instead of walked into. Regular files are unlinked
     and real subdirectories are removed with ``rmdir`` only after their
     non-followed contents are gone. The check-to-use guarantee is narrower than
     the fd-anchored path by design: a residual window remains between the
     pre-descent re-check and the ``scandir`` that follows it.
     """
-    _isjunction = getattr(os.path, "isjunction", lambda p: False)
+    from sqlite_storage_migration import _is_link_or_reparse
 
     def _unlink_node(node: Path) -> None:
         # Remove a reparse point (symlink OR junction) as a NODE without
@@ -2796,13 +2908,16 @@ def _remove_retired_component_no_follow(target: Path) -> str:
         # Manual bottom-up recursion. Every reparse point (symlink or junction,
         # file or dir) is unlinked as a node; only a real subdirectory is
         # recursed into and then ``rmdir``'d; a regular file is unlinked.
+        if _is_link_or_reparse(directory.lstat()):
+            raise OSError("directory changed to a reparse point before descent")
         with os.scandir(directory) as scan:
             entries = list(scan)
         for entry in entries:
             entry_path = Path(entry.path)
-            if entry.is_symlink() or _isjunction(entry.path):
+            entry_stat = entry_path.lstat()
+            if _is_link_or_reparse(entry_stat):
                 _unlink_node(entry_path)
-            elif entry.is_dir(follow_symlinks=False):
+            elif stat.S_ISDIR(entry_stat.st_mode):
                 _remove_tree(entry_path)
                 os.rmdir(entry_path)
             else:
@@ -2815,7 +2930,7 @@ def _remove_retired_component_no_follow(target: Path) -> str:
     except OSError:
         return "failed"
     try:
-        if stat.S_ISLNK(target_stat.st_mode) or _isjunction(target):
+        if _is_link_or_reparse(target_stat):
             _unlink_node(target)
             return "removed"
         if not stat.S_ISDIR(target_stat.st_mode):
@@ -2824,7 +2939,7 @@ def _remove_retired_component_no_follow(target: Path) -> str:
         # directory that has become a symlink or junction in the
         # entry-lstat -> descent window instead of walking (and following) it.
         pre_descent = target.lstat()
-        if stat.S_ISLNK(pre_descent.st_mode) or _isjunction(target):
+        if _is_link_or_reparse(pre_descent):
             return "failed"
         _remove_tree(target)
         os.rmdir(target)
@@ -2835,7 +2950,8 @@ def _remove_retired_component_no_follow(target: Path) -> str:
     return "removed"
 
 
-def _remove_retired_component(cache_root: Path, component: str, custom: bool) -> str:
+def _remove_retired_component(cache_root: Path, component: str, custom: bool,
+                              *, ownership_root: Path | None = None) -> str:
     """Return removed/absent/unowned/failed without exposing filesystem data."""
     # 1v0r0 repair (F5): allowlisted component keys are flat directory names.
     # Refuse any separator- or traversal-shaped key BEFORE the first
@@ -2849,14 +2965,27 @@ def _remove_retired_component(cache_root: Path, component: str, custom: bool) ->
         or ".." in Path(component).parts
     ):
         return "unowned"
+    from sqlite_storage_migration import _is_link_or_reparse, _is_reparse
     target = cache_root / component
     try:
+        if ownership_root is not None:
+            # Migration supplies its resolved, receipt-validated repository.
+            # A redirected profile above that boundary is not owned storage;
+            # every descendant between it and the index still must be real.
+            boundary = ownership_root.absolute()
+            relative = cache_root.absolute().relative_to(boundary)
+            for depth in range(1, len(relative.parts) + 1):
+                if _is_link_or_reparse(boundary.joinpath(*relative.parts[:depth]).lstat()):
+                    return "unowned"
+        elif any(_is_reparse(parent.lstat()) for parent in cache_root.absolute().parents):
+            # Shared model-cache cleanup retains its original ancestry policy.
+            return "unowned"
         root_stat = cache_root.lstat()
     except FileNotFoundError:
         return "absent"
-    except OSError:
+    except (OSError, ValueError):
         return "unowned"
-    if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
+    if _is_link_or_reparse(root_stat) or not stat.S_ISDIR(root_stat.st_mode):
         return "unowned"
     try:
         target.relative_to(cache_root)
@@ -2949,6 +3078,7 @@ def phase_cleanup(
     retired_model_cleanup: dict | None = None,
 ) -> None:
     import upgrade_lib
+    import sqlite_storage_migration
 
     _log("\n── Phase 5: Cleanup ──")
     if not lock_present:
@@ -3013,6 +3143,10 @@ def phase_cleanup(
             retired_model_cleanup=retired_model_cleanup,
         )
         raise SystemExit(1)
+
+    # Storage format failures and missing new-process verification are fatal,
+    # unlike ordinary historical index failures. Do this before lock removal.
+    sqlite_storage_migration.cleanup_legacy(root)
 
     if restart_pending:
         try:
@@ -4469,6 +4603,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Non-interactive mode: skip confirmation prompt",
     )
+    parser.add_argument("--confirm-hosts-stopped", action="store_true",
+                        help="Confirm old Wavefoundry hosts were fully stopped before storage migration; identified live hosts still block.")
+    parser.add_argument("--rebuild-storage", action="store_true",
+                        help="Explicitly rebuild legacy semantic storage from current source during ordinary upgrade resume; retain the receipt and original archive.")
     parser.add_argument(
         "--update-index",
         action="store_true",
@@ -4616,6 +4754,19 @@ def main(argv: list[str] | None = None) -> int:
     # ── Dry-run ────────────────────────────────────────────────────────────
     if args.dry_run:
         return phase_dry_run(root)
+
+    if args.rebuild_storage and any((args.update_index, args.rebuild_index,
+                                    args.cleanup, args.resume_after_gate,
+                                    args.resume_after_memory)):
+        _err("--rebuild-storage selects recovery during ordinary upgrade resume; use the retained continuation command with its original --pack, not a standalone phase.")
+        return 2
+
+    import sqlite_storage_migration
+    sqlite_storage_migration.restore_checkpoint(root)
+    if args.confirm_hosts_stopped:
+        os.environ[sqlite_storage_migration.CONFIRM_ENV] = "1"
+    else:
+        os.environ.pop(sqlite_storage_migration.CONFIRM_ENV, None)
 
     def _zip_from_lock(lock: dict | None) -> Path | None:
         """Resolve the zip used in the original upgrade from the lock file.
@@ -4813,6 +4964,16 @@ def main(argv: list[str] | None = None) -> int:
                 resume_transaction.__exit__(*sys.exc_info())
                 return backfill.ACTION_REQUIRED_EXIT
             if summary["state"] == "indexed":
+                try:
+                    _verify_storage_publication(root)
+                except Exception as exc:
+                    upgrade_lib.update_upgrade_lock(
+                        root, failed_phase="index_update",
+                        memory_backfill_last_failure=f"{type(exc).__name__}: {exc}",
+                    )
+                    _err(f"Historical memory storage verification failed: {exc}")
+                    resume_transaction.__exit__(*sys.exc_info())
+                    return 1
                 # A marker from an earlier failed resume names the phase this
                 # reconciliation just proved complete; only that marker clears.
                 upgrade_lib.clear_failed_phase(root, "index_update")
@@ -4977,13 +5138,8 @@ def main(argv: list[str] | None = None) -> int:
             # reliable new-code place to heal. Idempotent (a repo already on scheme_version v2 is a no-op)
             # and fail-safe (a config error degrades to a recovery pointer — never fails the index phase).
             _ensure_lifecycle_policy_backstop(root)
-            # Wave 1rych: bootstrap-file removal from NEW code, mirroring the lifecycle backstop above.
-            # `_remove_root_bootstrap_file` is also called in the extract phase (Phase 0b), but on a
-            # from-old MCP upgrade the extract runs the OLD in-process orchestrator (which predates the
-            # removal helper), so the stray root `install-wavefoundry.md` is left behind. This
-            # `--update-index` subprocess runs the freshly extracted (NEW) code and is invoked by every
-            # MCP upgrade flow post-extract, so it reliably cleans up the file even from an older source
-            # version. Idempotent (a missing file is a no-op) and fail-safe (never aborts the index phase).
+            # A new process cannot infer ownership from the reserved filename.
+            # The helper preserves it unless this invocation created it.
             _remove_root_bootstrap_file(root)
             # Wave 1u2b0: rendered-permissions backstop from NEW code, same old-code-window
             # precedent as the two backstops above — an upgrade runs Phase 1 on the
@@ -5322,6 +5478,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Build context and load extension module from zip (before extraction).
     ctx = UpgradeContext(root, from_version, to_version, zip_path, args.yes)
+    # Hooks consume the private verified copy, but restart commands need the
+    # selected archive's locator. Content hashes, not temporary names, bind it.
+    ctx.selected_feature_zip = selected_feature_zip
+    ctx.rebuild_storage = args.rebuild_storage
     ext_mod = _load_extension_module(zip_path)
 
     _run_hook("post_preflight", ctx, ext_mod)
@@ -5412,6 +5572,8 @@ def main(argv: list[str] | None = None) -> int:
             import upgrade_extensions
 
             upgrade_extensions.pre_extract(ctx)
+            import sqlite_storage_migration
+            sqlite_storage_migration.prepare_upgrade(ctx)
 
         # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
         # version constants BEFORE extract so we can log any transitions in
@@ -5445,14 +5607,13 @@ def main(argv: list[str] | None = None) -> int:
                 _log(f"  Extracted {zip_path.name}")
                 if _skipped_members:
                     _log(
-                        f"  Withheld {_skipped_members} bundle runner member(s) "
-                        "(payload/, zipapp runner files) from the project root."
+                        f"  Withheld {_skipped_members} non-feature or preexisting "
+                        "project-owned member(s) from extraction."
                     )
             _run_hook("post_extract", ctx, ext_mod)
 
-            # Wave 1rxyi: the zip drops the single-use bootstrap `install-wavefoundry.md` at the project
-            # root (it ships at the zip root by design). Prune is MANIFEST-scoped to .wavefoundry/ and
-            # never removes a root file, so clean it up here — fail-safe, so it never aborts the upgrade.
+            # Retire only the unchanged bootstrap created by this extraction.
+            # A resumed invocation preserves files whose ownership it cannot prove.
             _remove_root_bootstrap_file(root)
 
             # Note any framework version transitions in the upgrade log.

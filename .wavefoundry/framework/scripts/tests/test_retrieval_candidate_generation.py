@@ -25,17 +25,17 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from server_tools_support import _make_repo, _write_lance_index, load_server
+from server_tools_support import _make_repo, _write_sqlite_index, load_server
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
-QUERY_VEC = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+QUERY_VEC = np.array([1.0] + [0.0] * 383, dtype=np.float32)
 LONG_TAIL = "alpha_handler " + "filler " * 24  # a longer document: BM25 ranks it after the short ones
 
 
 def _unit(angle_deg: float) -> list[float]:
     """A unit vector whose cosine to QUERY_VEC falls monotonically with the angle."""
     a = np.deg2rad(angle_deg)
-    return [float(np.cos(a)), float(np.sin(a)), 0.0, 0.0]
+    return [float(np.cos(a)), float(np.sin(a))] + [0.0] * 382
 
 
 def _chunk(i: int, path: str, language: str = "python", text: str = "alpha_handler", kind: str = "code") -> dict:
@@ -91,7 +91,7 @@ class _CandidateFixture(unittest.TestCase):
         self.index_dir.mkdir(parents=True, exist_ok=True)
         code_vectors = [_unit(0.5 * i) for i in range(len(code_chunks))]
         docs_vectors = [_unit(0.5 * i) for i in range(len(docs_chunks or []))]
-        _write_lance_index(
+        _write_sqlite_index(
             self.index_dir,
             docs_chunks=docs_chunks if docs_chunks else None,
             docs_vectors=docs_vectors if docs_chunks else None,
@@ -115,6 +115,7 @@ class _CandidateFixture(unittest.TestCase):
         self.epoch = self.iss.build_epoch_state_token(self.index_dir)
         self.assertEqual(self.epoch[1], "complete")
         idx = self.srv.WaveIndex(self.root)
+        idx._start_background_model_downloads_after_startup = lambda: None
         idx._embed_query = lambda q, model: QUERY_VEC.copy()
         idx._ensure_loaded()
         return idx
@@ -122,13 +123,13 @@ class _CandidateFixture(unittest.TestCase):
     @staticmethod
     def _spy_lance(idx) -> list[dict]:
         calls: list[dict] = []
-        original = idx._lance_search
+        original = idx._vector_search
 
         def spy(table, qvec, top_n, where=None, layer="project"):
             calls.append({"top_n": top_n, "where": where})
             return original(table, qvec, top_n, where=where, layer=layer)
 
-        idx._lance_search = spy
+        idx._vector_search = spy
         return calls
 
     def _offline_index(self):
@@ -184,7 +185,7 @@ class LanguagePredicateTests(unittest.TestCase):
     def test_search_code_pushes_the_same_set_into_lance_and_fts(self):
         srv = self.srv
         index = srv.WaveIndex.__new__(srv.WaveIndex)
-        index._lance_available = {("project", "code")}
+        index._vector_available = {("project", "code")}
         captured: dict = {}
 
         def lance(table, qvec, top_n, where=None, layer="project"):
@@ -200,8 +201,8 @@ class LanguagePredicateTests(unittest.TestCase):
                 patch.object(index, "_start_background_model_downloads_after_startup"), \
                 patch.object(index, "_embed_query", return_value=None), \
                 patch.object(index, "_indexer_constant", return_value="model"), \
-                patch.object(index, "_open_lance_table", return_value=object()), \
-                patch.object(index, "_lance_search", side_effect=lance), \
+                patch.object(index, "_open_vector_layer", return_value=object()), \
+                patch.object(index, "_vector_search", side_effect=lance), \
                 patch.object(index, "_fts5_lexical_search", side_effect=fts), \
                 patch.object(index, "_get_reranker", return_value=None):
             index.search_code("q", language="web", top_n=7, kind="code")
@@ -225,10 +226,10 @@ class RankThirtyOneLanguageTests(_CandidateFixture):
 
     def test_fixture_places_the_typescript_row_past_both_windows(self):
         idx = self._rank_32_fixture()
-        table = idx._open_lance_table("project", "code")
-        dense_window = idx._lance_search(table, QUERY_VEC, 31)
+        table = idx._open_vector_layer("project", "code")
+        dense_window = idx._vector_search(table, QUERY_VEC, 31)
         self.assertEqual({r["language"] for r in dense_window}, {"python"})
-        self.assertEqual(idx._lance_search(table, QUERY_VEC, 32)[-1]["path"], "web/app.ts")
+        self.assertEqual(idx._vector_search(table, QUERY_VEC, 32)[-1]["path"], "web/app.ts")
         lexical_window = self.iss.fts_search(self.index_dir, "code", "alpha_handler", limit=31)
         self.assertEqual(len(lexical_window), 31)
         self.assertEqual({r["language"] for r in lexical_window}, {"python"})
@@ -1019,161 +1020,19 @@ class ColdEpochHybridCostTests(_CandidateFixture):
         probe.assert_not_called()
 
 
-class _RecordingBuilder:
-    """Records which builder methods production invokes; delegates to the real builder."""
-
-    def __init__(self, builder, invoked: list):
-        self._builder = builder
-        self._invoked = invoked
-
-    def __getattr__(self, name):
-        attr = getattr(self._builder, name)
-        if not callable(attr):
-            return attr
-
-        def call(*args, **kwargs):
-            self._invoked.append(name)
-            out = attr(*args, **kwargs)
-            return _RecordingBuilder(out, self._invoked) if out is self._builder else out
-
-        return call
-
-
-class _RecordingTable:
-    def __init__(self, table, invoked: list, captured: dict):
-        self._table = table
-        self._invoked = invoked
-        self._captured = captured
-
-    def search(self, vector):
-        builder = self._table.search(vector)
-        self._captured["builder"] = builder
-        return _RecordingBuilder(builder, self._invoked)
-
-
-ANN_TUNING_METHODS = ("nprobes", "minimum_nprobes", "maximum_nprobes", "refine_factor", "ef")
-
-
-@unittest.skipUnless(importlib.util.find_spec("lancedb"), "lancedb not installed")
-class LanceQueryBuilderDefaultsTests(unittest.TestCase):
-    """Wave 1wsc8 AC-4: production now carries EXACTLY ONE certified ANN tuning
-    value and nothing else.
-
-    This class previously asserted that no tuning was set at all, which was the
-    correct contract while nothing had been measured. Wave 1wsc8 certified
-    `refine_factor=2` against an exact-search reference (macro overlap
-    0.96 -> 1.00 across five frozen slices, no slice losing overlap) and then
-    against the standing 35-fixture gate (code_ask nDCG@10 0.5167 -> 0.5185,
-    zero metrics worse, no new violation). The same certifier REJECTED
-    nprobes=20 and nprobes=50. The contract therefore changes shape but not
-    strictness: exactly the certified method and value may appear, and every
-    unmeasured setting is still refused."""
-
+class SQLiteQueryShapeTests(unittest.TestCase):
+    """Exact SQLite search replaces all ANN tuning; native behavior is exercised above."""
     def setUp(self):
         self.srv = load_server()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
 
-    def _index(self):
-        return self.srv.WaveIndex.__new__(self.srv.WaveIndex)
-
-    def test_production_query_invokes_no_tuning_and_submits_none(self):
-        import lancedb
-        db = lancedb.connect(self.tmp.name)
-        rows = [{"id": f"r{i}", "path": f"src/f{i}.py", "kind": "code",
-                 "language": "python" if i % 2 else "typescript", "text": "x", "vector": _unit(i)}
-                for i in range(8)]
-        table = db.create_table("code", data=rows)
-        invoked: list = []
-        captured: dict = {}
-        out = self.srv.WaveIndex._lance_search(
-            self._index(), _RecordingTable(table, invoked, captured), QUERY_VEC, 5, where="language = 'python'")
-        # Exactly the certified receipt rides along: refine_factor and nothing
-        # else from the tuning vocabulary.
-        self.assertEqual(sorted(set(invoked)),
-                         ["limit", "metric", "refine_factor", "to_list", "where"])
-        self.assertEqual({"refine_factor"}, set(invoked) & set(ANN_TUNING_METHODS),
-                         "only the certified method may appear")
-        query = captured["builder"].to_query_object()
-        self.assertIsNone(query.minimum_nprobes, "nprobes was REJECTED by certification")
-        self.assertIsNone(query.maximum_nprobes, "nprobes was REJECTED by certification")
-        self.assertEqual(self.srv.ANN_REFINE_FACTOR, query.refine_factor)
-        self.assertEqual(2, self.srv.ANN_REFINE_FACTOR,
-                         "the certified VALUE is pinned, not just the method")
-        self.assertEqual(query.limit, 5)
-        self.assertEqual(query.distance_type, "cosine")
-        self.assertEqual(query.filter, "language = 'python'")
-        self.assertIs(query.postfilter, False, "prefilter=True pushes the predicate before the top-k")
-        self.assertEqual({r["language"] for r in out}, {"python"})
-        self.assertEqual(len(out), 4, "the bounded window holds only eligible rows")
-
-    def test_indexed_table_plan_shows_exactly_the_certified_receipt(self):
-        """Executable proof, read off the engine's own query plan, that
-        production runs the certified receipt and nothing more.
-
-        Wave 1wsc8. The plan must show three things at once: engine-default
-        probes (nprobes was REJECTED by certification, so it must remain
-        untouched at 20), a refine stage present (the certified
-        `refine_factor=2`), and an over-fetch of exactly twice the requested
-        limit, which is what that factor MEANS. Asserting the fetch arithmetic
-        is what makes this a value receipt rather than a method receipt: a
-        different factor would still produce a refine stage but a different
-        `k`."""
-        import lancedb
-        rng = np.random.default_rng(0)
-        rows = [{"id": f"r{i}", "vector": rng.normal(size=16).astype("float32").tolist()} for i in range(2000)]
-        db = lancedb.connect(self.tmp.name)
-        table = db.create_table("code", data=rows)
-        with _quiet():
-            table.create_index(metric="cosine", index_type="IVF_HNSW_SQ", replace=True)
-        invoked: list = []
-        captured: dict = {}
-        self.srv.WaveIndex._lance_search(self._index(), _RecordingTable(table, invoked, captured), np.array(rows[0]["vector"], dtype=np.float32), 5)
-        plan = captured["builder"].explain_plan(verbose=True)
-        self.assertIn("ANNSubIndex", plan)
-        # nprobes stays at the engine default: both nprobes candidates were
-        # rejected by the certifier, so touching it would be an unmeasured
-        # setting.
-        self.assertRegex(plan, r"minimum_nprobes=20, maximum_nprobes=Some\(20\)")
-        # The certified refine stage runs...
-        self.assertIn("KNNVectorDistance", plan,
-                      "the certified refine_factor must produce a refine stage")
-        # ...and fetches exactly limit * refine_factor before re-scoring, which
-        # pins the VALUE and not merely the presence of the method.
-        self.assertRegex(plan, rf"ANNSubIndex: name=\w+, k={5 * self.srv.ANN_REFINE_FACTOR}\b")
-
-        # Control: an UNCERTIFIED setting changes the plan in a way production
-        # must never show, so the assertions above are not vacuously true.
-        tuned = table.search(rows[0]["vector"]).metric("cosine").limit(5).nprobes(7).refine_factor(3).explain_plan(verbose=True)
-        self.assertRegex(tuned, r"minimum_nprobes=7, maximum_nprobes=Some\(7\)")
-        self.assertNotRegex(plan, r"minimum_nprobes=7",
-                            "production must not carry the rejected nprobes value")
-
-    def test_inert_constants_and_tuning_calls_are_absent_from_both_definition_sites(self):
+    def test_ann_tuning_calls_and_constants_are_absent(self):
         for name in ("server_impl.py", "indexer.py"):
             tree = ast.parse((SCRIPTS_ROOT / name).read_text(encoding="utf-8"))
-            assigned = {
-                t.id for node in ast.walk(tree) if isinstance(node, ast.Assign)
-                for t in node.targets if isinstance(t, ast.Name)
-            }
-            self.assertNotIn("LANCEDB_NPROBES", assigned, name)
-            self.assertNotIn("LANCEDB_REFINE_FACTOR", assigned, name)
-            tuning_calls = [
-                node.func.attr for node in ast.walk(tree)
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr in ANN_TUNING_METHODS
-            ]
-            # Wave 1wsc8: exactly one certified call, in server_impl only.
-            expected = ["refine_factor"] if name == "server_impl.py" else []
-            self.assertEqual(tuning_calls, expected, name)
-        self.assertFalse(hasattr(self.srv, "LANCEDB_NPROBES"))
-        self.assertFalse(hasattr(self.srv, "LANCEDB_REFINE_FACTOR"))
-        # The certified constant is NOT inert: it is read at the single call
-        # site. An inert constant would be a setting nobody measured.
-        self.assertEqual(2, self.srv.ANN_REFINE_FACTOR)
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-        self.assertIn("refine_factor(ANN_REFINE_FACTOR)", source,
-                      "the certified constant must be READ, not merely declared")
+            methods = {"nprobes", "minimum_nprobes", "maximum_nprobes", "refine_factor", "ef"}
+            self.assertFalse([node for node in ast.walk(tree)
+                              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                              and node.func.attr in methods], name)
+        self.assertFalse(hasattr(self.srv, "ANN_REFINE_FACTOR"))
 
     def test_the_retirement_note_is_not_absorbed_into_the_reranker_chunk(self):
         """Delivery repair RED-DEL-3: the retirement note above sat directly on
@@ -1192,9 +1051,7 @@ class LanceQueryBuilderDefaultsTests(unittest.TestCase):
         self.assertNotIn("LANCEDB_NPROBES", chunk.text)
         self.assertNotIn("LANCEDB_INDEX_THRESHOLD", chunk.text)
         self.assertLess(len(chunk.text), 900, len(chunk.text))
-        # The note is still indexed — it moved, it was not deleted.
-        self.assertTrue(any("LANCEDB_NPROBES" in c.text
-                            for c in chunker.chunk_file(source, "indexer.py")))
+        # Retired Lance tuning has no role in the SQLite implementation.
 
 
 if __name__ == "__main__":

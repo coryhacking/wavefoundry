@@ -6,7 +6,7 @@ fixed ``(32, 512)`` lets CoreML compile an FP16 MLProgram that runs on the GPU. 
 uses Arctic S for both semantic layers and reuses one instance when both selectors participate.
 
 ADR `1p92d` (wave 1p935): a GPU machine runs this module's **FP16** clean export; a CPU-bound
-machine runs its **INT8** clean export — both static-shape, both through this module — instead of
+machine runs its **INT8** clean export one row at a time on the dynamic CPU graph — instead of
 falling back to the fastembed-resident full-precision model. Pooling is **CLS** ([:, 0]) +
 L2-normalize for both precisions — matching fastembed exactly (verified cos = 1.0000; mean-pooling
 was 0.88–0.95 and would corrupt the index). The CoreML ``ModelCacheDirectory`` option applies only
@@ -34,8 +34,8 @@ STATIC_BATCH = 32
 # (single pass at ~107ms for ANY pool ≤ 40), because the moment a smaller batch is exceeded
 # by the pool it pays a second forward pass (~255–295ms) that dwarfs the padding it saves;
 # 40 also beats the old shared 64 (~167ms — 64 pads 40→64, more wasted rows). So size the
-# reranker batch to exactly cover the ceiling in one pass. Batch is a latency/compute knob
-# only — ranking output is identical across sizes (the same pairs get the same logits). The
+# GPU reranker batch to exactly cover the ceiling in one pass. CPU INT8 instead scores each
+# passage independently, because its activation quantization depends on batch peers. The GPU
 # static-graph cache key includes the batch dim, so changing this builds its own cached graph.
 RERANK_STATIC_BATCH = 40
 STATIC_SEQ = 512
@@ -436,8 +436,8 @@ def _resolve_embedder_cpu_files(model_name: str) -> Optional[tuple[str, str]]:
 
 # Wave 1p52p (CPU fallback): a small cross-encoder reranker also runs usefully on the CPU EP — but
 # the FP16 export fails to init at ORT_ENABLE_ALL (a SimplifiedLayerNormFusion cast bug) and is slow,
-# while the INT8 export runs at full optimization and is ~2x faster than FP32 with no ranking loss
-# (ms-marco-L6: all known answers still rank #1). So the CPU path uses the INT8 export of the same repo.
+# while the INT8 export runs at full optimization. Use the same repo's INT8 export,
+# one query/passage per call so unrelated passages cannot affect its quantized activation range.
 RERANKER_CPU_ONNX_FILE = "onnx/model_int8.onnx"
 
 
@@ -772,13 +772,13 @@ def make_embedder(model_name: str, providers: Iterable[str]):
 
 
 class StaticShapeReranker:
-    """Cross-encoder reranker on a static-shape ONNX (1p52p). Dual precision by provider:
+    """Cross-encoder reranker with provider-specific shape and precision:
 
     - **GPU** (CoreML/CUDA/ROCm/DirectML): the **FP16** export → ~107 ms/query (M2 Max CoreML, wave
       1p66v: a single ``RERANK_STATIC_BATCH``=40 pass covering the full candidate ceiling; was ~167 ms
       at the old shared 64-batch, which padded the 40-pool to 64).
     - **CPU** (no GPU available): the **INT8** export on ``CPUExecutionProvider`` (``ORT_ENABLE_ALL``),
-      ~6x slower than the GPU path (was ~960 ms at batch 64) with no ranking loss. The FP16 export is
+      with one real query/passage per call on a static [1, 512] graph. The FP16 export is
       NOT used on the CPU EP (it fails to init at ``ORT_ENABLE_ALL`` — a SimplifiedLayerNormFusion cast bug).
 
     ``rerank(query, passages)`` returns one **raw relevance logit per passage** (the server applies a
@@ -832,9 +832,11 @@ class StaticShapeReranker:
             if files is None:
                 raise FileNotFoundError(f"No cached INT8 ONNX/tokenizer for reranker {model_name!r}")
             src_onnx, tok_path = files
-            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_cpu_int8_static_{RERANK_STATIC_BATCH}x{STATIC_SEQ}.onnx"
+            # Pin the singleton graph; dynamic and static ORT graphs can differ.
+            # Even empty padding rows change INT8 activation ranges and passage scores.
+            static_path = _ONNX_CACHE / _safe(model_name) / f"rerank_cpu_int8_static_1x{STATIC_SEQ}.onnx"
             if not static_path.exists():
-                build_static_onnx(src_onnx, str(static_path), output_is_logit=True, batch=RERANK_STATIC_BATCH)
+                build_static_onnx(src_onnx, str(static_path), output_is_logit=True, batch=1)
             provs = ["CPUExecutionProvider"]
             self.provider = "CPUExecutionProvider"
 
@@ -846,18 +848,24 @@ class StaticShapeReranker:
         self.tokenizer.enable_truncation(max_length=STATIC_SEQ)
         self.tokenizer.enable_padding(length=STATIC_SEQ)
 
+    @property
+    def batch_size(self) -> int:
+        """Effective inference batch: independent CPU scores, static GPU throughput."""
+        return 1 if self.provider == "CPUExecutionProvider" else RERANK_STATIC_BATCH
+
     def rerank(self, query: str, passages: Iterable[str], **_: object) -> list:
-        """Yield one raw logit per passage (cross-encoder relevance), batching to STATIC_BATCH."""
+        """Return one raw relevance logit per passage, preserving input order."""
         import numpy as np
 
         docs = [p if isinstance(p, str) else str(p) for p in passages]
         scores: list = []
-        for start in range(0, len(docs), RERANK_STATIC_BATCH):
-            chunk = docs[start:start + RERANK_STATIC_BATCH]
+        batch = self.batch_size
+        for start in range(0, len(docs), batch):
+            chunk = docs[start:start + batch]
             real = len(chunk)
             pairs = [(query, d) for d in chunk]
-            if real < RERANK_STATIC_BATCH:                # pad the batch dim; sliced off below
-                pairs = pairs + [(query, "")] * (RERANK_STATIC_BATCH - real)
+            if real < batch:  # GPU batch padding only; CPU always has one real row.
+                pairs = pairs + [(query, "")] * (batch - real)
             enc = self.tokenizer.encode_batch(pairs)
             feats = {
                 "input_ids": np.array([e.ids for e in enc], dtype=np.int64),
@@ -865,7 +873,7 @@ class StaticShapeReranker:
                 "token_type_ids": np.array([e.type_ids for e in enc], dtype=np.int64),
             }
             feed = {n: feats[n] for n in self.input_names}   # roberta reranker omits token_type_ids
-            out = np.asarray(self.session.run([self.output_name], feed)[0]).reshape(RERANK_STATIC_BATCH, -1)
+            out = np.asarray(self.session.run([self.output_name], feed)[0]).reshape(batch, -1)
             for r in range(real):
                 scores.append(float(out[r, 0]))
         return scores
@@ -895,7 +903,7 @@ def make_reranker(model_name: str, providers: Iterable[str]):
     """Return a ``StaticShapeReranker`` for this hardware, or ``None`` if reranking is disabled/unbuildable.
 
     GPU available → FP16 on the GPU (kept only if it actually offloads; a fragmented graph falls through
-    to CPU). No GPU → INT8 on the CPU EP (~960 ms/query, no ranking loss). ``WAVEFOUNDRY_DISABLE_RERANKER``
+    to CPU). No GPU → INT8 on the CPU EP with independent passage scoring. ``WAVEFOUNDRY_DISABLE_RERANKER``
     forces ``None`` (tests / opt-out). Never raises — any build failure degrades to ``None`` (the caller
     then skips reranking → vector order).
 

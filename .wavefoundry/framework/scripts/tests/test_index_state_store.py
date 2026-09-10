@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr
 from unittest import mock
 from pathlib import Path
 from unittest import mock
@@ -95,8 +95,32 @@ class _FlakyConn:
         return self._real.__exit__(*exc_info)
 
 
+class AuxiliaryLikeTests(_TempRepoCase):
+    def test_drift_prefixes_preserve_ascii_case_wildcards_and_bound_quotes(self):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            entries = {path: {"drifted": True, "commits_since": 5}
+                       for path in ("DOCS/REPORTS/old.md", "docs/reports/old.md",
+                                    "docs/reports-extra/keep.md", "docs/Guide.md",
+                                    "DOCS/RÉPORTS/nonascii.md", "DOCS/REPO'T/quote.md")}
+            store.upsert_doc_drift(entries)
+            result = self.iss.drift_worklist(self.index_dir)
+            self.assertEqual(result["flagged_count"], 4)
+            self.assertEqual({e["path"] for e in result["entries"]},
+                             set(entries) - {"DOCS/REPORTS/old.md", "docs/reports/old.md"})
+            with mock.patch.object(self.iss, "DRIFT_EXEMPT_PREFIXES", ("docs/repo_t/",)):
+                result = self.iss.drift_worklist(self.index_dir)
+                self.assertNotIn("DOCS/REPO'T/quote.md", {e["path"] for e in result["entries"]})
+            with mock.patch.object(self.iss, "DRIFT_EXEMPT_PREFIXES", ("docs/repo't/",)):
+                result = self.iss.drift_worklist(self.index_dir)
+                self.assertEqual(result["flagged_count"], 5)
+                self.assertNotIn("DOCS/REPO'T/quote.md", {e["path"] for e in result["entries"]})
+        finally:
+            store.close()
+
+
 class StoreSubstrateTests(_TempRepoCase):
-    """AC-1, AC-2: WAL/versioning contract and drop-and-rebuild recovery."""
+    """WAL/versioning contract and non-destructive recovery boundaries."""
 
     def test_creation_sets_wal_busy_timeout_schema_version_and_auto_vacuum(self):
         store = self.iss.IndexStateStore(self.index_dir)
@@ -105,7 +129,7 @@ class StoreSubstrateTests(_TempRepoCase):
             self.assertEqual(
                 str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower(), "wal"
             )
-            self.assertGreaterEqual(int(conn.execute("PRAGMA busy_timeout").fetchone()[0]), 10000)
+            self.assertGreaterEqual(int(conn.execute("PRAGMA busy_timeout").fetchone()[0]), 5000)
             # auto_vacuum=INCREMENTAL is 2 (AC-8 creation half)
             self.assertEqual(int(conn.execute("PRAGMA auto_vacuum").fetchone()[0]), 2)
             self.assertEqual(
@@ -126,71 +150,50 @@ class StoreSubstrateTests(_TempRepoCase):
         finally:
             store2.close()
 
-    def test_unknown_schema_version_resets_store_with_diagnostic(self):
+    def test_unknown_schema_version_preserves_store_and_refuses(self):
         store = self.iss.IndexStateStore(self.index_dir)
         store.apply_freshness(rows={"a.py": {"last_modified": 1, "churn_score": 0.5,
-                                             "commit_count": 5, "source": "git"}})
+                                            "commit_count": 5, "source": "git"}})
         store.set_meta({"store_schema_version": "999"})
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            self.assertFalse(store.ensure_current())
-        self.assertIn("schema version mismatch", stderr.getvalue())
-        self.assertEqual(store.get_meta("store_schema_version"),
-                         self.iss.STATE_STORE_SCHEMA_VERSION)
-        rows = store._conn.execute("SELECT COUNT(*) FROM file_freshness").fetchone()[0]
-        self.assertEqual(rows, 0)
+        with self.assertRaises(self.iss.sqlite_runtime.StorageRecoveryRequired):
+            store.ensure_current()
+        self.assertEqual(store.get_meta("store_schema_version"), "999")
+        self.assertEqual(store._conn.execute("SELECT COUNT(*) FROM file_freshness").fetchone()[0], 1)
         store.close()
+        before = self.iss.state_store_path(self.index_dir).read_bytes()
+        with self.assertRaises(self.iss.sqlite_runtime.StorageRecoveryRequired):
+            self.iss.IndexStateStore(self.index_dir)
+        self.assertEqual(self.iss.state_store_path(self.index_dir).read_bytes(), before)
 
-    def test_corrupted_store_is_dropped_and_rebuilt_loudly(self):
-        store = self.iss.IndexStateStore(self.index_dir)
-        store.close()
+    def test_corrupted_store_is_preserved_and_refused(self):
+        self.iss.IndexStateStore(self.index_dir).close()
         path = self.iss.state_store_path(self.index_dir)
-        path.write_bytes(b"this is not a sqlite database" * 64)
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            store2 = self.iss.IndexStateStore(self.index_dir)
-        try:
-            self.assertIn("resetting store", stderr.getvalue())
-            self.assertEqual(store2.get_meta("store_schema_version"),
-                             self.iss.STATE_STORE_SCHEMA_VERSION)
-        finally:
-            store2.close()
+        corrupt = b"this is not a sqlite database" * 64
+        path.write_bytes(corrupt)
+        with self.assertRaises(self.iss.sqlite_runtime.Error):
+            self.iss.IndexStateStore(self.index_dir)
+        self.assertEqual(path.read_bytes(), corrupt)
 
     def test_locked_open_is_not_treated_as_corruption(self):
-        """Wave 1wpif, ARCH-DEL-2: a writer holding the lock past the open
-        timeout is a wait condition; the store file must survive, the error
-        must propagate, and the durable store log must record the deferral."""
         holder = self.iss.IndexStateStore(self.index_dir)
         path = self.iss.state_store_path(self.index_dir)
-        inode_before = path.stat().st_ino
+        inode = path.stat().st_ino
         holder._conn.execute("BEGIN IMMEDIATE")
-        holder._conn.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES ('hold', '1')"
-        )
-        stderr = io.StringIO()
+        holder._conn.execute("INSERT OR REPLACE INTO meta VALUES ('hold','1')")
+        real_connect = self.iss.sqlite_runtime.connect
+        def bounded_connect(*args, **kwargs):
+            conn = real_connect(*args, **kwargs)
+            conn.set_busy_timeout(10)
+            return conn
         try:
-            with mock.patch.object(self.iss, "STORE_OPEN_TIMEOUT_SECONDS", 0.3):
-                with redirect_stderr(stderr):
-                    with self.assertRaises(sqlite3.OperationalError):
-                        self.iss.IndexStateStore(self.index_dir)
+            with mock.patch.object(self.iss.sqlite_runtime, "connect", side_effect=bounded_connect):
+                with self.assertRaises(self.iss.sqlite_runtime.Error):
+                    self.iss.IndexStateStore(self.index_dir)
         finally:
             holder._conn.execute("ROLLBACK")
             holder.close()
-        self.assertEqual(inode_before, path.stat().st_ino,
-                         "a locked open must never delete the store file")
-        self.assertNotIn("resetting store", stderr.getvalue())
-        log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
-        self.assertIn("open deferred, store preserved", log_text)
-        # A genuinely corrupt file still resets, and the reset is now durable-logged too.
-        path.write_bytes(b"this is not a sqlite database" * 64)
-        with redirect_stderr(io.StringIO()):
-            recovered = self.iss.IndexStateStore(self.index_dir)
-        try:
-            self.assertNotEqual(inode_before, path.stat().st_ino)
-            self.assertIn("store unreadable or corrupt",
-                          self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8"))
-        finally:
-            recovered.close()
+        self.assertEqual(path.stat().st_ino, inode)
+        self.iss.IndexStateStore(self.index_dir).close()
 
     def test_meta_read_lock_error_never_resets_the_store(self):
         """Wave 1wpif delivery review, ARCH-RV1-1: `meta_all` swallowed every
@@ -201,151 +204,81 @@ class StoreSubstrateTests(_TempRepoCase):
         store = self.iss.IndexStateStore(self.index_dir)
         try:
             flaky = _FlakyConn(store._conn, "FROM meta",
-                               sqlite3.OperationalError("database is locked"))
+                               self.iss.sqlite_runtime.apsw.BusyError("database is locked"))
             store._conn = flaky
             with mock.patch.object(
                 store, "reset", side_effect=AssertionError("reset must not run")
             ):
-                with self.assertRaises(sqlite3.OperationalError):
+                with self.assertRaises(self.iss.sqlite_runtime.apsw.BusyError):
                     store.ensure_current()
             # The deferral is durable, not stderr-only.
             self.assertIn(
                 "meta read deferred, store preserved",
                 self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8"),
             )
-            # Control: a genuinely absent meta table still reads as empty, so a
-            # real schema absence still resets. The repair narrows the branch,
-            # it does not disable it.
+            # An absent meta table reads as empty, but cannot authorize erasing
+            # the canonical database; ensure_current still refuses below.
             store._conn = flaky._real
             store._conn.execute("DROP TABLE meta")
             self.assertEqual(store.meta_all(), {})
             self.assertFalse(store.versions_current())
+            with self.assertRaises(self.iss.sqlite_runtime.StorageRecoveryRequired):
+                store.ensure_current()
         finally:
             store.close()
 
-    def test_rebuild_defers_on_a_lock_error_and_preserves_the_store(self):
-        """Wave 1wpif delivery review, ARCH-RV1-2: the reset-and-retry arm
-        caught every `sqlite3.Error`, so a lock/IO error dropped every
-        resident table, erased the in-flight fence, and RETURNED SUCCESS."""
-        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
-                 "language": "python", "lines": [1, 3], "text": "alpha",
-                 "chunk_hash": "h1"}]
+    def test_rebuild_transaction_failure_preserves_rows_and_fence(self):
+        rows = [{"id": "a", "path": "a.py", "text": "alpha", "lines": [1,3]}]
         self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
-        seed = self.iss.IndexStateStore(self.index_dir)
+        store = self.iss.IndexStateStore(self.index_dir)
+        store.set_meta({"in-flight-fence": "1"})
+        store._conn.execute("CREATE TRIGGER fail_registry BEFORE INSERT ON chunk_registry "
+                            "BEGIN SELECT RAISE(ABORT,'injected write failure'); END")
+        store.close()
+        with self.assertRaises(self.iss.sqlite_runtime.Error):
+            self.iss.rebuild_chunk_index(self.index_dir, "code", [{"id": "b", "path": "b.py", "text": "beta"}])
+        store = self.iss.IndexStateStore(self.index_dir)
         try:
-            seed.set_meta({"in-flight-fence": "1"})
+            self.assertEqual(store.get_meta("in-flight-fence"), "1")
+            self.assertEqual(store._conn.execute("SELECT chunk_id FROM chunks_code").fetchall(), [("a",)])
+            self.assertEqual(store._conn.execute("SELECT chunk_id FROM chunk_registry").fetchall(), [("a",)])
         finally:
-            seed.close()
+            store.close()
 
-        real_cls = self.iss.IndexStateStore
-
-        def flaky_store(index_dir, *a, **k):
-            s = real_cls(index_dir, *a, **k)
-            s._conn = _FlakyConn(s._conn, "DELETE FROM chunk_registry",
-                                 sqlite3.OperationalError("database is locked"))
-            return s
-
-        stderr = io.StringIO()
-        with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
-            with redirect_stderr(stderr):
-                with self.assertRaises(sqlite3.OperationalError):
-                    self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
-        self.assertIn("deferred, store preserved", stderr.getvalue())
-        self.assertNotIn("resetting store", stderr.getvalue())
-        # The fence and the derived rows both survive: nothing was reset.
-        after = self.iss.IndexStateStore(self.index_dir)
+    def test_rebuild_refuses_stale_canonical_column_shape_without_reset(self):
+        store = self.iss.IndexStateStore(self.index_dir)
+        store.set_meta({"preserved-witness": "1"})
+        store._conn.execute("ALTER TABLE chunk_registry RENAME COLUMN chunk_hash TO obsolete_hash")
+        store.close()
+        with self.assertRaises(self.iss.sqlite_runtime.Error):
+            self.iss.rebuild_chunk_index(self.index_dir, "code", [{"id": "a", "path": "a.py", "text": "alpha"}])
+        store = self.iss.IndexStateStore(self.index_dir)
         try:
-            self.assertEqual(after.get_meta("in-flight-fence"), "1")
-            self.assertEqual(
-                after._conn.execute(
-                    "SELECT COUNT(*) FROM chunk_registry").fetchone()[0], 1)
+            self.assertEqual(store.get_meta("preserved-witness"), "1")
+            self.assertEqual(store._conn.execute("SELECT count(*) FROM chunks_code").fetchone(), (0,))
         finally:
-            after.close()
+            store.close()
 
-    def test_rebuild_recovers_from_a_stale_column_shape(self):
-        """Wave 1wpif cycle-3, ARCH-RV2-1: `table X has no column named Y` is
-        sqlite's message for an INSERT against a stale-shaped table. It is an
-        OperationalError but it IS structural, and it self-healed before the
-        ARCH-RV1-2 repair. Omitting it from the marker list turned a
-        self-healing case into a hard failure, which is a recovery REGRESSION;
-        the most likely trigger is a schema change that adds a column without
-        bumping the store schema version.
-        """
-        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
-                 "language": "python", "lines": [1, 3], "text": "alpha",
-                 "chunk_hash": "h1"}]
-        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
-        real_cls = self.iss.IndexStateStore
-
-        def flaky_store(index_dir, *a, **k):
-            s = real_cls(index_dir, *a, **k)
-            s._conn = _FlakyConn(
-                s._conn, "INSERT OR REPLACE INTO chunk_registry",
-                sqlite3.OperationalError(
-                    "table chunk_registry has no column named chunk_hash"))
-            return s
-
-        stderr = io.StringIO()
-        with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
-            with redirect_stderr(stderr):
-                written = self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
-        self.assertEqual(written, 1, "a stale column shape must still self-heal")
-        self.assertIn("resetting store and retrying", stderr.getvalue())
-        self.assertNotIn("deferred, store preserved", stderr.getvalue())
-
-    def test_rebuild_still_resets_on_structural_damage(self):
-        """Control for ARCH-RV1-2: the repair narrows the reset arm to genuine
-        damage; it must not disable it. A missing object and a non-operational
-        DatabaseError both still reset and retry."""
-        rows = [{"id": "a.py#x", "path": "a.py", "kind": "code",
-                 "language": "python", "lines": [1, 3], "text": "alpha",
-                 "chunk_hash": "h1"}]
-        self.iss.rebuild_chunk_index(self.index_dir, "code", rows)
-        real_cls = self.iss.IndexStateStore
-        for exc in (sqlite3.OperationalError("no such table: chunk_registry"),
-                    sqlite3.DatabaseError("database disk image is malformed")):
-            def flaky_store(index_dir, *a, _exc=exc, **k):
-                s = real_cls(index_dir, *a, **k)
-                s._conn = _FlakyConn(s._conn, "DELETE FROM chunk_registry", _exc)
-                return s
-            seed = real_cls(self.index_dir)
-            try:
-                seed.set_meta({"reset-witness": "1"})
-            finally:
-                seed.close()
-            stderr = io.StringIO()
-            with mock.patch.object(self.iss, "IndexStateStore", flaky_store):
-                with redirect_stderr(stderr):
-                    written = self.iss.rebuild_chunk_index(
-                        self.index_dir, "code", rows)
-            self.assertEqual(written, 1, exc)
-            self.assertIn("resetting store and retrying", stderr.getvalue(), exc)
-            # Wave 1wpif cycle-3: the reverification lane showed this control
-            # pinned BRANCH SELECTION only -- deleting `store.reset()` outright
-            # left the whole module green, because the message is printed
-            # before the reset and the injected error fires once so the retry
-            # succeeds regardless. Assert the reset actually RAN by seeding a
-            # meta fence beforehand and requiring it to be gone afterwards.
-            after = self.iss.IndexStateStore(self.index_dir)
-            try:
-                self.assertIsNone(
-                    after.get_meta("reset-witness"),
-                    f"{exc}: the reset branch was selected but reset() never ran",
-                )
-                # Wave 1wpif cycle-4 (ARCH-RV3-1): the witness alone pins that
-                # reset RAN, not that it ran BEFORE the retry write. Swapping
-                # the order wipes the store after the successful retry and
-                # still returns 1 -- a false success over an emptied registry,
-                # which is this finding's own defect shape. Assert the rows the
-                # retry wrote are still there.
-                self.assertEqual(
-                    after._conn.execute(
-                        "SELECT COUNT(*) FROM chunk_registry").fetchone()[0], 1,
-                    f"{exc}: the retry wrote its rows and the reset then erased "
-                    f"them, so the reset ran after the write",
-                )
-            finally:
-                after.close()
+    def test_derived_rebuild_preserves_canonical_vector_and_build_fence(self):
+        row = {"id": "a", "path": "a.py", "text": "alpha", "lines": [3,7],
+               "vector": [1.0] + [0.0] * 383}
+        self.iss.apply_chunk_deltas(self.index_dir, "code", add_rows=[row])
+        store = self.iss.IndexStateStore(self.index_dir)
+        store.set_meta({"preserved-witness": "1"})
+        before = store._conn.execute("SELECT embedding FROM vectors_code").fetchone()
+        store._conn.execute("DELETE FROM chunk_registry")
+        store._conn.execute("INSERT INTO fts_code(fts_code) VALUES('delete-all')")
+        store.close()
+        self.iss.rebuild_chunk_index(self.index_dir, "code", [])
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            self.assertEqual(store.get_meta("preserved-witness"), "1")
+            self.assertEqual(store._conn.execute("SELECT embedding FROM vectors_code").fetchone(), before)
+            self.assertEqual(store._conn.execute("SELECT chunk_id FROM chunk_registry").fetchall(), [("a",)])
+            self.assertEqual(store._conn.execute("SELECT count(*) FROM fts_code WHERE fts_code MATCH 'alpha'").fetchone(), (1,))
+            self.assertEqual(self.iss._fts_recorded_digest(store._conn,"code"), self.iss._fts_table_digest(store._conn,"fts_code"))
+        finally:
+            store.close()
 
     def test_store_absence_is_not_an_error_for_readers(self):
         # No store built: every read primitive degrades to None/empty (AC-2).
@@ -504,7 +437,7 @@ class BuildIntegrationTests(_TempRepoCase):
             fresh = self.iss.freshness_for_path(self.index_dir, "a.py")
             self.assertIsNotNone(fresh)
             self.assertIsNone(self.iss.freshness_for_path(self.index_dir, "mid.txn"))
-            store._conn.rollback()
+            store._conn.execute("ROLLBACK")
         finally:
             store.close()
 
@@ -553,6 +486,60 @@ class MaintenanceTests(_TempRepoCase):
         self.assertGreater(res["reclaimed_bytes"], 0)
         self.assertLess(res["size_after_bytes"], res["size_before_bytes"])
 
+    def test_incremental_reclaim_drains_cursor_and_respects_page_bound(self):
+        path = self.iss.state_store_path(self.index_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = self.iss.sqlite_runtime.connect(path)
+        conn.execute("CREATE TABLE churn(id INTEGER PRIMARY KEY,payload BLOB)")
+        with conn:
+            conn.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<6000) "
+                         "INSERT INTO churn SELECT x,zeroblob(4096) FROM n")
+        with conn:
+            conn.execute("DELETE FROM churn")
+        before = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        self.assertGreater(before, self.iss.INCREMENTAL_VACUUM_PAGES)
+        # Negative control reproduces the previous implementation: execute
+        # alone only frees one page even though the requested limit is 5000.
+        cursor = conn.execute(f"PRAGMA incremental_vacuum({self.iss.INCREMENTAL_VACUUM_PAGES})")
+        cursor.close()
+        after_control = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        self.assertEqual(before - after_control, 1)
+        conn.close()
+        result = self.iss.sqlite_store_maintenance(path, full_vacuum=False)
+        self.assertIsNone(result["error"])
+        conn = self.iss.sqlite_runtime.connect(path, read_only=True)
+        after = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        conn.close()
+        self.assertEqual(after_control - after, self.iss.INCREMENTAL_VACUUM_PAGES)
+        self.assertGreater(after, 0)
+        self.assertGreater(result["reclaimed_bytes"], 4096)
+
+    def test_passive_checkpoint_reports_frames_pinned_by_reader(self):
+        path = self.iss.state_store_path(self.index_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer = self.iss.sqlite_runtime.connect(path)
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE checkpoint_fixture(id INTEGER PRIMARY KEY,payload BLOB)")
+        with writer:
+            writer.execute("INSERT INTO checkpoint_fixture VALUES(1,zeroblob(4096))")
+        reader = self.iss.sqlite_runtime.connect(path, read_only=True)
+        try:
+            reader.execute("BEGIN")
+            self.assertEqual(reader.execute("SELECT count(*) FROM checkpoint_fixture").fetchone(), (1,))
+            with writer:
+                writer.execute("INSERT INTO checkpoint_fixture VALUES(2,zeroblob(4096))")
+            result = self.iss.sqlite_store_maintenance(path, full_vacuum=False)
+            checkpoint = result["checkpoint"]
+            self.assertIsNone(result["error"])
+            self.assertEqual(checkpoint["mode"], "PASSIVE")
+            self.assertFalse(checkpoint["busy"])
+            self.assertFalse(checkpoint["complete"])
+            self.assertGreater(checkpoint["remaining_frames"], 0)
+            self.assertEqual(reader.execute("SELECT count(*) FROM checkpoint_fixture").fetchone(), (1,))
+        finally:
+            reader.close()
+            writer.close()
+
     def test_optimize_state_stores_reports_absent_stores_without_error(self):
         results = self.iss.optimize_state_stores(self.index_dir)
         self.assertFalse(results["index-state"]["present"])
@@ -586,6 +573,181 @@ class MaintenanceTests(_TempRepoCase):
         dirname, filename = self.iss.GRAPH_STATE_STORE_RELPATH.split("/", 1)
         self.assertIn(f'GRAPH_DIRNAME = "{dirname}"', src)
         self.assertIn(f'"{filename}"', src)
+
+
+class GraphVacuumMigrationTests(_TempRepoCase):
+    def _graph(self, mode="NONE"):
+        path = self.index_dir / self.iss.GRAPH_STATE_STORE_RELPATH
+        path.parent.mkdir(parents=True)
+        conn = sqlite3.connect(path)
+        conn.execute(f"PRAGMA auto_vacuum={mode}")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE files(path TEXT PRIMARY KEY,source_hash TEXT,record BLOB)")
+        conn.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT)")
+        conn.execute("CREATE TABLE blobs(key TEXT PRIMARY KEY,value BLOB)")
+        conn.execute("INSERT INTO meta VALUES('builder_version','keep-version')")
+        conn.execute("INSERT INTO blobs VALUES('merge_state',x'001122')")
+        conn.executemany("INSERT INTO files VALUES(?,?,?)",
+                         [(f"p/{i}", f"hash-{i}", b"x" * 4096) for i in range(6000)])
+        conn.commit()
+        conn.execute("DELETE FROM files WHERE path != 'p/0'")
+        conn.commit()
+        conn.close()
+        return path
+
+    def _assert_preserved(self, path, mode):
+        with closing(sqlite3.connect(path)) as conn:
+            self.assertEqual(conn.execute("PRAGMA auto_vacuum").fetchone()[0], mode)
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone(), ("ok",))
+            self.assertEqual(conn.execute("SELECT * FROM files").fetchall(),
+                             [("p/0", "hash-0", b"x" * 4096)])
+            self.assertEqual(conn.execute("SELECT * FROM meta").fetchall(),
+                             [("builder_version", "keep-version")])
+            self.assertEqual(conn.execute("SELECT * FROM blobs").fetchall(),
+                             [("merge_state", b"\x00\x11\x22")])
+
+    def test_legacy_none_converts_once_and_later_reclaims_with_page_bound(self):
+        path = self._graph()
+        # Negative control: bounded incremental vacuum cannot reclaim a NONE store.
+        with closing(sqlite3.connect(path)) as conn:
+            before = conn.execute("PRAGMA freelist_count").fetchone()[0]
+            self.assertGreater(before, self.iss.INCREMENTAL_VACUUM_PAGES)
+            list(conn.execute("PRAGMA incremental_vacuum(5000)"))
+            self.assertEqual(conn.execute("PRAGMA freelist_count").fetchone()[0], before)
+        generic = self.iss.sqlite_store_maintenance(path)
+        self.assertFalse(generic["auto_vacuum_migrated"])
+        self.assertEqual(generic["auto_vacuum_after"], 0)
+        first = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertTrue(first["maintenance_complete"], first)
+        self.assertTrue(first["auto_vacuum_migrated"])
+        self.assertEqual((first["auto_vacuum_before"], first["auto_vacuum_after"]), (0, 2))
+        self.assertEqual(first["vacuum_mode"], "graph_migration")
+        self.assertGreater(first["reclaimed_bytes"], 4096)
+        self._assert_preserved(path, 2)
+        with closing(sqlite3.connect(path)) as conn:
+            conn.executemany("INSERT INTO files VALUES(?,?,?)",
+                             [(f"p/{i}", "h", b"x" * 4096) for i in range(1, 6000)])
+            conn.commit()
+            conn.execute("DELETE FROM files WHERE path != 'p/0'")
+            conn.commit()
+            before = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        second = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertTrue(second["maintenance_complete"], second)
+        self.assertFalse(second["auto_vacuum_migrated"])
+        self.assertEqual(second["vacuum_mode"], "incremental")
+        with closing(sqlite3.connect(path)) as conn:
+            after = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        self.assertEqual(before - after, self.iss.INCREMENTAL_VACUUM_PAGES)
+        self.assertGreater(after, 0)  # A second full VACUUM would empty the freelist.
+        self._assert_preserved(path, 2)
+
+    def test_full_mode_converts_without_full_vacuum(self):
+        path = self._graph("FULL")
+        real_connect = sqlite3.connect
+        def refuse_full_vacuum(*args, **kwargs):
+            return _FlakyConn(real_connect(*args, **kwargs), "VACUUM",
+                              sqlite3.OperationalError("unexpected full VACUUM"))
+        with mock.patch.object(self.iss.sqlite3, "connect", side_effect=refuse_full_vacuum):
+            result = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertTrue(result["maintenance_complete"], result)
+        self.assertTrue(result["auto_vacuum_migrated"])
+        self.assertEqual(result["vacuum_mode"], "incremental")
+        self._assert_preserved(path, 2)
+
+    def test_failed_vacuum_preserves_original_store_and_reports_retryable_stage(self):
+        path = self._graph()
+        real_connect = sqlite3.connect
+        def fail_vacuum(*args, **kwargs):
+            return _FlakyConn(real_connect(*args, **kwargs), "VACUUM",
+                              sqlite3.OperationalError("disk I/O error"))
+        with mock.patch.object(self.iss.sqlite3, "connect", side_effect=fail_vacuum):
+            result = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertFalse(result["maintenance_complete"])
+        self.assertFalse(result["auto_vacuum_migrated"])
+        self.assertEqual(result["error_stage"], "graph_vacuum_migration")
+        self.assertEqual(result["error"], "disk I/O error")
+        self.assertEqual(result["integrity"], "ok")
+        self._assert_preserved(path, 0)
+        retry = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertTrue(retry["maintenance_complete"], retry)
+        self._assert_preserved(path, 2)
+
+    def test_generic_maintenance_does_not_convert_unowned_database(self):
+        graph = self._graph()
+        source = graph
+        for path in (graph.with_name("other.sqlite"), graph.parent.with_name("unowned") / graph.name):
+            with self.subTest(path=path):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                source.rename(path)
+                source = path
+                result = self.iss.sqlite_store_maintenance(path, migrate_graph_vacuum=True)
+                self.assertTrue(result["maintenance_complete"], result)
+                self.assertFalse(result["auto_vacuum_migrated"])
+                self.assertEqual(result["vacuum_mode"], "none")
+                self._assert_preserved(path, 0)
+
+    def test_concurrent_writer_refuses_conversion_without_damaging_store(self):
+        path = self._graph()
+        real_connect = sqlite3.connect
+        class NoWait(_FlakyConn):
+            def execute(self, sql, *args, **kwargs):
+                if sql == "PRAGMA busy_timeout=10000":
+                    sql = "PRAGMA busy_timeout=0"
+                return self._real.execute(sql, *args, **kwargs)
+        def no_wait(*args, **kwargs):
+            return NoWait(real_connect(*args, **kwargs), "unused", None)
+        with closing(real_connect(path)) as writer:
+            writer.execute("BEGIN IMMEDIATE")
+            try:
+                with mock.patch.object(self.iss.sqlite3, "connect", side_effect=no_wait):
+                    result = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+                self.assertFalse(result["maintenance_complete"])
+                self.assertFalse(result["auto_vacuum_migrated"])
+                self.assertIn("locked", result["error"])
+                self.assertEqual(result["error_stage"], "graph_vacuum_migration")
+                self.assertEqual(result["integrity"], "ok")
+            finally:
+                writer.rollback()
+        self._assert_preserved(path, 0)
+
+    def test_wal_reader_snapshot_survives_conversion_and_pinned_checkpoint_is_reported(self):
+        path = self._graph()
+        with closing(sqlite3.connect(path)) as writer, closing(sqlite3.connect(path)) as reader:
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            reader.execute("BEGIN")
+            self.assertEqual(reader.execute("SELECT count(*) FROM files").fetchone(), (1,))
+            writer.execute("INSERT INTO files VALUES('temporary','hash',zeroblob(4096))")
+            writer.commit()
+            writer.execute("DELETE FROM files WHERE path='temporary'")
+            writer.commit()
+            result = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+            self.assertTrue(result["maintenance_complete"], result)
+            self.assertTrue(result["auto_vacuum_migrated"])
+            self.assertGreater(result["checkpoint"]["remaining_frames"], 0)
+            self.assertFalse(result["checkpoint"]["complete"])
+            self.assertEqual(reader.execute("SELECT count(*) FROM files").fetchone(), (1,))
+            reader.rollback()
+        self._assert_preserved(path, 2)
+
+    def test_integrity_failure_stops_before_conversion(self):
+        path = self._graph()
+        real_connect = sqlite3.connect
+        traced = []
+        class BadCheck(_FlakyConn):
+            def execute(self, sql, *args, **kwargs):
+                traced.append(sql)
+                if sql == "PRAGMA integrity_check":
+                    return self._real.execute("SELECT 'broken page'")
+                return self._real.execute(sql, *args, **kwargs)
+        def fail_integrity(*args, **kwargs):
+            return BadCheck(real_connect(*args, **kwargs), "unused", None)
+        with mock.patch.object(self.iss.sqlite3, "connect", side_effect=fail_integrity):
+            result = self.iss.optimize_state_stores(self.index_dir, full_vacuum=False)["graph-state"]
+        self.assertFalse(result["maintenance_complete"])
+        self.assertEqual(result["integrity"], "structural-fail")
+        self.assertEqual(result["error_stage"], "integrity_check")
+        self.assertFalse(any("vacuum" in sql.lower() for sql in traced))
+        self._assert_preserved(path, 0)
 
 
 def _corrupt_sqlite_file(path: Path) -> None:
@@ -628,21 +790,16 @@ class IntegrityProbeTests(_TempRepoCase):
         self.assertEqual(deep["status"], "ok")
         self.assertEqual(deep["detail"], "integrity_check")
 
-    def test_byte_corrupt_store_reports_structural_fail_and_rebuilds(self):
+    def test_byte_corrupt_store_reports_structural_fail_and_preserves(self):
         self._built_store()
-        _corrupt_sqlite_file(self.iss.state_store_path(self.index_dir))
-        probe = self.iss.probe_state_store(self.root, self.index_dir)
-        self.assertEqual(probe["status"], "structural-fail")
-        # Recovery: the next build-time open drops and rebuilds (derived-only).
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            summary = self.iss.update_freshness_from_build(
-                self.root, self.index_dir, ["a.py"]
-            )
-        self.assertEqual(summary["written"], 1)
-        self.assertEqual(
-            self.iss.probe_state_store(self.root, self.index_dir)["status"], "ok"
-        )
+        path = self.iss.state_store_path(self.index_dir)
+        _corrupt_sqlite_file(path)
+        before = path.read_bytes()
+        self.assertEqual(self.iss.probe_state_store(self.root, self.index_dir)["status"], "structural-fail")
+        with redirect_stderr(io.StringIO()):
+            summary = self.iss.update_freshness_from_build(self.root,self.index_dir,["a.py"])
+        self.assertEqual(summary["written"], 0)
+        self.assertEqual(path.read_bytes(), before)
 
     def test_stale_fingerprint_is_detected_without_structural_error(self):
         self._built_store()
@@ -677,9 +834,10 @@ class IndexerWiringTests(unittest.TestCase):
         builds, and the legacy JSON disappears only after a verified
         complete epoch)."""
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
-        bookkeeping_pos = src.index("write_build_bookkeeping(index_dir, new_meta)")
-        reap_pos = src.index("_reap_stranded_lance_rows(\n            lance_db_path", bookkeeping_pos)
-        reconcile_pos = src.index("_sync_chunk_derived_state(", reap_pos)
+        transaction_pos = src.index("# One native writer transaction publishes")
+        bookkeeping_pos = src.index("write_build_bookkeeping_locked(conn,new_meta)", transaction_pos)
+        commit_pos = src.index('conn.execute("COMMIT")', bookkeeping_pos)
+        reconcile_pos = src.index("_sync_chunk_derived_state(", commit_pos)
         update_pos = src.index("update_freshness_from_build(", reconcile_pos)
         finalize_pos = src.index("finalize_build_epoch(index_dir, _build_attempt)", update_pos)
         legacy_pos = src.index("_remove_legacy_meta_json(index_dir)", finalize_pos)
@@ -688,11 +846,31 @@ class IndexerWiringTests(unittest.TestCase):
         loader_pos = src.index("def _get_index_state_store()")
         self.assertGreater(loader_pos, 0)
 
-    def test_setup_optimize_after_build_wires_state_store_pass(self):
-        src = (SCRIPTS_ROOT / "setup_index.py").read_text(encoding="utf-8")
-        lance_pos = src.index("optimize_index_tables(index_dir)")
-        store_pos = src.index("optimize_state_stores(", lance_pos)
-        self.assertGreater(store_pos, lance_pos)
+    def test_setup_optimize_after_build_uses_one_unified_store_pass(self):
+        import setup_index
+        spec = importlib.util.spec_from_file_location("_indexer_maintenance_fixture", SCRIPTS_ROOT / "indexer.py")
+        indexer = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = indexer
+        spec.loader.exec_module(indexer)
+        iss = load_store_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            index_dir = root / ".wavefoundry/index"
+            attempt = iss.begin_build_epoch(index_dir, "fixture")
+            self.assertTrue(iss.finalize_build_epoch(index_dir, attempt))
+            graph = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+            graph.parent.mkdir(parents=True)
+            conn = iss.sqlite_runtime.connect(graph)
+            conn.execute("CREATE TABLE files(path TEXT PRIMARY KEY)")
+            conn.close()
+            with mock.patch.object(setup_index, "_load_indexer_module", return_value=indexer), \
+                 mock.patch.object(indexer, "_get_index_state_store", return_value=iss), \
+                 mock.patch.object(iss, "sqlite_store_maintenance", wraps=iss.sqlite_store_maintenance) as maintenance:
+                setup_index._optimize_after_build(root)
+            self.assertCountEqual([call.args[0] for call in maintenance.call_args_list],
+                                  [iss.state_store_path(index_dir), graph])
+            self.assertTrue(all(call.kwargs["full_vacuum"] is False for call in maintenance.call_args_list))
+            self.assertEqual(iss.read_build_state(index_dir)["status"], "complete")
 
 
 class BuildEpochTests(_TempRepoCase):
@@ -977,7 +1155,11 @@ class BuildEpochTests(_TempRepoCase):
         the store's ordinary NORMAL posture is unchanged elsewhere."""
         src = STORE_PATH.read_text(encoding="utf-8")
         helper = src.index("def _full_durable_connection(")
-        self.assertIn("PRAGMA synchronous=FULL", src[helper:helper + 800])
+        conn = self.iss._full_durable_connection(self.index_dir)
+        try:
+            self.assertEqual(conn.execute("PRAGMA synchronous").fetchone(), (2,))
+        finally:
+            conn.close()
         begin = src.index("def begin_build_epoch(")
         self.assertIn("_full_durable_connection(", src[begin:src.index("def finalize_build_epoch(")])
         fin = src.index("def finalize_build_epoch(")
@@ -1186,7 +1368,7 @@ class LexicalStatisticsTests(_TempRepoCase):
         self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "empty_corpus")
         for content, expected in (("alpha alpha", (2, 1)), ("", (0, 0))):
             attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
-            self.iss.rebuild_chunk_index(self.index_dir, "docs", [self.row("one", content)])
+            self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("one", content)])
             self.iss.finalize_build_epoch(self.index_dir, attempt)
             payload = self.iss.lexical_statistics(self.index_dir)
             self.assertEqual(payload["entries"], 1)
@@ -1212,9 +1394,8 @@ class LexicalStatisticsTests(_TempRepoCase):
         store.close()
         self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "statistics_not_built")
         with mock.patch.object(self.iss, "fts5_available", return_value=False):
-            store = self.iss.IndexStateStore(self.index_dir)
-            store.close()
-        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+            self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "not_built")
         store = self.iss.IndexStateStore(self.index_dir)
         self.assertIsNone(store.get_meta(self.iss.META_LEXICAL_STATISTICS))
         store.close()
@@ -1262,7 +1443,7 @@ class LexicalStatisticsTests(_TempRepoCase):
         for staged in (False, True):
             attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
             self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("new", "zeta")])
-            with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=sqlite3.OperationalError("database is locked")), \
+            with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=self.iss.sqlite_runtime.apsw.BusyError("database is locked")), \
                  mock.patch.object(self.iss.IndexStateStore, "reset", side_effect=AssertionError("unexpected reset")):
                 self.assertTrue(self.finish(attempt, staged))
             self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
@@ -1275,7 +1456,7 @@ class LexicalStatisticsTests(_TempRepoCase):
         real_open = self.iss.open_read_only
         def traced(index_dir):
             conn = real_open(index_dir)
-            conn.set_trace_callback(queries.append)
+            conn.set_exec_trace(lambda cursor, sql, bindings: (queries.append(sql), True)[1])
             return conn
         with mock.patch.object(self.iss, "open_read_only", side_effect=traced), \
              mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=AssertionError("reader scanned")), \
@@ -1285,24 +1466,25 @@ class LexicalStatisticsTests(_TempRepoCase):
         self.assertTrue(all(sql == "BEGIN" or sql.startswith("SELECT") for sql in queries), queries)
         self.assertFalse(any("fts_docs" in sql or "fts_code" in sql or "vocab" in sql for sql in queries), queries)
 
-    def test_staged_parent_computes_new_cache_and_capability_change_removes_it(self):
+    def test_staged_parent_computes_new_cache_and_unavailable_reader_preserves_it(self):
         attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
         self.iss.rebuild_chunk_index(self.index_dir, "docs", [self.row("d", "hello hello")])
         self.assertTrue(self.finish(attempt, True))
         self.assertEqual(self.iss.lexical_statistics(self.index_dir)["term_occurrences"], 2)
         with mock.patch.object(self.iss, "fts5_available", return_value=False):
-            store = self.iss.IndexStateStore(self.index_dir)
-            self.assertIsNone(store.get_meta(self.iss.META_LEXICAL_STATISTICS))
-            store.close()
-        self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+            self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "unavailable")
+        # Runtime capability failure refuses readers; it cannot erase a valid
+        # canonical database or its published metadata.
+        self.assertEqual(self.iss.lexical_statistics(self.index_dir)["term_occurrences"], 2)
 
     def test_delta_rollback_restores_matching_cache(self):
         self.populate()
         before = self.cache()
         store = self.iss.IndexStateStore(self.index_dir)
         try:
-            store._conn = _FlakyConn(store._conn, "INSERT INTO fts_docs", sqlite3.OperationalError("injected IO failure"))
-            with self.assertRaises(sqlite3.OperationalError):
+            store._conn.execute("CREATE TEMP TRIGGER fail_docs BEFORE INSERT ON chunks_docs "
+                                "WHEN NEW.chunk_id='new' BEGIN SELECT RAISE(ABORT,'injected IO failure'); END")
+            with self.assertRaises(self.iss.sqlite_runtime.Error):
                 self.iss._apply_chunk_deltas_locked(store, "docs", add_rows=[self.row("new", "zeta")])
         finally:
             store.close()
@@ -1333,7 +1515,7 @@ class LexicalStatisticsTests(_TempRepoCase):
         real_connect = self.iss._full_durable_connection
         def failing(index_dir):
             return _FlakyConn(real_connect(index_dir), "INSERT INTO meta (key, value) VALUES (?, ?)",
-                              sqlite3.OperationalError("injected cache write failure"))
+                              self.iss.sqlite_runtime.apsw.IOError("injected cache write failure"))
         with mock.patch.object(self.iss, "_full_durable_connection", side_effect=failing):
             self.assertTrue(self.finish(attempt, False))
         self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")

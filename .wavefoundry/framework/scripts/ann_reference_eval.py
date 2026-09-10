@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Exact-vs-ANN reference measurement for the vector layer (wave `1wpih` / `1wsc8`).
 
-Production has no way to tell whether an approximate-nearest-neighbour setting
-helps, because it has nothing exact to compare against.  This module supplies
-that reference and nothing else: it is **measurement-only** and never changes
-how production queries run.
+This legacy LanceDB evaluation compares approximate-nearest-neighbour settings
+against exact search. It is **measurement-only**; current production uses
+SQLite exact search and does not depend on this reference backend.
 
 The exact side is obtained with LanceDB's ``bypass_vector_index()``, which
 forces a flat scan over the same immutable table snapshot, same query vector,
@@ -91,7 +90,7 @@ def _base_query(table: Any, query_vector: Sequence[float], top_n: int,
                 *, where: str | None, metric: str = "cosine") -> Any:
     """The shared query shape.  Both sides MUST start from this.
 
-    Mirrors production ``WaveIndex._lance_search``: same metric, same limit,
+    Mirrors the former LanceDB production query shape: same metric, same limit,
     same prefiltered where clause.  Any divergence here silently invalidates
     every overlap number this module produces.
     """

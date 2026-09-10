@@ -28,6 +28,15 @@ Open `.wavefoundry/install-log.md`. Read the first unchecked row (`- [ ]`). Each
 
 Phase 1 (the "Harness — no MCP required" section) runs without MCP. When Phase 1 finishes, the log instructs you to **ask the operator to restart the AI agent** so the Wavefoundry MCP server becomes available. After restart, Phase 2 begins, and `wf_audit_install` becomes the validating gate.
 
+Fresh setup stores both docs and code in the local
+`.wavefoundry/index/index-state.sqlite` database. It installs the qualified
+SQLite runtime and vector extension through the standard tool environment;
+LanceDB is needed only when upgrading an existing legacy index. Existing
+projects should follow **Upgrade Wavefoundry**, preserving its restart and
+recovery instructions. Check the packaged `.wavefoundry/framework/README.md`
+**Local index compatibility** section for pinned binary availability, local WAL-capable
+storage and retained-state recovery before installation.
+
 ## If your agent is unsure how to start
 
 Type this exact phrase in your AI agent's chat:

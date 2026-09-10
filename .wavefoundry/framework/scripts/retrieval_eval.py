@@ -2,7 +2,7 @@
 """Production-path golden-query retrieval evaluation.
 
 This runner is intentionally outside ``run_tests.py``: it reads a built local
-Lance/FTS index and the locally cached embedding/reranking models.  It creates a
+SQLite vector/FTS index and the locally cached embedding/reranking models.  It creates a
 ``WaveIndex`` directly (never ``ImplHandler``), so no background monitors are
 started, and invokes the same response functions used by the MCP tools.
 """
@@ -18,7 +18,6 @@ import platform
 import queue
 import re
 import shutil
-import sqlite3
 import stat
 import statistics
 import subprocess
@@ -1535,13 +1534,14 @@ def _new_evaluation_index(server: Any, root: Path) -> Any:
 
 
 def _verify_current_corpus(root: Path, index_dir: Path, state_store: Any) -> dict[str, int]:
-    _require((index_dir / "docs.lance").is_dir() and (index_dir / "code.lance").is_dir(),
-             "index_not_ready", "current docs.lance and code.lance tables are required")
+    import sqlite_vector_store
+    _require(all(sqlite_vector_store.layer_available(index_dir, layer) for layer in ("docs", "code")),
+             "index_not_ready", "current SQLite docs and code vector layers are required")
     counts: dict[str, int] = {}
     for table in ("docs", "code"):
         count = state_store.registry_chunk_count(index_dir, table)
         _require(isinstance(count, int) and count > 0, "empty_index",
-                 f"current {table} Lance/FTS corpus is empty or unregistered")
+                 f"current {table} SQLite vector/FTS corpus is empty or unregistered")
         counts[table] = count
     return counts
 
@@ -1666,6 +1666,7 @@ def _runtime_execution_providers(embedder: Any) -> list[str]:
 
 
 def _environment_snapshot(index: Any, indexer: Any) -> dict[str, Any]:
+    import sqlite_runtime
     models = {
         "docs": getattr(indexer, "DOCS_MODEL", None),
         "code": getattr(indexer, "CODE_MODEL", None),
@@ -1693,7 +1694,10 @@ def _environment_snapshot(index: Any, indexer: Any) -> dict[str, Any]:
         "reranker_provider": getattr(reranker, "provider", None),
         "packages": {
             "fastembed": _package_version("fastembed"),
-            "lancedb": _package_version("lancedb"),
+            "apsw": _package_version("apsw"),
+            "sqlite": sqlite_runtime.apsw.sqlitelibversion() if sqlite_runtime.apsw else None,
+            "sqlite_source_id": sqlite_runtime.apsw.sqlite3_sourceid() if sqlite_runtime.apsw else None,
+            "sqlite-vec": _package_version("sqlite-vec"),
             "onnxruntime": _package_version("onnxruntime"),
         },
         "offline": True,
@@ -1722,14 +1726,8 @@ def _index_identity(root: Path, index_dir: Path, state_store: Any) -> dict[str, 
 
 
 def _sqlite_backup(source: Path, destination: Path) -> None:
-    source_uri = f"file:{source.as_posix()}?mode=ro"
-    src = sqlite3.connect(source_uri, uri=True)
-    dst = sqlite3.connect(destination)
-    try:
-        src.backup(dst)
-    finally:
-        dst.close()
-        src.close()
+    import sqlite_runtime
+    sqlite_runtime.backup(source, destination)
 
 
 def _degraded_probe(server: Any, state_store: Any, root: Path, fixture: Mapping[str, Any],
@@ -2462,7 +2460,7 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
             "end_token": list(_state_token(end_state)),
         },
         "corpus": {
-            "current_lance_fts_counts": corpus_counts,
+            "current_vector_fts_counts": corpus_counts,
             "non_empty": True,
             "health": {
                 "semantic_ready": index_health.get("semantic_ready"),
