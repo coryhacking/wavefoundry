@@ -12,14 +12,16 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Older indexes can recover through a full storage rebuild.** Upgrades blocked by historical chunk-ID collisions can regenerate search from current project files while preserving auxiliary data and recovery copies until verification succeeds. The upgrade editing pass also brings recovery instructions into existing project prompts while preserving local customizations. Wave `1xjmm`.
 
-- **Interrupted storage upgrades resume with the original package.** Byte-identical archives remain valid after temporary staging or relocation, and existing project-root installer instructions are preserved. Wave `1xjmm`.
-
 - **Storage upgrades give a clear restart handoff.** The expected restart pause preserves recovery state, identifies observable Wavefoundry hosts still attached to the project, and supplies the exact CLI continuation before MCP stops. Wave `1xjmm`.
+
+- **Reranked results on CPU no longer depend on which other results share a batch.** Without a supported GPU the reranker runs an 8-bit model whose quantized activation range was set by every passage in the batch, so a result's position could shift because of unrelated candidates in the same request. Each passage is now scored on its own, so ranking is stable and reproducible for the same query. GPU reranking is unchanged. Wave `1xhbo`.
 
 ### Changed
 
 - **Projects use a smaller, unified local search index.** Docs and code share SQLite storage, keeping text, keyword search and vectors consistent through file changes. Standard upgrades preserve recovery data and remove retired LanceDB files only after verification. Fresh installs no longer need LanceDB. Wave close also reclaims excess graph storage without re-embedding. Scripts reading health or retrieval coverage must use `vector_rows` in place of the removed `lance_rows` field. Wave `1xjmm`.
-- **Index failures explain how to recover.** Setup checks local WAL-capable storage; unavailable native dependencies and search failures are reported explicitly. Index staging uses project storage, maintenance failures retain actionable diagnostics, and Windows upgrade access failures retain a normal retry path. Upgrading requires stopping old database-owning hosts when prompted; see the packaged framework README for supported binaries and filesystem requirements. Wave `1xjmm`.
+- **Index failures explain how to recover.** Setup checks that the index sits on local WAL-capable storage. An unavailable native runtime or a failed search is reported explicitly, naming the condition rather than returning an empty result. Upgrading requires stopping old database-owning hosts when prompted; see the packaged framework README for supported binaries and filesystem requirements. Wave `1xjmm`.
+- **`index_health` recommends the specific recovery each condition needs.** Missing native dependencies point at `wf setup --root .` followed by an MCP restart, a stale layer points at an incremental index update, a chunker-version mismatch points at a full rebuild, and storage or filesystem failures give recovery that preserves the existing index instead of rebuilding it. The per-condition diagnostics and the recommended next step now agree, including when several conditions apply at once. Wave `1xjmm`.
+- **Graph storage converts to incremental space reclamation once.** New graph stores enable it at creation; an existing store converts during ordinary setup, upgrade, or an explicit `index_optimize`, and that first pass needs one full rewrite of the graph database. Graph rows are preserved, and nothing is re-extracted or re-embedded. Wave `1xjmm`.
 
 ## [1.22.0]
 
