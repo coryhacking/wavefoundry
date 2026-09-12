@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## Runtime Topology
 
@@ -89,13 +89,16 @@ setup_wavefoundry.py --root .
   ├── chunker.py       →  chunk_python (AST) / chunk_markdown / tree-sitter chunkers for JS/TS/Go/Rust/Java/C/C++/C#/Bash/Kotlin / chunk_line_window fallback
   ├── embedder         →  Snowflake Arctic Embed S (FP16 GPU / INT8 CPU, batch 32)
   └── .wavefoundry/index/
-        ├── index-state.sqlite  (schema 7: canonical docs/code chunks, FP32 vectors,
+        ├── index.sqlite  (schema 8: canonical docs/code chunks, FP32 vectors,
         │              external-content FTS5, registry, per-path bookkeeping,
-        │              publication epoch, freshness and secret-scan cache;
-        │              one qualified APSW/SQLite binding, WAL and atomic semantic writes)
-        ├── sqlite-migration.json  (when upgrading: durable restart/recovery and
-        │              verified cleanup receipt; original Lance stores remain until safe)
-        └── graph/  (graph artifacts + project-graph-state.sqlite merge store)
+        │              publication epoch, freshness and secret-scan cache, PLUS the
+        │              code graph, edge evidence, per-file extraction/merge state,
+        │              communities, analysis and the codebase-map receipt;
+        │              one qualified APSW/SQLite binding, WAL, and one transaction
+        │              publishing every participant)
+        ├── memory-state.sqlite  (agent memory — the one store that stays separate)
+        └── sqlite-migration.json  (when upgrading: durable restart/recovery and
+                       verified cleanup receipt; the retained source remains until safe)
 
 build_pack.py
   ├── stamps .wavefoundry/framework/VERSION
@@ -114,7 +117,7 @@ dashboard_server.py
 
 **Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. MCP and the cross-platform `wf` / `wf.cmd` dispatcher own the executable flow; human display commands are rendered for the detected host while structured argv remains authoritative.
 
-**Model set contract:** the active embedding bundle is model set 3 (Arctic Embed S plus the MiniLM L6 reranker; the same weights and embedding fingerprint as set 2, one reference file corrected), and upgrade cleanup removes retired v1 model-cache components only after reading the semantic authority in `index-state.sqlite`, a one-way inspection boundary per `layering-rules.md`.
+**Model set contract:** the active embedding bundle is model set 3 (Arctic Embed S plus the MiniLM L6 reranker; the same weights and embedding fingerprint as set 2, one reference file corrected), and upgrade cleanup removes retired v1 model-cache components only after reading the semantic authority in `index.sqlite`, a one-way inspection boundary per `layering-rules.md`.
 
 **Release versioning contract:** Wavefoundry uses semver-only packaging and upgrade code paths. `check_version.py` compares `MAJOR.MINOR.PATCH` tuples and rejects non-semver strings, release zips default to `~/.wavefoundry/dist/`, and packaging requires `--version 1.0.0` or later. `VERSION` and manifest `framework_revision` are stamped as `MAJOR.MINOR.PATCH+<build>` during packaging.
 

@@ -836,45 +836,48 @@ def _read_graph_builder_version_from_pack(root: Path) -> str:
     )
 
 
-def _read_installed_graph_builder_version(root: Path) -> str:
-    """Read the INSTALLED (pre-extract) project graph builder version from the real project graph state.
+# Read through the tool venv: the shared index database may be opened ONLY by
+# the pinned native runtime (the single-binding rule), and this module is
+# deliberately stdlib-only and import-light. Same pattern as
+# `_verify_storage_publication`. The probe imports the INSTALLED framework's
+# own graph module, so a pre-rename install reads its own old state layout.
+_GRAPH_BUILDER_PROBE = (
+    "import sys, pathlib;"
+    "sys.path.insert(0, sys.argv[1]);"
+    "import graph_indexer;"
+    "sys.stdout.write(graph_indexer.read_state_builder_version("
+    "pathlib.Path(sys.argv[2]) / '.wavefoundry' / 'index'))"
+)
 
-    Wave 1rvfx: the state lives under ``.wavefoundry/index/graph/`` — the SQLite store
-    ``project-graph-state.sqlite`` (``meta`` table, ``key='builder_version'``) with a fallback to the
-    legacy monolithic ``project-graph-state.json`` (``builder_version`` key). Mirrors the canonical
-    ``graph_indexer.read_state_builder_version`` but is inlined with stdlib ``sqlite3``/``json`` only —
-    the upgrade module deliberately avoids importing the heavy, tree-sitter-dependent ``graph_indexer``
-    (which is also replaced during extraction). Read-only URI open (no file creation, sub-ms). Returns
-    ``""`` when the state is absent/unreadable — FAIL-SAFE: the upgrade must never abort because this
-    operator-log version probe could not read state (matches read_state_builder_version's contract).
-    (The retired framework-graph layer's ``framework-graph-state.json`` is intentionally NOT read — it
-    never exists in a current install, which is why the transition log line used to never fire.)"""
-    import sqlite3  # local import — stdlib-only, keeps the upgrade module import-light
-    graph_dir = root / ".wavefoundry" / "index" / "graph"
-    store_path = graph_dir / "project-graph-state.sqlite"
-    if store_path.exists():
-        try:
-            conn = sqlite3.connect(f"file:{store_path.as_posix()}?mode=ro", uri=True, timeout=2.0)
-            try:
-                row = conn.execute("SELECT value FROM meta WHERE key = 'builder_version'").fetchone()
-            finally:
-                conn.close()
-            if row and row[0]:
-                return str(row[0])
-        except (sqlite3.Error, OSError):
-            return ""
+
+def _read_installed_graph_builder_version(root: Path) -> str:
+    """Read the INSTALLED (pre-extract) project graph builder version.
+
+    Wave 1xny6: the graph state moved into the shared index database
+    (``meta``, key ``graph:builder_version``), bound to the published graph
+    generation. Only the pinned native runtime may open that file, so this
+    stdlib-only module reads the canonical resident probe
+    (``graph_indexer.read_state_builder_version``) through a tool-venv
+    subprocess instead of opening the database itself.
+
+    Returns ``""`` when the tool venv is absent, when the state is absent or
+    unreadable, or when the probe fails for any reason — FAIL-SAFE: the
+    upgrade must never abort because this operator-log version probe could not
+    read state (matches ``read_state_builder_version``'s own contract).
+    """
+    # An absent tool venv is a fail-safe empty through the spawn failure below;
+    # no separate existence guard, which would be unpinnable duplication.
+    python = venv_bootstrap.tool_venv_python()
+    try:
+        probe = subprocess_util.isolated_run(
+            [str(python), "-c", _GRAPH_BUILDER_PROBE, str(SCRIPTS_DIR), str(root)],
+            cwd=str(root), check=False, capture_output=True, text=True, timeout=300,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
         return ""
-    legacy_path = graph_dir / "project-graph-state.json"
-    if legacy_path.is_file():
-        try:
-            data = json.loads(legacy_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                gb = data.get("builder_version")
-                if isinstance(gb, (str, int)) and str(gb).strip():
-                    return str(gb)
-        except (OSError, ValueError):
-            return ""
-    return ""
+    if probe.returncode != 0 or not isinstance(probe.stdout, str):
+        return ""
+    return probe.stdout.strip()
 
 
 # Wave 1rxyi: the distribution zip ships the single-use bootstrap `install-wavefoundry.md` at the ZIP
@@ -1070,7 +1073,12 @@ class UpgradeContext:
         # define it, which lets a protocol-2 feature pack refuse them before
         # extraction through ``post_preflight``.
         self.runner_protocol = 2
-        self.storage_migration_protocol = 1
+        # Storage-conversion protocol. 2 declares that this coordinator can run
+        # the schema-8 kind in-process; 1 (or an older context that defines
+        # nothing) receives the restart handoff and the installed CLI resumes
+        # it. `runner_protocol` and the packaged `minimum_runner_protocol` stay
+        # 2, so this bump needs no bridge release.
+        self.storage_migration_protocol = 2
         # Wave 1p3b9 (1p3b6): when True, post_extract migrations call their
         # `_preview_*` variants (zero filesystem mutations) and write a
         # preview-log instead of the action log. Propagated from the upgrade
@@ -5245,7 +5253,7 @@ def main(argv: list[str] | None = None) -> int:
                     _err(
                         "retired_model_cleanup retry refused: the semantic "
                         "authority (current model-set manifest plus a stable "
-                        "index-state.sqlite epoch) could not be revalidated, "
+                        "index.sqlite epoch) could not be revalidated, "
                         "for example while an index build is in flight. The "
                         "failure marker and partial cleanup lists are "
                         "retained; retry wf_upgrade(phase='cleanup') once "

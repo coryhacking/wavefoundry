@@ -1,7 +1,7 @@
-"""Qualified SQLite binding for the shared semantic index.
+"""Qualified SQLite binding for the shared semantic and graph index.
 
-Never open this file with another SQLite library in the same process. Graph
-and memory stores are separate files and may retain their existing binding.
+Never open this file with another SQLite library in the same process. The
+separate memory store may retain its existing binding.
 """
 from __future__ import annotations
 

@@ -3,6 +3,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import index_state_store as iss
 import sqlite_runtime as runtime
@@ -34,7 +35,7 @@ class PublicationOptimizationTests(unittest.TestCase):
             'wrong_dimensions': bytes(383 * 4),
         }
         for name, blob in bad.items():
-            with self.subTest(name=name), vectors.PreparedUpdates(self.index_dir) as prepared:
+            with self.subTest(name=name), patch.object(vectors.PreparedUpdates, "MEMORY_LIMIT_BYTES", 0), vectors.PreparedUpdates(self.index_dir) as prepared:
                 prepared.add('code', ids=['a'], rows=[row('b')])
                 spool = runtime.connect(prepared.path)
                 try:

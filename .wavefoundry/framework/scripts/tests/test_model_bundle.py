@@ -157,12 +157,12 @@ class ModelBundleTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             historical_lines: set[int] = set()
             if path == tests_root / "test_sqlite_storage_migration.py":
-                # Schema 4/5 compatibility must prove that historical model
+                # Legacy-schema compatibility must prove that historical model
                 # metadata survives staging. Only this exact test method may
                 # name its shipped old model; new fixtures/defaults stay closed.
                 for node in ast.walk(ast.parse(text)):
                     if (isinstance(node, ast.FunctionDef) and node.name ==
-                            "test_historical_schema4_and5_add_tables_without_erasing_auxiliary_state"):
+                            "test_every_legacy_schema_adds_tables_without_erasing_auxiliary_state"):
                         historical_lines.update(range(node.lineno, node.end_lineno + 1))
             if any(any(token in line for token in retired) and number not in historical_lines
                    for number, line in enumerate(text.splitlines(), 1)):

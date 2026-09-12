@@ -731,7 +731,15 @@ def _remap_clusters(
     return remapped
 
 
-def read_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
+def _legacy_file_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
+    """The pre-1xny6 file-backed reader, retained ONLY for the no-connection mode.
+
+    ``update_graph_clusters`` still supports being called without a store
+    connection (fixtures and the quality evaluator do that); that mode writes
+    and reads the standalone artifact exactly as it always did. Production
+    clustering always supplies a connection and publishes rows, and every
+    consumer now reads those rows through :func:`read_cluster_payload`.
+    """
     path = cluster_path(root, layer)
     data = _read_json(path, {})
     if isinstance(data, dict) and data:
@@ -739,22 +747,62 @@ def read_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
         data.setdefault("cluster_schema_version", CLUSTER_SCHEMA_VERSION)
         data.setdefault("communities", [])
         data.setdefault("community_count", len(data.get("communities") or []))
-        try:
-            data["cluster_mtime"] = path.stat().st_mtime_ns
-        except OSError:
-            data["cluster_mtime"] = 0
         data["present"] = True
         data["cluster_path"] = str(path.relative_to(root)).replace("\\", "/")
         return data
     return {
         "layer": layer,
         "cluster_schema_version": CLUSTER_SCHEMA_VERSION,
-        "cluster_mtime": 0,
         "present": False,
         "cluster_path": str(path.relative_to(root)).replace("\\", "/"),
         "communities": [],
         "community_count": 0,
     }
+
+
+def read_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
+    """The published communities for ``layer``, bound to one build generation.
+
+    Wave 1xny6: served from the community ROWS through the generation-bound
+    snapshot, not from the retired ``project-graph-clusters.json``. Two
+    behaviors change deliberately and are compared separately from query
+    content:
+
+    * ``cluster_path`` / ``graph_path`` name a logical component of the shared
+      database instead of a deleted filename;
+    * ``cluster_mtime`` is retired in favour of ``community_generation`` — a
+      file mtime is not a fact about the served content any more, and the
+      generation is.
+
+    Callers are free to mutate the payload they get back: the communities are
+    copied out of the shared resident view so an in-place edit at one call site
+    cannot corrupt every other reader in the process.
+    """
+    import graph_snapshot
+
+    snapshot = graph_snapshot.acquire(root, layer)
+    absent = {
+        "layer": layer,
+        "cluster_schema_version": CLUSTER_SCHEMA_VERSION,
+        "community_generation": snapshot.community_content_generation,
+        "generation": snapshot.generation,
+        "present": False,
+        "cluster_path": graph_snapshot.component_path(graph_snapshot.COMMUNITY_COMPONENT),
+        "communities": [],
+        "community_count": 0,
+    }
+    if not snapshot.clusters_present:
+        return absent
+    data = dict(snapshot.clusters)
+    data["communities"] = [
+        {**c, "node_ids": list(c.get("node_ids") or [])}
+        for c in (data.get("communities") or []) if isinstance(c, dict)
+    ]
+    data["community_count"] = len(data["communities"])
+    data["community_generation"] = snapshot.community_content_generation
+    data["generation"] = snapshot.generation
+    data["present"] = True
+    return data
 
 
 def _merge_same_stem_communities(
@@ -1060,6 +1108,150 @@ def compute_betweenness_ranking(graph_payload: dict[str, Any]) -> dict[str, Any]
     return section
 
 
+
+# One compact analysis row per generation, keyed by kind. The cluster pass
+# reads and writes the graph_* tables only; it never touches graph meta, so
+# there is deliberately no mirrored copy of graph_indexer's key prefix here to
+# drift out of sync.
+CLUSTER_ANALYSIS_KIND = "clusters"
+
+
+def read_published_clusters(conn, layer: str) -> dict[str, Any]:
+    """Rebuild the previous cluster payload from its published rows.
+
+    Used for the fingerprint-gated recompute skip and for community-id
+    stability across builds. Reading the ROWS rather than the derived JSON
+    file is what makes the file derived: nothing in the cluster pass depends
+    on the artifact it writes.
+    """
+    row = conn.execute(
+        "SELECT input_fingerprint, method, payload FROM graph_analysis "
+        "WHERE kind = ? AND layer = ?",
+        (CLUSTER_ANALYSIS_KIND, layer),
+    ).fetchone()
+    if row is None or row[2] is None:
+        return {}
+    payload = _decode_analysis(row[2])
+    if not isinstance(payload, dict):
+        return {}
+    members: dict[str, list[str]] = {}
+    for node_id, community_id in conn.execute(
+        "SELECT node_id, community_id FROM graph_community_members WHERE layer = ?",
+        (layer,),
+    ):
+        members.setdefault(str(community_id), []).append(str(node_id))
+    for community in payload.get("communities") or []:
+        if isinstance(community, dict):
+            community["node_ids"] = sorted(members.get(str(community.get("community_id") or ""), ()))
+    payload["input_fingerprint"] = str(row[0] or "")
+    return payload
+
+
+def _encode_analysis(payload: dict) -> bytes:
+    data = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return gzip.compress(data, compresslevel=GRAPH_GZIP_LEVEL, mtime=0)
+
+
+def _decode_analysis(raw) -> Any:
+    try:
+        raw = bytes(raw)
+        if raw[:2] == _GZIP_MAGIC:
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - an undecodable row reads as absent
+        return None
+
+
+def prepare_cluster_publication(conn, *, layer: str, payload: dict):
+    """Diff the computed communities against the published rows.
+
+    Membership is diffed by ``(node_id, community_id)``: only memberships that
+    actually moved are written, so a one-file edit touches the handful of
+    members whose community changed rather than rewriting the corpus. An
+    unchanged member row keeps the ``input_fingerprint`` it was established
+    under -- that is what "not rewritten" means, and it is the honest reading
+    of the column.
+
+    The analysis row is the compact per-generation record: community metadata
+    plus the bounded betweenness ranking, WITHOUT the per-community member
+    lists (those are the rows above), so it never becomes an O(graph) blob.
+    """
+    graph_indexer = _graph_publication_module()
+    input_fingerprint = str(payload.get("input_fingerprint") or "")
+    communities = [c for c in (payload.get("communities") or []) if isinstance(c, dict)]
+
+    stored_communities: dict[str, tuple] = {}
+    for row in conn.execute(
+        "SELECT community_id, label, seed_node_id, node_count, attributes "
+        "FROM graph_communities WHERE layer = ?",
+        (layer,),
+    ):
+        stored_communities[str(row[0])] = (str(row[1]), str(row[2]), int(row[3]), str(row[4]))
+    stored_members: set[tuple[str, str]] = {
+        (str(node_id), str(community_id))
+        for node_id, community_id in conn.execute(
+            "SELECT node_id, community_id FROM graph_community_members WHERE layer = ?",
+            (layer,),
+        )
+    }
+
+    community_puts: list[tuple] = []
+    new_members: set[tuple[str, str]] = set()
+    seen_ids: set[str] = set()
+    for community in communities:
+        community_id = str(community.get("community_id") or "")
+        if not community_id:
+            continue
+        seen_ids.add(community_id)
+        node_ids = [str(n) for n in (community.get("node_ids") or []) if str(n)]
+        for node_id in node_ids:
+            new_members.add((node_id, community_id))
+        attributes = json.dumps(
+            {k: v for k, v in community.items()
+             if k not in ("community_id", "label", "seed_node_id", "node_ids", "node_count")},
+            separators=(",", ":"), sort_keys=True,
+        )
+        shape = (
+            str(community.get("label") or ""),
+            str(community.get("seed_node_id") or ""),
+            int(community.get("node_count") or len(node_ids)),
+            attributes,
+        )
+        if stored_communities.get(community_id) != shape:
+            community_puts.append((community_id, layer, input_fingerprint) + shape)
+
+    analysis_payload = {
+        k: v for k, v in payload.items() if k not in ("communities", "_publication")
+    }
+    analysis_payload["communities"] = [
+        {k: v for k, v in c.items() if k != "node_ids"} for c in communities
+    ]
+    analysis_row = (
+        CLUSTER_ANALYSIS_KIND, layer, input_fingerprint,
+        str(payload.get("cluster_algorithm") or ""),
+        _encode_analysis(analysis_payload), time.time(),
+    )
+    return graph_indexer.GraphCommunityPublication(
+        layer=layer,
+        input_fingerprint=input_fingerprint,
+        community_puts=community_puts,
+        community_deletes=sorted(set(stored_communities) - seen_ids),
+        member_inserts=[
+            (node_id, community_id, layer, input_fingerprint)
+            for node_id, community_id in sorted(new_members - stored_members)
+        ],
+        member_deletes=sorted(stored_members - new_members),
+        analysis_row=analysis_row,
+    )
+
+
+def _graph_publication_module():
+    """Lazy import of the module that owns the publication row types."""
+    import graph_indexer
+
+    return graph_indexer
+
+
 def update_graph_clusters(
     *,
     root: Path,
@@ -1067,7 +1259,17 @@ def update_graph_clusters(
     layer: str,
     graph_payload: dict[str, Any] | None = None,
     verbose: bool = False,
+    state_conn=None,
 ) -> dict[str, Any]:
+    """Compute this layer's communities and PREPARE their rows.
+
+    Wave 1xny6: with ``state_conn`` the community, membership and analysis
+    rows are prepared and returned under ``_publication`` for the caller's
+    single publication transaction; the previous generation is read from the
+    ROWS (fingerprint gate and community-id stability both), so the cluster
+    artifact file is a derived output and nothing here depends on it. Without
+    a connection the historical file-backed behavior is unchanged.
+    """
     if layer not in GRAPH_FILENAMES:
         raise ValueError(f"Unsupported graph layer: {layer}")
     graph = graph_payload
@@ -1079,7 +1281,7 @@ def update_graph_clusters(
             stale_path.unlink()
         except OSError:
             pass
-        return read_cluster_payload(root, layer)
+        return _legacy_file_cluster_payload(root, layer)
 
     # Wave 1p9q3 (1p9q2): fingerprint-gated analysis skip. When the merged
     # graph's `input_fingerprint` matches the one the existing clusters
@@ -1091,7 +1293,10 @@ def update_graph_clusters(
     # through to the full recompute exactly as before.
     graph_fingerprint = str(graph.get("input_fingerprint") or "")
     if graph_fingerprint:
-        existing = _read_json(cluster_path(root, layer), None)
+        existing = (
+            read_published_clusters(state_conn, layer) if state_conn is not None
+            else _read_json(cluster_path(root, layer), None)
+        )
         if (
             isinstance(existing, dict)
             and str(existing.get("input_fingerprint") or "") == graph_fingerprint
@@ -1102,11 +1307,18 @@ def update_graph_clusters(
         ):
             print(
                 f"build_index: graph unchanged ({layer} layer, fingerprint match) — "
-                "clusters/betweenness artifact reused, no recompute",
+                "clusters/betweenness reused, no recompute",
                 file=sys.stderr,
                 flush=True,
             )
-            return read_cluster_payload(root, layer)
+            if state_conn is not None:
+                # Nothing recomputed means nothing to publish: the previous
+                # generation's rows already say exactly this.
+                existing.setdefault("layer", layer)
+                existing.setdefault("community_count", len(existing.get("communities") or []))
+                existing["present"] = True
+                return existing
+            return _legacy_file_cluster_payload(root, layer)
 
     if verbose:
         print(f"build_index: graph clustering inputs ready for {layer} layer", flush=True)
@@ -1123,7 +1335,10 @@ def update_graph_clusters(
     # passes (so split fragments can re-merge deterministically where appropriate).
     prod_communities = _split_cross_directory_grabbags(prod_communities, prod_nodes, prod_adjacency)
     communities = prod_communities + fixed_communities
-    previous = _read_existing_clusters(cluster_path(root, layer))
+    previous = (
+        read_published_clusters(state_conn, layer) if state_conn is not None
+        else _read_existing_clusters(cluster_path(root, layer))
+    )
     remapped = _remap_clusters(layer=layer, new_clusters=communities, previous=previous)
     remapped = _merge_same_stem_communities(remapped, nodes_by_id, adjacency)
     remapped = _merge_small_communities(remapped, nodes_by_id, adjacency)
@@ -1185,6 +1400,18 @@ def update_graph_clusters(
         "communities": remapped,
         "betweenness": betweenness_section,
     }
+    if state_conn is not None:
+        payload["_publication"] = prepare_cluster_publication(
+            state_conn, layer=layer, payload=payload
+        )
+        if verbose:
+            print(
+                f"build_index: graph clustering prepared {layer} community rows — "
+                f"{payload['community_count']} communities via {algorithm}",
+                flush=True,
+            )
+        payload["present"] = True
+        return payload
     _write_json(cluster_path(root, layer), payload)
     if verbose:
         print(
@@ -1192,4 +1419,4 @@ def update_graph_clusters(
             f"{payload['community_count']} communities via {algorithm}",
             flush=True,
         )
-    return read_cluster_payload(root, layer)
+    return _legacy_file_cluster_payload(root, layer)

@@ -1955,6 +1955,7 @@ _GITIGNORE_BLOCK = [
     "",
     "# Wavefoundry runtime lock files (host-local process/test locks — never commit)",
     ".wavefoundry/**/*.lock",
+    ".wavefoundry/locks/",
     "",
     "# Wavefoundry runtime logs (upgrade, index build, dashboard)",
     ".wavefoundry/logs/",

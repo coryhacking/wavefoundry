@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## Allowed Dependencies
 
@@ -29,21 +29,28 @@ Last verified: 2026-09-09
 | `review_policy.py` carrier registry → direct docs | Direct-doc carriers are validation-only and never target-repository writers | Verified by owner-permission registry tests |
 | Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
 | FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema_version` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output. This boundary governs the PRIMARY-phase producer only; wave 1uf68 additionally has the separate cleanup process carry the same token at its own emit site, which is not a second sentinel in this stream (each subprocess invocation's stdout is parsed on its own) and does not make the token exclusive to this boundary | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
-| `index_state_store` publication → upgrade cleanup | `index-state.sqlite` is the sole durable semantic authority. The freshly loaded cleanup process may inspect one stable complete docs-and-code token and bounded layer summary, but it must not create a second receipt or treat the upgrade lock's audit copy as authority | Verified by upgrade stable-token, incomplete-epoch, active-manifest, and cleanup-retry tests |
+| `index_state_store` publication → upgrade cleanup | `index.sqlite` is the sole durable semantic AND graph authority. The freshly loaded cleanup process may inspect one stable complete docs-and-code token and bounded layer summary, but it must not create a second receipt or treat the upgrade lock's audit copy as authority | Verified by upgrade stable-token, incomplete-epoch, active-manifest, and cleanup-retry tests |
 
 ## Violation Detection
 
 - Dependency violations: currently informal (no import linter); enforce through code review using this doc.
 - Boundary invariants: enforced through MCP **`wf_validate_docs`** (agents) or **`wf docs-lint`** (hooks/CI), plus seed protection hook and framework plan gate hook.
 
-## Shared semantic storage (wave 1xjmm)
+## Shared index storage (waves 1xjmm, 1xny6)
 
-`sqlite_runtime` is the sole connection policy for `index-state.sqlite`.
+`sqlite_runtime` is the sole connection policy for `index.sqlite`, and no module
+may open that file with a second SQLite library in one process. `index_paths` is
+the one definition of the database's current and legacy filenames; it deliberately
+does NOT decide authority when both exist — that is the migration receipt's job.
 `sqlite_vector_store` owns canonical chunk/vector schema and bounded retrieval;
-`index_state_store` owns bookkeeping, FTS validation and publication fences;
-`indexer` owns the transaction combining their mutations. Query consumers open
-read-only connections and cannot repair or migrate persistent data.
+`graph_store` owns the graph, community and derived-output DDL, emitted into the
+CALLER's transaction and never opening a connection of its own; `index_state_store`
+owns bookkeeping, FTS validation and publication fences; `indexer` owns the single
+transaction combining every one of their mutations. `graph_snapshot` is the only
+generation-bound read path for graph and community rows: it opens read-only, reads
+one SQLite snapshot, and returns immutable content rather than a live handle. Query
+consumers open read-only connections and cannot repair or migrate persistent data.
 `sqlite_storage_migration` may load the pinned legacy reader only during standard
 upgrade conversion. Its durable receipt records recovery and cleanup progress;
-the existing build epoch remains publication authority. Graph and memory retain
-separate ownership and are not folded into the semantic database.
+the existing build epoch remains publication authority. Graph participates in the shared publication transaction. Memory retains
+separate persistent ownership.

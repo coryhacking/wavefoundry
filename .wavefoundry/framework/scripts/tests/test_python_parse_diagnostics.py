@@ -192,10 +192,16 @@ class IndexBuildWarningNamesFixturePathTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("BUILD_OK", proc.stdout)
-            # The build is real: the graph artifact was written.
+            # The build is real: the graph ROWS were published. Wave 1xny6
+            # lane L6b retired the derived artifact this used to look for, so
+            # the published store is the proof (and the retired folder must
+            # not have been recreated).
+            index_paths = _load("index_paths", SCRIPTS_ROOT / "index_paths.py")
             self.assertTrue(
-                (root / ".wavefoundry" / "index" / "graph" / "project-graph.json").exists()
+                index_paths.index_database_path(
+                    root / ".wavefoundry" / "index").is_file()
             )
+            self.assertFalse((root / ".wavefoundry" / "index" / "graph").exists())
         self.assertIn("SyntaxWarning", proc.stderr)
         self.assertIn("invalid escape sequence", proc.stderr)
         self.assertIn("src/bad_escape.py", proc.stderr.replace("\\", "/"))

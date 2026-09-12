@@ -1,0 +1,1897 @@
+{
+  "packet": {
+    "wave_id": "1xny6",
+    "phase": "readiness",
+    "change_ids": [
+      "1xny5-ref unify-graph-index-storage"
+    ],
+    "trust_boundaries_touched": [
+      "shared storage and publication",
+      "migration receipt/ownership/cleanup",
+      "whole-response generations"
+    ],
+    "files": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "git_blob": "f8543e3d1c480cb5b931b153493f0009de3eaaf6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "git_blob": "b787f9e2f8a272b2a4bdde477856b9baf3020c37"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "git_blob": "6957124d4207cdbb2c0992ab4524a45ba80e7156"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "git_blob": "cb2eacd435ec658f8eea27950228491d097d8cf8"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "git_blob": "3068ef41c9b94653ada5206ae2b059d0782e8809"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "git_blob": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "git_blob": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "git_blob": "77de92e194a30eafde2af6fdf5f1f71562886007"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "git_blob": "efe68604084dfbca4f4ceddf39bf320f7e29483d"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "git_blob": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "git_blob": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "git_blob": "e87b4177395a98a191330a80dcb7d76ee4108e3d"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "git_blob": "344419c791a7ca3c1dd060a455219d4f743a4c3e"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "git_blob": "0505cf57652de05ecef28fc425bee01ca39d4604"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "git_blob": "e4d0572c99f3ddc7d00d8337042146aaf50863d4"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "git_blob": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989"
+      }
+    ],
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "time_budget": "150 seconds per seat, bounded source-grounded readiness review; no runtime benchmarks",
+    "sweep_rule": "one risk-selected current-source or plan contract probe with known-bad control; targeted only, no product behavior qualification",
+    "primer_depth": "full",
+    "pending_receipt": "review-policy-e2433f039cf0a6a2c613",
+    "policy_input_digest": "9429606a26ace7218422c10e95189a4d0fb1e7f2ad62ccfbb112c9acff6d151f",
+    "note": "Wave record available as context; its generated accounting is not frozen source. No source edits or implementation authorized. User accepts prior timings and prefers automatic graph rebuild plus cleanup; no bridge release."
+  },
+  "primer": {
+    "mode": "council-adversarial-primer",
+    "primer_depth": "full",
+    "phase": "readiness",
+    "wave_id": "1xny6",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "fingerprint_validation": {
+      "all_16_working_tree_blobs_match": true,
+      "details": "/tmp/1xny6-primer-check.json"
+    },
+    "thinking_stances_applied": [
+      {
+        "stance": "adversarial",
+        "produced": "Pressure the interruption after filename publication but before receipt advancement, then cleanup retry. Current migration guards identity and rejects nonempty live WAL; new destination naming must preserve those guards. The plan explicitly requires this; no uncovered contract gap demonstrated."
+      },
+      {
+        "stance": "constructive",
+        "produced": "Use a new versioned graph-consolidation migration kind over the existing coordinator, preserving old receipt interpretation and semantic backup. Completed legacy receipts must not short-circuit the new transition. This matches the plan and is stronger than extending a global legacy artifact allowlist without migration-kind ownership."
+      },
+      {
+        "stance": "simplicity",
+        "produced": "Automatic fresh source graph extraction avoids all old-format decoding and corrupt-cache compatibility. Reuse vectors, retain a bounded owned cleanup manifest, and separate paired qualification from destination upgrades. Do not add a bridge release or second shipped engine."
+      },
+      {
+        "stance": "first-principles",
+        "produced": "Shared filename alone cannot create atomic publication. One coordinator must own data transaction and final authorization, while a response holds generation-consistent graph/community and semantic inputs. Existing finalizer owns separate FULL-durable and memory authorization machinery; preserving those fences is a required integration seam already covered by the plan."
+      },
+      {
+        "stance": "analogical",
+        "produced": "Treat cutover like a journaled filesystem transaction: the receipt authorizes one candidate identity and records intent before authority changes; restart verification earns cleanup eligibility. Treat resident caches like immutable versioned snapshots, retaining an old generation until in-flight readers finish."
+      }
+    ],
+    "strongest_challenge": "The most material pressure point is migration-kind dispatch and authority continuity across existing completed/pending receipts, two database filenames, process restart, and graph cleanup. Current prepare_upgrade returns immediately for a complete receipt (543-544), while cleanup_legacy owns only docs.lance/code.lance/__manifest (24,1142-1145). Merely changing the filename and adding graph tables would either skip the transition or weaken deletion ownership. The plan explicitly addresses both, so this is a challenge for independent lanes to validate, not an actionable plan defect.",
+    "best_alternative": {
+      "approach": "Keep the existing coordinator but add a separately versioned consolidation transition: finish a pending legacy receipt according to its original package identity; preserve the historical completed receipt; create a new migration-kind receipt for staged semantic backup plus source graph rebuild; validate a fresh process before deleting individually owned obsolete graph artifacts; retry cleanup independently of rebuilding a verified graph.",
+      "why_better": "This would be better than broadening legacy cleanup and reusing a completed receipt because each receipt retains one interpretation and deletion scope, and interruption recovery never guesses authority. It is consistent with the admitted design, not a request for another storage architecture."
+    },
+    "consequence_of_current_path": "If the stated dispatch, final authorization and per-artifact ownership contracts are implemented, no additional demonstrated readiness consequence remains. If integration shortcuts bypass them, upgrades can incorrectly no-op, publish unauthorized mixed state, or delete unrelated graph-folder contents. These are conditional implementation risks, not observed product failures introduced by this unimplemented wave.",
+    "primer_questions": [
+      "Which source seams must change so completed legacy receipts dispatch consolidation exactly once, pending receipts retain package-bound recovery, and publication resumes after a crash with both filenames present without guessing authority?",
+      "How do the publication and reader contracts preserve parent memory authorization and one response generation when semantic and graph participants share a caller-owned transaction, and which current independently committing helpers must be adapted?",
+      "Does the planned cleanup ownership census distinguish every obsolete graph artifact from unknown contents and symlink/reparse targets while allowing a verified current graph to skip rebuilding on cleanup retry?"
+    ],
+    "recommendation": "Return this primer to the independent council seats; focus their source checks on receipt dispatch, caller-owned publication and owned cleanup. No actionable readiness plan gap was demonstrated by this bounded pass.",
+    "actionable_findings": [],
+    "evidence_basis": [
+      "Plan Readiness contracts and plan review, Upgrade and recovery steps 1-6, AC-3/5/6/7",
+      "sqlite_storage_migration.py:24,503-580,995-1018,1057-1111,1122-1200",
+      "index_state_store.py:3119-3188",
+      "Executed static contract check /tmp/1xny6-primer-check.json"
+    ],
+    "confidence": "high",
+    "bounded_check": {
+      "artifact": "1xny6-primer-contract-check",
+      "kind": "readiness-source-and-plan-contract",
+      "packet_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+      "per_file_fingerprint_validation": [
+        {
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+          "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+          "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+          "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+          "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+          "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+          "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+          "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+          "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+          "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+          "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+          "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+          "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+          "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+          "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+          "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+          "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/setup_index.py",
+          "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+          "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+          "matches": true
+        }
+      ],
+      "all_frozen_files_match": true,
+      "observed": {
+        "existing_cleanup_owned_names": [
+          "docs.lance",
+          "code.lance",
+          "__manifest"
+        ],
+        "existing_completed_receipt_short_circuit": true,
+        "plan_explicitly_covers_new_dispatch_and_verified_owned_cleanup": true,
+        "known_bad_omitted_completed_receipt_dispatch_detected": true
+      },
+      "limitations": "Static readiness contract-presence and source-boundary evidence only; no runtime migration, deletion, source rebuild, or unimplemented behavior tested."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control: remove the completed-receipt dispatch contract in an in-memory plan copy; selected source-informed coverage assertion rejects it"
+    },
+    "limitations": "Public path reached means the readiness boundary: actual admitted plan and source functions prepare_upgrade/cleanup_legacy/finalize_build_epoch. No product call, benchmark, source modification or live migration was executed. This is a primer, not an approval verdict."
+  },
+  "architecture": {
+    "pre_primer_read": "The plan resolves shared transaction ownership and immutable response generations at contract level; the key architecture risk is preserving current durable epoch fences while replacing independently persisted graph/cache state.",
+    "seat": "architecture",
+    "approval_phase": "readiness",
+    "verdict": "approve",
+    "actionable_findings": [],
+    "no_findings_scope": "No actionable architecture plan-contract defect found in bounded validation of transaction ownership, durable generation authorization, immutable response/cache provenance, graph reset isolation and migration dispatch/cleanup seams.",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "per_file_fingerprint_validation": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "matches": true
+      }
+    ],
+    "all_16_working_tree_blobs_match": true,
+    "primer_effect": "The primer sharpened the finalizer integration check: current finalize_build_epoch separately opens a FULL-durable connection and holds parent memory publication authorization. The plan already requires preservation and coordinated final publication, so no verdict change.",
+    "primer_answers": [
+      {
+        "question": 1,
+        "answer": "prepare_upgrade currently returns complete receipts at 543-544 and checks recorded target/package at 545-557; versioned migration-kind dispatch must preserve that pending recovery and create the separate consolidation transition. Receipt-bound cutover intent, identities and staged/verified/published states are explicit in the plan. No filename heuristics are authorized."
+      },
+      {
+        "question": 2,
+        "answer": "PreparedUpdates.apply 358-397 already requires the caller transaction, but finalize_build_epoch 3195-3262 opens its own FULL-durable transaction, performs the generation CAS and holds the memory publication lock. Adapt that final publication seam without dropping authorization/start fences. server_impl._epoch_state 4976-4995 is ABA-aware; cluster lookups 24918-24965 currently read separately and return empty on errors. The plan explicitly requires a pinned read snapshot plus immutable graph/community generation, retained epoch fence during migration, and one bounded retry then typed recovery."
+      },
+      {
+        "question": 3,
+        "answer": "cleanup_legacy 1122-1158 presently enforces receipt states, current verification, identities and LEGACY_NAMES. The plan requires a new owned graph artifact census, rejects unknown contents and external symlink/reparse targets, and permits cleanup retry without rebuilding a verified current graph. This is adequate readiness ownership scope; actual new manifest completeness remains an implementation/delivery check."
+      }
+    ],
+    "source_evidence": [
+      "sqlite_vector_store.py:22-23 current filename and schema 7; PreparedUpdates.apply:358-397 caller-owned transaction",
+      "index_state_store.py:3119-3262 durable finalizer, attempt CAS, parent memory authorization",
+      "server_impl.py:4964-4995 epoch tokens and ABA fence; 24918-24965 separately loaded cluster lookup",
+      "graph_indexer.py:1500-1522 graph reset currently owns files/blobs/meta",
+      "sqlite_storage_migration.py:543-557 completed receipt and package recovery;1122-1158 owned cleanup"
+    ],
+    "bounded_check": {
+      "kind": "source-informed readiness contract-presence check",
+      "executed": true,
+      "observed": "AST confirms current finalizer owns FULL-durable connection, memory authorization and publication lock; admitted plan preserves start/recovery fences, transitional epoch checks, parent authorization and bounded snapshot reacquisition. Removing the transitional epoch-fence clause from an in-memory plan copy is rejected.",
+      "mutation_table": [
+        {
+          "mutant": "Omit existing pre/post epoch fence preservation from in-memory plan",
+          "target": "Readers/cache contract",
+          "test": "valid(plan) true; valid(mutant) false",
+          "result": "detected"
+        }
+      ]
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control: omitted transitional reader fence clause in in-memory plan rejected by source-informed contract check"
+    },
+    "limitations": "Readiness only: public path means actual admitted plan and current source boundary, not execution of unimplemented publication/cache/migration behavior. Phrase check proves required contract presence, not implementation or protocol compliance. No runtime benchmarks, product tests, source changes, ledger writes or native-platform qualification. The supplied aggregate fingerprint is carried through; all 16 git blob identities independently recomputed and matched.",
+    "final_alternative_reconciliation": {
+      "alternative": "Compact immutable graph snapshot in index.sqlite plus per-file extraction records, rebuilt from sources initially and published in one caller-owned transaction.",
+      "assessment": "Architecturally viable for authority and response coherence: a snapshot can share the semantic publication transaction and immutable generation provenance while simplifying schema and diff logic. However replacing the graph snapshot after a small delta writes the full resolved graph, conflicting with Requirement 4 and AC-4 change-sized writes and unchanged-row stability. The selected stable graph tables retain a resident immutable serving view while allowing storage deltas. This separates serving simplicity from publication cost without changing graph algorithms.",
+      "decision": "Retain the admitted native stable-table design. The alternative supplies a useful simplicity comparison but is not superior under the accepted incremental-publication requirement; adopting it would require an explicit scope/AC change, not a private implementation choice.",
+      "verdict_effect": "No change: approve readiness; no new actionable finding.",
+      "additional_checks": "None; reconciliation uses the already-reviewed frozen plan and source evidence."
+    }
+  },
+  "security": {
+    "seat": "security-reviewer",
+    "phase": "readiness",
+    "wave_id": "1xny6",
+    "verdict": "approved",
+    "scope": "Bounded readiness review of source-informed migration ownership, cleanup, WAL/both-name continuation and publication authorization contracts. Not production approval.",
+    "pre_primer": "The highest security boundary is receipt-proven ownership and publication authority; a source rebuild does not authorize cleanup of unknown graph contents, live WAL data, or unrelated hosts.",
+    "primer_effect": "Reinforced the receipt dispatch focus and directed a targeted check of parent finalization authorization. It did not replace independent source reads or supply execution evidence.",
+    "primer_answers": [
+      {
+        "question": 1,
+        "answer": "prepare_upgrade must dispatch a new migration kind after completed legacy receipt; pending receipt retains target and package-content checks. _publish_candidate and _published_identity must recognize new destination and receipt-owned candidate after interrupted rename. Plan requirements 7-8 and recovery steps 1-5 explicitly require this."
+      },
+      {
+        "question": 2,
+        "answer": "finalize_build_epoch currently performs checkpoint owner/grant checks and delegates memory authorization to authorize_index_finalize/restage_index_finalize before parent receipt staging. The new caller-owned transaction must preserve that machinery while moving final CAS and participant writes together. Plan requirements 3/7 and publisher/readers contracts preserve parent authority and snapshot coherence; no implementation verification claimed."
+      },
+      {
+        "question": 3,
+        "answer": "Current cleanup_legacy allows only docs.lance/code.lance/__manifest and verifies identities. Plan step 6 adds individually owned obsolete graph artifacts, retains unknown contents and symlink/reparse confinement, and makes cleanup retry independent of rebuilding verified current graph. A blind LEGACY_NAMES extension would violate this required contract."
+      }
+    ],
+    "findings": [],
+    "null_scope": "No actionable security or required-AC plan defect demonstrated in selected migration boundary. Operator-owned repository content and same-user local processes remain trusted per security-reviewer role; no newly reachable less-trusted actor or authority delta established. Potential destructive cleanup shortcuts remain implementation correctness risks covered by explicit ACs.",
+    "threat_assumptions": "Local trusted operator, operator-owned repository content read as data and same-user processes; no remote or multi-user promotion. Unknown artifacts are preservation boundaries, not a claim of attacker privilege escalation.",
+    "source_anchors": [
+      "sqlite_storage_migration._safe/_safe_sqlite/read_receipt",
+      "sqlite_storage_migration.discover_hosts",
+      "sqlite_storage_migration.prepare_upgrade",
+      "sqlite_storage_migration._publish_candidate",
+      "sqlite_storage_migration.verify_migration/cleanup_legacy",
+      "index_state_store.finalize_build_epoch"
+    ],
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "per_file_fingerprint_validation": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "matches": true
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control"
+    },
+    "evidence": {
+      "proposition": "The admitted migration plan explicitly preserves source-proven ownership/WAL/package/host boundaries while authorizing automatic source graph rebuild.",
+      "public_path": "Readiness-safe plan contract boundary grounded in standard wf_upgrade migration coordinator source; no production execution.",
+      "command_or_fixture": "Python AST source checks and in-memory omission control recorded in /tmp/1xny6-security-check.json",
+      "expected": "Eight plan contracts true; unsafe recursive cleanup mutation rejected.",
+      "observed": "Eight baseline contracts present; unknown-content preservation mutant failed that check alone; 16 frozen blobs match.",
+      "artifact_or_test_id": "/tmp/1xny6-security-check.json",
+      "execution_status": "executed",
+      "limitations": "Static source-informed plan contract checks only. No migration, deletion, process stop, runtime interleaving, or delivery qualification executed.",
+      "safety_and_authorization": "Read-only repository inspection and scratch JSON only; no host stops, migrations or deletions.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "universal_claim": false
+    },
+    "mutation_table": [
+      {
+        "mutant": "in-memory plan replaces preserve unknown graph contents with recursive delete",
+        "target": "Upgrade and recovery step 6",
+        "expected": "reject missing per-artifact ownership boundary",
+        "observed": "unknown_contents_preserved false; other seven checks true",
+        "result": "detected"
+      }
+    ],
+    "limitations": [
+      "Production upgrade/cleanup and concurrency recovery are unimplemented and unqualified.",
+      "Bounded source reads do not close a complete producer/consumer census.",
+      "Initial combined orientation output was truncated; selected role, evidence protocol and plan/source boundary sections were read directly.",
+      "No regex/shell-input changes in selected plan boundary; no security exploit chain identified, not a whole-repository claim."
+    ],
+    "verification_context": {
+      "actor": "security-reviewer",
+      "context_id": "root-unified-security-1xny6",
+      "fresh_context": true,
+      "independent": true
+    },
+    "alternative_consideration": "Completed in final_alternative_reconciliation.",
+    "final_alternative_reconciliation": {
+      "alternative": "Compact immutable graph snapshot inside index.sqlite plus per-file extraction records, initial source rebuild and one caller-owned transaction.",
+      "security_benefit": "Fewer graph-table update and reconciliation paths could reduce opportunities for partial logical updates and make snapshot identity validation simpler. These are inferred implementation benefits, not executed evidence.",
+      "security_cost": "Whole-graph replacement increases write volume and possible disk-exhaustion or rollback pressure. It still needs unchanged receipt ownership, WAL-preserving staging, parent publication authorization, generation-bound readers and verified artifact cleanup; snapshot representation removes none of those boundaries. Under the retained local trusted-operator threat model these are availability/correctness tradeoffs, not demonstrated attacker privilege changes.",
+      "decision": "Retain the admitted stable-key, change-sized graph publication design. The alternative conflicts with requirement 4 and adds no demonstrated security improvement sufficient to justify changing that explicit contract. No additional readiness finding follows.",
+      "evidence_status": "Reasoned comparison against already inspected current-source boundaries and plan; no reruns or runtime qualification."
+    }
+  },
+  "qa": {
+    "seat": "qa",
+    "phase": "readiness",
+    "wave_id": "1xny6",
+    "verdict": "approve",
+    "decision": "approve",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "pre_primer_concern": "Paired oracle must be independent from stale old graph data; rename interruption must retain semantic authority and final publication authorization. Unchecked ACs are promises, not existing production proof.",
+    "primer_effect": "Primer sharpened completed-receipt and parent-finalizer seams. Independently read current source confirms these integration constraints; plan already covers them. No changed verdict and no peer report read.",
+    "primer_answers": [
+      "prepare_upgrade currently returns for complete receipts at 543-544 and binds pending recovery at 545 onward. Planned versioned migration dispatch preserves pending identity and handles new-name publication/receipt interruption without heuristic authority (plan 62,71,74; AC-6/7).",
+      "finalize_build_epoch has checkpoint grant and parent-memory staging at 3131-3193, a separate FULL-durable generation CAS at 3229-3241, and project-state publication lock at 3256-3262. Its authorization/lock and durable fences must survive caller-owned publication (plan 22,26,59; AC-3/6). Whole-response pinning is planned at 60 and AC-5; it is not executed proof.",
+      "cleanup_legacy verifies authority then limits deletion to LEGACY_NAMES at 1133-1151; it cannot simply accept an arbitrary graph folder. Plan 75/AC-7 require per-artifact ownership, unknown/symlink preservation and cleanup-only retry without rebuilding the verified graph."
+    ],
+    "findings": [],
+    "actionable_findings": [],
+    "null_scope": "No actionable readiness-plan gap demonstrated within paired comparison, corrupt/missing old graph, filename interruption, semantic preservation and finalization authorization scope.",
+    "current_source_observations": [
+      {
+        "citation": ".wavefoundry/framework/scripts/graph_indexer.py:15395",
+        "fact": "update_graph_index accepts a caller-supplied file manifest; empty state expands extraction to all files. _read_one returns None for OSError at 15479-15482. Plan explicitly prohibits publishing unreadable scope as deletion or partial success; future strict rebuild tests must distinguish intentional skip from read failure."
+      },
+      {
+        "citation": ".wavefoundry/framework/scripts/sqlite_storage_migration.py:995",
+        "fact": "_publish_candidate verifies candidate identity and live WAL before os.replace, then advances receipt. New-filename crash points require fresh tests; plan AC-7 explicitly requires each authority transition."
+      },
+      {
+        "citation": ".wavefoundry/framework/scripts/index_state_store.py:3119",
+        "fact": "Current finalization preserves memory authorization and owns an independent FULL-durable generation transaction; caller-owned consolidation must adapt that seam."
+      }
+    ],
+    "planned_not_proven": [
+      "Paired production graph rebuild/query parity",
+      "Corrupt old graph source rebuilding",
+      "New filename crash/recovery behavior",
+      "Compatible-vector preservation in unified publication",
+      "Whole-response cache generation coherence",
+      "Parent-memory authorization under new single transaction",
+      "Native package qualification"
+    ],
+    "bounded_check": {
+      "kind": "current-source-informed readiness contract check",
+      "observed": {
+        "independent_same_source": true,
+        "bad_old_graph": true,
+        "rename_interruption": true,
+        "semantic_preservation": true,
+        "finalization_authorization": true
+      },
+      "mutation_table": [
+        {
+          "boundary": "independent_same_source",
+          "mutation": "Remove first named contract in in-memory plan only",
+          "assertion": [
+            "Neither build consumes the other",
+            "independent small expected-result fixtures",
+            "edge evidence as a multiset"
+          ],
+          "original_passed": true,
+          "known_bad_detected": true,
+          "kind": "static plan-contract presence control, not product mutation"
+        },
+        {
+          "boundary": "bad_old_graph",
+          "mutation": "Remove first named contract in in-memory plan only",
+          "assertion": [
+            "missing/corrupt/stale old graph fixtures succeed",
+            "Unreadable source scope cannot silently become deletion"
+          ],
+          "original_passed": true,
+          "known_bad_detected": true,
+          "kind": "static plan-contract presence control, not product mutation"
+        },
+        {
+          "boundary": "rename_interruption",
+          "mutation": "Remove first named contract in in-memory plan only",
+          "assertion": [
+            "before/after filesystem publication and before/after receipt advancement",
+            "both database names, WAL/SHM handling"
+          ],
+          "original_passed": true,
+          "known_bad_detected": true,
+          "kind": "static plan-contract presence control, not product mutation"
+        },
+        {
+          "boundary": "semantic_preservation",
+          "mutation": "Remove first named contract in in-memory plan only",
+          "assertion": [
+            "Preserve compatible vectors and other schema-7 state",
+            "Graph-only builds preserve semantic rows"
+          ],
+          "original_passed": true,
+          "known_bad_detected": true,
+          "kind": "static plan-contract presence control, not product mutation"
+        },
+        {
+          "boundary": "finalization_authorization",
+          "mutation": "Remove first named contract in in-memory plan only",
+          "assertion": [
+            "parent-owned memory/index publication authorization",
+            "stale attempt authorization cannot publish"
+          ],
+          "original_passed": true,
+          "known_bad_detected": true,
+          "kind": "static plan-contract presence control, not product mutation"
+        }
+      ],
+      "all_16_working_tree_blobs_match": true,
+      "per_file_fingerprint_validation": [
+        {
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+          "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+          "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+          "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+          "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+          "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+          "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+          "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+          "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+          "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+          "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+          "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+          "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+          "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+          "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+          "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+          "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          "matches": true
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/setup_index.py",
+          "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+          "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+          "matches": true
+        }
+      ]
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Executed in-memory omission controls for five source-informed plan boundaries. These check contract presence only; no product behavior mutation was run."
+    },
+    "integrity_explanation": "All integrity booleans apply only to the executed readiness contract check against the actual admitted plan and current source. The named faithful boundary is the acceptance-contract review boundary described in integrity_scope_reconsideration. No public product upgrade/build/query function was executed; runtime parity, recovery, preservation and authorization remain planned, not proven.",
+    "limits": [
+      "Readiness review only; no production implementation exists for this wave.",
+      "No repository/ledger edits, benchmarks, package execution, runtime migration, or peer reports. MCP read tools may record their normal retrieval telemetry.",
+      "Static omission controls establish sensitivity to omitted contracts, not correctness of unimplemented behavior.",
+      "No existing regression suite was run. Sixteen blob identities checked, but source review was targeted rather than exhaustive."
+    ],
+    "final_alternative_reconciliation": {
+      "alternative": "Compact immutable graph snapshot in index.sqlite with per-file extraction records; initial source rebuild and one caller-owned transaction.",
+      "qa_advantage": "A smaller representation and simpler serialization could reduce schema/diff failure modes and simplify snapshot round-trip fixtures. It still requires the same source completeness, semantic preservation, receipt recovery, authorization, and public-query parity qualification.",
+      "qa_disadvantage": "Whole-graph rewrites conflict with required change-sized writes and unchanged-row identity/reuse in Requirements 4 and AC-4. A snapshot-only implementation cannot pass that required acceptance contract merely by passing graph parity and transaction tests.",
+      "disposition": "Retain planned stable graph tables. The alternative does not expose a new readiness gap or justify changing the current verdict; adopting whole-graph snapshots would require explicit reconsideration of the required incremental contract and its measurement expectations.",
+      "verdict_after_reconciliation": "approve",
+      "additional_execution": "None during alternative reconciliation; no product rerun requested or performed. public_path_reached was subsequently reconsidered against the explicit readiness definition; see integrity_scope_reconsideration."
+    },
+    "integrity_scope_reconsideration": {
+      "definition_independently_read": ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md:109,115-133",
+      "original_interpretation": "public_path_reached was false because I interpreted it exclusively as execution of a product upgrade/build/query function.",
+      "corrected_interpretation": "The field explicitly accepts a named faithful boundary, and line 133 defines readiness approval as attesting to current tree/plan/census/feasibility review rather than unimplemented product behavior.",
+      "named_faithful_boundary": "Readiness acceptance-contract boundary: actual admitted change document docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md, with source-informed AC/procedure/comparison contracts for five selected risks.",
+      "evidence_actually_executed": "The recorded Python probe loaded the actual admitted document, checked five concretely named source-informed contract groups, rejected five in-memory omission controls, and verified all 16 packet blobs. This is actual readiness input review, not a synthetic ideal plan or an isolated private implementation helper.",
+      "independent_conclusion": "I affirm public_path_reached=true under the documented readiness meaning. No new product execution is asserted. Existing product limitations and planned-not-proven list remain in force.",
+      "gate_pressure_handling": "Reconsideration changes the interpretation to the independently read explicit definition; the observed check and product-execution facts are unchanged."
+    }
+  },
+  "reality": {
+    "role": "reality-checker",
+    "phase": "readiness",
+    "wave_id": "1xny6",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "files": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "git_blob": "f8543e3d1c480cb5b931b153493f0009de3eaaf6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "git_blob": "b787f9e2f8a272b2a4bdde477856b9baf3020c37"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "git_blob": "6957124d4207cdbb2c0992ab4524a45ba80e7156"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "git_blob": "cb2eacd435ec658f8eea27950228491d097d8cf8"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "git_blob": "3068ef41c9b94653ada5206ae2b059d0782e8809"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "git_blob": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "git_blob": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "git_blob": "77de92e194a30eafde2af6fdf5f1f71562886007"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "git_blob": "efe68604084dfbca4f4ceddf39bf320f7e29483d"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "git_blob": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "git_blob": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "git_blob": "e87b4177395a98a191330a80dcb7d76ee4108e3d"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "git_blob": "344419c791a7ca3c1dd060a455219d4f743a4c3e"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "git_blob": "0505cf57652de05ecef28fc425bee01ca39d4604"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "git_blob": "e4d0572c99f3ddc7d00d8337042146aaf50863d4"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "git_blob": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989"
+      }
+    ],
+    "per_file_fingerprint_validation": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "matches": true
+      }
+    ],
+    "all_16_working_tree_blobs_match": true,
+    "pre_primer_assessment": "The readiness claim is plausible only if the proposed shared transaction replaces today\u2019s per-store publication and the graph rebuild/parity evidence is treated as future qualification rather than already-proven runtime behavior.",
+    "primer_effect": "Sharpened checks around the existing independently finalized epoch and migration receipt dispatch; did not change the scope or elevate future qualification to present evidence.",
+    "primer_answers": [
+      "prepare_upgrade currently returns completed receipts at sqlite_storage_migration.py:543-544 and binds pending package identity at 545-555. Plan lines 62 and 70-75 explicitly require versioned dispatch, historical receipt interpretation, source identities and deterministic two-name recovery; those are required implementation changes, not existing behavior.",
+      "PreparedUpdates.apply already requires a caller transaction (sqlite_vector_store.py:358-362), but indexer.py commits semantic rows at 5255 and finalizes the epoch separately at 5338. finalize_build_epoch preserves parent memory authorization at index_state_store.py:3127-3188. Plan lines 22,26,48,59-60 explicitly joins graph/data/final generation under one transaction and pins whole-response snapshots while retaining authorization fences.",
+      "cleanup_legacy rejects names outside LEGACY_NAMES and checks identities (sqlite_storage_migration.py:1142-1151); it does not already implement graph ownership cleanup. Plan line 75 requires verified owned artifacts, unknown-content preservation, no symlink/reparse traversal and cleanup retry without rebuilding a verified graph. The implementation must introduce that new ownership inventory."
+    ],
+    "assumption_checks": [
+      {
+        "claim": "caller-owned unified publication",
+        "result": "Proposed, not already implemented. Current semantic PreparedUpdates is a useful seam; separate finalizer and graph child require real integration.",
+        "evidence": [
+          "indexer.py:5201-5255",
+          "indexer.py:5317-5339",
+          "sqlite_vector_store.py:358-397",
+          "upgrade_wavefoundry.py:2485-2497",
+          "plan:22,48,59-60"
+        ]
+      },
+      {
+        "claim": "graph rebuild succeeds independently of old corrupt graph cache",
+        "result": "Plan explicitly requires empty staged graph state and source-only extraction. Current update_graph_index expands empty state to all files, but current read failures can return None. The planned unreadable-source and completeness checks are necessary new work and explicitly covered, so no missing readiness contract demonstrated.",
+        "evidence": [
+          "graph_indexer.py:15421-15443",
+          "graph_indexer.py:15471-15482",
+          "plan:28,63,72,75"
+        ]
+      },
+      {
+        "claim": "mapping, parity and runtime baselines prove qualification",
+        "result": "The plan does not claim this. It preserves zero/one/many chunk mapping and independent edge evidence, requires independent expected-result fixtures alongside paired same-source rebuilds, and distinguishes accepted macOS ARM64 timings from semantic rebuild/memory/portability evidence. Native platform qualification remains explicitly pending until release testing.",
+        "evidence": [
+          "plan:21,58",
+          "plan:79-84",
+          "plan:95,98-100",
+          "plan:123-129"
+        ]
+      }
+    ],
+    "actionable_findings": [],
+    "null_finding_scope": "No actionable readiness gap demonstrated within caller-owned publication, source-only rebuild robustness, identity/parity and qualification honesty. This is not delivery approval and does not qualify unimplemented runtime behavior.",
+    "confidence": "medium",
+    "bounded_check": {
+      "kind": "actual admitted plan/source publication contract with in-memory omission control",
+      "source_observation": "Current semantic apply precedes COMMIT, which precedes separate final epoch publication.",
+      "plan_contract_passed": true,
+      "known_bad_contract_rejected": true,
+      "execution": "python3 -B static assertions over actual frozen files; no imports or product calls",
+      "limitations": "No runtime rebuild, migration, destructive cleanup, whole-response interleaving or benchmark executed."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Readiness-safe control replaced the admitted single transaction/final generation clause with separate participant commits in an in-memory copy; the source-informed contract assertion rejected it."
+    },
+    "integrity_scope": "public_path_reached refers only to the actual admitted readiness plan contract and its production source seam, not executing a public MCP product request. Boundary is the real current separate semantic COMMIT/finalizer seam, not synthetic numeric parameters.",
+    "limitations": [
+      "Bounded static readiness review only.",
+      "All 16 blobs checked; selected source seams inspected, not exhaustive whole-file audit.",
+      "No repository or ledger writes. No alternative architecture contest or timing rerun."
+    ],
+    "final_alternative_reconciliation": {
+      "alternative": "Compact immutable graph snapshot in index.sqlite, plus per-file extraction records; initial source rebuild and one caller-owned publication transaction.",
+      "advantage": "Simpler graph persistence schema and fewer incremental graph-row diff operations, while still allowing unified atomic publication and resident snapshot serving.",
+      "tradeoff": "Rewriting the complete persisted graph for each graph-changing delta conflicts with the admitted change-sized publication requirement and unchanged-row identity/write preservation (Requirements 4, AC-4, plan lines 23 and 40). Per-file extraction reuse does not remove the whole-graph publication write.",
+      "readiness_assessment": "A technically plausible alternative if the operator explicitly relaxes that requirement, but not an equivalent implementation of the admitted plan. No new benchmark or performance claim is inferred. Existing accepted timings do not prove this alternate representation meets incremental write or resource expectations.",
+      "disposition": "Retain the admitted stable-key graph-table design for this readiness decision; discuss the snapshot alternative in the requested later follow-up rather than silently weakening AC-4.",
+      "new_actionable_findings": []
+    }
+  },
+  "docs": {
+    "seat": "docs-contract-reviewer (rotating best-alternative)",
+    "phase": "readiness",
+    "wave_id": "1xny6",
+    "verdict": "approve",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "per_file_fingerprint_validation": [
+      {
+        "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+        "expected": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "actual": "f8543e3d1c480cb5b931b153493f0009de3eaaf6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/index_state_store.py",
+        "expected": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "actual": "b787f9e2f8a272b2a4bdde477856b9baf3020c37",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+        "expected": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "actual": "6957124d4207cdbb2c0992ab4524a45ba80e7156",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+        "expected": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "actual": "cb2eacd435ec658f8eea27950228491d097d8cf8",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        "expected": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "actual": "3068ef41c9b94653ada5206ae2b059d0782e8809",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/indexer.py",
+        "expected": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "actual": "8bef05c5eeb1b3162c3357ce22f4256eee9ed8a6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+        "expected": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "actual": "cf4dd9183a942df44b19ae36bb1e8482fb230d1c",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_query.py",
+        "expected": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "actual": "77de92e194a30eafde2af6fdf5f1f71562886007",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+        "expected": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "actual": "efe68604084dfbca4f4ceddf39bf320f7e29483d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/server_impl.py",
+        "expected": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "actual": "240ef9dc0747c7fcdc0881848ee994c76b73b4f6",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+        "expected": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "actual": "dbc83c7d62ae3b516ba341be84d3a32c73004fe7",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+        "expected": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "actual": "e87b4177395a98a191330a80dcb7d76ee4108e3d",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+        "expected": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "actual": "344419c791a7ca3c1dd060a455219d4f743a4c3e",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+        "expected": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "actual": "0505cf57652de05ecef28fc425bee01ca39d4604",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "expected": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "actual": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        "matches": true
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/setup_index.py",
+        "expected": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "actual": "054ef6bc46472d5d7265cd5b6c6b37bbc57df989",
+        "matches": true
+      }
+    ],
+    "all_16_working_tree_blobs_match": true,
+    "packet_verification": "All exact frozen paths independently hashed with git hash-object and compared to packet; aggregate fingerprint retained as supplied packet identifier. No aggregate derivation claimed.",
+    "primer_effect": "Confirmed the plan distinction between existing receipt behavior and required migration dispatch; extended attention to documentation that might accidentally make paired qualification or --rebuild-storage mandatory for ordinary graph upgrades.",
+    "best_alternative": {
+      "approach": "Persist one compact immutable graph snapshot inside index.sqlite, together with per-file extraction records, using the same source rebuild and shared publication transaction; retain resident GraphQueryIndex.",
+      "why_better": "Fewer native node/edge schema and diff-upsert changes can reduce implementation and compatibility surface while preserving atomic publication and existing serving.",
+      "why_not_selected": "It retains whole-graph rewrites on incremental publication, conflicting with requirement 4 and AC-4. Stable native graph tables meet the operator-approved change-sized-write contract. The alternative is credible but not stronger for this wave.",
+      "second_alternative": "Translate the old graph or ship a bridge release would add compatibility paths and contradict explicit operator direction; neither is eligible or stronger."
+    },
+    "findings": [],
+    "actionable_findings": [],
+    "null_finding_declaration": "No findings in my lane: automatic rebuild versus legacy semantic rebuild, qualification versus destination behavior, canonical-first documentation updates and historical evidence preservation are explicit and consistent at readiness.",
+    "primer_answers": [
+      "Current prepare_upgrade returns immediately for complete receipts at 543-544; plan 62 and 70-74 explicitly require new versioned migration dispatch and package-bound pending recovery. Docs must describe planned behavior until implementation and preserve legacy names in compatibility readers.",
+      "Plan 22,59-60 and AC-3/5 require a single final publication with durable earlier fences and response snapshot pinning. This is an implementation contract, not a claim that existing helpers already provide it.",
+      "Plan 75 and AC-7 distinguish receipt-owned obsolete artifacts from unknown contents and symlink/reparse targets; repeated cleanup need not rebuild a verified graph. Public guidance should state that exact scope, not promise unconditional recursive directory deletion."
+    ],
+    "affected_contract_surfaces": [
+      "plan Requirements 7/9, Readiness contracts, Upgrade and recovery, Fresh rebuild comparison, AC-6/7/10/11",
+      "canonical upgrade seed 160 and rendered upgrade prompt are planned updates, not current implementation evidence",
+      "architecture/ADR and release notes are explicitly required downstream updates preserving historical results"
+    ],
+    "source_evidence": [
+      "sqlite_storage_migration.py:531-557 existing receipt fields, complete short circuit and pending package identity",
+      "graph_indexer.py:1500-1522 existing ensure_current/reset table deletion scope",
+      "plan:20-28 requirements;40 selected representation;57-64 resolved contracts;70-86 recovery and comparison;93-100 AC-4/6/7/10/11"
+    ],
+    "bounded_check": {
+      "kind": "readiness plan contract check grounded in existing migration source",
+      "executed": true,
+      "expected": "Plan must distinguish qualification-only paired engines from automatic source rebuild and legacy semantic recovery; removal of qualification-only clause must fail.",
+      "observed": "All four contract assertions passed against exact frozen plan; in-memory omission of qualification-only clause was detected. Existing complete-receipt branch assertion passed.",
+      "known_bad_control": "Removed qualification-only distinction from in-memory plan, valid(mutant) returned false; repository unchanged."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control: in-memory omission of qualification-only clause rejected by four-clause plan assertion"
+    },
+    "limitations": "Public path reached means actual admitted readiness artifact and current standard migration source were read; no runtime upgrade, cleanup, response coherence, benchmark or implementation correctness was tested. Four phrase-presence assertions prove selected contract presence only. No fresh-context independence claimed from fixed seats; rotating seat intentionally received full prior outputs.",
+    "improvements_recommended": [
+      "Carry the existing qualification-versus-destination distinction prominently into upgrade guidance and release notes (already within AC-10).",
+      "Explain graph rebuild is automatic; reserve --rebuild-storage wording for legacy semantic recovery."
+    ],
+    "actor": "docs-contract-reviewer:/root/unified_docs",
+    "verification_context": "/root/unified_docs",
+    "fresh_context": false,
+    "independent": false,
+    "independence_rationale": "Chronology: first read reviewer/council instructions and frozen packet; next read primer and all four fixed-seat reports in the same tool invocation as the full plan; only afterward performed targeted own MCP reads of plan and current source, then own bounded check. I did not form and record an own artifact/source assessment before exposure to and reliance on prior findings/evidence/verdicts. This supports the rotating alternative brief and supplemental review, but must not be represented as an independent typed docs readiness approval. Repeating source inspection in this context cannot repair that chronology."
+  },
+  "council": {
+    "wave_id": "1xny6",
+    "phase": "readiness",
+    "status": "candidate-awaiting-red-team-closing",
+    "candidate_verdict": "approve",
+    "final_verdict": null,
+    "primer_depth": "full",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "all_16_working_tree_blobs_match": true,
+    "fingerprint_note": "Each exact blob independently recomputed; aggregate carried from packet, not independently derived.",
+    "first_anonymous_synthesis": {
+      "pass": "anonymized-first",
+      "seat_weighting": {
+        "Seat 1": "Five explicit contract controls and exact blobs support bounded readiness; public product path not claimed.",
+        "Seat 2": "Publication ordering contradiction is current source gap explicitly covered by plan; no present plan finding.",
+        "Seat 3": "Authorization and fence preservation contracts address finalizer integration; runtime proof deferred.",
+        "Seat 4": "Owned cleanup and recovery controls support plan admission, not actual migration qualification.",
+        "Seat 5": "Qualification and shipped behavior distinction is sound; strongest snapshot alternative fails required incremental writes."
+      },
+      "candidate_finding_ids": [],
+      "candidate_verdict": "approve-readiness-pending-closing",
+      "rationale": "All five outputs identify concrete source seams and contract-presence evidence, no substantiated missing readiness contract. Agreement is bounded and does not independently prove future implementation."
+    },
+    "seat_roster": {
+      "architecture": "fixed",
+      "security": "fixed",
+      "qa": "fixed",
+      "reality": "fixed",
+      "docs": "rotating best-alternative"
+    },
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "red_team_primer_summary": "Full five-stance primer emphasized versioned receipt dispatch, parent-authorized publication, immutable response generations and owned cleanup. All fixed seats found these explicitly covered by the admitted contracts; none demonstrated a missing plan requirement.",
+    "shared_evidence": "Exact 16-file frozen packet and full primer shared across seats; rotating seat received full briefing. Supplemental lanes share moderator context.",
+    "correlation_check": "No candidate finding appears in two seats because finding universe is empty. Repeated concern over receipt dispatch/publication/cleanup is one shared risk signal, not multiplied independent confirmation; common contract-presence controls cannot prove runtime compliance.",
+    "pre_primer_echo_check": "Architecture emphasizes durable epoch fences, security owned cleanup/hosts, QA oracle independence, reality distinction between future transaction and current commits. No verbatim multi-seat pre-primer sentence or exact primer framing echo found; shared domain terminology alone is not contamination. Rotating seat intentionally has full context, not an independent prior.",
+    "strongest_alternative": "Compact immutable graph snapshot inside index.sqlite plus per-file extraction records would simplify schema/diff logic while retaining source rebuild and atomic publication. It still rewrites the whole resolved graph for small deltas, violating admitted Requirement 4/AC-4. All fixed seats explicitly weighed it and retain stable graph tables; no bridge or old graph translation is introduced.",
+    "improvements_recommended": [
+      "Carry the already-required qualification-versus-destination distinction prominently into authored upgrade guidance and release notes.",
+      "Retain concrete source seams and omission controls from this review as implementation review targets; actual delivery tests must exercise publication, response snapshots and migration interruptions."
+    ],
+    "recommendation_status": "Clarifications of existing AC-10 and verification tasks, no added scope or deferred finding.",
+    "candidate_finding_ids": [],
+    "finding_synthesis": [],
+    "finding_universe": "Empty after primer, five seat reports and three supplemental lane checks; no invented not_issue rows. Closing reconciliation remains pending.",
+    "supplemental_lanes": {
+      "code-reviewer": {
+        "phase": "readiness",
+        "verdict": "approve",
+        "judgment": "Approve readiness. No findings in my lane: PreparedUpdates.apply already enforces caller transaction ownership; the plan explicitly forbids helper commits, preserves parent publication authorization and rejects stale attempts. Independent-reference property is the admitted one-transaction contract, not existing separate publication behavior. Actual new transaction correctness remains delivery work.",
+        "findings": [],
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "root-unified-moderator-1xny6",
+          "fresh_context": true,
+          "independent": false
+        },
+        "context_disclosure": "Same agent and shared synthesis context as council moderator; not a separate independent seat. Own current-source and admitted-plan controls executed for this lane.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual frozen admitted-plan contracts checked against current source; three independent in-memory clause omissions rejected by lane-specific assertions in /tmp/1xny6-moderator-probe.py"
+        },
+        "evidence": {
+          "proposition": "The actual admitted readiness plan contains the selected source-informed code-reviewer contract boundaries.",
+          "public_path": "Closest faithful readiness boundary: frozen admitted change document plus actual current source PreparedUpdates.apply, prepare_upgrade and GraphQueryIndex, not product runtime.",
+          "command_or_fixture": "python3 -B /tmp/1xny6-moderator-probe.py",
+          "expected": "All three lane contract clauses present; omission control rejected.",
+          "observed": {
+            "baseline_contracts": [
+              "No helper commits independently.",
+              "parent-owned memory/index publication authorization",
+              "A failed attempt cannot publish"
+            ],
+            "baseline_passed": true,
+            "known_bad": "in-memory removal of No helper commits independently.",
+            "known_bad_rejected": true
+          },
+          "artifact_or_test_id": "/tmp/1xny6-moderator-probe.json; source anchors PreparedUpdates.apply, sqlite_storage_migration.prepare_upgrade, graph_query.GraphQueryIndex",
+          "execution_status": "executed",
+          "limitations": "Readiness static source-informed contract controls; no runtime product path, benchmark, package, native OS, migration or interleaving was executed.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safety_and_authorization": "Read-only current source, AST and in-memory plan mutations; scratch output only.",
+          "universal_claim": false
+        }
+      },
+      "release-reviewer": {
+        "phase": "readiness",
+        "verdict": "approve",
+        "judgment": "Approve readiness. No findings in my lane: prepare_upgrade currently binds package digest and short-circuits completed receipts; admitted versioned migration dispatch, direct standard upgrade and native package qualification gates address those release seams. No bridge or second engine is planned. This is not a built-package, VERSION-stamp or native-platform approval.",
+        "findings": [],
+        "verification_context": {
+          "actor": "release-reviewer",
+          "context_id": "root-unified-moderator-1xny6",
+          "fresh_context": true,
+          "independent": false
+        },
+        "context_disclosure": "Same agent and shared synthesis context as council moderator; not a separate independent seat. Own current-source and admitted-plan controls executed for this lane.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual frozen admitted-plan contracts checked against current source; three independent in-memory clause omissions rejected by lane-specific assertions in /tmp/1xny6-moderator-probe.py"
+        },
+        "evidence": {
+          "proposition": "The actual admitted readiness plan contains the selected source-informed release-reviewer contract boundaries.",
+          "public_path": "Closest faithful readiness boundary: frozen admitted change document plus actual current source PreparedUpdates.apply, prepare_upgrade and GraphQueryIndex, not product runtime.",
+          "command_or_fixture": "python3 -B /tmp/1xny6-moderator-probe.py",
+          "expected": "All three lane contract clauses present; omission control rejected.",
+          "observed": {
+            "baseline_contracts": [
+              "native target package testing remains a release gate",
+              "package content digest",
+              "No second engine ships."
+            ],
+            "baseline_passed": true,
+            "known_bad": "in-memory removal of native target package testing remains a release gate",
+            "known_bad_rejected": true
+          },
+          "artifact_or_test_id": "/tmp/1xny6-moderator-probe.json; source anchors PreparedUpdates.apply, sqlite_storage_migration.prepare_upgrade, graph_query.GraphQueryIndex",
+          "execution_status": "executed",
+          "limitations": "Readiness static source-informed contract controls; no runtime product path, benchmark, package, native OS, migration or interleaving was executed.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safety_and_authorization": "Read-only current source, AST and in-memory plan mutations; scratch output only.",
+          "universal_claim": false
+        }
+      },
+      "performance-reviewer": {
+        "phase": "readiness",
+        "verdict": "approve",
+        "judgment": "Approve readiness, advisory lane. No findings in my lane: native stable rows plus resident GraphQueryIndex preserve change-sized publication and warm serving intent. Accepted timings are distinguished from planned sampled measurements, including 300 pooled query observations and three rebuild durations without invented p95. Current performance-budget history is not rewritten; RSS/WAL/cache overlap still require measurement.",
+        "findings": [],
+        "verification_context": {
+          "actor": "performance-reviewer",
+          "context_id": "root-unified-moderator-1xny6",
+          "fresh_context": true,
+          "independent": false
+        },
+        "context_disclosure": "Same agent and shared synthesis context as council moderator; not a separate independent seat. Own current-source and admitted-plan controls executed for this lane.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual frozen admitted-plan contracts checked against current source; three independent in-memory clause omissions rejected by lane-specific assertions in /tmp/1xny6-moderator-probe.py"
+        },
+        "evidence": {
+          "proposition": "The actual admitted readiness plan contains the selected source-informed performance-reviewer contract boundaries.",
+          "public_path": "Closest faithful readiness boundary: frozen admitted change document plus actual current source PreparedUpdates.apply, prepare_upgrade and GraphQueryIndex, not product runtime.",
+          "command_or_fixture": "python3 -B /tmp/1xny6-moderator-probe.py",
+          "expected": "All three lane contract clauses present; omission control rejected.",
+          "observed": {
+            "baseline_contracts": [
+              "change-sized writes",
+              "10 warm-ups and 100 measured observations",
+              "without claiming a rebuild p95 from three samples"
+            ],
+            "baseline_passed": true,
+            "known_bad": "in-memory removal of change-sized writes",
+            "known_bad_rejected": true
+          },
+          "artifact_or_test_id": "/tmp/1xny6-moderator-probe.json; source anchors PreparedUpdates.apply, sqlite_storage_migration.prepare_upgrade, graph_query.GraphQueryIndex",
+          "execution_status": "executed",
+          "limitations": "Readiness static source-informed contract controls; no runtime product path, benchmark, package, native OS, migration or interleaving was executed.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safety_and_authorization": "Read-only current source, AST and in-memory plan mutations; scratch output only.",
+          "universal_claim": false
+        }
+      }
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control: actual frozen admitted-plan contracts checked against current source; three independent in-memory clause omissions rejected by lane-specific assertions in /tmp/1xny6-moderator-probe.py"
+    },
+    "verification_context": {
+      "actor": "wave-council",
+      "context_id": "root-unified-moderator-1xny6",
+      "fresh_context": true,
+      "independent": false
+    },
+    "independence_note": "Fresh moderator context but synthesis necessarily reads prior seat evidence/verdicts; no separate independent review claimed for moderator or supplemental lanes.",
+    "evidence": {
+      "observed": "Three lane-specific baseline readiness controls passed; all three omitted-contract mutants rejected; exact 16 working-tree blobs matched. Anonymous merit synthesis precedes role map; updated original QA faithful-boundary clarification read afterward.",
+      "artifact_or_test_id": "/tmp/1xny6-moderator-probe.json; /tmp/1xny6-anonymous-synthesis.json",
+      "public_path": "Actual admitted-plan/current-source readiness boundary, not execution of future shared-store product behavior.",
+      "execution_status": "executed",
+      "limitations": "Readiness static source-informed contract controls; no runtime product path, benchmark, package, native OS, migration or interleaving was executed."
+    },
+    "falsification_check": {
+      "heading": "### Falsification Check",
+      "working_verdict": "Candidate approve readiness, pending closing red-team.",
+      "strongest_argument_against": "Current migration complete-receipt short-circuit and independently finalized publication could survive superficial filename/schema edits, and static plan checks cannot disprove that future failure.",
+      "reason": "The plan explicitly mandates versioned dispatch, one final authorized transaction and pinned response generations, with delivery gates before live conversion. That is sufficient for admission only; no implementation or release approval follows. Revisit after closing reconciliation."
+    },
+    "red_team_closing": {
+      "status": "pending"
+    },
+    "limitations": "Readiness static source-informed contract controls; no runtime product path, benchmark, package, native OS, migration or interleaving was executed."
+  },
+  "closing": {
+    "wave_id": "1xny6",
+    "phase": "readiness",
+    "mode": "red-team-closing",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "sealed_candidate_finding_ids": [],
+    "reconciliation": {
+      "status": "held",
+      "held": [],
+      "updated": [],
+      "new": [],
+      "explanation": "Empty finding universe challenged and held. No rows to redispose; no new actionable plan defect demonstrated."
+    },
+    "recommended_verdict": "approve readiness",
+    "falsification_check": {
+      "heading": "### Falsification Check",
+      "working_verdict": "Approve readiness of the admitted plan; implementation, live migration, native package qualification and release remain unproven.",
+      "strongest_argument_against": "The existing completed-receipt early return can skip consolidation; extending old cleanup ownership too broadly can delete unknown graph-folder content. Shared filename edits can also preserve independent publications and mixed response generations. Static contract tests cannot prove these runtime failures will be avoided.",
+      "source": "Primer strongest_challenge; candidate synthesis falsification; direct MCP reads sqlite_storage_migration.py:543-565 and 1122-1188.",
+      "why_verdict_holds": "The admitted plan explicitly assigns versioned completed/pending receipt dispatch, automatic fresh source graph rebuilding without importing old caches, one authorized transaction and response snapshot contract, receipt-bound cutover, fresh-process verification before owned cleanup, and independent delivery/runtime gates. These are adequate readiness contracts; none of the static evidence is elevated to runtime proof."
+    },
+    "evidence": {
+      "execution_status": "executed",
+      "artifact_or_test_id": "/tmp/1xny6-closing-check.json",
+      "public_path": "Actual admitted plan and current migration source via MCP; closest faithful readiness boundary only.",
+      "observed": "Completed-receipt, source-rebuild, unknown-content cleanup and no-production-qualification clauses present. In-memory removal of the unknown-content preservation clause rejected by coverage check. Candidate sealed finding set verified empty.",
+      "limitations": "Bounded static contract probe and targeted source review, no product invocation, benchmarks, migration, deletion, native-platform checks or future transaction/interleaving execution."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Readiness-safe in-memory omission of unknown-content preservation clause; no source mutation. Public path denotes admitted-plan/current-source review only."
+    },
+    "verification_context": {
+      "actor": "red-team-closing",
+      "context_id": "root-unified-closing-1xny6",
+      "fresh_context": true,
+      "independent": false,
+      "disclosure": "Fresh delegated closing context; intentionally read shared primer and candidate synthesis, so this is independent challenge execution rather than an independent uninformed prior."
+    },
+    "finding_synthesis": [],
+    "ledger_written": false
+  },
+  "supplemental": {
+    "wave_id": "1xny6",
+    "phase": "readiness",
+    "packet_blobs_verified": 16,
+    "prior_reports_read_before_assessment": false,
+    "per_lane": [
+      {
+        "lane": "code-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "index_state_store.finalize_build_epoch:3119-3262"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of code-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'stale attempt authorization cannot publish'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current finalize uses its own FULL connection and attempt CAS; plan correctly requires moving final ownership check into caller-owned combined transaction while preserving authorization and start fences. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#code-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "release-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "release-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "sqlite_storage_migration.cleanup_legacy:1122-1200"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of release-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'Fresh-process verification precedes cleanup'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current cleanup verifies receipt state, current generation and artifact identities before deletion. Plan preserves these safeguards, adds versioned dispatch and graph cleanup, and separates native release qualification from local implementation. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#release-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "performance-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "performance-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "sqlite_runtime.connect:46-101; docs/architecture/performance-budget.md"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of performance-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'demonstrates cache reuse rather than per-query hydration'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Runtime uses WAL, 5s busy timeout, 256MiB mmap and incremental auto-vacuum. Plan preserves defaults, checks checkpoint pressure with overlapping generations, retains resident cache and change-sized writes, and specifies measurable paired query/rebuild/delta samples without promising unmeasured savings. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#performance-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "docs-contract-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "docs-contract-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md:49-51,99,171-175",
+          ".wavefoundry/framework/scripts/sqlite_storage_migration.py:1122-1200"
+        ],
+        "evidence": {
+          "proposition": "Docs contract readiness: future current-path migration remains distinct from deliberate legacy compatibility references.",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "Require AC-10 current-path/historical-compatibility clause and reject in-memory omission.",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current cleanup_legacy explicitly reads index-state.sqlite staging names (1192); plan lines 49-51, 99, 171-175 requires classified current-path migration, preserves intentional legacy names, updates canonical guidance before rendered surfaces and describes proposed filename as not yet implemented. No contradictory current implementation claim found. Required clause passed; omission rejected.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#docs-contract-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      }
+    ],
+    "anonymous_merit_pass": {
+      "seat1": "Source-backed seam identification and honest untested-delivery boundary; false public_path carrier needs author clarification, cannot be silently changed by moderator.",
+      "seat2": "Correctly distinguishes current separate commits from intended integrated publication; accepted timing evidence is not implementation proof.",
+      "seat3": "Generation and destructive graph reset boundaries explicitly mapped; no plan contradiction demonstrated.",
+      "seat4": "Receipt-owned cleanup and parent authorization argument matches own source inspection.",
+      "seat5": "Alternative is credible for simpler serialization but full rewrites violate admitted AC-4; shared prior context cannot count as independent standalone approval.",
+      "merit_verdict": "approve readiness on stated contracts; preserve missing runtime/native qualification as future gates."
+    }
+  },
+  "scope": "Readiness review only. Static source-informed contract checks do not qualify unimplemented runtime behavior. Original rotating seat and first moderator reports are council inputs, not independent lane approvals; supplemental own-first review supplies those approvals.",
+  "context_map": {
+    "architecture": "/root/unified_architecture",
+    "security": "/root/unified_security",
+    "qa": "/root/unified_qa",
+    "reality": "/root/unified_reality",
+    "docs": "/root/unified_docs",
+    "council": "/root/unified_moderator",
+    "closing": "/root/unified_closing",
+    "supplemental": "/root/unified_supplemental"
+  },
+  "final-council": {
+    "wave_id": "1xny6",
+    "phase": "readiness",
+    "primer_depth": "full",
+    "tree_fingerprint": "0d7212c929982020803069029bd77c73191f44f84dae37f6b62de1c50382986e",
+    "seat_roster": {
+      "architecture": "fixed",
+      "security": "fixed",
+      "qa": "fixed",
+      "reality": "fixed",
+      "docs": "rotating best-alternative"
+    },
+    "strongest_alternative": "Compact immutable graph snapshot inside index.sqlite plus per-file extraction records would simplify schema/diff logic while retaining source rebuild and atomic publication. It still rewrites the whole resolved graph for small deltas, violating admitted Requirement 4/AC-4. All fixed seats explicitly weighed it and retain stable graph tables; no bridge or old graph translation is introduced.",
+    "improvements_recommended": [
+      "Carry the already-required qualification-versus-destination distinction prominently into authored upgrade guidance and release notes.",
+      "Retain concrete source seams and omission controls from this review as implementation review targets; actual delivery tests must exercise publication, response snapshots and migration interruptions."
+    ],
+    "recommendation_status": "Clarifications of existing AC-10 and verification tasks, no added scope or deferred finding.",
+    "status": "final",
+    "candidate_verdict": "approve",
+    "final_verdict": "approve",
+    "approval_phase": "readiness",
+    "findings": [],
+    "finding_synthesis": [],
+    "candidate_finding_ids": [],
+    "first_anonymous_synthesis": {
+      "seat1": "Source-backed seam identification and honest untested-delivery boundary; false public_path carrier needs author clarification, cannot be silently changed by moderator.",
+      "seat2": "Correctly distinguishes current separate commits from intended integrated publication; accepted timing evidence is not implementation proof.",
+      "seat3": "Generation and destructive graph reset boundaries explicitly mapped; no plan contradiction demonstrated.",
+      "seat4": "Receipt-owned cleanup and parent authorization argument matches own source inspection.",
+      "seat5": "Alternative is credible for simpler serialization but full rewrites violate admitted AC-4; shared prior context cannot count as independent standalone approval.",
+      "merit_verdict": "approve readiness on stated contracts; preserve missing runtime/native qualification as future gates."
+    },
+    "packet_blobs_verified": 16,
+    "verification_context": {
+      "actor": "wave-council",
+      "context_id": "root-unified-supplemental-own-first-1xny6",
+      "fresh_context": true,
+      "independent": true
+    },
+    "independence_note": "Own admitted-plan and current-source assessment plus four source-informed omission controls saved before any prior report. Anonymous merit pass saved before seat map/candidate/closing read. Final council shares that supplemental context; no author/repair participation and no claim of independence between four supplemental roles or synthesis and those roles.",
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "agreement_limitation": "All recorded verdicts agree; four fixed seats own initial judgments, rotating alternative intentionally reads prior outputs. Do not count rotating seat or repeated contract controls as an additional independent prior.",
+    "red_team_primer_summary": "Full five-stance primer identifies receipt-kind dispatch, paired name recovery, parent authorization and cleanup ownership as load-bearing constraints. Seats map these to explicit plan requirements; own finalize and cleanup source reads confirm why those obligations matter.",
+    "correlation_check": "Shared packet and primer make repeated receipt/publication/cleanup concerns correlated signals. Static omission checks establish selected obligations exist, not runtime compliance. Own pre-report review independently reached bounded readiness approval.",
+    "red_team_closing": {
+      "status": "held",
+      "held": [],
+      "updated": [],
+      "new": [],
+      "source": "/tmp/1xny6-closing.json",
+      "reconciliation": "Closing challenge does not expose a missing admitted obligation; empty candidate finding set remains empty. Runtime failure scenarios remain explicit implementation/delivery gates."
+    },
+    "qa_clarification": "Read updated original QA after anonymous pass: author independently read seed209 and changed public_path_reached to the documented readiness-faithful-boundary interpretation. Actual execution unchanged; no moderator rewriting of their evidence.",
+    "supplemental_lanes": [
+      {
+        "lane": "code-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "index_state_store.finalize_build_epoch:3119-3262"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of code-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'stale attempt authorization cannot publish'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current finalize uses its own FULL connection and attempt CAS; plan correctly requires moving final ownership check into caller-owned combined transaction while preserving authorization and start fences. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#code-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "release-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "release-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "sqlite_storage_migration.cleanup_legacy:1122-1200"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of release-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'Fresh-process verification precedes cleanup'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current cleanup verifies receipt state, current generation and artifact identities before deletion. Plan preserves these safeguards, adds versioned dispatch and graph cleanup, and separates native release qualification from local implementation. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#release-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "performance-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "performance-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "sqlite_runtime.connect:46-101; docs/architecture/performance-budget.md"
+        ],
+        "evidence": {
+          "proposition": "Admitted-plan readiness of performance-reviewer selected contract; no implementation claim",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "In-memory contract omission probe: require exact AC clause 'demonstrates cache reuse rather than per-query hydration'; replace only clause and require rejection",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Runtime uses WAL, 5s busy timeout, 256MiB mmap and incremental auto-vacuum. Plan preserves defaults, checks checkpoint pressure with overlapping generations, retains resident cache and change-sized writes, and specifies measurable paired query/rebuild/delta samples without promising unmeasured savings. Executed contract check passed; omitted-contract control rejected. 16/16 packet blobs verified against git-blob hashes.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#performance-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      },
+      {
+        "lane": "docs-contract-reviewer",
+        "verdict": "approve",
+        "approval_phase": "readiness",
+        "independent": true,
+        "fresh_context": true,
+        "verification_context": {
+          "actor": "docs-contract-reviewer",
+          "context_id": "root-unified-supplemental-own-first-1xny6",
+          "fresh_context": true,
+          "independent": true
+        },
+        "source_anchors": [
+          "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md:49-51,99,171-175",
+          ".wavefoundry/framework/scripts/sqlite_storage_migration.py:1122-1200"
+        ],
+        "evidence": {
+          "proposition": "Docs contract readiness: future current-path migration remains distinct from deliberate legacy compatibility references.",
+          "public_path": "Faithful readiness boundary: frozen admitted plan and current source",
+          "command_or_fixture": "Require AC-10 current-path/historical-compatibility clause and reject in-memory omission.",
+          "expected": "Current admitted plan contains source-informed obligation; deliberately omitted obligation fails",
+          "observed": "Current cleanup_legacy explicitly reads index-state.sqlite staging names (1192); plan lines 49-51, 99, 171-175 requires classified current-path migration, preserves intentional legacy names, updates canonical guidance before rendered surfaces and describes proposed filename as not yet implemented. No contradictory current implementation claim found. Required clause passed; omission rejected.",
+          "artifact_or_test_id": "/tmp/1xny6-supplemental.json#docs-contract-reviewer",
+          "limitations": "Four roles share one fresh context; independent of author and earlier reports, not independent from each other. Static readiness contract check only; no production behavior, native package qualification, benchmarks, broad suite or complete consumer census demonstrated. Token-presence control is deliberately limited to omission detection; semantic judgment is reviewer source reading.",
+          "safety_and_authorization": "Read-only repository inspection and temporary report writing only."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+        }
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control: omitted required AC contract rejected in memory"
+    },
+    "evidence": {
+      "proposition": "Readiness of admitted shared SQLite graph plan, bounded by actual current authorization/cleanup/runtime seams.",
+      "observed": "Own-first source review: finalizer currently owns separate FULL CAS and parent authorization; cleanup currently verifies state/identity and restricted names; runtime WAL/mmap/vacuum defaults match preservation contract. Four actual admitted-plan checks passed and four omitted-contract controls rejected, packet 16 blobs matched. Then anonymous merits, named source reports, primer and closing reconciled; no actionable plan gap demonstrated.",
+      "artifact_or_test_id": "/tmp/1xny6-supplemental.json; /tmp/1xny6-final-council.json",
+      "public_path": "Faithful readiness boundary: actual admitted plan/current production source, not unimplemented unified-store execution.",
+      "limitations": "No production invocation, migration, concurrency proof, benchmark, package qualification or exhaustive census. Initial broad orientation was truncated; own roles and load-bearing plan/source sections were separately read. Report files are temporary; coordinator must preserve durable evidence before relying on artifact links."
+    },
+    "falsification_check": {
+      "heading": "### Falsification Check",
+      "working_verdict": "Approve readiness only.",
+      "strongest_argument_against": "A clean plan can conceal severe integration risk: retaining the separate finalizer connection breaks single publication; broad graph deletion weakens old ownership guards; accepted timings cannot certify new reader lifetime/WAL behavior.",
+      "why_verdict_holds": "Those exact source-grounded seams have explicit publisher, snapshot, owned-cleanup and checkpoint/resource obligations, with tests and adoption gates required before live conversion. No missing contract demonstrated. This approval cannot substitute for those future tests."
+    },
+    "action_items": "Use the existing AC-3/5/6/7 delivery gates for transaction, reader generation, receipt and cleanup tests; carry automatic graph rebuild versus legacy semantic flag and qualification-only baseline comparison prominently into AC-10 guidance. No new scope or backlog.",
+    "ledger_written": false
+  }
+}

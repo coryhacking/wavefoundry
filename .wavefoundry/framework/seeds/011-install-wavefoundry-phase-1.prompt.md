@@ -53,9 +53,10 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 If any step fails, the orchestrator stops and reports which step. Re-run after fixing — the orchestrator is idempotent (each sub-step detects existing state).
 
-Fresh semantic storage uses one project-local
-`.wavefoundry/index/index-state.sqlite` for both docs and code, with canonical
-text stored once and vectors/FTS updated together. Standard setup provisions
+Fresh index storage uses one project-local
+`.wavefoundry/index/index.sqlite` for both docs and code and for the code graph,
+with canonical text stored once and chunks, vectors, FTS, graph rows and
+communities published together in a single transaction. Standard setup provisions
 pinned APSW/SQLite and sqlite-vec in the tool environment; it does not install
 LanceDB for a new project. Keep Python 3.11+ and the existing platform bootstrap
 path. If setup detects old Lance stores, route to **Upgrade Wavefoundry** rather

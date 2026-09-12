@@ -18,6 +18,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 import build_pack
 import dashboard_lib
@@ -494,7 +495,9 @@ class UpgradeProtocolTests(unittest.TestCase):
             receipt = json.loads((index / "sqlite-migration.json").read_text("utf-8"))
             self.assertEqual(receipt["state"], "restart_required")
             self.assertEqual(receipt["reason"], "existing_framework_without_index")
-            self.assertFalse((index / "index-state.sqlite").exists())
+            for owned in (index_paths.index_database_path(index),
+                          index_paths.legacy_index_database_path(index)):
+                self.assertFalse(owned.exists(), owned)
             self.assertTrue((target / ".wavefoundry/upgrade-in-progress.json").is_file())
             self.assertTrue((framework / "UPGRADE-PROTOCOL.json").is_file())
             retained = target / ".wavefoundry/upgrade-assets" / feature.name

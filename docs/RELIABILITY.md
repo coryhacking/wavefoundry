@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## Reliability Posture
 
@@ -16,9 +16,10 @@ modes explicitly instead of guessing.
 
 ## Shipped Reliability Mechanisms
 
-- **Derived-only stores, drop-and-rebuild:** the semantic index
-  (`.wavefoundry/index/`: Lance tables, the SQLite index-state store, the
-  graph store) is entirely derived from the repository. Any corruption is
+- **Derived-only stores, drop-and-rebuild:** the project index
+  (`.wavefoundry/index/index.sqlite`: docs/code chunks, vectors, FTS, the
+  code graph and its communities in one SQLite database) is entirely
+  derived from the repository. Any corruption is
   recoverable by rebuild via `index_build` (supported
   index_build content values: `docs/code/all/graph/map/fts`); nothing
   authoritative lives there.
@@ -34,10 +35,24 @@ modes explicitly instead of guessing.
   index_freshness states: `current/stale/unknown` — `unknown` means the
   check could not run, never "assume fresh".
 - **Persisted build log + versioned state:** index builds append to the
-  persisted build log under `.wavefoundry/logs/`; the index-state store
-  (SQLite, state-store schema version `7`) carries builder/walker versions,
+  persisted build log under `.wavefoundry/logs/`; the index database
+  (SQLite, state-store schema version `8`) carries builder/walker versions,
   the build epoch, and per-file state, so an interrupted build is detected
   and superseded on the next pass, never trusted.
+- **One publication transaction (wave 1xny6):** a build's semantic rows and
+  its graph, extraction, community and per-layer bookkeeping rows commit in
+  the SAME transaction, so no partial cross-store state can survive a crash.
+  The few named control transactions that stay outside it — the durable
+  build fence, the secrets-scan cache, post-commit derived-FTS verification,
+  freshness/drift/reap residents and the completion compare-and-set — are
+  each recoverable on their own. Readers take a generation-bound snapshot,
+  so one response never spans two index generations.
+- **Forward-only storage recovery (wave 1xny6):** the schema-8 conversion is
+  recorded as a versioned kind in the retained `sqlite-migration.json`
+  receipt. A failed or refused cutover is recovered by re-running the
+  standard upgrade from the retained source; there is no backward rollback
+  to the previous runner, and the retained rollback copy is never read back
+  into service.
 - **Per-layer freshness and the heal:** each layer records its builder
   version (graph builder version `51` currently); a version advance triggers
   re-extraction, and read-side heals repair false-stale verdicts without a

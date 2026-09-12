@@ -24,6 +24,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 def load_store_module():
@@ -681,7 +684,7 @@ class SecretPostureTests(_StoreCase):
         # The store path is inside that dir by construction.
         store = self.iss.state_store_path(Path(".wavefoundry/index"))
         self.assertEqual(str(store).replace("\\", "/"),
-                         ".wavefoundry/index/index-state.sqlite")
+                         ".wavefoundry/index/" + index_paths.RUNTIME_DATABASE_FILENAME)
 
     def test_build_pack_ships_no_index_artifacts(self):
         # build_pack ships framework SOURCE only; nothing under an index dir
@@ -689,7 +692,9 @@ class SecretPostureTests(_StoreCase):
         # machinery references the index dir.
         src = (SCRIPTS_ROOT / "build_pack.py").read_text(encoding="utf-8")
         self.assertIn("index", src)
-        self.assertNotIn("index-state.sqlite", src)  # never explicitly included
+        for name in (index_paths.INDEX_DATABASE_FILENAME,
+                     index_paths.LEGACY_INDEX_DATABASE_FILENAME):
+            self.assertNotIn(name, src)  # never explicitly included
 
     def test_fts_text_comes_only_from_canonical_chunk_rows(self):
         self.iss.apply_chunk_deltas(self.index_dir, "code",

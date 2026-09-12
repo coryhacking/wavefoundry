@@ -10,7 +10,7 @@ This folder is Wavefoundry's canonical Wave Framework source for initializing, u
 
 ## Local index compatibility
 
-The semantic index requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLite 3.53.4) and `sqlite-vec==0.1.9`. All dependencies must support the selected Python/OS/architecture; a wheel listing alone does not certify an end-to-end install.
+A project keeps ONE local index database, `.wavefoundry/index/index.sqlite`, holding the docs and code semantic layers together with the code graph and its communities; only the agent-memory store stays separate. It requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLite 3.53.4) and `sqlite-vec==0.1.9`. All dependencies must support the selected Python/OS/architecture; a wheel listing alone does not certify an end-to-end install.
 
 | Target | Pinned sqlite-vec binary availability |
 | --- | --- |
@@ -21,7 +21,7 @@ The semantic index requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLi
 
 Use a local WAL-capable filesystem for `.wavefoundry/index/`; in WSL2 prefer the Linux filesystem. Network and VM shared filesystems are not qualified by their path or OS name. Setup/conversion probes native WAL write/read on that filesystem before semantic format mutation. A runtime or filesystem failure requires fixing the reported condition and retrying the ordinary command; deleting/rebuilding on the same unsupported filesystem is not a remedy.
 
-Prepared embeddings use an owned temporary directory below the index directory, so staging uses the same filesystem and free-space budget. Keep headroom for the index, WAL, prepared work and any retained migration backup. Runtime, permissions and disk failures retain the authoritative index; cleanup removes only verified owned artifacts. A Windows sharing/access failure during cutover retains migration recovery state: release database handles or correct permissions, then retry the ordinary upgrade. Do not force deletion or disable security software.
+Prepared updates stay in memory within a 64 MiB retained-operation budget. Larger batches spill to an owned temporary directory below the index directory, using the same filesystem and free-space budget. Keep headroom for the index, WAL, prepared work and any retained migration backup. Runtime, permissions and disk failures retain the authoritative index; cleanup removes only verified owned artifacts. A Windows sharing/access failure during cutover retains migration recovery state: release database handles or correct permissions, then retry the ordinary upgrade. Do not force deletion or disable security software. Storage conversions record a versioned receipt beside the index and are recovered FORWARD by re-running the standard upgrade from the retained source; there is no backward rollback to the previous framework, and a framework older than the receipt refuses to open the repository rather than creating a second database beside the new one.
 
 Binary inventory: [sqlite-vec 0.1.9](https://pypi.org/project/sqlite-vec/0.1.9/) and [APSW 3.53.4.0](https://pypi.org/project/apsw/3.53.4.0/). Conversion execution qualified locally on macOS Apple Silicon; native Windows, Linux and Intel macOS package execution remains pending release qualification.
 

@@ -132,7 +132,9 @@ def _graph_neighbors_payload(root: Path, *, layer: str, symbol: str) -> dict[str
         gq = _get_graph_query()
         index = gq.GraphQueryIndex.from_root(root, layer=layer)
         if not index.present:
-            return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "graph_not_ready"}
+            diag = gq.graph_not_ready_diagnostic(layer, index)
+            return {"present": False, "layer": layer, "symbol": symbol,
+                    "diagnostic": diag["code"], "message": diag["message"], "state": index.state}
         node_id = index.resolve_symbol(symbol)
         if not node_id:
             return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "symbol_not_found"}
@@ -250,11 +252,13 @@ class SnapshotStore:
         self._last_display_staleness_at: float = time.monotonic()
 
         # R2: Check for upgrade lock at startup — if present, enter upgrade_paused
-        # immediately and skip the startup stale check / index build scheduling.
+        # immediately and skip the startup stale check. The dashboard has not driven
+        # index builds since 1p5xt/1p5xw/1p7it, so the pause freezes this snapshot only.
         if self._check_upgrade_lock():
             _dashboard_log(
                 "Upgrade in progress (upgrade-in-progress.json detected) — "
-                "indexing paused until upgrade completes."
+                "dashboard refresh paused until the upgrade completes. "
+                "Indexing is unaffected; it runs from the MCP server and edit hooks."
             )
             self._upgrade_paused = True
 
@@ -289,7 +293,6 @@ class SnapshotStore:
             r / ".wavefoundry" / "index" / "index-build.json",
             r / ".wavefoundry" / "index" / "background-build.pid",
             r / ".wavefoundry" / "index" / "index-build-stats.json",
-            r / ".wavefoundry" / "index" / "graph" / "project-graph.json",
             r / ".wavefoundry" / "logs" / "project-index-build.log",
             r / ".wavefoundry" / "logs" / "project-index-build-docs.log",
             r / ".wavefoundry" / "logs" / "project-index-build-code.log",
@@ -337,6 +340,35 @@ class SnapshotStore:
                     return f"{max_mtime:.6f}:{count}:capped"
         return f"{max_mtime:.6f}:{count}"
 
+    def _published_graph_signature(self) -> str:
+        """The committed graph/community generation, observed WITHOUT mtime.
+
+        Wave 1xny6. The watcher used to stat ``project-graph.json``; that file
+        is retired, and the obvious replacement — the mtime of the index
+        database's main file — is wrong for the same reason it is wrong for
+        every WAL database: a committed change lives in the ``-wal`` until a
+        checkpoint folds it back, so the main file's mtime does NOT move when a
+        build publishes. A dashboard watching it would keep serving the
+        previous graph until some unrelated checkpoint happened to run.
+
+        The mechanism is a per-call ``index_state_store.open_read_only`` open
+        that reads the published generation and closes immediately. That
+        honours the helper's open-and-close-per-operation contract: holding a
+        reader open across the 1-second watch loop would pin a WAL snapshot and
+        starve autocheckpoint, which is the failure this watcher must not
+        cause. Absence, in-flight publication, and failed reads have distinct
+        signatures, so failure and recovery both trigger a refresh.
+        """
+        import graph_snapshot
+
+        snapshot = graph_snapshot.acquire(self._root, "project")
+        if snapshot.state == graph_snapshot.ABSENT:
+            return "absent"
+        if not snapshot.ready:
+            return f"{snapshot.state}:{json.dumps(snapshot.diagnostic, sort_keys=True)}"
+        return (f"{snapshot.generation}:{snapshot.graph_fingerprint}"
+                f":{snapshot.community_fingerprint}")
+
     def _current_mtimes(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {}
         for p in self._watched_paths():
@@ -344,6 +376,10 @@ class SnapshotStore:
                 out[str(p)] = p.stat().st_mtime
             except OSError:
                 out[str(p)] = 0.0
+        # Wave 1xny6: the graph/community change signal is a committed
+        # generation, not a file mtime. Keyed distinctly so a diff of this dict
+        # names the graph when it is what moved.
+        out["graph::published"] = self._published_graph_signature()
         # Wave 1rtju (AC-3): add a bounded nested signature per watched tree so edits to files nested
         # inside them trip the fast-change diff (the flat dir stat above misses nested writes).
         for tree in self._watched_trees():
@@ -543,9 +579,10 @@ class SnapshotStore:
                 # R2: Poll upgrade lock on every watch cycle — cheap stat() call.
                 lock_present = self._check_upgrade_lock()
                 if lock_present and not self._upgrade_paused:
-                    # Upgrade started after dashboard was already running — pause indexing.
+                    # Upgrade started after dashboard was already running — freeze this snapshot.
                     _dashboard_log(
-                        "Upgrade lock appeared — entering upgrade_paused; indexing suspended."
+                        "Upgrade lock appeared — entering upgrade_paused; "
+                        "dashboard refresh suspended (indexing is unaffected)."
                     )
                     self._upgrade_paused = True
                     self._rebuild(force_git=False)
@@ -935,7 +972,15 @@ def _daemonize(root: Path, argv: list[str]) -> int:
     The child runs the normal foreground path; an env marker prevents an infinite re-spawn loop."""
     log_path = root / ".wavefoundry" / "logs" / "dashboard.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    child_args = [a for a in argv if a != "--daemon"]
+    child_args = []
+    args_iter = iter(argv)
+    for arg in args_iter:
+        if arg == "--root":
+            next(args_iter, None)
+        elif arg != "--daemon" and not arg.startswith("--root="):
+            child_args.append(arg)
+    # Keep the selected root absolute and last: POSIX ps flattens spaced argv.
+    child_args.extend(["--root", str(root.resolve())])
     # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this detached daemon
     # re-spawn (all output goes to dashboard.log, no console) so it never flashes a window; falls back
     # to sys.executable (POSIX returns None). The re-spawned child self-activates the venv first-line.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -49,9 +49,11 @@ Repository files
 
 ## The Project Index
 
-Wavefoundry maintains a **single** semantic index — the project index — stored at
-`.wavefoundry/index/index-state.sqlite`. It contains separate docs/code canonical chunk,
-FP32 vector and external-content FTS table families in the same file.
+Wavefoundry maintains a **single** project index database at
+`.wavefoundry/index/index.sqlite`. It contains separate docs/code canonical chunk,
+FP32 vector and external-content FTS table families and, since wave `1xny6`, the code
+graph, its per-file extraction and merge state, communities and analysis — all in the
+same file.
 
 There is no separately built or shipped "framework" index. Before wave `1p4ww` the framework
 seeds/docs were embedded into their own layer at `/.wavefoundry/framework/index/` and packaged in
@@ -328,7 +330,7 @@ carries enough context to be useful as a standalone search result.
 
 Implementation lives in `.wavefoundry/framework/scripts/chunker.py`. The indexer calls
 `chunk_file(content, rel_path)` and routes each chunk to the `docs` or `code` layer
-by `kind` (see below). Both layers share `index-state.sqlite`, with canonical
+by `kind` (see below). Both layers share `index.sqlite`, with canonical
 `chunks_docs` / `chunks_code` rows and keyed vector and external-content FTS tables.
 
 ### Chunk metadata
@@ -742,7 +744,7 @@ The buffer keeps a window of `SORT_WINDOW_SIZE` (2048) chunks. Within that windo
 are sorted by text length, and each batch of `EMBED_BATCH_SIZE` (256) chunks is drawn from
 the shortest sequences available. This means sequences within a batch are similar in length,
 reducing the amount of zero-padding needed to make them uniform — which reduces ONNX
-inference time. Vectors are spooled to bounded temporary SQLite storage after each batch completes;
+inference time. Completed batches enter bounded in-memory preparation, with SQLite overflow only when needed;
 the shared semantic database is changed only during final atomic publication.
 
 ### Bounded-buffer streaming (full rebuild)
@@ -755,11 +757,12 @@ Instead it streams the whole pipeline file-by-file through a bounded buffer
 2. Push chunks into a per-layer buffer. When a buffer reaches `embed_buffer_chunks`
    (`EMBED_BUFFER_CHUNKS_DEFAULT` = `SORT_WINDOW_SIZE`, configurable via
    `indexing.embed_buffer_chunks`, floored at `EMBED_BATCH_SIZE` (64) to keep GPU batches
-   full), embed one batch and spool the prepared rows, then flush the buffer.
+   full), embed one batch and retain the prepared rows, then flush the buffer.
 3. Flush the remainder, then publish the prepared changes in one transaction (see Stage 5).
 
-Peak memory is bounded by the buffer rather than the corpus, so very large repositories index
-without materializing every chunk and vector at once. The produced index is byte-identical to
+Chunk and embedding buffering does not materialize every chunk and vector at once.
+Prepared operations have their own 64 MiB retention budget and overflow policy below;
+model, graph and transient allocations contribute separately to process memory. The produced index is byte-identical to
 the batch path (same chunks, vectors, and rows) — guarded by an output-parity test.
 
 Progress is file-oriented (the file total is known cheaply from the walk; there is no
@@ -773,24 +776,49 @@ build_index: indexed file 50/1044 files
 
 ## Stage 5: Atomic SQLite publication
 
-Docs and code share `.wavefoundry/index/index-state.sqlite` (schema 7), with separate
+Docs and code share `.wavefoundry/index/index.sqlite` (schema 8), with separate
 `chunks_docs`/`chunks_code`, `vectors_docs`/`vectors_code` and `fts_docs`/`fts_code`
 tables. Canonical text is stored once; external-content FTS indexes it without a second
 text copy. Internal integer keys join vectors and FTS to each canonical chunk. Public
 chunk IDs and separate docs/code BM25 populations remain unchanged.
 
+Since wave `1xny6` the same transaction also carries the GRAPH participants: graph
+nodes and edge evidence, per-file extraction and merge state, community and analysis
+rows, and per-layer publication bookkeeping. Graph artifact building PREPARES rather
+than writes, returning a publication the coordinator applies on the same connection
+inside `BEGIN IMMEDIATE` after the trailing source validation. The named control
+transactions that deliberately stay OUTSIDE it are the durable build-start fence, the
+secret-scan cache write, the post-commit derived-FTS verify and repair, the freshness,
+drift and reap residents, and the finalize compare-and-set that is the sole advance of
+the build generation.
+
 Incremental change detection remains file-scoped. Matching stable IDs and content hashes
 reuses unchanged embeddings; metadata-only changes rewrite the row with its existing
 vector. Only changed or added chunk content is embedded. Ambiguous line-window matches
-remain conservative. The prepared spool records ordered deletes, inserts and layer
+remain conservative. Preparation records ordered deletes, inserts and layer
 replacement operations; a full rebuild also clears a layer that now emits zero chunks.
+
+Preparation starts in memory, with a 64 MiB budget that conservatively accounts for
+encoded tuples, strings, vector blobs and container capacity. Empty and ordinary small
+updates create no preparation files. On overflow, the existing SQLite operations spool
+is created under the owned index directory and removed after use. Each add remains
+atomic across that transition: failure discards the current add while preserving prior
+successful adds; uncertain rollback refuses publication. The caller's final database
+transaction still controls whether anything becomes visible.
+
+This is not a 64 MiB process-RSS cap. An oversized operation may exist transiently while
+being encoded; apply batches are bounded to 250 operations by default, not a fixed byte
+count. Model memory, decoded rows, SQLite caches and overlapping graph generations are
+separate costs. Large builds can still use disk overflow and temporarily consume more
+memory than the former disk-only preparation path.
 
 After embedding finishes, one writer takes `BEGIN IMMEDIATE`. It validates the publication
 attempt and source/model/chunker/configuration identities, applies prepared chunks and
 vectors, and writes FTS, registry/digests, file bookkeeping and layer hashes together.
 It checks vector integrity and validates source identity again before committing. A failure
-rolls the semantic delta back. Graph publication remains separately fenced by the existing
-FULL-durability epoch; this transaction does not make separate graph files atomic.
+rolls the WHOLE delta back — semantic and graph alike, since wave `1xny6` folded graph
+publication into this same transaction. There are no separate graph files left to be
+non-atomic.
 
 Vector queries use exact FP32 cosine scans with metadata filters applied before top-K.
 There is no ANN creation threshold or secondary vector-index maintenance. Ordinary metadata
@@ -821,7 +849,7 @@ retrieval publication gate, and no query history or terms are retained in the ca
 
 `index_optimize` uses SQLite planner/FTS maintenance, a passive WAL checkpoint and bounded
 incremental vacuum. Free pages can be reused during branch churn; routine maintenance does
-not run a full VACUUM or forced TRUNCATE checkpoint. Graph maintenance remains separate.
+not run a full VACUUM or forced TRUNCATE checkpoint. Semantic and graph tables receive one shared physical database maintenance pass.
 
 An unsupported schema or corrupt canonical database is preserved with recovery guidance.
 Migration uses the standard upgrade receipt/restart path; an explicit rebuild uses canonical

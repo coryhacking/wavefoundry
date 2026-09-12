@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+import index_paths  # noqa: E402 — one definition of the shared database name
 UPGRADE_PATH = SCRIPTS_ROOT / "upgrade_wavefoundry.py"
 REVIEW_PROTOCOL_SEEDS = (
     "209-agent-harness-core.prompt.md",
@@ -5355,17 +5356,22 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         )
 
     def _write_graph_state_sqlite(self, builder_version: str) -> None:
-        # Wave 1rvfx: write the PRIMARY project graph state — the SQLite store's meta table — matching
-        # the production shape read by _read_installed_graph_builder_version.
-        import sqlite3
-        store = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
-        conn = sqlite3.connect(str(store))
+        # Wave 1xny6: the PRIMARY project graph state is the SHARED index
+        # database's meta table, written through the canonical store creator —
+        # the production shape `_read_installed_graph_builder_version` reads
+        # through the tool venv. A separate graph-state file no longer exists.
+        import graph_indexer
+        import index_state_store as iss
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        store = iss.IndexStateStore(index_dir)
         try:
-            conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
-            conn.execute("INSERT INTO meta (key, value) VALUES ('builder_version', ?)", (builder_version,))
-            conn.commit()
+            with store._conn:
+                store._conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    (graph_indexer.GRAPH_META_PREFIX + "builder_version", builder_version))
         finally:
-            conn.close()
+            store.close()
 
     def test_read_walker_version(self) -> None:
         self._write_pack("24", "6", "23")
@@ -5380,27 +5386,43 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
             "chunker_versions": {"docs": "22", "code": "22"},
             "walker_version": "4",
         })
-        self._write_graph_state({"builder_version": "22"})
+        self._write_graph_state_sqlite("22")
         snap = self.mod._snapshot_pre_extract_versions(self.root)
         self.assertEqual(snap["chunker_docs"], "22")
         self.assertEqual(snap["chunker_code"], "22")
         self.assertEqual(snap["walker"], "4")
         self.assertEqual(snap["graph_builder"], "22")
 
-    def test_snapshot_reads_sqlite_graph_state(self) -> None:
-        # Wave 1rvfx AC-1: the PRIMARY read path — the installed project graph SQLite store's meta table.
+    def test_snapshot_reads_the_shared_index_database(self) -> None:
+        # Wave 1xny6: the PRIMARY read path is the shared index database, read
+        # through the tool venv because only the pinned native runtime may open
+        # it. An EMPTY return on a healthy post-cutover store is a failure, not
+        # a fail-safe: the transition would silently never fire again.
         self._write_graph_state_sqlite("42")
         self._write_pack("24", "5", "43")
+        self.assertTrue(index_paths.index_database_path(
+            self.root / ".wavefoundry" / "index").is_file())
         snap = self.mod._snapshot_pre_extract_versions(self.root)
         self.assertEqual(snap["graph_builder"], "42")
+        self.assertNotEqual(self.mod._read_installed_graph_builder_version(self.root), "")
         transitions = self.mod._detect_version_transitions(snap, self.root)
         self.assertTrue(any("GRAPH_BUILDER_VERSION" in name for name, _, _ in transitions))
 
-    def test_snapshot_sqlite_takes_precedence_over_legacy_json(self) -> None:
-        # Wave 1rvfx: when both exist, the SQLite store wins (mirrors read_state_builder_version).
+    def test_shared_database_takes_precedence_over_the_retired_graph_json(self) -> None:
+        # Wave 1xny6: with both present the shared database wins, mirroring
+        # graph_indexer.read_state_builder_version. A probe that fell back to
+        # the retired file, or returned empty, fails here.
         self._write_graph_state_sqlite("42")
-        self._write_graph_state({"builder_version": "40"})  # legacy JSON present but superseded
+        self._write_graph_state({"builder_version": "40"})  # retired layout, superseded
         self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "42")
+
+    def test_probe_returns_empty_without_a_tool_venv(self) -> None:
+        # Stdlib-only rule: the value is read through the tool venv, so an
+        # absent venv is a fail-safe empty, never an upgrade abort.
+        self._write_graph_state_sqlite("42")
+        missing = self.root / "absent-venv" / "bin" / "python"
+        with patch.object(self.mod.venv_bootstrap, "tool_venv_python", return_value=missing):
+            self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "")
 
     def test_snapshot_graph_builder_absent_is_fail_safe(self) -> None:
         # Wave 1rvfx AC-3: no installed project graph state → no graph_builder key, no GRAPH_BUILDER_VERSION
@@ -5412,8 +5434,8 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self.assertFalse(any("GRAPH_BUILDER_VERSION" in name for name, _, _ in transitions))
 
     def test_snapshot_graph_builder_corrupt_store_is_fail_safe(self) -> None:
-        # Wave 1rvfx AC-3: a corrupt/unreadable SQLite store yields no entry and never raises.
-        store = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
+        # Wave 1xny6: a corrupt/unreadable SHARED store yields no entry and never raises.
+        store = index_paths.index_database_path(self.root / ".wavefoundry" / "index")
         store.write_text("this is not a sqlite database", encoding="utf-8")
         self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "")
 
@@ -5422,7 +5444,7 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
             "chunker_versions": {"docs": "22", "code": "22"},
             "walker_version": "5",
         })
-        self._write_graph_state({"builder_version": "23"})
+        self._write_graph_state_sqlite("23")
         self._write_pack("24", "5", "23")
         snap = self.mod._snapshot_pre_extract_versions(self.root)
         transitions = self.mod._detect_version_transitions(snap, self.root)
@@ -5453,7 +5475,7 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
             "chunker_versions": {"docs": "24", "code": "24"},
             "walker_version": "5",
         })
-        self._write_graph_state({"builder_version": "22"})
+        self._write_graph_state_sqlite("22")
         self._write_pack("24", "5", "23")
         snap = self.mod._snapshot_pre_extract_versions(self.root)
         transitions = self.mod._detect_version_transitions(snap, self.root)

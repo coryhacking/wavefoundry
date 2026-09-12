@@ -164,7 +164,7 @@ class SQLiteServingTests(unittest.TestCase):
                 self.assertEqual({d["code"] for d in response["diagnostics"]},
                                  {code, "index_stale", "chunker_version_mismatch", "fts_integrity_failed"})
                 self.assertTrue(all(d["recovery_usage"] == response["usage"] for d in response["diagnostics"]))
-                self.assertIn("Preserve index-state.sqlite", response["usage"])
+                self.assertIn("Preserve index.sqlite", response["usage"])
                 self.assertIn("WAL/SHM", response["usage"])
                 self.assertIn("migration receipt", response["usage"])
                 self.assertNotIn("index_build", str(response["diagnostics"]))
@@ -495,3 +495,246 @@ class SQLiteUpgradeWrapperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(runtime.apsw is None, 'qualified APSW runtime unavailable')
+class MemoryPreparationTests(unittest.TestCase):
+    def setUp(self):
+        import index_state_store as iss
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.store = iss.IndexStateStore(self.directory)
+        self.addCleanup(self.store.close)
+
+    @staticmethod
+    def row(key, text='alpha'):
+        return dict(id=key, path=f'src/{key}.py', text=text, kind='code',
+                    lines=[1, 2], vector=[1.] + [0.] * 383)
+
+    def contents(self, prepared):
+        if prepared.path is None:
+            return list(prepared._pending)
+        conn = runtime.connect(prepared.path, read_only=True)
+        try:
+            return conn.execute('SELECT layer,action,payload,vector FROM operations ORDER BY seq').fetchall()
+        finally:
+            conn.close()
+
+    def publish(self, prepared):
+        with self.store._conn:
+            prepared.apply(self.store)
+        return vectors.payload_rows(self.directory, 'code', include_vector=True)
+
+    def test_default_limit_and_empty_preparation_have_no_disk_effects(self):
+        self.assertEqual(vectors.PreparedUpdates.MEMORY_LIMIT_BYTES, 64 * 1024 * 1024)
+        with patch.object(vectors.tempfile, 'TemporaryDirectory', side_effect=AssertionError('spool')), \
+                patch.object(runtime, 'connect', side_effect=AssertionError('spool connection')):
+            with vectors.PreparedUpdates(self.directory) as prepared:
+                prepared.add('code')
+                with self.store._conn:
+                    prepared.apply(self.store)
+                self.assertIsNone(prepared.path)
+
+    def test_exact_boundary_then_first_overflow_preserves_order_and_unicode(self):
+        operation = ('code', 'id', '猫😀', None)
+        base = sys.getsizeof([])
+        for offset, spill in ((-1, True), (0, False), (1, False)):
+            # SQLite may cache the shared Unicode object's UTF-8 encoding in
+            # the preceding spill variant; account its actual allocation now.
+            limit = base + vectors.PreparedUpdates._operation_bytes(operation) + offset
+            with self.subTest(limit=limit), patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', limit):
+                with vectors.PreparedUpdates(self.directory) as prepared:
+                    prepared.add('code', ids=['猫😀'])
+                    self.assertEqual(prepared.path is not None, spill)
+                    self.assertEqual(self.contents(prepared), [operation])
+                    self.assertLessEqual(prepared.peak_retained_bytes, limit)
+                    prepared.add('code', ids=['later'])
+                    self.assertIsNotNone(prepared.path)
+                    self.assertEqual(self.contents(prepared), [operation, ('code', 'id', 'later', None)])
+                    self.assertLessEqual(prepared.peak_retained_bytes, limit)
+
+    def test_accounting_covers_real_container_capacity_and_encoded_objects(self):
+        with vectors.PreparedUpdates(self.directory) as prepared:
+            for n in range(1000):
+                prepared.add('code', ids=[str(n) + '😀'])
+                actual = sys.getsizeof(prepared._pending) + sum(
+                    sys.getsizeof(op) + sum(sys.getsizeof(v) for v in op) for op in prepared._pending)
+                self.assertGreaterEqual(prepared.retained_bytes, actual)
+            self.assertIsNone(prepared.path)
+
+    def test_oversized_single_row_spills_without_retention(self):
+        with patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', 1024):
+            with vectors.PreparedUpdates(self.directory) as prepared:
+                prepared.add('code', rows=[self.row('big', '😀' * 10000)])
+                self.assertIsNotNone(prepared.path)
+                self.assertGreater(prepared.largest_operation_bytes, 1024)
+                self.assertLessEqual(prepared.peak_retained_bytes, 1024)
+                self.assertEqual(self.publish(prepared)[0]['text'], '😀' * 10000)
+
+    def test_ordered_replace_add_delete_parity_and_caller_rollback(self):
+        outputs = []
+        for limit in (64 * 1024 * 1024, 0):
+            with patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', limit):
+                with vectors.PreparedUpdates(self.directory) as prepared:
+                    prepared.add('code', replace=True, rows=[self.row('a'), self.row('b')])
+                    prepared.add('code', ids=['a'], rows=[self.row('c')])
+                    prepared.add('code', paths=['src/b.py'])
+                    outputs.append(self.publish(prepared))
+                    self.assertEqual([r['id'] for r in outputs[-1]], ['c'])
+                    before = outputs[-1]
+                    prepared.add('code', replace=True, rows=[self.row('discard')])
+                    with self.assertRaisesRegex(ValueError, 'after writes'):
+                        with self.store._conn:
+                            prepared.apply(self.store)
+                            raise ValueError('after writes')
+                    self.assertEqual(vectors.payload_rows(self.directory, 'code', include_vector=True), before)
+        self.assertEqual(outputs[0], outputs[1])
+
+    def test_failed_encoder_rolls_back_destructive_prefix_before_and_after_spill(self):
+        for limit in (64 * 1024 * 1024, 3000, 0):
+            with self.subTest(limit=limit), patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', limit):
+                with vectors.PreparedUpdates(self.directory) as prepared:
+                    prepared.add('code', rows=[self.row('keep')])
+                    before = self.contents(prepared)
+                    def broken():
+                        yield self.row('discard')
+                        raise ValueError('encoder failed')
+                    with self.assertRaisesRegex(ValueError, 'encoder failed'):
+                        prepared.add('code', replace=True, rows=broken())
+                    self.assertEqual(self.contents(prepared), before)
+                    prepared.add('code', rows=[self.row('later')])
+                    self.assertEqual({r['id'] for r in self.publish(prepared)}, {'keep', 'later'})
+                    # Reset the serving store between variants.
+                    with self.store._conn:
+                        self.store._conn.execute('DELETE FROM chunks_code')
+
+    def test_spill_faults_preserve_prior_add_or_refuse_uncertain_commit(self):
+        original = runtime.connect
+        # Fail each transfer boundary: schema, committed prefix, prefix commit,
+        # current prefix, remaining stream, and the current add's COMMIT.
+        for failure in ('schema', 'insert1', 'commit1', 'insert2', 'insert3', 'commit2', 'rollback'):
+            with self.subTest(failure=failure):
+                with vectors.PreparedUpdates(self.directory) as prepared:
+                    prepared.add('code', ids=['keep'])
+                    prior = self.contents(prepared)
+                    class FaultConnection:
+                        def __init__(self, conn):
+                            self.conn = conn
+                            self.inserts = self.commits = 0
+                        def __getattr__(self, name):
+                            return getattr(self.conn, name)
+                        def __enter__(self):
+                            self.conn.execute('BEGIN')
+                            return self
+                        def __exit__(self, kind, value, traceback):
+                            self.execute('ROLLBACK' if kind else 'COMMIT')
+                        def execute(self, sql, *args):
+                            if sql.startswith('CREATE TABLE') and failure == 'schema':
+                                raise OSError('schema')
+                            if sql == 'COMMIT':
+                                self.commits += 1
+                                if failure == f'commit{self.commits}':
+                                    raise OSError(failure)
+                            if sql == 'ROLLBACK' and failure == 'rollback':
+                                raise OSError('rollback')
+                            return self.conn.execute(sql, *args)
+                        def executemany(self, sql, values):
+                            self.inserts += 1
+                            if failure == f'insert{self.inserts}' or (failure == 'rollback' and self.inserts == 3):
+                                # Fail after a real write, not before the tested effect.
+                                values = list(values)
+                                self.conn.executemany(sql, values)
+                                raise OSError(failure)
+                            return self.conn.executemany(sql, values)
+                    limit = prepared.retained_bytes + vectors.PreparedUpdates._operation_bytes(('code', 'replace', None, None))
+                    with patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', limit), \
+                            patch.object(runtime, 'connect', side_effect=lambda *a, **k: FaultConnection(original(*a, **k))):
+                        with self.assertRaises(OSError):
+                            prepared.add('code', replace=True, rows=[self.row('discard')])
+                    if failure in ('commit2', 'rollback'):
+                        with self.assertRaisesRegex(RuntimeError, 'uncertain'):
+                            self.publish(prepared)
+                    else:
+                        self.assertEqual(self.contents(prepared), prior)
+                        prepared.add('code', ids=['later'])
+                        self.assertEqual(self.contents(prepared)[-1], ('code', 'id', 'later', None))
+                self.assertEqual(list(self.directory.glob('wavefoundry-sqlite-prepared-*')), [])
+
+    def test_concurrent_adds_are_whole_ordered_units(self):
+        from concurrent.futures import ThreadPoolExecutor
+        for limit in (64 * 1024 * 1024, 2000):
+            with patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', limit):
+                with vectors.PreparedUpdates(self.directory) as prepared:
+                    def identifiers(n):
+                        import time
+                        for i in range(25):
+                            time.sleep(0.0001)  # release the GIL within each add
+                            yield f'{n}-{i}'
+                    with ThreadPoolExecutor(max_workers=4) as pool:
+                        list(pool.map(lambda n: prepared.add('code', ids=identifiers(n)), range(8)))
+                    values = [op[2] for op in self.contents(prepared)]
+                    self.assertEqual(len(values), 200)
+                    self.assertEqual(len(set(values)), 200)
+                    for n in range(8):
+                        start = values.index(f'{n}-0')
+                        self.assertEqual(values[start:start + 25], [f'{n}-{i}' for i in range(25)])
+
+    def test_spool_connections_close_before_directory_cleanup_on_success_and_failure(self):
+        original_connect = runtime.connect
+        original_cleanup = tempfile.TemporaryDirectory.cleanup
+        for fail in (False, True):
+            connections = []
+            class Tracked:
+                def __init__(self, conn):
+                    self.conn, self.closed = conn, False
+                    connections.append(self)
+                def __getattr__(self, name):
+                    return getattr(self.conn, name)
+                def __enter__(self):
+                    self.conn.__enter__()
+                    return self
+                def __exit__(self, *args):
+                    return self.conn.__exit__(*args)
+                def close(self):
+                    self.conn.close()
+                    self.closed = True
+            def cleanup(directory):
+                if Path(directory.name).name.startswith('wavefoundry-sqlite-prepared-'):
+                    self.assertTrue(connections)
+                    self.assertTrue(all(conn.closed for conn in connections))
+                return original_cleanup(directory)
+            with self.subTest(fail=fail), patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', 0), \
+                    patch.object(runtime, 'connect', side_effect=lambda *a, **k: Tracked(original_connect(*a, **k))), \
+                    patch.object(tempfile.TemporaryDirectory, 'cleanup', cleanup):
+                try:
+                    with vectors.PreparedUpdates(self.directory) as prepared:
+                        prepared.add('code', rows=[self.row('kept')])
+                        if fail:
+                            raise ValueError('after preparation')
+                        with self.store._conn:
+                            prepared.apply(self.store)
+                except ValueError:
+                    self.assertTrue(fail)
+            self.assertEqual(list(self.directory.glob('wavefoundry-sqlite-prepared-*')), [])
+
+    def test_failed_spill_cleanup_refuses_reuse_and_retries_disposal(self):
+        original_cleanup = tempfile.TemporaryDirectory.cleanup
+        attempts = []
+        def fail_once(directory):
+            attempts.append(directory.name)
+            if len(attempts) == 1:
+                raise OSError('cleanup refused')
+            return original_cleanup(directory)
+        with vectors.PreparedUpdates(self.directory) as prepared:
+            prepared.add('code', ids=['prior'])
+            with patch.object(vectors.PreparedUpdates, 'MEMORY_LIMIT_BYTES', 0), \
+                    patch.object(runtime, 'connect', side_effect=OSError('open refused')), \
+                    patch.object(tempfile.TemporaryDirectory, 'cleanup', fail_once):
+                with self.assertRaisesRegex(OSError, 'cleanup refused'):
+                    prepared.add('code', ids=['discard'])
+            with self.assertRaisesRegex(RuntimeError, 'uncertain'):
+                self.publish(prepared)
+            with self.assertRaisesRegex(RuntimeError, 'uncertain'):
+                prepared.add('code', ids=['later'])
+        self.assertEqual(list(self.directory.glob('wavefoundry-sqlite-prepared-*')), [])

@@ -1,0 +1,924 @@
+{
+  "schema_version": 1,
+  "freeze_policy": "Written before any A/B/C retrieval outputs. SHA-256 is recorded in run receipt; independent QA must approve before variants.",
+  "judgment_scope": "Source-grounded minimum required anchor set; listed paths provide a conservative relevance proxy, not an exhaustive corpus-wide gold standard. Report unjudged citations separately. Do not claim complete precision from minimum gold.",
+  "final_top_k": 7,
+  "queries": [
+    {
+      "id": "q01",
+      "category": "mechanism",
+      "question": "How does search_combined combine semantic vector candidates with FTS lexical hits before reranking?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "WaveIndex.search_combined",
+          "lines": [
+            2469,
+            2920
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "symbol": "fts_search",
+          "lines": [
+            2771,
+            2851
+          ],
+          "source_sha256": "9959d70ae33d7486fde88d9af205be00a981a36d7615149daa106b5b364a0ce5"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/index_state_store.py",
+        ".wavefoundry/framework/scripts/server_impl.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Candidate orchestration plus SQL FTS implementation explain both retrieval substrates."
+    },
+    {
+      "id": "q02",
+      "category": "mechanism",
+      "question": "How does _get_reranker select a hardware provider and construct the cross-encoder?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "WaveIndex._get_reranker",
+          "lines": [
+            1481,
+            1533
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/accel_embedder.py",
+          "symbol": "make_reranker",
+          "lines": [
+            902,
+            948
+          ],
+          "source_sha256": "f546e85714362fd3d0650231d00a8f44a071c3044bdb6357ec2c2675e8fa6925"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/accel_embedder.py",
+        ".wavefoundry/framework/scripts/server_impl.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Caller selects providers; factory chooses supported accelerated implementation."
+    },
+    {
+      "id": "q03",
+      "category": "mechanism",
+      "question": "How does _embed_query prepare model-specific query prefixes before producing an embedding?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "WaveIndex._embed_query",
+          "lines": [
+            1464,
+            1479
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "query_embedding_prefix",
+          "lines": [
+            93,
+            100
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        ".wavefoundry/framework/scripts/server_impl.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Query preparation delegates the prefix policy to indexer."
+    },
+    {
+      "id": "q04",
+      "category": "mechanism",
+      "question": "How does _vector_search retrieve and score rows from the SQLite dense vector layer?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "WaveIndex._vector_search",
+          "lines": [
+            2253,
+            2273
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "dense_rows",
+          "lines": [
+            192,
+            208
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/server_impl.py",
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Server search delegates actual dense SQL distance retrieval."
+    },
+    {
+      "id": "q05",
+      "category": "mechanism",
+      "question": "How does an unavailable SQLite binding become a typed retrieval error instead of empty search results?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "symbol": "connect",
+          "lines": [
+            46,
+            101
+          ],
+          "source_sha256": "112c3757ff620305bb5ba3bff45a5267ee8f4857d169d540a193b69b14610718"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "_index_runtime_failure_response",
+          "lines": [
+            5077,
+            5091
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/server_impl.py",
+        ".wavefoundry/framework/scripts/sqlite_runtime.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Runtime detects failure; response boundary communicates it."
+    },
+    {
+      "id": "q06",
+      "category": "mechanism",
+      "question": "How does PreparedUpdates apply prepared chunks and vectors inside the same publication transaction?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "PreparedUpdates.apply",
+          "lines": [
+            358,
+            397
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "symbol": "_apply_chunk_deltas_locked",
+          "lines": [
+            1565,
+            1632
+          ],
+          "source_sha256": "9959d70ae33d7486fde88d9af205be00a981a36d7615149daa106b5b364a0ce5"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/index_state_store.py",
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Spool draining plus canonical/FTS/vector mutations establish atomicity."
+    },
+    {
+      "id": "q07",
+      "category": "mechanism",
+      "question": "How does _chunks_for_file dispatch source files and ensure emitted chunk ids are unique?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_chunks_for_file",
+          "lines": [
+            3622,
+            3627
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "symbol": "chunk_file",
+          "lines": [
+            8369,
+            8387
+          ],
+          "source_sha256": "054eb877997deb57b52f8a6a51ee1749f1b27d537f57377720795a40c2053a6c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/chunker.py",
+        ".wavefoundry/framework/scripts/indexer.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Indexer invokes canonical dispatcher and dispatcher applies identity guard."
+    },
+    {
+      "id": "q08",
+      "category": "mechanism",
+      "question": "How does _get_embedder choose the accelerated embedding implementation while retaining CPU fallback?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_get_embedder",
+          "lines": [
+            3238,
+            3310
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/accel_embedder.py",
+          "symbol": "make_embedder",
+          "lines": [
+            720,
+            771
+          ],
+          "source_sha256": "f546e85714362fd3d0650231d00a8f44a071c3044bdb6357ec2c2675e8fa6925"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/accel_embedder.py",
+        ".wavefoundry/framework/scripts/indexer.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Indexer provider selection and accelerator factory own fallback."
+    },
+    {
+      "id": "q09",
+      "category": "mechanism",
+      "question": "How does migrate_legacy check that current sources can rebuild an incompatible legacy index?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "symbol": "migrate_legacy",
+          "lines": [
+            786,
+            979
+          ],
+          "source_sha256": "2facf5370782062acba6775aa6132ee933dd2c794acf8705cd23c8317aa98397"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "preflight_rebuild_sources",
+          "lines": [
+            3597,
+            3619
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Migration strategy invokes source readability/walk validation before rebuilding."
+    },
+    {
+      "id": "q10",
+      "category": "mechanism",
+      "question": "How does phase_index_update verify migrated storage from a fresh process before completing upgrade?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "symbol": "phase_index_update",
+          "lines": [
+            2372,
+            2512
+          ],
+          "source_sha256": "4c948e1164ef2406922151f748ddf0e552d167b3c360b98e442df94a5e6caecb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "symbol": "verify_migration",
+          "lines": [
+            1057,
+            1111
+          ],
+          "source_sha256": "2facf5370782062acba6775aa6132ee933dd2c794acf8705cd23c8317aa98397"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Upgrade invokes verifier child; migration validates store integrity and identity."
+    },
+    {
+      "id": "q11",
+      "category": "mechanism",
+      "question": "How does _prepare_incremental_vectors reuse existing embeddings and spool only changed vector rows?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_prepare_incremental_vectors",
+          "lines": [
+            2798,
+            2830
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "PreparedUpdates.add",
+          "lines": [
+            325,
+            356
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Delta planning and spool serialization carry separate required responsibilities."
+    },
+    {
+      "id": "q12",
+      "category": "mechanism",
+      "question": "How does _graph_signal_candidates follow callers or callees while excluding test-file neighbors?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "WaveIndex._graph_signal_candidates",
+          "lines": [
+            1876,
+            1998
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex.one_hop_neighbors",
+          "lines": [
+            1424,
+            1484
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_query.py",
+        ".wavefoundry/framework/scripts/server_impl.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Intent-aware neighbor request plus adjacency traversal explains signal source."
+    },
+    {
+      "id": "q13",
+      "category": "mechanism",
+      "question": "How does get_query_index cache the assembled graph and load it from persistent graph storage?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "get_query_index",
+          "lines": [
+            417,
+            500
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbol": "read_graph_payload",
+          "lines": [
+            15833,
+            15857
+          ],
+          "source_sha256": "009c1fb54c1d17fa517703adf4f4b3e691a07778bf4513769ca4112770dc4069"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_indexer.py",
+        ".wavefoundry/framework/scripts/graph_query.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Cache loader delegates persisted payload loading."
+    },
+    {
+      "id": "q14",
+      "category": "mechanism",
+      "question": "How does _build_graph_artifacts update community clusters after graph extraction?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_build_graph_artifacts",
+          "lines": [
+            3474,
+            3567
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "symbol": "update_graph_clusters",
+          "lines": [
+            1063,
+            1195
+          ],
+          "source_sha256": "9d6dfe23afe7477e5eba58851ceabfdffb15f317487f8e74ee7233b9d58bb5b6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_cluster.py",
+        ".wavefoundry/framework/scripts/indexer.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Indexer builds graph payload then invokes community cluster update."
+    },
+    {
+      "id": "q15",
+      "category": "mechanism",
+      "question": "How does cleanup_legacy remove obsolete Lance directories safely after migration verification?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "symbol": "cleanup_legacy",
+          "lines": [
+            1122,
+            1200
+          ],
+          "source_sha256": "2facf5370782062acba6775aa6132ee933dd2c794acf8705cd23c8317aa98397"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "symbol": "_remove_retired_component",
+          "lines": [
+            2953,
+            3039
+          ],
+          "source_sha256": "4c948e1164ef2406922151f748ddf0e552d167b3c360b98e442df94a5e6caecb"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+      ],
+      "required_chain": [
+        {
+          "from": 0,
+          "to": 1,
+          "meaning": "both implementation responsibilities are needed, not necessarily a direct call"
+        }
+      ],
+      "judgment_rationale": "Receipt verification and bounded ownership removal prevent unsafe deletion."
+    },
+    {
+      "id": "q16",
+      "category": "exact_owner",
+      "question": "Where is fts_search implemented?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "symbol": "fts_search",
+          "lines": [
+            2771,
+            2851
+          ],
+          "source_sha256": "9959d70ae33d7486fde88d9af205be00a981a36d7615149daa106b5b364a0ce5"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/index_state_store.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Exact implementation owner must remain present at final citation rank one."
+    },
+    {
+      "id": "q17",
+      "category": "exact_owner",
+      "question": "Where is pack_vector defined?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "pack_vector",
+          "lines": [
+            80,
+            97
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Exact implementation owner must remain present at final citation rank one."
+    },
+    {
+      "id": "q18",
+      "category": "exact_owner",
+      "question": "Where is query_embedding_prefix defined?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "query_embedding_prefix",
+          "lines": [
+            93,
+            100
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Exact implementation owner must remain present at final citation rank one."
+    },
+    {
+      "id": "q19",
+      "category": "exact_owner",
+      "question": "Where is split_large_chunks implemented?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "symbol": "split_large_chunks",
+          "lines": [
+            1293,
+            1342
+          ],
+          "source_sha256": "054eb877997deb57b52f8a6a51ee1749f1b27d537f57377720795a40c2053a6c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/chunker.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Exact implementation owner must remain present at final citation rank one."
+    },
+    {
+      "id": "q20",
+      "category": "exact_owner",
+      "question": "Where is GraphQueryIndex.shortest_path implemented?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex.shortest_path",
+          "lines": [
+            1486,
+            1623
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_query.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Exact implementation owner must remain present at final citation rank one."
+    },
+    {
+      "id": "q21",
+      "category": "negative_control",
+      "question": "What exception does sqlite_runtime.connect raise when WAL is refused? Focus on the connection check, not migration callers.",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "symbol": "connect",
+          "lines": [
+            46,
+            101
+          ],
+          "source_sha256": "112c3757ff620305bb5ba3bff45a5267ee8f4857d169d540a193b69b14610718"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "symbol": "StorageRecoveryRequired",
+          "lines": [
+            33,
+            35
+          ],
+          "source_sha256": "112c3757ff620305bb5ba3bff45a5267ee8f4857d169d540a193b69b14610718"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_runtime.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Narrow local question: unrelated expansion must not replace direct evidence."
+    },
+    {
+      "id": "q22",
+      "category": "negative_control",
+      "question": "What validation does pack_vector perform on vector dimensions? Do not expand into unrelated indexing callers.",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "pack_vector",
+          "lines": [
+            80,
+            97
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Narrow local question: unrelated expansion must not replace direct evidence."
+    },
+    {
+      "id": "q23",
+      "category": "negative_control",
+      "question": "What does query_embedding_prefix return for the embedding model? Only explain this prefix policy.",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "query_embedding_prefix",
+          "lines": [
+            93,
+            100
+          ],
+          "source_sha256": "3fc00af999cdee4a32d0fdd06018b494ee184b32bf429cd66a7b5efb666a4e0c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/indexer.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Narrow local question: unrelated expansion must not replace direct evidence."
+    },
+    {
+      "id": "q24",
+      "category": "negative_control",
+      "question": "What is the PreparedUpdates.apply transaction precondition? Only explain the precondition, not the entire upgrade pipeline.",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_vector_store.py",
+          "symbol": "PreparedUpdates.apply",
+          "lines": [
+            358,
+            397
+          ],
+          "source_sha256": "c9135ea2afd0c753c955ea3f4f1a407a001c6663c3c2d535772ebaa018a7cec6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_vector_store.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Narrow local question: unrelated expansion must not replace direct evidence."
+    },
+    {
+      "id": "q25",
+      "category": "negative_control",
+      "question": "What does _dedupe_id_base do for repeated prose ids? Only describe this helper.",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "symbol": "_dedupe_id_base",
+          "lines": [
+            435,
+            449
+          ],
+          "source_sha256": "054eb877997deb57b52f8a6a51ee1749f1b27d537f57377720795a40c2053a6c"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/chunker.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Narrow local question: unrelated expansion must not replace direct evidence."
+    },
+    {
+      "id": "q26",
+      "category": "structural",
+      "question": "How does GraphQueryIndex.graph_impact expand interface implementations when a supertype changes?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex.graph_impact",
+          "lines": [
+            1709,
+            1857
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex._dispatch_implementation_seeds",
+          "lines": [
+            1642,
+            1707
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_query.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Inheritance-aware impact expansion follows implementing classes before callers."
+    },
+    {
+      "id": "q27",
+      "category": "structural",
+      "question": "How does GraphQueryIndex.graph_impact propagate confidence across callers?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex.graph_impact",
+          "lines": [
+            1709,
+            1857
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "_combine_path_confidence",
+          "lines": [
+            1124,
+            1128
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_query.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Impact traversal and confidence aggregation are required."
+    },
+    {
+      "id": "q28",
+      "category": "structural",
+      "question": "Which exception base class does RuntimeUnavailable inherit from, and what code does it expose?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "symbol": "RuntimeUnavailable",
+          "lines": [
+            28,
+            30
+          ],
+          "source_sha256": "112c3757ff620305bb5ba3bff45a5267ee8f4857d169d540a193b69b14610718"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/sqlite_runtime.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Inheritance is directly visible in class declaration; caller expansion should not replace it."
+    },
+    {
+      "id": "q29",
+      "category": "structural",
+      "question": "How does the graph extract documentation links and emit doc_references_doc relationships?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbol": "_extract_doc_links",
+          "lines": [
+            862,
+            871
+          ],
+          "source_sha256": "009c1fb54c1d17fa517703adf4f4b3e691a07778bf4513769ca4112770dc4069"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbol": "GraphIndexSession._extract_doc_artifact",
+          "lines": [
+            13621,
+            13729
+          ],
+          "source_sha256": "009c1fb54c1d17fa517703adf4f4b3e691a07778bf4513769ca4112770dc4069"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_indexer.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Link parsing and graph artifact assembly jointly explain document edges."
+    },
+    {
+      "id": "q30",
+      "category": "structural",
+      "question": "How does code_impact use graph impact results and exclude test files by default?",
+      "required_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "_code_impact_graph_response",
+          "lines": [
+            25401,
+            25583
+          ],
+          "source_sha256": "478577368e46844ebafabff024b2680e168f409c73ae8697aa403a7aa407e2eb"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "GraphQueryIndex.graph_impact",
+          "lines": [
+            1709,
+            1857
+          ],
+          "source_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6"
+        }
+      ],
+      "relevant_paths": [
+        ".wavefoundry/framework/scripts/graph_query.py",
+        ".wavefoundry/framework/scripts/server_impl.py"
+      ],
+      "required_chain": [],
+      "judgment_rationale": "Public impact projection calls graph traversal and filters tests."
+    }
+  ]
+}

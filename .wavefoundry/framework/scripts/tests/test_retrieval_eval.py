@@ -19,6 +19,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 import retrieval_eval as subject
 
@@ -815,7 +816,7 @@ class BaselineComparisonTests(unittest.TestCase):
             "fixture_digest": "same",
             "index_identity": {"repository_root": "/repo", "index_directory": "/repo/.wavefoundry/index",
                                "repository_device": 1, "repository_inode": 1,
-                               "state_store": "/repo/.wavefoundry/index/index-state.sqlite",
+                               "state_store": "/repo/.wavefoundry/index/" + index_paths.RUNTIME_DATABASE_FILENAME,
                                "state_store_device": 1, "state_store_inode": 2},
             "generation": {"start": generation, "end": generation,
                            "start_attempt_id": f"attempt-{generation}",
@@ -1351,7 +1352,7 @@ class FullRunnerTests(unittest.TestCase):
 
         @staticmethod
         def state_store_path(index_dir: Path) -> Path:
-            return index_dir / "index-state.sqlite"
+            return index_paths.runtime_database_path(index_dir)
 
         def read_build_state(self, _index_dir: Path):
             self.reads += 1
@@ -1915,7 +1916,7 @@ class IndexIdentityBindingTests(unittest.TestCase):
     def test_cross_generation_still_refuses_a_different_repository_or_index(self):
         for key, value in (("repository_root", "/other"), ("repository_inode", 999),
                            ("repository_device", 999), ("index_directory", "/other/index"),
-                           ("state_store", "/other/index/index-state.sqlite")):
+                           ("state_store", "/other/index/" + index_paths.RUNTIME_DATABASE_FILENAME)):
             with self.subTest(key=key):
                 baseline, current = self._reports(8, 9)
                 current["index_identity"][key] = value
@@ -1944,7 +1945,7 @@ class IndexIdentityBindingTests(unittest.TestCase):
             root = Path(temp)
             index_dir = root / ".wavefoundry" / "index"
             index_dir.mkdir(parents=True)
-            store = index_dir / "index-state.sqlite"
+            store = index_paths.runtime_database_path(index_dir)
             store.write_bytes(b"")
             state_store = SimpleNamespace(state_store_path=lambda _dir: store)
             emitted = subject._index_identity(root, index_dir, state_store)

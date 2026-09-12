@@ -23,6 +23,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 def integrity_checks() -> dict[str, object]:
@@ -1923,24 +1926,33 @@ class HotPathBoundedIOTests(_MemoryCase):
             self.srv.memory_add_response(
                 self.root, "failed_attempt", f"Attempt {i}.", [f"`1c{i}`"],
                 ["src/core.py"], memory_id=f"mem-core-{i}")
-        # A gzip cluster artifact so betweenness has something to decompress.
-        art = self.index_dir / "graph" / "project-graph-clusters.json"
-        art.parent.mkdir(parents=True, exist_ok=True)
-        import gzip as _gz
-        with _gz.open(art, "wt", encoding="utf-8") as fh:
-            json.dump({"betweenness": {"ranking": [
-                {"node_id": "src/core.py::main", "score": 9.0}]}}, fh)
+        # Wave 1xny6: betweenness is served from the PUBLISHED community rows,
+        # so the fixture publishes a generation carrying the ranking rather
+        # than dropping a gzip artifact.
+        import graph_fixture_support as gfs
+        gfs.publish_graph(
+            self.root,
+            nodes=[{"id": "src/core.py::main", "label": "main", "kind": "function",
+                    "source_file": "src/core.py", "layer": "project"}],
+            edges=[],
+            clusters=gfs.cluster_payload(
+                [], betweenness={"method": "exact", "node_count": 1, "edge_count": 0,
+                                 "elapsed_ms": 0,
+                                 "ranking": [{"node_id": "src/core.py::main", "score": 9.0}]}),
+        )
         self.srv._MEMORY_RECORDS_CACHE.clear()  # writes warmed it; start cold
 
     def test_warm_path_call_counts_and_latency_are_bounded(self):
-        import gzip
         import time as _time
-        counters = {"load": 0, "commits": 0, "gzip": 0}
+        counters = {"load": 0, "commits": 0, "communities": 0}
         modmem = self.srv._memory_mod()
         modiss = self.srv._load_script("index_state_store")
+        import graph_cluster as _gc
+        import graph_snapshot as _gs
+        _gs.invalidate(self.root)
         real_load = modmem.load_memory_records
         real_commits = modiss.file_commit_times
-        real_gzip = gzip.open
+        real_communities = _gc.read_published_clusters
 
         def load_spy(*a, **k):
             counters["load"] += 1
@@ -1950,20 +1962,21 @@ class HotPathBoundedIOTests(_MemoryCase):
             counters["commits"] += 1
             return real_commits(*a, **k)
 
-        def gzip_spy(*a, **k):
-            counters["gzip"] += 1
-            return real_gzip(*a, **k)
+        def communities_spy(*a, **k):
+            counters["communities"] += 1
+            return real_communities(*a, **k)
 
         modmem.load_memory_records = load_spy
         modiss.file_commit_times = commits_spy
+        _gc.read_published_clusters = communities_spy
         self.addCleanup(setattr, modmem, "load_memory_records", real_load)
         self.addCleanup(setattr, modiss, "file_commit_times", real_commits)
-        with unittest.mock.patch("gzip.open", gzip_spy):
-            t0 = _time.perf_counter()
-            first = self.srv._memory_advisories_for_path(self.root, "src/core.py")
-            t1 = _time.perf_counter()
-            second = self.srv._memory_advisories_for_path(self.root, "src/core.py")
-            t2 = _time.perf_counter()
+        self.addCleanup(setattr, _gc, "read_published_clusters", real_communities)
+        t0 = _time.perf_counter()
+        first = self.srv._memory_advisories_for_path(self.root, "src/core.py")
+        t1 = _time.perf_counter()
+        second = self.srv._memory_advisories_for_path(self.root, "src/core.py")
+        t2 = _time.perf_counter()
 
         self.assertEqual(len(first), self.srv.MEMORY_ADVISORY_CAP)
         self.assertEqual(len(second), self.srv.MEMORY_ADVISORY_CAP)
@@ -1971,8 +1984,13 @@ class HotPathBoundedIOTests(_MemoryCase):
         self.assertEqual(counters["load"], 1, "records must not re-parse on the warm call")
         # One batched freshness read per call — NOT one per matched record.
         self.assertEqual(counters["commits"], 2, "freshness must be one batched read per call")
-        # Cluster artifact decompressed once across both calls (cached).
-        self.assertEqual(counters["gzip"], 1, "betweenness must decompress once, then cache")
+        # Communities hydrated once across both calls. Wave 1xny6: the resident
+        # snapshot shares unchanged community content, so the second call
+        # re-reads the generation but not the rows -- and the per-call
+        # betweenness cache, now keyed on the community content fingerprint,
+        # serves the ranking without recomputing it.
+        self.assertEqual(counters["communities"], 1,
+                         "communities must hydrate once, then be shared")
         # Bounded latency (local file ops; generous ceiling).
         self.assertLess(t1 - t0, 0.5)
         self.assertLess(t2 - t1, 0.5)
@@ -2252,9 +2270,9 @@ class CacheFailureCorrectnessTests(_MemoryCase):
                          "concurrent increments must be atomic (no lost updates)")
 
     def test_bump_does_not_touch_canonical_index_state_store(self):
-        # A memory bump must never create/mutate index-state.sqlite (no
+        # A memory bump must never create/mutate the shared index database (no
         # ensure_current/reset of canonical state).
-        canonical = self.idx / "index-state.sqlite"
+        canonical = index_paths.runtime_database_path(self.idx)
         self.assertFalse(canonical.exists())
         self.iss.memory_advance(self.idx)
         self.assertTrue((self.idx / "memory-state.sqlite").exists())

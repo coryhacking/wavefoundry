@@ -22,6 +22,9 @@ class SQLitePublicationTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.index_dir = Path(self.tmp.name)
         self.store = iss.IndexStateStore(self.index_dir)
+        self.spill_limit = patch.object(vectors.PreparedUpdates, "MEMORY_LIMIT_BYTES", 0)
+        self.spill_limit.start()
+        self.addCleanup(self.spill_limit.stop)
         iss.apply_chunk_deltas(self.index_dir, "code", add_rows=[row()])
 
     def tearDown(self):
@@ -36,9 +39,9 @@ class SQLitePublicationTests(unittest.TestCase):
                 with patch.object(tempfile, "tempdir", str(self.index_dir / "missing-temp")):
                     try:
                         with vectors.PreparedUpdates(self.index_dir) as prepared:
+                            prepared.add("code", rows=[row("new")])
                             spool = prepared.path.parent
                             self.assertEqual(spool.parent.resolve(), self.index_dir.resolve())
-                            prepared.add("code", rows=[row("new")])
                             if fail:
                                 raise ValueError("injected embedding failure")
                     except ValueError:
@@ -46,18 +49,13 @@ class SQLitePublicationTests(unittest.TestCase):
                 self.assertFalse(spool.exists())
                 self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
 
-    def test_failed_spool_constructor_removes_only_its_owned_directory(self):
+    def test_failed_spool_initialization_removes_only_its_owned_directory(self):
         neighbor = self.index_dir / "unrelated"
         neighbor.mkdir()
-        retained = []
-        original_init = vectors.PreparedUpdates.__init__
-        def retain_and_init(instance, *args):
-            retained.append(instance)
-            original_init(instance, *args)
-        with patch.object(vectors.PreparedUpdates, "__init__", retain_and_init), \
-                patch.object(runtime, "connect", side_effect=runtime.RuntimeUnavailable("injected")):
+        with patch.object(runtime, "connect", side_effect=runtime.RuntimeUnavailable("injected")):
             with self.assertRaises(runtime.RuntimeUnavailable) as caught:
-                vectors.PreparedUpdates(self.index_dir)
+                with vectors.PreparedUpdates(self.index_dir) as prepared:
+                    prepared.add("code", rows=[row("new")])
         self.assertIn("injected", str(caught.exception))
         self.assertEqual(list(self.index_dir.glob("wavefoundry-sqlite-prepared-*")), [])
         self.assertTrue(neighbor.is_dir())
@@ -66,7 +64,8 @@ class SQLitePublicationTests(unittest.TestCase):
     def test_spool_low_space_refuses_creation_on_owned_filesystem(self):
         with patch.object(vectors.shutil, "disk_usage", return_value=SimpleNamespace(free=0)) as usage:
             with self.assertRaises(OSError) as caught:
-                vectors.PreparedUpdates(self.index_dir)
+                with vectors.PreparedUpdates(self.index_dir) as prepared:
+                    prepared.add("code", rows=[row("new")])
         self.assertEqual(caught.exception.errno, errno.ENOSPC)
         usage.assert_called_once_with(self.index_dir)
         self.assertEqual(list(self.index_dir.glob("wavefoundry-sqlite-prepared-*")), [])

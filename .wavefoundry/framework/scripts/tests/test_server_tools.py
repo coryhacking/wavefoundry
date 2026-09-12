@@ -3746,19 +3746,21 @@ class McpResourceReadTests(unittest.TestCase):
 
     def _write_area_graph(self):
         """Minimal graph+cluster so compute_areas yields one area at rep dir `svc`."""
-        gd = self.root / ".wavefoundry" / "index" / "graph"
-        gd.mkdir(parents=True, exist_ok=True)
+        # Wave 1xny6: published as one generation of graph + community rows.
+        import graph_fixture_support as gfs
         nodes = [
             {"id": "svc/a.py::run", "kind": "function", "label": "run", "layer": "project", "source_file": "svc/a.py"},
             {"id": "svc/b.py::go", "kind": "function", "label": "go", "layer": "project", "source_file": "svc/b.py"},
         ]
-        (gd / "project-graph.json").write_text(json.dumps(
-            {"schema_version": "1", "builder_version": "1", "layer": "project", "nodes": nodes, "edges": []}), encoding="utf-8")
-        (gd / "project-graph-clusters.json").write_text(json.dumps(
-            {"cluster_schema_version": "1", "cluster_builder_version": "10", "layer": "project",
-             "communities": [{"community_id": "project:c0", "label": "svc", "seed_node_id": "svc/a.py::run",
-                              "node_ids": [n["id"] for n in nodes], "node_count": 2, "boundary_node_count": 0}],
-             "community_count": 1}), encoding="utf-8")
+        gfs.publish_graph(
+            self.root, nodes=nodes, edges=[], builder_version="1",
+            clusters=gfs.cluster_payload(
+                [{"community_id": "project:c0", "label": "svc",
+                  "seed_node_id": "svc/a.py::run",
+                  "node_ids": [n["id"] for n in nodes], "node_count": 2,
+                  "boundary_node_count": 0}],
+                cluster_builder_version="10", graph_builder_version="1"),
+        )
 
     def test_area_resource_returns_authored_agents_md(self):
         # 1p662: wavefoundry://area/{area_id} returns the on-disk AGENTS.md.
@@ -3776,20 +3778,22 @@ class McpResourceReadTests(unittest.TestCase):
     def _write_deep_area_graph(self):
         """Graph whose area's representative path is a deep subdirectory, so the
         conventional AGENTS.md sits at an ANCESTOR (project root), not the rep path."""
-        gd = self.root / ".wavefoundry" / "index" / "graph"
-        gd.mkdir(parents=True, exist_ok=True)
+        # Wave 1xny6: published as one generation of graph + community rows.
+        import graph_fixture_support as gfs
         base = "libs/ui/src/components/buttons"
         nodes = [
             {"id": f"{base}/a.py::run", "kind": "function", "label": "run", "layer": "project", "source_file": f"{base}/a.py"},
             {"id": f"{base}/b.py::go", "kind": "function", "label": "go", "layer": "project", "source_file": f"{base}/b.py"},
         ]
-        (gd / "project-graph.json").write_text(json.dumps(
-            {"schema_version": "1", "builder_version": "1", "layer": "project", "nodes": nodes, "edges": []}), encoding="utf-8")
-        (gd / "project-graph-clusters.json").write_text(json.dumps(
-            {"cluster_schema_version": "1", "cluster_builder_version": "10", "layer": "project",
-             "communities": [{"community_id": "project:c0", "label": "buttons", "seed_node_id": f"{base}/a.py::run",
-                              "node_ids": [n["id"] for n in nodes], "node_count": 2, "boundary_node_count": 0}],
-             "community_count": 1}), encoding="utf-8")
+        gfs.publish_graph(
+            self.root, nodes=nodes, edges=[], builder_version="1",
+            clusters=gfs.cluster_payload(
+                [{"community_id": "project:c0", "label": "buttons",
+                  "seed_node_id": f"{base}/a.py::run",
+                  "node_ids": [n["id"] for n in nodes], "node_count": 2,
+                  "boundary_node_count": 0}],
+                cluster_builder_version="10", graph_builder_version="1"),
+        )
 
     def _load_gen_for_areas(self):
         import importlib.util as _ilu
@@ -4166,7 +4170,7 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
                     self.root,
                     {"pid": fake_pid, "url": "http://127.0.0.1:43127/dashboard.html"},
                 )
-            return MagicMock(pid=fake_pid)
+            return MagicMock(pid=fake_pid, poll=MagicMock(return_value=None))
 
         return _side_effect, fake_pid
 
@@ -4178,7 +4182,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         side_effect, fake_pid = self._spawn_child(holders, hold_lock=True, write_meta=True)
         try:
             with patch("subprocess.Popen", side_effect=side_effect), \
-                 patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+                 patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
                  patch.object(server_impl, "_pid_is_running", return_value=True):
                 result = self.srv.wf_start_dashboard_response(self.root)
             self.assertEqual(result["status"], "ok")
@@ -4201,7 +4206,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         holders: list = []
         side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=False)
         with patch("subprocess.Popen", side_effect=side_effect), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
             result = self.srv.wf_start_dashboard_response(self.root)
@@ -4219,7 +4225,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         holders: list = []
         side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=True)
         with patch("subprocess.Popen", side_effect=side_effect), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
             result = self.srv.wf_start_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -4343,16 +4350,18 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
         def _popen_side_effect(cmd, **kwargs):
             # Simulate the spawned child writing metadata under ITS OWN (different) pid.
             self._write_meta(CHILD_PID, URL)
-            return MagicMock(pid=POLLER_PID)
+            return MagicMock(pid=POLLER_PID, poll=MagicMock(return_value=0))
 
         with patch("subprocess.Popen", side_effect=_popen_side_effect) as popen, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [CHILD_PID] if self.meta_path.exists() else []), \
              patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             result = self.srv.wf_start_dashboard_response(self.root)
 
         self.assertEqual(result["status"], "ok")
-        self.assertTrue(result["data"].get("started"))
+        self.assertTrue(result["data"].get("already_running"))
+        self.assertEqual(result["data"]["pid"], CHILD_PID)
+        self.assertFalse(result["data"].get("started", False))
         self.assertEqual(result["data"].get("url"), URL,
                          "the serving URL must be returned despite the PID mismatch")
         diags = result.get("diagnostics") or []
@@ -4392,7 +4401,7 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
              patch.object(server_impl, "_dashboard_url_reachable", return_value=False), \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
-            popen.return_value = MagicMock(pid=4920)
+            popen.return_value = MagicMock(pid=4920, poll=MagicMock(return_value=None))
             result = self.srv.wf_start_dashboard_response(self.root)
 
         codes = {d.get("code") for d in (result.get("diagnostics") or [])}
@@ -7548,3 +7557,91 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WaveDashboardLifecycleHonestyTests(unittest.TestCase):
+    """1xpo1 outcome controls use real child handles and bounded timeouts."""
+
+    def setUp(self):
+        load_server()
+        import server_impl
+        import dashboard_lib
+        self.impl, self.lib = server_impl, dashboard_lib
+        self.tmp = tempfile.TemporaryDirectory(prefix='dashboard lifecycle ')
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name)).resolve()
+        self.addCleanup(patch.stopall)
+        patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}).start()
+
+    def test_restart_outcome_matrix(self):
+        stop_cases = [({'stopped': True}, 'ok', True), ({'already_stopped': True}, 'ok', True),
+                      ({'stopped': False, 'already_stopped': False}, 'ok', False),
+                      ({'stopped_pids': [12]}, 'error', False), ({}, 'error', False)]
+        start_cases = [({'started': True}, 'ok', True), ({'started': False, 'starting': True}, 'ok', False),
+                       ({'already_running': True, 'pid': 77}, 'ok', False), ({'started': False}, 'error', False)]
+        for stop_data, stop_status, permit in stop_cases:
+            for start_data, start_status, restarted in start_cases:
+                with self.subTest(stop=stop_data, start=start_data), \
+                     patch.object(self.impl, 'wf_stop_dashboard_response', return_value={'status': stop_status, 'data': stop_data, 'diagnostics': [{'code': 'stop_evidence'}]}), \
+                     patch.object(self.impl, 'wf_start_dashboard_response', return_value={'status': start_status, 'data': start_data, 'diagnostics': [{'code': 'start_evidence'}]}) as start:
+                    result = self.impl.wf_restart_dashboard_response(self.root)
+                    self.assertEqual(start.call_count, int(permit))
+                    self.assertEqual(result['data']['restarted'], permit and restarted)
+                    self.assertIn({'code': 'stop_evidence'}, result['diagnostics'])
+
+    def _start_with_child(self, child, serving=None, wait=0):
+        with patch('subprocess.Popen', return_value=child) as spawn, \
+             patch.object(self.impl, '_dashboard_cmdline_pids', return_value=[]), \
+             patch.object(self.impl, '_dashboard_already_serving', side_effect=[None, None, serving]), \
+             patch.object(self.impl, '_dashboard_url_reachable', return_value=bool(serving)), \
+             patch.object(self.impl, 'DASHBOARD_START_WAIT_SECONDS', wait):
+            result = self.impl.wf_start_dashboard_response(self.root, port=43127)
+            self.assertEqual(spawn.call_args.args[0][-2:], ['--root', str(self.root.resolve())])
+            self.assertEqual(spawn.call_args.args[0].count('--root'), 1)
+            return result
+
+    def test_immediately_exited_child_is_failed_and_reaped(self):
+        child = subprocess.Popen([sys.executable, '-c', 'pass'])
+        self.addCleanup(child.wait)
+        # Wait for exit without consuming its wait status (polling here would hide a missing reap).
+        time.sleep(.2)
+        result = self._start_with_child(child)
+        self.assertFalse(result['data']['started'])
+        self.assertIsNone(result['data']['pid'])
+        self.assertIsNotNone(child.returncode)
+        self.assertNotIn(child.pid, self.impl._DASHBOARD_CHILD_PIDS)
+        if os.name != 'nt':
+            with self.assertRaises(ChildProcessError):
+                os.waitpid(child.pid, os.WNOHANG)
+
+    def test_live_timeout_is_pending_and_not_killed(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        result = self._start_with_child(child)
+        self.assertFalse(result['data']['started'])
+        self.assertTrue(result['data']['starting'])
+        self.assertEqual(result['data']['pid'], child.pid)
+        self.assertIsNone(child.poll())
+        self.assertIn(child.pid, self.impl._DASHBOARD_CHILD_PIDS)
+
+    def test_exited_replacement_adopts_actual_competitor(self):
+        child = subprocess.Popen([sys.executable, '-c', 'pass'])
+        self.addCleanup(child.wait)
+        time.sleep(.2)
+        serving = {'pid': 778899, 'url': 'http://127.0.0.1:43127/dashboard.html'}
+        result = self._start_with_child(child, serving)
+        self.assertTrue(result['data']['already_running'])
+        self.assertFalse(result['data'].get('started', False))
+        self.assertEqual(result['data']['pid'], serving['pid'])
+        self.assertEqual(result['data']['url'], serving['url'])
+        self.assertIsNotNone(child.returncode)
+
+    def test_serving_own_child_is_started(self):
+        child = MagicMock(pid=445566)
+        child.poll.return_value = None
+        serving = {'pid': child.pid, 'url': 'http://127.0.0.1:43127/dashboard.html'}
+        result = self._start_with_child(child, serving)
+        self.assertTrue(result['data']['started'])
+        self.assertEqual(result['data']['pid'], child.pid)
+        child.wait.assert_not_called()

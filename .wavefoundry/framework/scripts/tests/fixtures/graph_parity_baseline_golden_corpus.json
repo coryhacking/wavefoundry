@@ -1,0 +1,1337 @@
+{
+  "fixture_schema": "1",
+  "purpose": "Pre-change graph parity baseline for wave 1xny6. Built through the public graph_quality_eval.build_graph_over_corpus (the product's update_graph_index entry) over the small golden corpus, with the CURRENT builder, in a temporary root. The new shared-store graph must reproduce this under the stated normalization rules.",
+  "captured_at_commit": "884f46bbeb496851288020a993f57c6fa5f08530",
+  "repeatability": {
+    "independent_builds": 3,
+    "identical_normalized_output": true,
+    "body_digest": "fcd7c28176ec6f54de61e4eacbdbe06934a72c7f801c8d7cd96ff5d817275f55"
+  },
+  "corpus": {
+    "path": "docs/evals/graph-quality-golden.json",
+    "sha256": "f3561d8717f583a22247473009f2e2adf0449e1c4d6a7df84697becd73190f8c",
+    "corpus_digest": "9d42ad654acd45e63132462e1e865ddcb8c22c0c9fc48ba9787e321f19555e55",
+    "files": 17,
+    "expected_edges": 12,
+    "forbidden_edges": 11,
+    "known_gaps": 2
+  },
+  "producer": {
+    "graph_entry": "graph_quality_eval.build_graph_over_corpus",
+    "underlying_entry": "graph_indexer.update_graph_index",
+    "community_entry": "graph_cluster.update_graph_clusters",
+    "walker_version_argument": "1",
+    "chunker_version_argument": "1",
+    "argument_note": "build_graph_over_corpus's public defaults, the same values graph_quality_eval.build_report passes. They are corpus-build arguments, deliberately independent of the repository's WALKER_VERSION/CHUNKER_VERSION constants recorded below, so a chunker bump does not invalidate a GRAPH parity fixture.",
+    "environment": {
+      "python": "3.13.5",
+      "implementation": "CPython",
+      "system": "Darwin",
+      "machine": "arm64",
+      "community_backend": "igraph+leidenalg"
+    }
+  },
+  "builder_identity": {
+    "GRAPH_BUILDER_VERSION": "51",
+    "GRAPH_SCHEMA_VERSION": "1",
+    "CLUSTER_BUILDER_VERSION": "13",
+    "CLUSTER_SCHEMA_VERSION": "1",
+    "WALKER_VERSION": "16",
+    "CHUNKER_VERSION": "42"
+  },
+  "community_seed": {
+    "algorithm": "leiden",
+    "backend": "igraph+leidenalg",
+    "seeding": "graph_cluster seeds igraph's global RNG and passes leidenalg seed=0 before partitioning; there is no caller-supplied seed parameter. The label-propagation fallback is deterministic by construction. Community ordering is a fixed (-size, seed_node_id) sort."
+  },
+  "normalization": {
+    "graph_fields_removed": [
+      "generated_at",
+      "merge_stats"
+    ],
+    "community_fields_removed": [
+      "generated_at",
+      "cluster_mtime",
+      "graph_mtime"
+    ],
+    "betweenness_fields_removed": [
+      "elapsed_ms"
+    ],
+    "rationale": "Only volatile build bookkeeping is stripped: wall-clock stamps, filesystem mtimes and per-run merge counters/timings. No node, edge, evidence string, confidence value or community membership is normalized away.",
+    "ordering": "Nodes sorted by (id, canonical JSON). Edges collapsed into a multiset keyed on the canonical JSON of the WHOLE edge record (source, relation, target, evidence, confidence) with an explicit multiplicity, so a lost duplicate is visible. Community list order is the producer's own.",
+    "canonical_form": "json.dumps(sort_keys=True, separators=(',',':'), ensure_ascii=False)"
+  },
+  "graph": {
+    "schema_version": "1",
+    "builder_version": "51",
+    "layer": "project",
+    "input_fingerprint": "3a80962f0844b922b9b999cc490df6eeef32a3b2686698353d1848b93049bce4",
+    "counts": {
+      "files": 17,
+      "nodes": 49,
+      "edges": 45,
+      "entry_points": 12,
+      "dead_code_risk": 0,
+      "chokepoints": 11
+    },
+    "node_count": 49,
+    "edge_count_with_multiplicity": 45,
+    "distinct_edge_count": 45,
+    "nodes": [
+      {
+        "id": "docs/worker-guide.md",
+        "label": "worker-guide",
+        "kind": "doc",
+        "source_file": "docs/worker-guide.md",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::json",
+        "label": "json",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::os",
+        "label": "os",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::svc.loader.load_settings",
+        "label": "svc.loader.load_settings",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::svc.parsers.json_parser.parse",
+        "label": "svc.parsers.json_parser.parse",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::svc.session.Session",
+        "label": "svc.session.Session",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::svc.transports.HttpTransport",
+        "label": "svc.transports.HttpTransport",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "external::svc.worker.Worker",
+        "label": "svc.worker.Worker",
+        "kind": "module",
+        "source_file": "",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/audit-config.json",
+        "label": "audit-config",
+        "kind": "module",
+        "source_file": "svc/audit-config.json",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/audit-config.json::audit_sink",
+        "label": "audit_sink",
+        "kind": "class",
+        "source_file": "svc/audit-config.json",
+        "source_location": "3:2",
+        "layer": "project"
+      },
+      {
+        "id": "svc/audit-config.json::retry_budget_ms",
+        "label": "retry_budget_ms",
+        "kind": "class",
+        "source_file": "svc/audit-config.json",
+        "source_location": "2:2",
+        "layer": "project"
+      },
+      {
+        "id": "svc/audit.py",
+        "label": "audit",
+        "kind": "module",
+        "source_file": "svc/audit.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/audit.py::AUDIT_CONFIG",
+        "label": "AUDIT_CONFIG",
+        "kind": "constant",
+        "source_file": "svc/audit.py",
+        "source_location": "3:0",
+        "layer": "project",
+        "value": "'svc/audit-config.json'"
+      },
+      {
+        "id": "svc/audit.py::audit_sink",
+        "label": "audit_sink",
+        "kind": "function",
+        "source_file": "svc/audit.py",
+        "source_location": "6:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/config.json",
+        "label": "config",
+        "kind": "module",
+        "source_file": "svc/config.json",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/config.json::queue_name",
+        "label": "queue_name",
+        "kind": "class",
+        "source_file": "svc/config.json",
+        "source_location": "2:2",
+        "layer": "project"
+      },
+      {
+        "id": "svc/config.json::retry_budget_ms",
+        "label": "retry_budget_ms",
+        "kind": "class",
+        "source_file": "svc/config.json",
+        "source_location": "3:2",
+        "layer": "project"
+      },
+      {
+        "id": "svc/dispatch.py",
+        "label": "dispatch",
+        "kind": "module",
+        "source_file": "svc/dispatch.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/dispatch.py::dispatch",
+        "label": "dispatch",
+        "kind": "function",
+        "source_file": "svc/dispatch.py",
+        "source_location": "4:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/gateway.py",
+        "label": "gateway",
+        "kind": "module",
+        "source_file": "svc/gateway.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/gateway.py::open_gateway",
+        "label": "open_gateway",
+        "kind": "function",
+        "source_file": "svc/gateway.py",
+        "source_location": "4:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/generated_client.py",
+        "label": "generated_client",
+        "kind": "module",
+        "source_file": "svc/generated_client.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "generated": true,
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/generated_client.py::generated_call",
+        "label": "generated_call",
+        "kind": "function",
+        "source_file": "svc/generated_client.py",
+        "source_location": "4:0",
+        "layer": "project",
+        "generated": true
+      },
+      {
+        "id": "svc/ingest.py",
+        "label": "ingest",
+        "kind": "module",
+        "source_file": "svc/ingest.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/ingest.py::ingest",
+        "label": "ingest",
+        "kind": "function",
+        "source_file": "svc/ingest.py",
+        "source_location": "4:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/limits.py",
+        "label": "limits",
+        "kind": "module",
+        "source_file": "svc/limits.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/limits.py::cpu_count",
+        "label": "cpu_count",
+        "kind": "function",
+        "source_file": "svc/limits.py",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/loader.py",
+        "label": "loader",
+        "kind": "module",
+        "source_file": "svc/loader.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/loader.py::CONFIG_PATH",
+        "label": "CONFIG_PATH",
+        "kind": "constant",
+        "source_file": "svc/loader.py",
+        "source_location": "3:0",
+        "layer": "project",
+        "value": "'svc/config.json'"
+      },
+      {
+        "id": "svc/loader.py::load_settings",
+        "label": "load_settings",
+        "kind": "function",
+        "source_file": "svc/loader.py",
+        "source_location": "6:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/parsers/json_parser.py",
+        "label": "json_parser",
+        "kind": "module",
+        "source_file": "svc/parsers/json_parser.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/parsers/json_parser.py::parse",
+        "label": "parse",
+        "kind": "function",
+        "source_file": "svc/parsers/json_parser.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/parsers/yaml_parser.py",
+        "label": "yaml_parser",
+        "kind": "module",
+        "source_file": "svc/parsers/yaml_parser.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/parsers/yaml_parser.py::parse",
+        "label": "parse",
+        "kind": "function",
+        "source_file": "svc/parsers/yaml_parser.py",
+        "source_location": "1:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/pool.py",
+        "label": "pool",
+        "kind": "module",
+        "source_file": "svc/pool.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "svc/pool.py::pool_size",
+        "label": "pool_size",
+        "kind": "function",
+        "source_file": "svc/pool.py",
+        "source_location": "4:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/session.py",
+        "label": "Session",
+        "kind": "class",
+        "source_file": "svc/session.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "collapsed_pair": true,
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/session.py::Session.__init__",
+        "label": "__init__",
+        "kind": "function",
+        "source_file": "svc/session.py",
+        "source_location": "2:4",
+        "layer": "project"
+      },
+      {
+        "id": "svc/session.py::Session.close",
+        "label": "close",
+        "kind": "function",
+        "source_file": "svc/session.py",
+        "source_location": "5:4",
+        "layer": "project"
+      },
+      {
+        "id": "svc/transports.py",
+        "label": "transports",
+        "kind": "module",
+        "source_file": "svc/transports.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true,
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/transports.py::HttpTransport",
+        "label": "HttpTransport",
+        "kind": "class",
+        "source_file": "svc/transports.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/transports.py::HttpTransport.send",
+        "label": "send",
+        "kind": "function",
+        "source_file": "svc/transports.py",
+        "source_location": "2:4",
+        "layer": "project"
+      },
+      {
+        "id": "svc/transports.py::QueueTransport",
+        "label": "QueueTransport",
+        "kind": "class",
+        "source_file": "svc/transports.py",
+        "source_location": "6:0",
+        "layer": "project"
+      },
+      {
+        "id": "svc/transports.py::QueueTransport.send",
+        "label": "send",
+        "kind": "function",
+        "source_file": "svc/transports.py",
+        "source_location": "7:4",
+        "layer": "project"
+      },
+      {
+        "id": "svc/worker.py",
+        "label": "Worker",
+        "kind": "class",
+        "source_file": "svc/worker.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "collapsed_pair": true,
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/worker.py::Worker.start",
+        "label": "start",
+        "kind": "function",
+        "source_file": "svc/worker.py",
+        "source_location": "5:4",
+        "layer": "project",
+        "is_chokepoint": true
+      },
+      {
+        "id": "svc/worker.py::Worker.stop",
+        "label": "stop",
+        "kind": "function",
+        "source_file": "svc/worker.py",
+        "source_location": "8:4",
+        "layer": "project"
+      },
+      {
+        "id": "tests/test_worker.py",
+        "label": "test_worker",
+        "kind": "module",
+        "source_file": "tests/test_worker.py",
+        "source_location": "1:0",
+        "layer": "project",
+        "is_entry_point": true
+      },
+      {
+        "id": "tests/test_worker.py::test_start",
+        "label": "test_start",
+        "kind": "function",
+        "source_file": "tests/test_worker.py",
+        "source_location": "4:0",
+        "layer": "project",
+        "is_chokepoint": true
+      }
+    ],
+    "edge_evidence_multiset": [
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "evidence": "worker.start",
+          "relation": "doc_references_code",
+          "source": "docs/worker-guide.md",
+          "target": "svc/worker.py::Worker.start"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "calls",
+          "source": "svc/audit.py::audit_sink",
+          "target": "external::json.load"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "calls",
+          "source": "svc/loader.py::load_settings",
+          "target": "external::json.load"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "calls",
+          "source": "svc/pool.py::pool_size",
+          "target": "external::os.cpu_count"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/audit-config.json",
+          "target": "svc/audit-config.json::audit_sink"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/audit-config.json",
+          "target": "svc/audit-config.json::retry_budget_ms"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/audit.py",
+          "target": "svc/audit.py::AUDIT_CONFIG"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/audit.py",
+          "target": "svc/audit.py::audit_sink"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/config.json",
+          "target": "svc/config.json::queue_name"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/config.json",
+          "target": "svc/config.json::retry_budget_ms"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/dispatch.py",
+          "target": "svc/dispatch.py::dispatch"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/gateway.py",
+          "target": "svc/gateway.py::open_gateway"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/generated_client.py",
+          "target": "svc/generated_client.py::generated_call"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/ingest.py",
+          "target": "svc/ingest.py::ingest"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/limits.py",
+          "target": "svc/limits.py::cpu_count"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/loader.py",
+          "target": "svc/loader.py::CONFIG_PATH"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/loader.py",
+          "target": "svc/loader.py::load_settings"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/parsers/json_parser.py",
+          "target": "svc/parsers/json_parser.py::parse"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/parsers/yaml_parser.py",
+          "target": "svc/parsers/yaml_parser.py::parse"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/pool.py",
+          "target": "svc/pool.py::pool_size"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/session.py",
+          "target": "svc/session.py::Session.__init__"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/session.py",
+          "target": "svc/session.py::Session.close"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/transports.py",
+          "target": "svc/transports.py::HttpTransport"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/transports.py",
+          "target": "svc/transports.py::HttpTransport.send"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/transports.py",
+          "target": "svc/transports.py::QueueTransport"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/transports.py",
+          "target": "svc/transports.py::QueueTransport.send"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/worker.py",
+          "target": "svc/worker.py::Worker.start"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "svc/worker.py",
+          "target": "svc/worker.py::Worker.stop"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "defines",
+          "source": "tests/test_worker.py",
+          "target": "tests/test_worker.py::test_start"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/audit.py",
+          "target": "external::json"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/dispatch.py",
+          "target": "external::svc.transports.HttpTransport"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/gateway.py",
+          "target": "external::svc.session.Session"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/ingest.py",
+          "target": "external::svc.parsers.json_parser.parse"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/loader.py",
+          "target": "external::json"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/pool.py",
+          "target": "external::os"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "svc/worker.py",
+          "target": "external::svc.loader.load_settings"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "imports",
+          "source": "tests/test_worker.py",
+          "target": "external::svc.worker.Worker"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "reads",
+          "source": "svc/audit.py::audit_sink",
+          "target": "svc/audit.py::AUDIT_CONFIG"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "EXTRACTED",
+          "relation": "reads",
+          "source": "svc/loader.py::load_settings",
+          "target": "svc/loader.py::CONFIG_PATH"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "LITERAL_DERIVED",
+          "relation": "reads_config",
+          "source": "svc/audit.py::audit_sink",
+          "target": "svc/audit-config.json::audit_sink"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "RECEIVER_RESOLVED",
+          "relation": "calls",
+          "source": "svc/dispatch.py::dispatch",
+          "target": "svc/transports.py::HttpTransport"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "RECEIVER_RESOLVED",
+          "relation": "calls",
+          "source": "svc/gateway.py::open_gateway",
+          "target": "svc/session.py"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "RECEIVER_RESOLVED",
+          "relation": "calls",
+          "source": "svc/ingest.py::ingest",
+          "target": "svc/parsers/json_parser.py::parse"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "RECEIVER_RESOLVED",
+          "relation": "calls",
+          "source": "svc/worker.py::Worker.start",
+          "target": "svc/loader.py::load_settings"
+        },
+        "multiplicity": 1
+      },
+      {
+        "edge": {
+          "confidence": "RECEIVER_RESOLVED",
+          "relation": "calls",
+          "source": "tests/test_worker.py::test_start",
+          "target": "svc/worker.py"
+        },
+        "multiplicity": 1
+      }
+    ]
+  },
+  "extraction_coverage": {
+    "declared_corpus_files": [
+      "docs/worker-guide.md",
+      "svc/audit-config.json",
+      "svc/audit.py",
+      "svc/config.json",
+      "svc/dispatch.py",
+      "svc/gateway.py",
+      "svc/generated_client.py",
+      "svc/ingest.py",
+      "svc/limits.py",
+      "svc/loader.py",
+      "svc/parsers/json_parser.py",
+      "svc/parsers/yaml_parser.py",
+      "svc/pool.py",
+      "svc/session.py",
+      "svc/transports.py",
+      "svc/worker.py",
+      "tests/test_worker.py"
+    ],
+    "files_with_extracted_nodes": [
+      "docs/worker-guide.md",
+      "svc/audit-config.json",
+      "svc/audit.py",
+      "svc/config.json",
+      "svc/dispatch.py",
+      "svc/gateway.py",
+      "svc/generated_client.py",
+      "svc/ingest.py",
+      "svc/limits.py",
+      "svc/loader.py",
+      "svc/parsers/json_parser.py",
+      "svc/parsers/yaml_parser.py",
+      "svc/pool.py",
+      "svc/session.py",
+      "svc/transports.py",
+      "svc/worker.py",
+      "tests/test_worker.py"
+    ],
+    "files_without_extracted_nodes": [],
+    "file_coverage_ratio": 1.0,
+    "nodes_per_source_file": {
+      "docs/worker-guide.md": 1,
+      "svc/audit-config.json": 3,
+      "svc/audit.py": 3,
+      "svc/config.json": 3,
+      "svc/dispatch.py": 2,
+      "svc/gateway.py": 2,
+      "svc/generated_client.py": 2,
+      "svc/ingest.py": 2,
+      "svc/limits.py": 2,
+      "svc/loader.py": 3,
+      "svc/parsers/json_parser.py": 2,
+      "svc/parsers/yaml_parser.py": 2,
+      "svc/pool.py": 2,
+      "svc/session.py": 3,
+      "svc/transports.py": 5,
+      "svc/worker.py": 3,
+      "tests/test_worker.py": 2
+    },
+    "edges_per_source_owner": {
+      "docs/worker-guide.md": 1,
+      "svc/audit-config.json": 2,
+      "svc/audit.py": 6,
+      "svc/config.json": 2,
+      "svc/dispatch.py": 3,
+      "svc/gateway.py": 3,
+      "svc/generated_client.py": 1,
+      "svc/ingest.py": 3,
+      "svc/limits.py": 1,
+      "svc/loader.py": 5,
+      "svc/parsers/json_parser.py": 1,
+      "svc/parsers/yaml_parser.py": 1,
+      "svc/pool.py": 3,
+      "svc/session.py": 2,
+      "svc/transports.py": 4,
+      "svc/worker.py": 4,
+      "tests/test_worker.py": 3
+    },
+    "edges_per_relation": {
+      "calls": 8,
+      "defines": 25,
+      "doc_references_code": 1,
+      "imports": 8,
+      "reads": 2,
+      "reads_config": 1
+    },
+    "edges_per_confidence": {
+      "EXTRACTED": 39,
+      "LITERAL_DERIVED": 1,
+      "RECEIVER_RESOLVED": 5
+    },
+    "external_endpoints": [
+      "external::json",
+      "external::json.load",
+      "external::os",
+      "external::os.cpu_count",
+      "external::svc.loader.load_settings",
+      "external::svc.parsers.json_parser.parse",
+      "external::svc.session.Session",
+      "external::svc.transports.HttpTransport",
+      "external::svc.worker.Worker"
+    ],
+    "graph_bounds": {
+      "nodes": 49,
+      "edges": 45,
+      "node_ceiling": 2000,
+      "edge_ceiling": 5000,
+      "within_bounds": true
+    },
+    "scored_relation_triples": [
+      [
+        "docs/worker-guide.md",
+        "doc_references_code",
+        "svc/worker.py::Worker.start"
+      ],
+      [
+        "svc/audit-config.json",
+        "defines",
+        "svc/audit-config.json::audit_sink"
+      ],
+      [
+        "svc/audit-config.json",
+        "defines",
+        "svc/audit-config.json::retry_budget_ms"
+      ],
+      [
+        "svc/audit.py",
+        "defines",
+        "svc/audit.py::AUDIT_CONFIG"
+      ],
+      [
+        "svc/audit.py",
+        "defines",
+        "svc/audit.py::audit_sink"
+      ],
+      [
+        "svc/audit.py",
+        "imports",
+        "external::json"
+      ],
+      [
+        "svc/audit.py::audit_sink",
+        "reads_config",
+        "svc/audit-config.json::audit_sink"
+      ],
+      [
+        "svc/config.json",
+        "defines",
+        "svc/config.json::queue_name"
+      ],
+      [
+        "svc/config.json",
+        "defines",
+        "svc/config.json::retry_budget_ms"
+      ],
+      [
+        "svc/dispatch.py",
+        "defines",
+        "svc/dispatch.py::dispatch"
+      ],
+      [
+        "svc/dispatch.py",
+        "imports",
+        "external::svc.transports.HttpTransport"
+      ],
+      [
+        "svc/dispatch.py::dispatch",
+        "calls",
+        "svc/transports.py::HttpTransport"
+      ],
+      [
+        "svc/gateway.py",
+        "defines",
+        "svc/gateway.py::open_gateway"
+      ],
+      [
+        "svc/gateway.py",
+        "imports",
+        "external::svc.session.Session"
+      ],
+      [
+        "svc/gateway.py::open_gateway",
+        "calls",
+        "svc/session.py"
+      ],
+      [
+        "svc/generated_client.py",
+        "defines",
+        "svc/generated_client.py::generated_call"
+      ],
+      [
+        "svc/ingest.py",
+        "defines",
+        "svc/ingest.py::ingest"
+      ],
+      [
+        "svc/ingest.py",
+        "imports",
+        "external::svc.parsers.json_parser.parse"
+      ],
+      [
+        "svc/ingest.py::ingest",
+        "calls",
+        "svc/parsers/json_parser.py::parse"
+      ],
+      [
+        "svc/limits.py",
+        "defines",
+        "svc/limits.py::cpu_count"
+      ],
+      [
+        "svc/loader.py",
+        "defines",
+        "svc/loader.py::CONFIG_PATH"
+      ],
+      [
+        "svc/loader.py",
+        "defines",
+        "svc/loader.py::load_settings"
+      ],
+      [
+        "svc/loader.py",
+        "imports",
+        "external::json"
+      ],
+      [
+        "svc/parsers/json_parser.py",
+        "defines",
+        "svc/parsers/json_parser.py::parse"
+      ],
+      [
+        "svc/parsers/yaml_parser.py",
+        "defines",
+        "svc/parsers/yaml_parser.py::parse"
+      ],
+      [
+        "svc/pool.py",
+        "defines",
+        "svc/pool.py::pool_size"
+      ],
+      [
+        "svc/pool.py",
+        "imports",
+        "external::os"
+      ],
+      [
+        "svc/session.py",
+        "defines",
+        "svc/session.py::Session.__init__"
+      ],
+      [
+        "svc/session.py",
+        "defines",
+        "svc/session.py::Session.close"
+      ],
+      [
+        "svc/transports.py",
+        "defines",
+        "svc/transports.py::HttpTransport"
+      ],
+      [
+        "svc/transports.py",
+        "defines",
+        "svc/transports.py::HttpTransport.send"
+      ],
+      [
+        "svc/transports.py",
+        "defines",
+        "svc/transports.py::QueueTransport"
+      ],
+      [
+        "svc/transports.py",
+        "defines",
+        "svc/transports.py::QueueTransport.send"
+      ],
+      [
+        "svc/worker.py",
+        "defines",
+        "svc/worker.py::Worker.start"
+      ],
+      [
+        "svc/worker.py",
+        "defines",
+        "svc/worker.py::Worker.stop"
+      ],
+      [
+        "svc/worker.py",
+        "imports",
+        "external::svc.loader.load_settings"
+      ],
+      [
+        "svc/worker.py::Worker.start",
+        "calls",
+        "svc/loader.py::load_settings"
+      ],
+      [
+        "tests/test_worker.py",
+        "defines",
+        "tests/test_worker.py::test_start"
+      ],
+      [
+        "tests/test_worker.py",
+        "imports",
+        "external::svc.worker.Worker"
+      ],
+      [
+        "tests/test_worker.py::test_start",
+        "calls",
+        "svc/worker.py"
+      ]
+    ]
+  },
+  "communities": {
+    "betweenness": {
+      "complete_ranking": [],
+      "complete_ranking_total": 0,
+      "edge_count": 5,
+      "method": "exact",
+      "node_count": 49,
+      "ranking": [],
+      "top_n": 200
+    },
+    "cluster_algorithm": "leiden",
+    "cluster_builder_version": "13",
+    "cluster_schema_version": "1",
+    "communities": [
+      {
+        "boundary_node_count": 2,
+        "community_id": "project:c0",
+        "edge_count": 27,
+        "generated_node_fraction": 0.0541,
+        "label": "worker",
+        "node_count": 37,
+        "node_ids": [
+          "svc/audit-config.json",
+          "svc/audit-config.json::audit_sink",
+          "svc/audit-config.json::retry_budget_ms",
+          "svc/audit.py",
+          "svc/audit.py::audit_sink",
+          "svc/config.json",
+          "svc/config.json::queue_name",
+          "svc/config.json::retry_budget_ms",
+          "svc/dispatch.py",
+          "svc/dispatch.py::dispatch",
+          "svc/gateway.py",
+          "svc/gateway.py::open_gateway",
+          "svc/generated_client.py",
+          "svc/generated_client.py::generated_call",
+          "svc/ingest.py",
+          "svc/ingest.py::ingest",
+          "svc/limits.py",
+          "svc/limits.py::cpu_count",
+          "svc/loader.py",
+          "svc/loader.py::load_settings",
+          "svc/parsers/json_parser.py",
+          "svc/parsers/json_parser.py::parse",
+          "svc/parsers/yaml_parser.py",
+          "svc/parsers/yaml_parser.py::parse",
+          "svc/pool.py",
+          "svc/pool.py::pool_size",
+          "svc/session.py",
+          "svc/session.py::Session.__init__",
+          "svc/session.py::Session.close",
+          "svc/transports.py",
+          "svc/transports.py::HttpTransport",
+          "svc/transports.py::HttpTransport.send",
+          "svc/transports.py::QueueTransport",
+          "svc/transports.py::QueueTransport.send",
+          "svc/worker.py",
+          "svc/worker.py::Worker.start",
+          "svc/worker.py::Worker.stop"
+        ],
+        "seed_node_id": "svc/worker.py::Worker.start"
+      },
+      {
+        "boundary_node_count": 1,
+        "community_id": "project:c11",
+        "edge_count": 1,
+        "generated_node_fraction": 0.0,
+        "kind": "fixed",
+        "label": "Tests",
+        "node_count": 2,
+        "node_ids": [
+          "tests/test_worker.py",
+          "tests/test_worker.py::test_start"
+        ],
+        "seed_node_id": "tests/test_worker.py::test_start"
+      },
+      {
+        "boundary_node_count": 1,
+        "community_id": "project:c10",
+        "edge_count": 0,
+        "generated_node_fraction": 0.0,
+        "kind": "fixed",
+        "label": "Documentation",
+        "node_count": 1,
+        "node_ids": [
+          "docs/worker-guide.md"
+        ],
+        "seed_node_id": "docs/worker-guide.md"
+      }
+    ],
+    "community_count": 3,
+    "graph_builder_version": "51",
+    "graph_path": ".wavefoundry/index/graph/project-graph.json",
+    "graph_schema_version": "1",
+    "input_fingerprint": "3a80962f0844b922b9b999cc490df6eeef32a3b2686698353d1848b93049bce4",
+    "layer": "project",
+    "projection": "derived-undirected",
+    "projection_rules": {
+      "external_nodes": "excluded",
+      "reciprocal_edges": "weights accumulate on the same undirected pair",
+      "source_target": "min(source,target) -> max(source,target)"
+    },
+    "present": true,
+    "cluster_path": ".wavefoundry/index/graph/project-graph-clusters.json"
+  },
+  "digests": {
+    "nodes_sha256": "a774403cc42be4045f2507cd217efc282bf06f4f841133bf17965d62083c8f57",
+    "edge_evidence_multiset_sha256": "daf8585069812922be257d05577c1f443ddec2e0b1790ffaaa66d5db79bd228a",
+    "extraction_coverage_sha256": "dcaeb1d5c859e99ecb5bccc4f93147dcd086fb9c89ce9174104e5803b5c0b2b0",
+    "communities_sha256": "7331e17d3398e428e31a7598f2a5280c1a35c5b85e255c3ee7582bb9baed24fb",
+    "body_sha256": "fcd7c28176ec6f54de61e4eacbdbe06934a72c7f801c8d7cd96ff5d817275f55"
+  }
+}

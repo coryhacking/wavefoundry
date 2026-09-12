@@ -228,12 +228,29 @@ class CodebaseMapModel:
 # Offline artifact loading.
 # --------------------------------------------------------------------------- #
 def _load_sibling(module_name: str):
+    """Load a sibling script ONCE per process, under its public name.
+
+    Wave 1xny6 made the caching load-bearing rather than merely thrifty:
+    ``graph_snapshot`` holds the resident view cache and the per-response
+    ``ContextVar`` pin. Re-executing the module on every call would hand each
+    caller a private module object, so the pin taken by
+    ``generate_codebase_map`` would be invisible to the ``compute_areas`` read
+    it exists to bind, and the map would be free to render a graph from one
+    generation with communities from another.
+    """
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
     path = Path(__file__).resolve().parent / f"{module_name}.py"
     spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
-    spec.loader.exec_module(mod)
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        sys.modules.pop(module_name, None)
+        raise
     return mod
 
 
@@ -249,10 +266,16 @@ def _read_json(path: Path) -> Any:
         return None
 
 
-def _graph_paths(root: Path, layer: str) -> tuple[Path, Path]:
-    """Resolve graph + cluster artifact paths, reusing graph_cluster's helpers."""
-    gc = _load_sibling("graph_cluster")
-    return gc.graph_path(root, layer), gc.cluster_path(root, layer)
+def _graph_snapshot(root: Path, layer: str):
+    """The generation-bound graph + community view the map renders from.
+
+    Wave 1xny6: replaces the pair of artifact paths this used to resolve. The
+    map is a DERIVED output of the graph, so it must render from one build --
+    a graph from one generation grouped by communities from another produces
+    areas that describe no build that ever existed.
+    """
+    gs = _load_sibling("graph_snapshot")
+    return gs.acquire(root, layer)
 
 
 def _norm(node_id: str) -> str:
@@ -627,9 +650,9 @@ def compute_areas(root: Path, layer: str = DEFAULT_LAYER) -> CodebaseMapModel:
     is missing, it degrades to directory-only grouping (``grouping="directory-fallback"``).
     """
     root = Path(root)
-    graph_file, cluster_file = _graph_paths(root, layer)
-    graph = _read_json(graph_file)
-    cluster = _read_json(cluster_file)
+    snapshot = _graph_snapshot(root, layer)
+    graph = snapshot.graph if snapshot.present else None
+    cluster = snapshot.clusters if snapshot.clusters_present else None
 
     empty = CodebaseMapModel(
         present=False,
@@ -1599,25 +1622,30 @@ def _existing_last_verified(text: str) -> str | None:
     return None
 
 
-def _fingerprint_inputs(root: Path, layer: str, model: CodebaseMapModel) -> str:
+def _fingerprint_inputs(root: Path, layer: str, model: CodebaseMapModel,
+                       snapshot=None) -> str:
     """A cheap content fingerprint over the generator's inputs (req 6).
 
-    Covers the graph + cluster artifacts AND each area's ``AGENTS.md`` (a Tier-2
-    input — renaming an area must trigger an update). Used to skip the render
-    entirely when nothing relevant changed. Fail-safe: any error yields a unique
-    sentinel so the guard simply doesn't skip.
+    Covers the published graph + community CONTENT and each area's
+    ``AGENTS.md`` (a Tier-2 input — renaming an area must trigger an update).
+    Used to skip the render entirely when nothing relevant changed. Fail-safe:
+    any error yields a unique sentinel so the guard simply doesn't skip.
+
+    Wave 1xny6: the graph half is the snapshot's content fingerprints rather
+    than two artifact stats. That is strictly stronger AND weaker in the right
+    directions: a rebuild that rewrites the artifacts with identical content no
+    longer invalidates the map, and a same-stat rewrite with DIFFERENT content
+    no longer fails to. The non-graph inputs are unchanged — the per-area and
+    root ``AGENTS.md`` bytes still invalidate on their own.
     """
     import hashlib
 
     h = hashlib.sha256()
     try:
-        graph_file, cluster_file = _graph_paths(Path(root), layer)
-        for p in (graph_file, cluster_file):
-            try:
-                st = p.stat()
-                h.update(f"{p.name}:{st.st_size}:{int(st.st_mtime_ns)}".encode())
-            except OSError:
-                h.update(f"{p.name}:absent".encode())
+        if snapshot is None:
+            snapshot = _graph_snapshot(Path(root), layer)
+        h.update(f"graph:{snapshot.graph_fingerprint or 'absent'}".encode())
+        h.update(f"communities:{snapshot.community_fingerprint or 'absent'}".encode())
         # Per-area AGENTS.md content (Tier-2 carry-forward input). Hash the
         # referenced file (nearest ancestor, 1p66d) so an edit to a
         # project-root AGENTS.md re-renders the areas that name it.
@@ -1637,10 +1665,6 @@ def _fingerprint_inputs(root: Path, layer: str, model: CodebaseMapModel) -> str:
         return _os.urandom(16).hex()
 
 
-def _fingerprint_path(root: Path) -> Path:
-    return Path(root) / ".wavefoundry" / "index" / "graph" / ".codebase-map.fingerprint"
-
-
 def generate_codebase_map(
     root: Path,
     layer: str = DEFAULT_LAYER,
@@ -1653,77 +1677,120 @@ def generate_codebase_map(
     Change-only / idempotent (req 6): a regeneration with unchanged inputs writes
     nothing — no file write, no ``Last verified`` bump, no git churn.
 
-      (a) **Skip the render** when the input fingerprint (graph + cluster +
-          per-area ``AGENTS.md``) is unchanged since the last generation.
+      (a) **Skip the render** when the input fingerprint (graph + community
+          content + per-area ``AGENTS.md``) is unchanged since the last
+          generation.
       (b) **Skip the write** when the rendered content (ignoring the volatile
           ``Last verified`` date line) matches the existing file — preserving the
           existing date.
 
     ``force=True`` bypasses both guards (used by tests / explicit refreshes).
-    """
-    model = compute_areas(root, layer)
-    out = output_path(root)
-    fp_path = _fingerprint_path(root)
-    fingerprint = _fingerprint_inputs(Path(root), layer, model)
 
-    # (a) Input fingerprint unchanged AND the map already exists → true no-op.
-    if not force and out.is_file():
-        try:
-            prior_fp = fp_path.read_text(encoding="utf-8").strip()
-        except OSError:
-            prior_fp = ""
-        if prior_fp and prior_fp == fingerprint:
+    Wave 1xny6 — the receipt replaces ``.codebase-map.fingerprint``:
+
+    * It lives in ``codebase_map_receipt`` and binds the rendered inputs to the
+      graph/community GENERATION they describe. Recording it never advances the
+      index generation: the map is a derived output, not an index participant.
+    * It is written **LAST** — after ``codebase-map.md`` AND after the
+      ``docs/repo-index.md`` marker block. Both are outputs of this render; a
+      receipt written between them would certify a render that only half
+      happened, and the next run would skip the missing half forever. A failure
+      refreshing the repo-index block therefore leaves NO receipt, and the next
+      run re-renders.
+    * The write is **busy-tolerant by contract**. A full rebuild's publication
+      holds the database write lock for about 6.7 seconds — longer than the 5
+      second busy timeout — and this path deliberately takes no build lock. A
+      contended receipt write is an ordinary outcome: the rendered output stays
+      valid, the render does not fail, nothing advances, and the next run
+      retries. Guard (b) makes that retry cheap and idempotent.
+    * A **stale concurrent render** (one that started against an older
+      generation and finished after a newer one completed) neither overwrites
+      the newer output nor certifies the newer generation: the serialized pre-write check
+      below abandons the write, and the receipt's conditional update refuses to
+      move ``graph_generation`` backwards.
+
+    This function never creates the retired graph directory. It has no
+    filesystem output under ``.wavefoundry/index/`` at all.
+    """
+    gs = _load_sibling("graph_snapshot")
+    out = output_path(root)
+    # One pin for the whole render: the areas, the fingerprint and the receipt's
+    # generation must all describe the same build.
+    with gs.pinned(Path(root), layer) as snapshot:
+        if snapshot.state == gs.NOT_READY and gs.index_paths.runtime_database_path(
+            gs.index_dir_for(root)
+        ).exists():
+            if out.is_file():
+                return out.read_text(encoding="utf-8")
+            raise RuntimeError("graph_not_ready: codebase map requires a published generation")
+        model = compute_areas(root, layer)
+        fingerprint = _fingerprint_inputs(Path(root), layer, model, snapshot)
+        receipt = gs.read_map_receipt(Path(root), layer)
+
+        def _write_receipt() -> bool:
+            return gs.write_map_receipt(
+                Path(root), layer=layer, input_fingerprint=fingerprint,
+                graph_input_fingerprint=snapshot.graph_fingerprint,
+                community_input_fingerprint=snapshot.community_fingerprint,
+                graph_generation=snapshot.generation,
+            )
+
+        # Prepare outside the publication lock; a second renderer may finish
+        # while this expensive work runs. Every output path (including no-op
+        # repo-index refreshes) passes the same locked freshness check below.
+        existing_text = out.read_text(encoding="utf-8") if out.is_file() else ""
+        prior_fp = str((receipt or {}).get("input_fingerprint") or "")
+        unchanged_inputs = not force and bool(existing_text) and prior_fp == fingerprint
+        markdown = existing_text
+        if not unchanged_inputs:
+            render_lv = last_verified
+            if render_lv is None and existing_text:
+                render_lv = _existing_last_verified(existing_text)
+            markdown = render_markdown(model, last_verified=render_lv, root=root)
+            if last_verified is None and (
+                force or _strip_date_line(existing_text) != _strip_date_line(markdown)
+            ):
+                markdown = render_markdown(model, last_verified=_today(), root=root)
+
+        # One persistent OS-lock carrier for both outputs, across processes and
+        # layers. Never unlink it: replacing a locked inode would split owners.
+        # This is not the index build lock and holds no SQLite transaction while
+        # writing Markdown. Receipt contention remains a retryable outcome.
+        locks = _load_sibling("runtime_lock")
+        lock_path = Path(root).resolve() / ".wavefoundry" / "locks" / "codebase-map.lock"
+        with locks.RuntimeFileLock(lock_path, blocking=True):
+            current = gs.read_map_receipt(Path(root), layer)
+            newer_render = (
+                current is not None and current != receipt
+                and int(current.get("graph_generation") or 0) >= snapshot.generation
+                and current.get("input_fingerprint") != fingerprint
+            )
+            stale_generation = (
+                current is not None
+                and int(current.get("graph_generation") or 0) > snapshot.generation
+            )
+            changed_inputs = _fingerprint_inputs(Path(root), layer, model, snapshot) != fingerprint
+            if newer_render or stale_generation or changed_inputs:
+                # Force requests bypass idempotence, never publication ordering.
+                return out.read_text(encoding="utf-8") if out.is_file() else markdown
+
+            current_text = out.read_text(encoding="utf-8") if out.is_file() else ""
+            if not force and current_text and (
+                unchanged_inputs or _strip_date_line(current_text) == _strip_date_line(markdown)
+            ):
+                markdown = current_text
+            else:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(markdown, encoding="utf-8")
             try:
                 _refresh_repo_index_modules(root, model)
             except Exception:
-                pass
-            return out.read_text(encoding="utf-8")
+                # No receipt when either output failed: the next run retries.
+                return markdown
+            if not unchanged_inputs:
+                _write_receipt()
+            return markdown
 
-    # Preserve the existing date when the structural content is unchanged.
-    existing_text = ""
-    if out.is_file():
-        try:
-            existing_text = out.read_text(encoding="utf-8")
-        except OSError:
-            existing_text = ""
-
-    render_lv = last_verified
-    if render_lv is None and existing_text:
-        # Render with the existing date first; only bump it if content changed.
-        render_lv = _existing_last_verified(existing_text)
-    markdown = render_markdown(model, last_verified=render_lv, root=root)
-
-    # (b) Content (modulo date) unchanged → skip the write, preserve the date.
-    if not force and existing_text and _strip_date_line(existing_text) == _strip_date_line(markdown):
-        # Still record the (unchanged) fingerprint so the cheap guard short-
-        # circuits next time, and refresh the repo-index block (its own guard).
-        try:
-            fp_path.parent.mkdir(parents=True, exist_ok=True)
-            fp_path.write_text(fingerprint, encoding="utf-8")
-        except OSError:
-            pass
-        try:
-            _refresh_repo_index_modules(root, model)
-        except Exception:
-            pass
-        return existing_text
-
-    # Content changed (or first generation): bump the date when not pinned.
-    if last_verified is None:
-        markdown = render_markdown(model, last_verified=_today(), root=root)
-
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(markdown, encoding="utf-8")
-    try:
-        fp_path.parent.mkdir(parents=True, exist_ok=True)
-        fp_path.write_text(fingerprint, encoding="utf-8")
-    except OSError:
-        pass
-    try:
-        _refresh_repo_index_modules(root, model)
-    except Exception:
-        pass
-    return markdown
 
 
 # --------------------------------------------------------------------------- #

@@ -9,6 +9,14 @@ from pathlib import Path
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 GEN_PATH = SCRIPTS_ROOT / "gen_codebase_map.py"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import graph_fixture_support as gfs  # noqa: E402
+import graph_snapshot  # noqa: E402
 
 
 def load_gen():
@@ -19,32 +27,51 @@ def load_gen():
     return mod
 
 
+# Wave 1xny6: fixtures publish graph + community ROWS through the canonical
+# producers. `_write_graph` / `_write_cluster` keep their call signatures, but
+# each one now commits a real build generation: the map reads the published
+# rows, so a hand-written JSON artifact is no longer an input to anything.
+# State is accumulated per root because the two helpers are called
+# independently and every publication states the WHOLE graph.
+_PUBLISHED: dict[str, dict] = {}
+
+
 def _graph_dir(root: Path) -> Path:
-    d = root / ".wavefoundry" / "index" / "graph"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    """The RETIRED graph folder. Tests assert it is never created."""
+    return root / ".wavefoundry" / "index" / "graph"
+
+
+def _republish(root: Path) -> None:
+    state = _PUBLISHED[str(root)]
+    clusters = None
+    if state.get("communities") is not None:
+        clusters = gfs.cluster_payload(
+            state["communities"],
+            cluster_builder_version=state.get("cluster_builder_version", "9"),
+            graph_builder_version=state.get("builder_version", "1"),
+        )
+    gfs.publish_graph(
+        root,
+        nodes=state.get("nodes", []),
+        edges=state.get("edges", []),
+        builder_version=state.get("builder_version", "1"),
+        clusters=clusters,
+    )
 
 
 def _write_graph(root: Path, nodes, edges, builder_version="1") -> None:
-    payload = {
-        "schema_version": "1",
-        "builder_version": builder_version,
-        "layer": "project",
-        "nodes": nodes,
-        "edges": edges,
-    }
-    (_graph_dir(root) / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+    state = _PUBLISHED.setdefault(str(root), {})
+    state["nodes"] = list(nodes)
+    state["edges"] = list(edges)
+    state["builder_version"] = builder_version
+    _republish(root)
 
 
 def _write_cluster(root: Path, communities, builder_version="9") -> None:
-    payload = {
-        "cluster_schema_version": "1",
-        "cluster_builder_version": builder_version,
-        "layer": "project",
-        "communities": communities,
-        "community_count": len(communities),
-    }
-    (_graph_dir(root) / "project-graph-clusters.json").write_text(json.dumps(payload), encoding="utf-8")
+    state = _PUBLISHED.setdefault(str(root), {})
+    state["communities"] = list(communities)
+    state["cluster_builder_version"] = builder_version
+    _republish(root)
 
 
 def _node(nid, kind, label, source_file):
@@ -54,7 +81,7 @@ def _node(nid, kind, label, source_file):
 # --------------------------------------------------------------------------- #
 # Small fixture: 2 communities -> near-flat map.
 # --------------------------------------------------------------------------- #
-def _build_small(root: Path) -> None:
+def _small_nodes_edges():
     nodes = [
         _node("src/auth.py", "module", "auth", "src/auth.py"),
         _node("src/auth.py::login", "function", "login", "src/auth.py"),
@@ -71,6 +98,11 @@ def _build_small(root: Path) -> None:
         {"source": "src/auth.py::Session", "target": "src/auth.py::login", "relation": "calls"},
         {"source": "api/server.py", "target": "api/server.py::serve", "relation": "defines"},
     ]
+    return nodes, edges
+
+
+def _build_small(root: Path) -> None:
+    nodes, edges = _small_nodes_edges()
     _write_graph(root, nodes, edges)
     _write_cluster(root, [
         {
@@ -686,9 +718,11 @@ class FailSafeTests(unittest.TestCase):
         self.assertFalse(model.present)
 
     def test_partial_missing_cluster_falls_back_to_directories(self):
-        # Graph present, cluster missing -> directory-fallback grouping.
-        _build_small(self.root)
-        (_graph_dir(self.root) / "project-graph-clusters.json").unlink()
+        # Graph present, NO communities published -> directory-fallback grouping.
+        # Wave 1xny6: expressed as a generation that published graph rows and no
+        # community rows, which is the real shape of this state now.
+        nodes, edges = _small_nodes_edges()
+        gfs.publish_graph(self.root, nodes=nodes, edges=edges, builder_version="1")
         model = self.gen.compute_areas(self.root)
         self.assertTrue(model.present)
         self.assertEqual(model.grouping, "directory-fallback")
@@ -706,11 +740,21 @@ class FailSafeTests(unittest.TestCase):
         self.assertIn("No map could be generated", out.read_text(encoding="utf-8"))
 
     def test_generate_safe_swallows_corrupt_graph(self):
-        # Corrupt graph json -> compute degrades to not-present; never raises.
-        (_graph_dir(self.root) / "project-graph.json").write_text("{not json", encoding="utf-8")
+        # An unreadable existing store must not publish an empty replacement.
+        # Wave 1xny6: a corrupt standalone artifact no longer exists to plant, so
+        # the equivalent is an unreadable store — the snapshot's typed not-ready.
+        self.gen._load_sibling("graph_snapshot").invalidate(self.root)
+        _build_small(self.root)
+        db = index_paths.runtime_database_path(self.root / ".wavefoundry" / "index")
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(db) + suffix)
+            if candidate.exists():
+                candidate.unlink()
+        db.write_bytes(b"not a database at all")
+        self.gen._load_sibling("graph_snapshot").invalidate(self.root)
         ok = self.gen.generate_safe(self.root, verbose=False)
-        self.assertTrue(ok)
-        self.assertTrue(self.gen.output_path(self.root).exists())
+        self.assertFalse(ok)
+        self.assertFalse(self.gen.output_path(self.root).exists())
 
 
 class CliTests(unittest.TestCase):

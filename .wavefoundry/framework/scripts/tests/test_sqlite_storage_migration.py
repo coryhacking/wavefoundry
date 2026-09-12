@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import io
 import json
 import os
@@ -17,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
+import index_paths
 import sqlite_storage_migration as migration
 import upgrade_lib
 
@@ -40,8 +42,10 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(stopped.exception.code, 3)
         return migration.read_receipt(self.index)
 
-    def confirm(self):
-        self.ctx.storage_migration_protocol = 1
+    def confirm(self, protocol=2):
+        # The INSTALLED CLI declares storage protocol 2 (it can run the
+        # schema-8 kind in-process); pass 1 to model an older coordinator.
+        self.ctx.storage_migration_protocol = protocol
         with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
             return migration.prepare_upgrade(self.ctx)
 
@@ -283,7 +287,9 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["reason"], "existing_framework_without_index")
         self.assertEqual(receipt["artifacts"], {})
         self.assertIsNone(receipt["source_sqlite_identity"])
-        self.assertFalse((self.index / "index-state.sqlite").exists())
+        for owned in (index_paths.index_database_path(self.index),
+                      index_paths.legacy_index_database_path(self.index)):
+            self.assertFalse(owned.exists(), owned)
         self.assertEqual(self.confirm()["state"], "quiesced")
 
     def test_incoming_post_extract_hook_is_fatal_through_real_dispatcher(self):
@@ -535,9 +541,13 @@ class NativeMigrationTests(unittest.TestCase):
 
     def setUp(self):
         ReceiptTests.setUp(self)
-        self.live = self.index / "index-state.sqlite"
+        # The conversion READS the retired name and PUBLISHES the name runtime
+        # consumers open; after the schema-8 rename those are two files, so the
+        # fixture names both by role instead of by string.
+        self.source = index_paths.legacy_index_database_path(self.index)
+        self.live = index_paths.index_database_path(self.index)
         import sqlite_runtime
-        with contextlib.closing(sqlite_runtime.connect(self.live)) as conn, conn:
+        with contextlib.closing(sqlite_runtime.connect(self.source)) as conn, conn:
             conn.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
             conn.execute("INSERT INTO meta VALUES('store_schema_version','6')")
             conn.execute("CREATE TABLE preserved_memory(id TEXT PRIMARY KEY,body TEXT)")
@@ -608,7 +618,7 @@ class NativeMigrationTests(unittest.TestCase):
         import sqlite_vector_store as vectors
         limits = vectors.capacity_qualification({"docs": 0, "code": 0})["qualified_max_rows"]
         counts = {"docs": limits["docs"] + 1, "code": 0}
-        before = self.live.read_bytes()
+        before = self.source.read_bytes()
         with patch.object(migration, "_legacy_counts", return_value=counts), \
              patch.object(migration, "_legacy_batches", side_effect=AssertionError("capacity refusal precedes scan")):
             with self.assertRaisesRegex(migration.MigrationRequired, "storage_capacity_unqualified"):
@@ -617,7 +627,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertEqual(receipt["last_failure"]["code"], "storage_capacity_unqualified")
         self.assertFalse(receipt["capacity_qualification"]["qualified"])
         self.assertNotIn("work_dir", receipt)
-        self.assertEqual(self.live.read_bytes(), before)
+        self.assertEqual(self.source.read_bytes(), before)
         self.assertTrue((self.index / "docs.lance/data").exists())
 
     def test_native_transfer_preserves_payload_vector_auxiliary_and_requires_fresh_process(self):
@@ -720,7 +730,7 @@ class NativeMigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(migration.MigrationRequired, "vector_invalid"):
             self.convert()
         import sqlite_runtime
-        with contextlib.closing(sqlite_runtime.connect(self.live, read_only=True)) as conn:
+        with contextlib.closing(sqlite_runtime.connect(self.source, read_only=True)) as conn:
             self.assertEqual(conn.execute("SELECT value FROM meta").fetchone(), ("6",))
         self.assertTrue((self.index / "docs.lance/data").exists())
         with self.assertRaises(migration.MigrationRequired) as refused:
@@ -737,12 +747,12 @@ class NativeMigrationTests(unittest.TestCase):
             self.skipTest("requires pinned migration-only Lance reader")
         # The placeholder has no readable Lance manifest. The real reader must
         # fail closed before staging, never claim current setup bypasses it.
-        before = self.live.read_bytes()
+        before = self.source.read_bytes()
         with self.assertRaises(migration.MigrationRequired) as refused:
             migration.migrate_legacy(self.root)
         self.assertIn("storage_legacy_source_unreadable", str(refused.exception))
         self.assertIn("Current wf setup --full cannot bypass", str(refused.exception))
-        self.assertEqual(self.live.read_bytes(), before)
+        self.assertEqual(self.source.read_bytes(), before)
         self.assertTrue((self.index / "docs.lance/data").exists())
         self.assertEqual(migration.read_receipt(self.index)["state"], "quiesced")
         self.assertIsNotNone(upgrade_lib.read_upgrade_lock(self.root))
@@ -750,7 +760,7 @@ class NativeMigrationTests(unittest.TestCase):
     def test_legacy_fts_digest_is_not_xored_into_imported_payload(self):
         import index_state_store as state
         import sqlite_runtime
-        conn = sqlite_runtime.connect(self.live)
+        conn = sqlite_runtime.connect(self.source)
         with conn:
             conn.execute("INSERT INTO meta VALUES(?,?)",
                          (state.META_FTS_PAYLOAD_DIGEST_PREFIX + "docs",
@@ -892,7 +902,7 @@ class NativeMigrationTests(unittest.TestCase):
         import builtins
         import sqlite_runtime
         self._reset_without_lance()
-        legacy = sqlite_runtime.connect(self.live)
+        legacy = sqlite_runtime.connect(self.source)
         legacy.execute("PRAGMA auto_vacuum=NONE")
         legacy.execute("VACUUM")
         self.assertEqual(legacy.execute("PRAGMA auto_vacuum").fetchone(), (0,))
@@ -911,22 +921,52 @@ class NativeMigrationTests(unittest.TestCase):
         conn = sqlite_runtime.connect(self.live, read_only=True)
         try:
             self.assertEqual(conn.execute("SELECT body FROM preserved_memory").fetchone(), ("retain me",))
-            self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(), ("7",))
+            self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(),
+                             (migration.SCHEMA_VERSION,))
             self.assertEqual(conn.execute("PRAGMA auto_vacuum").fetchone(), (2,))
         finally:
             conn.close()
 
-    def test_historical_schema4_and5_add_tables_without_erasing_auxiliary_state(self):
+    def test_every_legacy_schema_adds_tables_without_erasing_auxiliary_state(self):
+        """One subtest per MIGRATABLE schema, driven by LEGACY_SCHEMA_VERSIONS.
+
+        The covered set is derived from the dispatch constant, not from the
+        fixture file: a fixture entry captured for the CURRENT schema must not
+        silently assert legacy behavior, and a version added to the dispatch
+        set without a fixture must fail rather than be skipped. The
+        post-migration version is read from the constant so a future bump
+        cannot leave a stale literal passing for an unrelated reason.
+
+        The arms disagree about FTS, so each side is asserted: schemas that
+        predate the canonical-chunk FTS contract legitimately lose their FTS
+        tables, payload digests and lexical statistics, while a schema-7
+        source keeps all three (wave 1xny6 — the additive 7 -> 8 arm).
+        """
         import sqlite_runtime
         import index_state_store
         fixtures = json.loads((SCRIPTS / "tests/fixtures/legacy_sqlite_state_schemas.json").read_text("utf-8"))
-        for version, fixture in fixtures.items():
+        covered = sorted(migration.LEGACY_SCHEMA_VERSIONS, key=int)
+        self.assertTrue(covered)
+        missing = [v for v in covered if v not in fixtures]
+        self.assertEqual(missing, [], f"no captured fixture for migratable schema(s) {missing}")
+        self.assertNotIn(migration.SCHEMA_VERSION, migration.LEGACY_SCHEMA_VERSIONS)
+        for version in covered:
+            fixture = fixtures[version]
+            keeps_fts = version in index_state_store.LEGACY_SCHEMA_ADDITIVE_VERSIONS
             with self.subTest(schema=version, historical_commit=fixture["source_commit"]):
                 root = self.root / ("historical-" + version)
                 index = root / ".wavefoundry/index"
                 index.mkdir(parents=True)
-                path = index / "index-state.sqlite"
-                conn = sqlite_runtime.connect(path)
+                # A real source for the auxiliary rows below: the schema-8 kind
+                # rebuilds the graph from current sources, and a row naming a
+                # file that does not exist is legitimately reconciled away.
+                (root / "retained.py").write_text("def retained():\n    return 1\n", encoding="utf-8")
+                # Seed under the CURRENT name first, so the ordinary-open
+                # refusal below is the real one a consumer would hit, then move
+                # it to the retired name: the pre-rename layout the upgrade finds.
+                published = index_paths.index_database_path(index)
+                path = index_paths.legacy_index_database_path(index)
+                conn = sqlite_runtime.connect(published)
                 try:
                     with conn:
                         for ddl in fixture["table_ddl"]:
@@ -936,34 +976,95 @@ class NativeMigrationTests(unittest.TestCase):
                         conn.execute("INSERT INTO secret_scan_cache VALUES('retained.py','hash','rules',4,1,'[]')")
                         conn.execute("INSERT INTO build_layer_meta VALUES('model_versions',?)",
                                      (json.dumps({"docs": "BAAI/bge-small-en-v1.5"}),))
-                        if version == "5":
+                        if version in {"5", "6", "7"}:
                             conn.execute("INSERT INTO layer_path_state VALUES('docs','retained.py','hash')")
+                        # Lexical state every real store of every one of these
+                        # schemas carries (the capability flag is written on
+                        # each open since schema 2). Seeded for ALL versions so
+                        # the reset arms' deletion is what the assertions below
+                        # observe, not an unrelated capability-probe wipe.
+                        # (Row-level FTS preservation is pinned directly
+                        # against the arm in test_index_state_store.)
+                        conn.execute("INSERT INTO meta VALUES(?,?)",
+                                     (index_state_store.META_FTS_AVAILABLE, "1"))
+                        conn.execute("INSERT INTO meta VALUES(?,?)",
+                                     (index_state_store.META_FTS_PAYLOAD_DIGEST_PREFIX + "docs",
+                                      "ab" * 32))
+                        conn.execute("INSERT INTO meta VALUES(?,?)",
+                                     (index_state_store.META_LEXICAL_STATISTICS,
+                                      json.dumps({"version": index_state_store.LEXICAL_STATISTICS_VERSION})))
                 finally:
                     conn.close()
-                before = path.read_bytes()
+                before = published.read_bytes()
                 with self.assertRaises(sqlite_runtime.StorageRecoveryRequired):
                     index_state_store.IndexStateStore(index)
-                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(published.read_bytes(), before)
+                published.rename(path)
                 context = SimpleNamespace(root=root, from_version="1.11.2", to_version="2.0.0.test",
                                           zip_path=None, dry_run=False, storage_migration_protocol=0)
                 with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
                     migration.prepare_upgrade(context)
-                context.storage_migration_protocol = 1
+                # A schema-7 source dispatches the schema-8 kind, which needs a
+                # coordinator declaring storage protocol 2; 4/5/6 take the
+                # version-1 conversion, which needs only 1.
+                context.storage_migration_protocol = migration.required_protocol(
+                    migration.read_receipt(index))
                 with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
                     migration.prepare_upgrade(context)
                 self.assertEqual(migration.migrate_legacy(root)["state"], "published")
-                conn = sqlite_runtime.connect(path, read_only=True)
+                # The conversion publishes the name runtime consumers open; the
+                # historical source is retained until receipt-owned cleanup.
+                self.assertTrue(path.exists())
+                conn = sqlite_runtime.connect(published, read_only=True)
                 try:
-                    self.assertEqual(conn.execute("SELECT * FROM file_freshness").fetchone(),
-                                     ("retained.py", 1, 0.2, 3, "git", 4))
-                    self.assertEqual(conn.execute("SELECT * FROM secret_scan_cache").fetchone(),
-                                     ("retained.py", "hash", "rules", 4, 1, "[]"))
-                    self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(), ("7",))
+                    if keeps_fts:
+                        # The kind runs the ordinary graph builder against the
+                        # current sources, which recomputes source-derived
+                        # bookkeeping; the row identity must survive.
+                        self.assertIsNotNone(conn.execute(
+                            "SELECT path FROM file_freshness WHERE path='retained.py'").fetchone())
+                        self.assertIsNotNone(conn.execute(
+                            "SELECT path FROM secret_scan_cache WHERE path='retained.py'").fetchone())
+                    else:
+                        self.assertEqual(conn.execute("SELECT * FROM file_freshness").fetchone(),
+                                         ("retained.py", 1, 0.2, 3, "git", 4))
+                        self.assertEqual(conn.execute("SELECT * FROM secret_scan_cache").fetchone(),
+                                         ("retained.py", "hash", "rules", 4, 1, "[]"))
+                    self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(),
+                                     (index_state_store.STATE_STORE_SCHEMA_VERSION,))
                     self.assertIsNotNone(conn.execute("SELECT name FROM sqlite_schema WHERE name='layer_path_state'").fetchone())
-                    self.assertEqual(conn.execute("SELECT status FROM build_state WHERE id=1").fetchone(), ("building",))
+                    # The version-1 conversion leaves the epoch un-finalized for
+                    # the ordinary build that follows; the schema-8 kind rebuilds
+                    # the graph in staging and finalizes its own epoch.
+                    self.assertEqual(conn.execute("SELECT status FROM build_state WHERE id=1").fetchone(),
+                                     ("complete",) if keeps_fts else ("building",))
                     self.assertIn("BAAI/bge-small", conn.execute("SELECT value FROM build_layer_meta WHERE key='model_versions'").fetchone()[0])
-                    if version == "5":
+                    # Every migratable source reaches the schema-8 graph tables.
+                    self.assertIsNotNone(conn.execute(
+                        "SELECT name FROM sqlite_schema WHERE name='graph_nodes'").fetchone())
+                    if version in {"5", "6", "7"}:
                         self.assertEqual(conn.execute("SELECT * FROM layer_path_state").fetchone(), ("docs", "retained.py", "hash"))
+                    digest = conn.execute(
+                        "SELECT value FROM meta WHERE key=?",
+                        (index_state_store.META_FTS_PAYLOAD_DIGEST_PREFIX + "docs",)).fetchone()
+                    stats = conn.execute(
+                        "SELECT value FROM meta WHERE key=?",
+                        (index_state_store.META_LEXICAL_STATISTICS,)).fetchone()
+                    if keeps_fts:
+                        # Additive arm: the FTS tables and their digest key
+                        # survive the bump. The kind's staged rebuild then runs
+                        # the ordinary derived-FTS verify, which recomputes the
+                        # digest over the real canonical tables — row-level arm
+                        # preservation is pinned in test_index_state_store.
+                        self.assertIsNotNone(digest)
+                        self.assertIsNotNone(conn.execute(
+                            "SELECT name FROM sqlite_schema WHERE name='fts_docs'").fetchone())
+                    else:
+                        # Pre-canonical arm: the legacy FTS tables and the
+                        # digests describing them are dropped, so the freshly
+                        # created empty tables start from the empty digest.
+                        self.assertEqual(digest, ("0" * 64,))
+                        self.assertIsNone(stats)
                 finally:
                     conn.close()
 
@@ -984,25 +1085,30 @@ class NativeMigrationTests(unittest.TestCase):
     def test_current_schema_visible_only_in_wal_is_not_legacy(self):
         import sqlite_runtime
         self._reset_without_lance()
-        conn = sqlite_runtime.connect(self.live)
+        conn = sqlite_runtime.connect(self.source)
         try:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            before = self.live.read_bytes()
+            before = self.source.read_bytes()
             with conn:
-                conn.execute("UPDATE meta SET value='7' WHERE key='store_schema_version'")
-            self.assertEqual(self.live.read_bytes(), before)
-            self.assertGreater(Path(str(self.live) + "-wal").stat().st_size, 0)
-            self.assertEqual(migration.detect(self.index)["sqlite_schema"], "7")
-            self.assertFalse(migration.detect(self.index)["migration_required"])
+                conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'",
+                             (migration.SCHEMA_VERSION,))
+            self.assertEqual(self.source.read_bytes(), before)
+            self.assertGreater(Path(str(self.source) + "-wal").stat().st_size, 0)
+            self.assertEqual(migration.detect(self.index)["sqlite_schema"], migration.SCHEMA_VERSION)
+            # Schema 8 under the RETIRED name still owes the rename, so the
+            # schema read is current while the kind is still required.
+            self.assertTrue(migration.detect(self.index)["kind_required"])
         finally:
             conn.close()
 
     def test_bootstrap_candidate_resolves_current_without_format_change(self):
         import sqlite_runtime
         self._reset_without_lance()
+        self.source.rename(self.live)
         conn = sqlite_runtime.connect(self.live)
         with conn:
-            conn.execute("UPDATE meta SET value='7' WHERE key='store_schema_version'")
+            conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'",
+                         (migration.SCHEMA_VERSION,))
         conn.close()
         before = self.live.read_bytes()
         with patch.object(sqlite_runtime, "connect", side_effect=sqlite_runtime.RuntimeUnavailable("not installed")):
@@ -1015,25 +1121,25 @@ class NativeMigrationTests(unittest.TestCase):
 
     def test_cached_missing_binding_requires_fresh_standard_resume(self):
         import sqlite_runtime
-        before = self.live.read_bytes()
+        before = self.source.read_bytes()
         with patch.object(sqlite_runtime, "apsw", None):
             with self.assertRaisesRegex(migration.MigrationRequired, "storage_runtime_restart_required.*fresh process.*wf_upgrade"):
                 migration.migrate_legacy(self.root)
-        self.assertEqual(self.live.read_bytes(), before)
+        self.assertEqual(self.source.read_bytes(), before)
         self.assertEqual(migration.read_receipt(self.index)["state"], "quiesced")
         self.assertIsNotNone(upgrade_lib.read_upgrade_lock(self.root))
 
     def test_unknown_schema_is_preserved_and_fresh_absence_needs_no_receipt(self):
         import sqlite_runtime
         self._reset_without_lance()
-        conn = sqlite_runtime.connect(self.live)
+        conn = sqlite_runtime.connect(self.source)
         with conn:
             conn.execute("UPDATE meta SET value='999' WHERE key='store_schema_version'")
         conn.close()
-        before = self.live.read_bytes()
+        before = self.source.read_bytes()
         with self.assertRaisesRegex(migration.MigrationRequired, "schema_unsupported"):
             migration.prepare_upgrade(self.ctx)
-        self.assertEqual(self.live.read_bytes(), before)
+        self.assertEqual(self.source.read_bytes(), before)
         self.assertIsNone(migration.read_receipt(self.index))
         fresh = self.root / "fresh-target"
         fresh.mkdir()
@@ -1042,13 +1148,13 @@ class NativeMigrationTests(unittest.TestCase):
 
     def test_orphan_wal_is_not_treated_as_a_fresh_empty_index(self):
         self._reset_without_lance()
-        self.live.unlink()
-        wal = Path(str(self.live) + "-wal")
+        self.source.unlink()
+        wal = Path(str(self.source) + "-wal")
         wal.write_bytes(b"retained orphan sidecar")
         with self.assertRaisesRegex(migration.MigrationRequired, "orphan SQLite sidecars"):
             migration.detect(self.index)
         self.assertEqual(wal.read_bytes(), b"retained orphan sidecar")
-        self.assertFalse(self.live.exists())
+        self.assertFalse(self.source.exists())
 
     def test_orphan_vectors_cannot_be_verified_or_cleaned_up(self):
         import sqlite_runtime
@@ -1109,7 +1215,7 @@ class NativeMigrationTests(unittest.TestCase):
 
     def test_native_runtime_preflight_refusal_precedes_staging_and_preserves_retry(self):
         import sqlite_runtime
-        original = self.live.read_bytes()
+        original = self.source.read_bytes()
         for error in (sqlite_runtime.RuntimeUnavailable("runtime unavailable"),
                       sqlite_runtime.StorageRecoveryRequired("WAL unavailable")):
             with self.subTest(error=type(error).__name__), \
@@ -1117,7 +1223,7 @@ class NativeMigrationTests(unittest.TestCase):
                  patch.object(sqlite_runtime, "backup", side_effect=AssertionError("must not stage")):
                 with self.assertRaisesRegex(migration.MigrationRequired, "before staging or cutover"):
                     self.convert()
-            self.assertEqual(self.live.read_bytes(), original)
+            self.assertEqual(self.source.read_bytes(), original)
             self.assertNotIn("work_dir", migration.read_receipt(self.index))
             self.assertTrue((self.index / "docs.lance/data").exists())
         self.assertEqual(self.convert()["state"], "published")
@@ -1130,7 +1236,7 @@ class NativeMigrationTests(unittest.TestCase):
                 with self.subTest(operation=operation, winerror=winerror):
                     # Each scenario needs its own original source and receipt.
                     self.setUp()
-                    original_hash = migration._file_hash(self.live)
+                    original_hash = migration._file_hash(self.source)
                     denied = PermissionError(13, "injected Windows access/sharing failure")
                     denied.winerror = winerror
                     def replace(source, destination):
@@ -1148,10 +1254,12 @@ class NativeMigrationTests(unittest.TestCase):
                     self.assertIs(raised.exception.__cause__, denied)
                     receipt = migration.read_receipt(self.index)
                     self.assertEqual(receipt["state"], "cutover_pending")
-                    candidate = self.index / receipt["work_dir"] / "index-state.sqlite"
+                    # Staging is named for the store module that opens it.
+                    candidate = migration.staged_database_path(self.index / receipt["work_dir"])
                     self.assertEqual(migration._file_hash(candidate), receipt["candidate_sha256"])
-                    self.assertEqual(migration._file_hash(self.live), original_hash)
-                    self.assertTrue((candidate.parent / "rollback.sqlite").exists())
+                    self.assertFalse(self.live.exists())
+                    self.assertEqual(migration._file_hash(self.source), original_hash)
+                    self.assertTrue((candidate.parent / migration.STAGING_ROLLBACK_STEM).exists())
                     self.assertTrue((self.index / "docs.lance/data").exists())
                     with patch.object(migration, "_legacy_batches", side_effect=AssertionError("no retransferring")):
                         self.assertEqual(migration.migrate_legacy(self.root)["state"], "published")
@@ -1182,7 +1290,7 @@ class NativeMigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(migration.MigrationRequired, "vector_invalid"):
             self.convert()
         work = self.index / migration.read_receipt(self.index)["work_dir"]
-        before = self.live.read_bytes()
+        before = self.source.read_bytes()
         for suffix in ("", "-wal", "-shm"):
             with self.subTest(suffix=suffix):
                 candidate = work / ("rollback.sqlite" + suffix)
@@ -1200,7 +1308,7 @@ class NativeMigrationTests(unittest.TestCase):
                     if retained.exists():
                         retained.rename(candidate)
                 self.assertFalse(outside.exists())
-                self.assertEqual(self.live.read_bytes(), before)
+                self.assertEqual(self.source.read_bytes(), before)
                 self.assertTrue((self.index / "docs.lance/data").exists())
 
     def test_replaced_staging_directory_is_not_adopted(self):
@@ -1217,3 +1325,856 @@ class NativeMigrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The last commit that shipped the version-1-only receipt reader. Its
+# `read_receipt` rejects any receipt_version other than 1, which IS the
+# old-code fence a version-2 record installs.
+V1_RECEIPT_READER_COMMIT = "5e798daa159119c6f434eaf357b82dd264bb2a48"
+
+
+@unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")
+class SchemaEightKindTests(unittest.TestCase):
+    """The schema-8 kind: dispatch per population, staged rebuild, cutover."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.index = self.root / ".wavefoundry/index"
+        self.index.mkdir(parents=True)
+        (self.root / "src").mkdir()
+        (self.root / "src/m.py").write_text(
+            "def helper():\n    return 1\n\n\ndef caller():\n    return helper()\n", encoding="utf-8")
+        self.current = index_paths.index_database_path(self.index)
+        self.legacy = index_paths.legacy_index_database_path(self.index)
+        self.ctx = SimpleNamespace(root=self.root, from_version="1.22.0", to_version="1.23.0.test",
+                                   zip_path=None, dry_run=False, yes=True,
+                                   storage_migration_protocol=migration.PROTOCOL_SCHEMA8)
+
+    # --- fixtures -------------------------------------------------------
+
+    def _seed(self, schema="7", name=None):
+        """A real store produced by the canonical creator, marked at `schema`."""
+        import index_state_store
+        import graph_store
+        store = index_state_store.IndexStateStore(self.index)
+        conn = store._conn
+        with conn:
+            if schema != migration.SCHEMA_VERSION:
+                for table in graph_store.GRAPH_TABLES + graph_store.DERIVED_TABLES:
+                    conn.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'", (schema,))
+            conn.execute("CREATE TABLE IF NOT EXISTS preserved_memory(id TEXT PRIMARY KEY, body TEXT)")
+            conn.execute("INSERT OR REPLACE INTO preserved_memory VALUES('memory-1','retain me')")
+        store.close()
+        target = self.legacy if name is None else name
+        if target != self.current:
+            self.current.rename(target)
+            for sidecar in index_paths.sidecar_paths(self.current):
+                if sidecar.exists():
+                    sidecar.rename(Path(str(target) + sidecar.name[len(self.current.name):]))
+        return target
+
+    def _run(self, ctx=None):
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
+            migration.prepare_upgrade(ctx or self.ctx)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return migration.migrate_legacy(self.root)
+
+    def _interrupt_cutover_only(self):
+        """Interrupt the cutover replace only; the receipt write uses os.replace too."""
+        real_replace = os.replace
+        def replace(source, destination):
+            if Path(destination) == self.current:
+                raise KeyboardInterrupt("interrupted before filesystem publication")
+            return real_replace(source, destination)
+        return replace
+
+    def _verify_in_child(self):
+        child = subprocess.run([sys.executable, "-B", str(SCRIPTS / "sqlite_storage_migration.py"),
+                                "--verify", str(self.root)], capture_output=True, text=True)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        return json.loads(child.stdout)
+
+    # --- populations ----------------------------------------------------
+
+    def test_receiptless_schema_seven_store_requires_the_kind_and_is_renamed(self):
+        source = self._seed("7")
+        state = migration.detect(self.index)
+        self.assertEqual((state["resolution"], state["authority_role"]), ("legacy", "legacy"))
+        self.assertTrue(state["kind_required"])
+        self.assertTrue(state["migration_required"])
+        receipt = self._run()
+        self.assertEqual((receipt["receipt_version"], receipt["kind"], receipt["state"]),
+                         (migration.RECEIPT_VERSION_CURRENT, migration.KIND_SCHEMA8, "published"))
+        self.assertTrue(self.current.is_file())
+        # Forward recovery only: the retained source survives until cleanup.
+        self.assertTrue(source.is_file())
+        import sqlite_runtime
+        with contextlib.closing(sqlite_runtime.connect(self.current, read_only=True)) as conn:
+            self.assertEqual(conn.execute("SELECT body FROM preserved_memory").fetchone(), ("retain me",))
+            self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(),
+                             (migration.SCHEMA_VERSION,))
+            self.assertGreater(conn.execute("SELECT count(*) FROM graph_nodes").fetchone()[0], 0)
+        # The staged database was checkpointed before publication, so no
+        # committed frame is left behind in a sidecar the cutover never moves.
+        staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+        for sidecar in index_paths.sidecar_paths(migration.staged_database_path(staging)):
+            self.assertFalse(sidecar.exists(), sidecar)
+        self._verify_in_child()
+        final = migration.cleanup_legacy(self.root)
+        self.assertEqual(final["state"], "complete")
+        self.assertFalse(source.exists())
+        self.assertFalse((self.index / final["work_dir"]).exists())
+
+    def test_graph_is_rebuilt_from_sources_and_never_seeded_from_old_artifacts(self):
+        self._seed("7")
+        stale = self.index / "graph"
+        stale.mkdir()
+        (stale / "project-graph.json").write_text(json.dumps(
+            {"nodes": [{"id": "ghost::never_extracted"}], "edges": []}), encoding="utf-8")
+        receipt = self._run()
+        import sqlite_runtime
+        with contextlib.closing(sqlite_runtime.connect(self.current, read_only=True)) as conn:
+            ids = {row[0] for row in conn.execute("SELECT node_id FROM graph_nodes")}
+        self.assertTrue(any("helper" in node for node in ids), ids)
+        self.assertNotIn("ghost::never_extracted", ids)
+        self.assertGreater(receipt["staged_rebuild"]["graph"]["nodes"], 0)
+
+    def test_completed_version_one_receipt_requires_the_kind_exactly_once(self):
+        source = self._seed("7")
+        stale = {"receipt_version": migration.RECEIPT_VERSION_LEGACY,
+                 "migration_id": "b" * 32, "index_dir": str(self.index.resolve()),
+                 "root_identity": migration._identity(self.root), "state": "complete",
+                 "old_hosts": [], "artifacts": {}, "reason": "legacy_storage"}
+        migration._write(self.index, stale)
+        pending = migration.detect(self.index)
+        self.assertTrue(pending["kind_required"])
+        # A record whose own state reads "done" does not clear an unsatisfied
+        # once-marker: the upgrade must still dispatch.
+        self.assertTrue(pending["migration_required"])
+        receipt = self._run()
+        self.assertEqual(receipt["supersedes"]["migration_id"], stale["migration_id"])
+        self._verify_in_child()
+        migration.cleanup_legacy(self.root)
+        self.assertFalse(source.exists())
+        # Exactly once: the once-marker now holds, so a repeat upgrade is a no-op.
+        state = migration.detect(self.index)
+        self.assertFalse(state["kind_required"])
+        self.assertFalse(state["migration_required"])
+        self.assertEqual(migration.prepare_upgrade(self.ctx)["state"], "complete")
+        self.assertEqual(migration.migrate_legacy(self.root)["state"], "complete")
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+
+    def test_pending_version_one_receipt_finishes_its_recovery_before_the_kind(self):
+        self._seed("7")
+        pending = {"receipt_version": migration.RECEIPT_VERSION_LEGACY,
+                   "migration_id": "c" * 32, "index_dir": str(self.index.resolve()),
+                   "root_identity": migration._identity(self.root), "state": "quiesced",
+                   "old_hosts": [], "artifacts": {}, "reason": "legacy_storage",
+                   "pack_path": None, "pack_sha256": None,
+                   "source_sqlite_identity": migration._identity(self.legacy)}
+        migration._write(self.index, pending)
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
+            resumed = migration.prepare_upgrade(self.ctx)
+        # The package-bound legacy record keeps the receipt; no kind supersedes
+        # it while it is still pending.
+        self.assertEqual(resumed["migration_id"], pending["migration_id"])
+        self.assertEqual(resumed["receipt_version"], migration.RECEIPT_VERSION_LEGACY)
+        self.assertNotIn("kind", resumed)
+
+    def test_both_filenames_without_a_version_two_receipt_are_ambiguous_and_preserved(self):
+        self._seed("7")
+        shutil.copy2(self.legacy, self.current)
+        current_bytes, legacy_bytes = self.current.read_bytes(), self.legacy.read_bytes()
+        state = migration.detect(self.index)
+        self.assertEqual(state["resolution"], "both")
+        self.assertEqual(state["authority_diagnostic"], migration.AUTHORITY_AMBIGUOUS)
+        self.assertIsNone(state["authority_role"])
+        for call in (lambda: migration.require_ready(self.index),
+                     lambda: migration.prepare_upgrade(self.ctx),
+                     lambda: migration.migrate_legacy(self.root)):
+            with self.assertRaisesRegex(migration.MigrationRequired, migration.AUTHORITY_AMBIGUOUS):
+                call()
+        self.assertEqual(self.current.read_bytes(), current_bytes)
+        self.assertEqual(self.legacy.read_bytes(), legacy_bytes)
+
+    def test_both_filenames_resolve_through_the_version_two_receipt_only(self):
+        self._seed("7")
+        receipt = self._run()
+        state = migration.detect(self.index)
+        self.assertEqual((state["resolution"], state["authority_role"]), ("both", "current"))
+        self.assertIsNone(state["authority_diagnostic"])
+        self.assertIsNone(state["spurious_legacy"])
+        # Authority is never mtime, size or newest schema: break the recorded
+        # identity and the same two files become undecidable again.
+        receipt["published_sqlite_identity"] = {"device": 1, "inode": 1}
+        migration._write(self.index, receipt)
+        self.assertEqual(migration.detect(self.index)["authority_diagnostic"],
+                         migration.AUTHORITY_AMBIGUOUS)
+
+    def test_reappeared_retired_name_after_cutover_is_spurious_not_authority(self):
+        self._seed("7")
+        self._run()
+        self._verify_in_child()
+        migration.cleanup_legacy(self.root)
+        self.legacy.write_bytes(b"recreated by an old host")
+        state = migration.detect(self.index)
+        self.assertEqual(state["authority_role"], "current")
+        self.assertIsNone(state["authority_diagnostic"])
+        self.assertIn("old Wavefoundry host", state["spurious_legacy"])
+        # Preserved, and the published index keeps serving.
+        migration.require_ready(self.index)
+        self.assertEqual(self.legacy.read_bytes(), b"recreated by an old host")
+
+    def test_lance_era_source_converts_first_then_the_kind_installs_the_fence(self):
+        source = self._seed("6")
+        (self.index / "docs.lance").mkdir()
+        (self.index / "docs.lance/data").write_bytes(b"legacy source")
+        state = migration.detect(self.index)
+        self.assertEqual(state["legacy"], ["docs.lance"])
+        self.assertFalse(migration._kind_dispatch(state))
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
+            self.ctx.storage_migration_protocol = migration.PROTOCOL_LEGACY
+            converted = migration.prepare_upgrade(self.ctx)
+        self.assertEqual(converted["receipt_version"], migration.RECEIPT_VERSION_LEGACY)
+        with patch.object(migration, "_legacy_counts", return_value={"docs": 0, "code": 0}), \
+             patch.object(migration, "_legacy_batches", return_value=iter([])):
+            published = migration.migrate_legacy(self.root)
+        self.assertEqual(published["state"], "published")
+        self.assertTrue(self.current.is_file())
+        import sqlite_runtime
+        with contextlib.closing(sqlite_runtime.connect(self.current)) as conn, conn:
+            conn.execute("UPDATE build_state SET status='complete',attempt_id='fixture',generation=1 WHERE id=1")
+        migration.record_upgrade_publication(self.root)
+        self._verify_in_child()
+        final = migration.cleanup_legacy(self.root)
+        # Same upgrade: the kind superseded the completed conversion, so the
+        # version-2 fence is installed and the retired source is gone.
+        self.assertEqual((final["receipt_version"], final["kind"], final["state"]),
+                         (migration.RECEIPT_VERSION_CURRENT, migration.KIND_SCHEMA8, "complete"))
+        self.assertEqual(final["supersedes"]["receipt_version"], migration.RECEIPT_VERSION_LEGACY)
+        self.assertFalse(source.exists())
+        self.assertFalse((self.index / "docs.lance").exists())
+        self.assertFalse(migration.detect(self.index)["migration_required"])
+
+    def test_already_current_store_is_a_no_op(self):
+        self._seed(migration.SCHEMA_VERSION, name=self.current)
+        state = migration.detect(self.index)
+        self.assertFalse(state["kind_required"])
+        self.assertFalse(state["migration_required"])
+        self.assertIsNone(migration.prepare_upgrade(self.ctx))
+        self.assertEqual(migration.migrate_legacy(self.root)["state"], "not_applicable")
+
+    # --- the old-code fence ---------------------------------------------
+
+    def test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing(self):
+        self._seed("7")
+        self._run()
+        v1_source = subprocess.run(
+            ["git", "show", f"{V1_RECEIPT_READER_COMMIT}:.wavefoundry/framework/scripts/sqlite_storage_migration.py"],
+            cwd=str(SCRIPTS.parents[2]), capture_output=True, text=True)
+        if v1_source.returncode != 0:
+            self.skipTest("version-1 reader commit unavailable in this checkout")
+        module = self.root / "v1_storage_migration.py"
+        module.write_text(v1_source.stdout, encoding="utf-8")
+        for path in (self.legacy, *index_paths.sidecar_paths(self.legacy)):
+            if path.exists():
+                path.unlink()
+        program = (
+            "import importlib.util as u, sys;"
+            f"sys.path.insert(0, {str(SCRIPTS)!r});"
+            f"spec = u.spec_from_file_location('v1', {str(module)!r});"
+            "m = u.module_from_spec(spec); spec.loader.exec_module(m);"
+            f"m.require_ready({str(self.index)!r})"
+        )
+        child = subprocess.run([sys.executable, "-B", "-c", program],
+                               capture_output=True, text=True, cwd=str(self.root))
+        self.assertNotEqual(child.returncode, 0)
+        self.assertIn("MigrationRequired", child.stderr)
+        # The fence fires BEFORE any store is opened: nothing under the retired
+        # name is created, not the database and not its sidecars.
+        for path in (self.legacy, *index_paths.sidecar_paths(self.legacy)):
+            self.assertFalse(path.exists(), path)
+
+    def test_a_version_one_record_may_not_carry_a_kind_marker(self):
+        self._seed("7")
+        forged = {"receipt_version": migration.RECEIPT_VERSION_LEGACY, "kind": migration.KIND_SCHEMA8,
+                  "migration_id": "d" * 32, "index_dir": str(self.index.resolve()),
+                  "root_identity": migration._identity(self.root), "state": "complete",
+                  "old_hosts": [], "artifacts": {}}
+        (self.index / migration.RECEIPT).write_text(json.dumps(forged), encoding="utf-8")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_kind_unsupported"):
+            migration.read_receipt(self.index)
+
+    def test_an_unsupported_receipt_version_is_refused(self):
+        self._seed("7")
+        forged = {"receipt_version": 3, "kind": migration.KIND_SCHEMA8,
+                  "migration_id": "f" * 32, "index_dir": str(self.index.resolve()),
+                  "root_identity": migration._identity(self.root), "state": "complete",
+                  "old_hosts": [], "artifacts": {}}
+        (self.index / migration.RECEIPT).write_text(json.dumps(forged), encoding="utf-8")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_identity_mismatch"):
+            migration.read_receipt(self.index)
+
+    def test_a_completed_conversion_without_the_fence_still_requires_the_kind(self):
+        # The conversion published the current name, so the once-marker holds --
+        # but a version-1 record installs no fence, and a version-1 runner would
+        # read "complete", find nothing under the retired name and create a
+        # fresh empty database beside the published index.
+        self._seed(migration.SCHEMA_VERSION, name=self.current)
+        migration._write(self.index, {
+            "receipt_version": migration.RECEIPT_VERSION_LEGACY, "migration_id": "a" * 32,
+            "index_dir": str(self.index.resolve()), "root_identity": migration._identity(self.root),
+            "state": "complete", "old_hosts": [], "artifacts": {}, "reason": "legacy_storage",
+            "published_sqlite_identity": migration._identity(self.current)})
+        state = migration.detect(self.index)
+        self.assertTrue(state["fence_required"])
+        self.assertTrue(state["kind_required"])
+        self.assertTrue(state["migration_required"])
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_migration_required"):
+            migration.require_ready(self.index)
+
+    def test_stale_graph_rows_in_the_source_do_not_survive_the_staged_rebuild(self):
+        import graph_indexer
+        import sqlite_runtime
+        source = self._seed(migration.SCHEMA_VERSION)
+        with contextlib.closing(sqlite_runtime.connect(source)) as conn, conn:
+            conn.execute("INSERT INTO graph_nodes (node_id,label,kind,source_file,source_location,"
+                         "layer,external,attributes) VALUES ('ghost::stale','ghost','function',"
+                         "'deleted.py','1','project',0,'{}')")
+            conn.execute("INSERT INTO graph_file_state (path,layer,source_hash,record,extracted_at) "
+                         "VALUES ('deleted.py','project','stale',NULL,0)")
+            # Stamp the CURRENT builder version, so the ordinary builder sees no
+            # version mismatch and would keep these rows. Only the migration's
+            # own empty start drops them.
+            conn.execute("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)",
+                         (graph_indexer.GRAPH_META_PREFIX + "builder_version",
+                          str(graph_indexer.GRAPH_BUILDER_VERSION)))
+        self.assertTrue(migration.detect(self.index)["kind_required"])
+        import indexer
+        at_entry = {}
+        real_entry = indexer._build_index_locked
+        def record(root, **kwargs):
+            staged = index_paths.index_database_path(Path(kwargs["index_dir"]))
+            with contextlib.closing(sqlite_runtime.connect(staged, read_only=True)) as conn:
+                at_entry.update({table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                                 for table in ("graph_nodes", "graph_edges", "graph_file_state",
+                                               "graph_communities", "graph_merge_state")})
+            return real_entry(root, **kwargs)
+        with patch.object(indexer, "_build_index_locked", side_effect=record):
+            self._run()
+        # Procedure step 3: the builder starts from EMPTY graph, extraction and
+        # community tables — never seeded from the source's own graph rows.
+        self.assertEqual(at_entry, dict.fromkeys(at_entry, 0), at_entry)
+        with contextlib.closing(sqlite_runtime.connect(self.current, read_only=True)) as conn:
+            nodes = {row[0] for row in conn.execute("SELECT node_id FROM graph_nodes")}
+            files = {row[0] for row in conn.execute("SELECT path FROM graph_file_state")}
+        self.assertNotIn("ghost::stale", nodes)
+        self.assertNotIn("deleted.py", files)
+        self.assertTrue(any("helper" in node for node in nodes), nodes)
+
+    def test_the_staged_candidate_is_checkpointed_before_its_identity_is_recorded(self):
+        # Only the staged MAIN file is published, so its write-ahead log must be
+        # folded in before the candidate digest and identity are recorded.
+        self._seed("7")
+        seen = []
+        real = migration._quiesce_source
+        def spy(runtime, path):
+            seen.append(Path(path))
+            return real(runtime, path)
+        with patch.object(migration, "_quiesce_source", side_effect=spy):
+            receipt = self._run()
+        staged = migration.staged_database_path(
+            migration._staging_index_dir(self.index / receipt["work_dir"]))
+        self.assertEqual(seen, [staged, self.legacy])
+
+    def test_verification_refuses_a_kind_record_without_its_staged_rebuild_proof(self):
+        self._seed("7")
+        receipt = self._run()
+        receipt.pop("staged_rebuild")
+        migration._write(self.index, receipt)
+        with patch.object(migration.os, "getpid", return_value=os.getpid() + 10000):
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_staged_rebuild_unverified"):
+                migration.verify_migration(self.root)
+
+    def test_an_unknown_kind_is_refused(self):
+        self._seed("7")
+        forged = {"receipt_version": migration.RECEIPT_VERSION_CURRENT, "kind": "index_sqlite_schema9",
+                  "migration_id": "e" * 32, "index_dir": str(self.index.resolve()),
+                  "root_identity": migration._identity(self.root), "state": "complete",
+                  "old_hosts": [], "artifacts": {}}
+        (self.index / migration.RECEIPT).write_text(json.dumps(forged), encoding="utf-8")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_kind_unsupported"):
+            migration.read_receipt(self.index)
+
+    # --- protocol --------------------------------------------------------
+
+    def test_protocol_one_coordinator_still_pauses_for_the_kind(self):
+        import upgrade_extensions
+        self._seed("7")
+        scripts = self.root / ".wavefoundry/framework/scripts"
+        scripts.mkdir(parents=True)
+        for name in ("sqlite_storage_migration.py", "index_paths.py"):
+            shutil.copy2(SCRIPTS / name, scripts / name)
+        ctx = SimpleNamespace(root=self.root, from_version="1.22.0", to_version="1.23.0.test",
+                              zip_path=None, dry_run=False, yes=True,
+                              runner_protocol=2, storage_migration_protocol=migration.PROTOCOL_LEGACY)
+        stdout = io.StringIO()
+        # Hosts-stopped IS confirmed: only the declared protocol keeps the
+        # conversion out of this coordinator's process.
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as paused:
+                upgrade_extensions.post_extract(ctx)
+        self.assertEqual(paused.exception.code, 3)
+        self.assertIn('"status": "action_required"', stdout.getvalue())
+        self.assertIn("storage_restart_required", stdout.getvalue())
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual((receipt["receipt_version"], receipt["state"]),
+                         (migration.RECEIPT_VERSION_CURRENT, "restart_required"))
+        self.assertFalse(self.current.exists())
+        # The installed CLI, which declares 2, resumes the same record.
+        resumed = self._run()
+        self.assertEqual(resumed["migration_id"], receipt["migration_id"])
+        self.assertEqual(resumed["state"], "published")
+
+    def test_required_protocol_is_two_for_the_kind_and_one_for_the_conversion(self):
+        self.assertEqual(migration.required_protocol(None), migration.PROTOCOL_LEGACY)
+        self.assertEqual(migration.required_protocol({"receipt_version": 1}), migration.PROTOCOL_LEGACY)
+        self.assertEqual(migration.required_protocol({"receipt_version": 2}), migration.PROTOCOL_SCHEMA8)
+        import upgrade_wavefoundry as upgrade
+        context = upgrade.UpgradeContext(self.root, "1.22.0", "1.23.0", None, True)
+        self.assertEqual(context.storage_migration_protocol, migration.PROTOCOL_SCHEMA8)
+        self.assertEqual(context.runner_protocol, 2)
+
+    # --- staged rebuild preconditions ------------------------------------
+
+    def test_staged_rebuild_uses_a_nested_tree_its_own_preparation_and_a_preopened_store(self):
+        import indexer
+        import sqlite_vector_store
+        self._seed("7")
+        observed = {}
+        real_entry = indexer._build_index_locked
+        def record(root, **kwargs):
+            staging = Path(kwargs["index_dir"])
+            observed["root"] = Path(root)
+            observed["staging"] = staging
+            observed["preparation_index"] = kwargs["prepared"].index_dir
+            observed["spool"] = kwargs["prepared"].path
+            observed["content"] = kwargs["content"]
+            import sqlite_runtime
+            with contextlib.closing(sqlite_runtime.connect(
+                    index_paths.index_database_path(staging), read_only=True)) as conn:
+                observed["schema"] = conn.execute(
+                    "SELECT value FROM meta WHERE key='store_schema_version'").fetchone()[0]
+            return real_entry(root, **kwargs)
+        with patch.object(indexer, "_build_index_locked", side_effect=record):
+            self._run()
+        # The source walk gets the REAL repository root...
+        self.assertEqual(observed["root"], self.root)
+        # ...while every parent-derived path resolves inside the staging tree.
+        self.assertEqual(observed["staging"].name, "index")
+        self.assertEqual(observed["staging"].parent.name, ".wavefoundry")
+        self.assertEqual(observed["staging"].parent.parent.name[:len(migration.KIND_WORK_PREFIX)],
+                         migration.KIND_WORK_PREFIX)
+        self.assertEqual(indexer._test_run_lock_path(observed["staging"]).parents[2],
+                         observed["staging"].parent.parent)
+        # Empty graph-only preparation stays in RAM; any later overflow would
+        # belong to staging, never the live repository's index filesystem.
+        self.assertEqual(observed["preparation_index"], observed["staging"])
+        self.assertIsNone(observed["spool"])
+        # The pre-open already ran the legacy-to-current arm.
+        self.assertEqual(observed["schema"], migration.SCHEMA_VERSION)
+        self.assertEqual(observed["content"], "graph")
+
+    def test_a_failed_staged_rebuild_preserves_the_source_and_publishes_nothing(self):
+        import indexer
+        self._seed("7")
+        with patch.object(indexer, "_build_index_locked",
+                          return_value={"failed": True, "failure": "injected extractor failure"}):
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_staged_graph_rebuild_failed"):
+                self._run()
+        self.assertFalse(self.current.exists())
+        self.assertTrue(self.legacy.is_file())
+        self.assertIn("Recovery is FORWARD", migration._forward_recovery(self.legacy))
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual(receipt["state"], "staged")
+        # Forward: re-running from the retained source completes normally.
+        self.assertEqual(migration.migrate_legacy(self.root)["state"], "published")
+
+    # --- cutover and recovery --------------------------------------------
+
+    def test_interruption_after_replace_before_receipt_advance_adopts_by_identity(self):
+        import indexer
+        self._seed("7")
+        real_replace = os.replace
+        def interrupt(source, destination):
+            real_replace(source, destination)
+            # `migration.os` IS the os module, so only the cutover replace may
+            # be interrupted; the receipt's own durable write uses it too.
+            if Path(destination) == self.current:
+                raise KeyboardInterrupt("interrupted after filesystem publication")
+        with patch.object(migration.os, "replace", side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run()
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual(receipt["state"], "cutover_pending")
+        self.assertTrue(self.current.is_file())
+        # The recorded cutover identity decides; nothing is republished.
+        with patch.object(indexer, "_build_index_locked",
+                          side_effect=AssertionError("must not rebuild after publication")):
+            resumed = migration.migrate_legacy(self.root)
+        self.assertEqual(resumed["state"], "published")
+        self.assertEqual(migration._identity(self.current), resumed["published_sqlite_identity"])
+
+    def test_current_name_schema_seven_replacement_verifies_and_cleans_up(self):
+        self._seed("7", name=self.current)
+        original_identity = migration._identity(self.current)
+        receipt = self._run()
+        self.assertEqual(receipt["state"], "published")
+        self.assertNotEqual(migration._identity(self.current), original_identity)
+        self._verify_in_child()
+        final = migration.cleanup_legacy(self.root)
+        self.assertEqual(final["state"], "complete")
+        self.assertEqual(final["retired_source_bytes"], 0)
+        self.assertEqual(migration._identity(self.current), receipt["published_sqlite_identity"])
+        self.assertFalse((self.index / final["work_dir"]).exists())
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+
+    def _check_interruption_before_replace(self, source):
+        import indexer
+        self._seed("7", name=source)
+        with patch.object(migration.os, "replace", side_effect=self._interrupt_cutover_only()):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run()
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual(receipt["state"], "cutover_pending")
+        self.assertEqual(self.current.exists(), source == self.current)
+        with patch.object(indexer, "_build_index_locked",
+                          side_effect=AssertionError("must not rebuild a recorded candidate")):
+            resumed = migration.migrate_legacy(self.root)
+        self.assertEqual(resumed["state"], "published")
+        self.assertEqual(migration._file_hash(self.current), receipt["candidate_sha256"])
+        self._verify_in_child()
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+        self.assertTrue(self.current.is_file())
+
+    def test_interruption_before_replace_publishes_the_recorded_candidate(self):
+        self._check_interruption_before_replace(self.legacy)
+
+    def test_current_name_interruption_before_replace_publishes_recorded_candidate(self):
+        self._check_interruption_before_replace(self.current)
+
+    def test_current_name_retry_refuses_changed_source_bytes_or_identity(self):
+        self._seed("7", name=self.current)
+        with patch.object(migration.os, "replace", side_effect=self._interrupt_cutover_only()):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run()
+        original = self.current.read_bytes()
+        receipt = migration.read_receipt(self.index)
+        # Same inode, different bytes must not be overwritten by the candidate.
+        self.current.write_bytes(original + b"changed")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_cutover_recovery_required"):
+            migration.migrate_legacy(self.root)
+        self.assertEqual(self.current.read_bytes(), original + b"changed")
+        # Identical bytes on a replacement inode are also not the owned source.
+        replacement = self.index / "replacement.sqlite"
+        replacement.write_bytes(original)
+        os.replace(replacement, self.current)
+        self.assertNotEqual(migration._identity(self.current), receipt["source_sqlite_identity"])
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_cutover_recovery_required"):
+            migration.migrate_legacy(self.root)
+        self.assertEqual(self.current.read_bytes(), original)
+
+    def test_a_lost_candidate_refuses_and_names_forward_recovery(self):
+        self._seed("7")
+        with patch.object(migration.os, "replace", side_effect=self._interrupt_cutover_only()):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run()
+        receipt = migration.read_receipt(self.index)
+        staged = migration.staged_database_path(
+            migration._staging_index_dir(self.index / receipt["work_dir"]))
+        staged.unlink()
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_cutover_recovery_required"):
+            migration.migrate_legacy(self.root)
+        self.assertTrue(self.legacy.is_file())
+
+    def test_rollback_identities_are_retained_until_verification_and_never_served(self):
+        self._seed("7")
+        receipt = self._run()
+        rollback = migration._staging_index_dir(self.index / receipt["work_dir"]) / migration.STAGING_ROLLBACK_STEM
+        self.assertTrue(rollback.is_file())
+        self.assertEqual(migration._file_hash(rollback), receipt["rollback"]["sha256"])
+        self._verify_in_child()
+        self.assertTrue(rollback.is_file())
+        migration.cleanup_legacy(self.root)
+        self.assertFalse(rollback.exists())
+
+    def test_relocated_byte_identical_package_resumes_the_same_kind_record(self):
+        self._seed("7")
+        self.ctx.zip_path = self.root / "first.zip"
+        self.ctx.zip_path.write_bytes(b"identical archive")
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), contextlib.redirect_stdout(io.StringIO()):
+            self.ctx.storage_migration_protocol = 0
+            with self.assertRaises(SystemExit):
+                migration.prepare_upgrade(self.ctx)
+        original = migration.read_receipt(self.index)
+        self.ctx.zip_path.unlink()
+        self.ctx.zip_path = self.root / "second.zip"
+        self.ctx.zip_path.write_bytes(b"identical archive")
+        self.ctx.selected_feature_zip = self.root / "relocated.zip"
+        self.ctx.selected_feature_zip.write_bytes(b"identical archive")
+        self.ctx.storage_migration_protocol = migration.PROTOCOL_SCHEMA8
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
+            resumed = migration.prepare_upgrade(self.ctx)
+        self.assertEqual(resumed["migration_id"], original["migration_id"])
+        self.assertEqual(resumed["pack_sha256"], original["pack_sha256"])
+        self.assertEqual(resumed["pack_path"], str(self.ctx.selected_feature_zip))
+        self.ctx.zip_path.write_bytes(b"a different archive")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_pack_changed"):
+            migration.prepare_upgrade(self.ctx)
+
+    # --- cleanup ----------------------------------------------------------
+
+    def test_a_staging_refusal_deletes_nothing_and_a_retry_completes(self):
+        """The rehearsal's blocking defect, pinned (wave 1xny6 lane L6b).
+
+        Source retirement used to run BEFORE the staging walk, so an unexpected
+        entry in the staging index directory refused only AFTER the operator's
+        213 MB index had been deleted and recorded as retired -- and the retry
+        skipped retirement (``retired_source_bytes`` already present), re-entered
+        the same walk and refused again. A permanent block, with a message that
+        named no path.
+
+        Every validation now runs before anything irreversible: the refusal
+        names the offending path, the source is still present and BYTE-IDENTICAL,
+        no staged entry was destroyed on the way to the refusal, the receipt
+        records no retirement, and the retry completes.
+        """
+        self._seed("7")
+        receipt = self._run()
+        self._verify_in_child()
+        staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+        before_source = self.legacy.read_bytes()
+        before_staging = sorted(q.name for q in staging.iterdir())
+        intruder = staging / "not-ours.sqlite"
+        intruder.write_bytes(b"unknown staging artifact")
+        with self.assertRaises(migration.MigrationRequired) as caught:
+            migration.cleanup_legacy(self.root)
+        message = str(caught.exception)
+        self.assertIn("storage_cleanup_unknown_staging_artifact", message)
+        self.assertIn(str(intruder), message, "the refusal must NAME the offending path")
+        self.assertTrue(self.legacy.is_file(), "the source was deleted before the refusal")
+        self.assertEqual(self.legacy.read_bytes(), before_source)
+        self.assertNotIn("retired_source_bytes", migration.read_receipt(self.index),
+                         "a refusal must not record a retirement it did not perform")
+        self.assertEqual(sorted(q.name for q in staging.iterdir()),
+                         sorted([*before_staging, intruder.name]),
+                         "the walk destroyed staged entries on its way to the refusal")
+        intruder.unlink()
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+        self.assertFalse(self.legacy.exists())
+
+    def test_the_staged_build_produces_nothing_the_staging_classifier_refuses(self):
+        """Anti-drift oracle for ``_staging_allowlist`` / ``STAGING_DERIVED_DIRNAMES``.
+
+        The rehearsal's defect was not a typo: the staged rebuild runs the REAL
+        coordinator, and the coordinator legitimately produced a file the
+        hand-maintained allowlist did not cover (``memory-state.sqlite``, created
+        by ``index_state_store.memory_invalidate`` whenever the walk touches an
+        agent-memory record). The corpus here CARRIES such a record, so the
+        staged build takes that branch, and this test fails the moment the build
+        starts producing anything the classifier does not accept.
+        """
+        memory = self.root / "docs" / "agents" / "memory"
+        memory.mkdir(parents=True)
+        (memory / "mem-fixture.md").write_text(
+            "# Fixture memory\n\nA record so the staged build invalidates memory state.\n",
+            encoding="utf-8")
+        self._seed("7")
+        receipt = self._run()
+        staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+        produced = sorted(q.name for q in staging.iterdir())
+        self.assertIn(migration._memory_state_filename(), produced,
+                      "precondition: the staged build must have invalidated memory state")
+        # The classifier is the oracle: it refuses ANY entry it does not own,
+        # so a clean inventory IS the proof that the allowlist covers the build.
+        plan = migration._inventory_kind_staging(self.index / receipt["work_dir"])
+        classified = {q.name for q in plan["files"]} | {q.name for q in plan["trees"]}
+        self.assertTrue(set(produced) <= classified,
+                        f"unclassified staged output: {sorted(set(produced) - classified)}")
+        self._verify_in_child()
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+        self.assertFalse((self.index / receipt["work_dir"]).exists())
+
+    # --- procedure step 6: the retired graph folder's pre-deletion inventory --
+
+    def _graph_folder(self, *names: str) -> Path:
+        folder = self.index / migration.GRAPH_OUTPUT_DIRNAME
+        folder.mkdir(exist_ok=True)
+        for name in names:
+            (folder / name).write_bytes(b"retired graph artifact")
+        return folder
+
+    def test_the_inventory_preserves_the_whole_folder_for_every_unowned_shape(self):
+        """Unknown name, nested directory and link node each retain the folder.
+
+        The SHAPE cases deliberately wear OWNED names as well as unowned ones.
+        A classifier that only checked names would pass the unowned variants
+        while happily deleting a directory or following a symlink that happens
+        to be called ``framework-graph.json`` -- which is the destructive
+        direction procedure step 6 exists to prevent.
+        """
+        folder = self._graph_folder("project-graph.json", "project-graph-clusters.json")
+        owned_before = sorted(q.name for q in folder.iterdir())
+        cases = (
+            ("unknown-file", "operator-notes.txt",
+             lambda q: q.write_bytes(b"mine")),
+            ("nested-directory-unowned-name", "nested", lambda q: q.mkdir()),
+            ("nested-directory-OWNED-name", "framework-graph.json", lambda q: q.mkdir()),
+            ("symlink-node-unowned-name", "notes.link",
+             lambda q: q.symlink_to(self.root / "src" / "m.py")),
+            ("symlink-node-OWNED-name", "framework-graph-state.json",
+             lambda q: q.symlink_to(self.root / "src" / "m.py")),
+        )
+        for label, name, plant in cases:
+            with self.subTest(case=label):
+                entry = folder / name
+                try:
+                    plant(entry)
+                except (OSError, NotImplementedError) as exc:
+                    # Windows accounts without symlink privileges (and hosts
+                    # without link support) still exercise all ordinary shapes.
+                    unavailable = (isinstance(exc, NotImplementedError)
+                                   or getattr(exc, "winerror", None) == 1314
+                                   or getattr(exc, "errno", None) in
+                                   (errno.EPERM, errno.EACCES, errno.ENOTSUP))
+                    if label.startswith("symlink-node-") and unavailable:
+                        self.skipTest(f"Native symlink creation unavailable: {exc}")
+                    raise
+                plan = migration._inventory_retired_graph_directory(self.index)
+                self.assertEqual(plan["state"], migration.RETAINED_UNOWNED_CONTENTS, label)
+                self.assertEqual(plan["entries"], [name], label)
+                self.assertEqual(plan["bytes"], 0, label)
+                if entry.is_dir() and not entry.is_symlink():
+                    entry.rmdir()
+                else:
+                    entry.unlink()
+                self.assertEqual(sorted(q.name for q in folder.iterdir()), owned_before)
+        # With every planted shape gone the same folder classifies as removable,
+        # so the retention above is the SHAPE's doing and not a sticky verdict.
+        self.assertEqual(
+            migration._inventory_retired_graph_directory(self.index)["state"], "removable")
+
+    def test_inventory_symlink_denial_skips_only_link_cases(self):
+        case = type(self)(
+            "test_the_inventory_preserves_the_whole_folder_for_every_unowned_shape")
+        result = unittest.TestResult()
+        denied = OSError(errno.EACCES, "A required privilege is not held by the client")
+        denied.winerror = 1314
+        with patch.object(Path, "symlink_to", side_effect=denied), patch.object(
+                migration, "_inventory_retired_graph_directory",
+                wraps=migration._inventory_retired_graph_directory) as inventory:
+            case.run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+        self.assertEqual(len(result.skipped), 2)
+        self.assertTrue(all("Native symlink creation unavailable" in reason
+                            for _, reason in result.skipped))
+        # Three ordinary shapes and the final removable-folder control ran.
+        self.assertEqual(inventory.call_count, 4)
+
+    def test_the_inventory_accepts_owned_names_including_retired_framework_files(self):
+        folder = self._graph_folder(
+            "project-graph.json", "project-graph-clusters.json",
+            "project-graph-state.sqlite", "project-graph-state.sqlite-wal",
+            "project-graph-state.sqlite-shm", "project-graph-state.json",
+            ".codebase-map.fingerprint", "framework-graph.json",
+            "framework-graph-state.json", "framework-graph-clusters.json",
+            "project-graph.json.7f3a91.tmp")
+        plan = migration._inventory_retired_graph_directory(self.index)
+        self.assertEqual(plan["state"], "removable")
+        self.assertEqual(sorted(plan["entries"]), sorted(q.name for q in folder.iterdir()))
+        self.assertGreater(plan["bytes"], 0)
+
+    def test_an_absent_folder_is_absent_not_removable(self):
+        self.assertEqual(
+            migration._inventory_retired_graph_directory(self.index)["state"], "absent")
+
+    def test_cleanup_removes_a_wholly_owned_retired_graph_folder(self):
+        self._seed("7")
+        folder = self._graph_folder(
+            "project-graph.json", "project-graph-clusters.json",
+            "project-graph-state.sqlite", "project-graph-state.json",
+            ".codebase-map.fingerprint", "framework-graph.json",
+            "framework-graph-state.json", "framework-graph-clusters.json")
+        self._run()
+        self._verify_in_child()
+        final = migration.cleanup_legacy(self.root)
+        self.assertEqual(final["state"], "complete")
+        self.assertFalse(folder.exists(), "a normal framework-owned folder is removed completely")
+        self.assertEqual(final["graph_directory_cleanup"]["state"], "removed")
+
+    def test_cleanup_retains_an_unowned_retired_graph_folder_and_records_it(self):
+        self._seed("7")
+        folder = self._graph_folder("project-graph.json")
+        (folder / "operator-notes.txt").write_bytes(b"not ours")
+        self._run()
+        self._verify_in_child()
+        with patch("upgrade_wavefoundry._remove_retired_component",
+                   side_effect=AssertionError(
+                       "the whole-tree primitive was used as the classifier")):
+            final = migration.cleanup_legacy(self.root)
+        self.assertEqual(final["state"], "complete")
+        self.assertEqual(final["graph_directory_cleanup"]["state"],
+                         migration.RETAINED_UNOWNED_CONTENTS)
+        self.assertEqual(final["graph_directory_cleanup"]["entries"], ["operator-notes.txt"])
+        self.assertTrue((folder / "operator-notes.txt").is_file())
+        self.assertTrue((folder / "project-graph.json").is_file(),
+                        "an unowned entry preserves the WHOLE folder, not only itself")
+        # The rest of cleanup still completed: the retired source is gone.
+        self.assertFalse(self.legacy.exists())
+
+    def test_a_nonempty_write_ahead_log_preserves_the_retired_source(self):
+        self._seed("7")
+        self._run()
+        self._verify_in_child()
+        Path(str(self.legacy) + "-wal").write_bytes(b"committed frames not yet checkpointed")
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_cleanup_live_wal_changed"):
+            migration.cleanup_legacy(self.root)
+        self.assertTrue(self.legacy.is_file())
+
+    def test_cleanup_refuses_a_retired_source_whose_identity_changed(self):
+        self._seed("7")
+        self._run()
+        self._verify_in_child()
+        replaced = self.legacy.with_name("displaced.sqlite")
+        self.legacy.rename(replaced)
+        shutil.copy2(replaced, self.legacy)
+        with self.assertRaisesRegex(migration.MigrationRequired, "storage_cleanup_identity_changed"):
+            migration.cleanup_legacy(self.root)
+        self.assertTrue(self.legacy.is_file())
+
+    # --- module contract ---------------------------------------------------
+
+    def test_no_filename_literal_survives_in_the_migration_module(self):
+        src = (SCRIPTS / "sqlite_storage_migration.py").read_text(encoding="utf-8")
+        for name in (index_paths.INDEX_DATABASE_FILENAME,
+                     index_paths.LEGACY_INDEX_DATABASE_FILENAME):
+            self.assertNotIn(name, src, f"sqlite_storage_migration re-spells {name}")
+
+    def test_the_module_loads_by_path_without_the_scripts_directory_on_syspath(self):
+        # Exactly how upgrade_extensions.post_extract loads it from an old
+        # runner: by absolute path, with no guarantee about sys.path.
+        program = (
+            "import importlib.util as u, sys;"
+            f"sys.path = [p for p in sys.path if p not in ('', {str(SCRIPTS)!r})];"
+            f"spec = u.spec_from_file_location('probe', {str(SCRIPTS / 'sqlite_storage_migration.py')!r});"
+            "m = u.module_from_spec(spec); spec.loader.exec_module(m);"
+            "print(m.index_paths.RUNTIME_DATABASE_FILENAME)"
+        )
+        child = subprocess.run([sys.executable, "-B", "-c", program],
+                               capture_output=True, text=True, cwd=str(self.root))
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(child.stdout.strip(), index_paths.RUNTIME_DATABASE_FILENAME)

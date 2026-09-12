@@ -25,6 +25,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 REPO = SCRIPTS.parents[2]
 sys.path.insert(0, str(SCRIPTS))
 import upgrade_protocol
+import index_paths
 import sqlite_storage_migration as migration
 import upgrade_lib
 
@@ -94,13 +95,14 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         self.original_bootstrap = self.bootstrap.read_bytes()
         self.index = self.root / ".wavefoundry/index"
         self.index.mkdir()
-        self.database = self.index / "index-state.sqlite"
-        with contextlib.closing(sqlite3.connect(self.database)) as db, db:
+        self.source = index_paths.legacy_index_database_path(self.index)
+        self.database = index_paths.index_database_path(self.index)
+        with contextlib.closing(sqlite3.connect(self.source)) as db, db:
             db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
             db.execute("INSERT INTO meta VALUES('store_schema_version','6')")
             db.execute("CREATE TABLE preserved_memory(id TEXT PRIMARY KEY,body TEXT)")
             db.execute("INSERT INTO preserved_memory VALUES('memory-1','retain me')")
-        self.database_before = self.database.read_bytes()
+        self.database_before = self.source.read_bytes()
         # The legacy runner discovers its original locator through its ambient
         # finder; a highest-version fixture in the target wins over host packs.
         # The protocol/VERSION inside is the actual 1.23.0 target authority.
@@ -135,7 +137,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         receipt = migration.read_receipt(self.index)
         self.assertIsNotNone(receipt, first.stdout + first.stderr)
         self.assertEqual(receipt["state"], "restart_required")
-        self.assertEqual(self.database.read_bytes(), self.database_before)
+        self.assertEqual(self.source.read_bytes(), self.database_before)
         self.assertEqual(self.bootstrap.read_bytes(), self.original_bootstrap)
         self.assertFalse((self.root / "conversion-boundary.json").exists())
         self.assertEqual(self.runner.read_bytes(), (SCRIPTS / "upgrade_wavefoundry.py").read_bytes())
@@ -179,7 +181,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         failed = self.attempt(argv)
         self.assertNotEqual(failed.returncode, 77, failed.stdout + failed.stderr)
         self.assertIn("storage_pack_changed", failed.stdout + failed.stderr)
-        self.assertEqual(self.database.read_bytes(), self.database_before)
+        self.assertEqual(self.source.read_bytes(), self.database_before)
         self.assertEqual(self.bootstrap.read_bytes(), self.original_bootstrap)
         self.assertEqual(migration.read_receipt(self.index)["migration_id"], receipt["migration_id"])
         for path, body in saved_snapshots.items():
@@ -193,11 +195,12 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         self.assertEqual(self.bootstrap.read_bytes(), self.original_bootstrap)
         with contextlib.closing(sqlite3.connect(self.database)) as db, db:
             self.assertEqual(db.execute("SELECT body FROM preserved_memory").fetchone(), ("retain me",))
-            self.assertEqual(db.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(), ("7",))
+            self.assertEqual(db.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone(),
+                             (migration.SCHEMA_VERSION,))
         for path, body in saved_snapshots.items():
             self.assertEqual(path.read_bytes(), body)
         self.assertTrue((self.framework / "seeds/retired.md").exists())
-        rollback = self.index / converted["work_dir"] / "rollback.sqlite"
+        rollback = self.index / converted["work_dir"] / migration.STAGING_ROLLBACK_STEM
         self.assertTrue(rollback.is_file())
         with contextlib.closing(sqlite3.connect(rollback)) as db:
             self.assertEqual(db.execute("SELECT body FROM preserved_memory").fetchone(), ("retain me",))
@@ -282,13 +285,14 @@ class StorageRebuildPublicationTests(unittest.TestCase):
             {**java, "text": 'public String find(String value) { return "obsolete collision string"; }'},
             {**java, "text": 'public String find(int value) { return "obsolete collision integer"; }'},
         ])
-        self.live = self.index / "index-state.sqlite"
-        with contextlib.closing(sqlite3.connect(self.live)) as db, db:
+        self.source = index_paths.legacy_index_database_path(self.index)
+        self.live = index_paths.index_database_path(self.index)
+        with contextlib.closing(sqlite3.connect(self.source)) as db, db:
             db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
             db.execute("INSERT INTO meta VALUES('store_schema_version','6')")
             db.execute("CREATE TABLE preserved_memory(id TEXT PRIMARY KEY,body TEXT)")
             db.execute("INSERT INTO preserved_memory VALUES('memory-1','retain me')")
-        self.original = self.live.read_bytes()
+        self.original = self.source.read_bytes()
         self.ctx = SimpleNamespace(root=self.root, from_version="1.22.0", to_version="1.23.0+rebuild",
                                    zip_path=None, dry_run=False, storage_migration_protocol=1)
         from unittest.mock import patch
@@ -366,7 +370,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
     def test_duplicate_transfer_refuses_then_explicit_rebuild_publishes_current_sources(self):
         with self.assertRaisesRegex(Exception, "UNIQUE|duplicate"):
             migration.migrate_legacy(self.root)
-        self.assertEqual(self.live.read_bytes(), self.original)
+        self.assertEqual(self.source.read_bytes(), self.original)
         self.assertTrue((self.index / "docs.lance").is_dir())
         self.assertEqual(migration.read_receipt(self.index)["state"], "quiesced")
         self.select_rebuild()
@@ -457,7 +461,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
         self.select_rebuild()
         with self.assertRaisesRegex(migration.MigrationRequired, "models_unavailable"):
             self.run_parent("prewarm")
-        self.assertEqual(self.live.read_bytes(), self.original)
+        self.assertEqual(self.source.read_bytes(), self.original)
         self.assertTrue((self.index / "docs.lance").exists())
         self.assertNotIn("work_dir", migration.read_receipt(self.index))
 

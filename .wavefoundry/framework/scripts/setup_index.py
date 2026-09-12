@@ -551,10 +551,12 @@ def _load_indexer_module():
 
 
 def _optimize_after_build(root: Path) -> None:
-    """Run bounded shared/graph maintenance once after synchronous publication.
+    """Run bounded maintenance once after synchronous publication.
 
-    The indexer owns the build lock. Busy/error results remain visible and do
-    not turn routine setup into a full database rewrite.
+    Semantic and graph state share one database (wave 1xny6), so this reports
+    exactly one store line — one pass, one storage/reclamation entry. The
+    indexer owns the build lock. Busy/error results remain visible and do not
+    turn routine setup into a full database rewrite.
     """
     try:
         mod = _load_indexer_module()

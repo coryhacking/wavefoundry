@@ -20,16 +20,89 @@ import sys
 import shlex
 import subprocess
 
+try:  # normal import: the scripts directory is on sys.path
+    import index_paths
+except ImportError:  # pragma: no cover - exercised by the explicit-path load test
+    # ``upgrade_extensions.post_extract`` loads THIS module by absolute path,
+    # from an old runner whose sys.path need not contain the scripts directory.
+    # Resolve the sibling the same way rather than re-spelling a filename here.
+    import importlib.util as _util
+    _spec = _util.spec_from_file_location(
+        "index_paths", Path(__file__).resolve().parent / "index_paths.py")
+    index_paths = _util.module_from_spec(_spec)
+    _spec.loader.exec_module(index_paths)
+
 RECEIPT = "sqlite-migration.json"
 LEGACY_NAMES = ("docs.lance", "code.lance", "__manifest")
 STATES = {"restart_required", "quiesced", "staged", "validated", "cutover_pending",
           "published", "verified", "cleanup_pending", "complete"}
 READABLE_STATES = {"published", "verified", "cleanup_pending", "complete"}
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 # Shipped historical formats: schema 4 at a62d612a; schema 5 adds
-# layer_path_state at 2952df8f; schema 6 adds build_state at 6bcac5f1.
-# Existing auxiliary table definitions are identical across these versions.
-LEGACY_SCHEMA_VERSIONS = frozenset({"4", "5", "6"})
+# layer_path_state at 2952df8f; schema 6 adds build_state at 6bcac5f1;
+# schema 7 adds canonical chunks/vectors and external-content FTS at
+# 884f46bb. Existing auxiliary table definitions are identical across 4-6.
+# A schema-7 source DISPATCHES here (instead of raising
+# storage_schema_unsupported) and takes index_state_store's ADDITIVE 7 -> 8
+# arm, which preserves its FTS tables, digests and lexical statistics.
+LEGACY_SCHEMA_VERSIONS = frozenset({"4", "5", "6", "7"})
+# The schemas the VERSION-1 conversion owns: they predate the canonical-chunk
+# FTS contract and may still carry Lance artifacts beside them. A schema-7
+# source has nothing left for that conversion to do, so it dispatches straight
+# to the schema-8 kind.
+LEGACY_CONVERSION_SCHEMAS = frozenset({"4", "5", "6"})
+assert LEGACY_CONVERSION_SCHEMAS < LEGACY_SCHEMA_VERSIONS
+# Receipt versions. v1 is the LanceDB-era record; v2 is the schema-8 rename
+# record. v1 code's ``read_receipt`` rejects an unknown version outright, which
+# is exactly the old-code fence: once a v2 record exists, a v1 runner refuses
+# before it can open (or create) any database.
+RECEIPT_VERSION_LEGACY = 1
+RECEIPT_VERSION_CURRENT = 2
+SUPPORTED_RECEIPT_VERSIONS = frozenset({RECEIPT_VERSION_LEGACY, RECEIPT_VERSION_CURRENT})
+# The one migration kind a v2 record may declare.
+KIND_SCHEMA8 = "index_sqlite_schema8"
+KINDS = frozenset({KIND_SCHEMA8})
+# Protocol floor per record: the legacy conversion is protocol 1, the schema-8
+# kind requires a coordinator that declares 2. A coordinator declaring 1 (or
+# nothing) receives the restart handoff and the installed CLI resumes it.
+PROTOCOL_LEGACY = 1
+PROTOCOL_SCHEMA8 = 2
+# Roles, not strings: `source` is whichever owned name the record converts FROM,
+# `published` is always the current name after the schema-8 cutover.
+SOURCE_ROLE_LEGACY = "legacy"
+SOURCE_ROLE_CURRENT = "current"
+SOURCE_ROLES = (SOURCE_ROLE_LEGACY, SOURCE_ROLE_CURRENT)
+KIND_WORK_PREFIX = "index-migration-"
+LEGACY_WORK_PREFIX = "sqlite-migration-"
+STAGING_ROLLBACK_STEM = "rollback.sqlite"
+PREPARED_SPOOL_PREFIX = "wavefoundry-sqlite-prepared-"
+PREPARED_SPOOL_STEM = "prepared.sqlite"
+# The RETIRED graph-output folder under the index directory. Mirrors
+# graph_indexer.GRAPH_DIRNAME, spelled here so cleanup never imports the heavy
+# extractor module. Wave 1xny6 retired the derived writers that kept it alive,
+# so nothing recreates it and procedure step 6 removes it under the
+# pre-deletion inventory in `_inventory_retired_graph_directory`.
+GRAPH_OUTPUT_DIRNAME = "graph"
+# Derived-output directories the staged build writes beside the staged store.
+# They are framework-owned staging output, never published, and never seeded
+# from the source. The scan folder holds the secret-scan state the ordinary
+# build refreshes; it is the ONLY one left now that the transitional derived
+# graph writers are retired. Any OTHER directory under the staging index is an
+# unknown staging artifact. The staged-build production test named in
+# `_staging_allowlist` drives a REAL staged build and fails when the build
+# produces a directory this set does not cover.
+STAGING_DERIVED_DIRNAMES = frozenset({"scan"})
+# Receipt cleanup state when the retired graph folder held something this
+# migration does not own: the WHOLE folder is preserved and its entries are
+# reported (procedure step 6).
+RETAINED_UNOWNED_CONTENTS = "retained_unowned_contents"
+AUTHORITY_AMBIGUOUS = "storage_authority_ambiguous"
+SPURIOUS_LEGACY_GUIDANCE = (
+    "A database under the retired name reappeared beside the published index. It was NOT "
+    "adopted as authority and is preserved. An old Wavefoundry host (MCP server, dashboard "
+    "or a pre-upgrade CLI) is still running against this repository: stop it, then remove "
+    "the reappeared file only after confirming the published index is current."
+)
 INVOCATION_ENV = "WAVEFOUNDRY_STORAGE_INVOCATION"
 CONFIRM_ENV = "WAVEFOUNDRY_STORAGE_HOSTS_STOPPED"
 OLD_MCP_PID_ENV = "WAVEFOUNDRY_STORAGE_OLD_MCP_PID"
@@ -117,6 +190,151 @@ def _write(index_dir: Path, receipt: dict) -> None:
     _durable_json_replace(path, receipt)
 
 
+def is_kind_receipt(receipt: dict | None) -> bool:
+    """A version-2 record: the schema-8 kind, and the old-code fence."""
+    return bool(receipt) and receipt.get("receipt_version") == RECEIPT_VERSION_CURRENT
+
+
+def _source_role(receipt: dict | None) -> str:
+    """Which owned name a record converts FROM, by role and never by string."""
+    role = (receipt or {}).get("source_database", SOURCE_ROLE_LEGACY)
+    if role not in SOURCE_ROLES:
+        raise MigrationRequired("storage_receipt_source_role_invalid")
+    return role
+
+
+def _role_path(index_dir, role: str) -> Path:
+    if role == SOURCE_ROLE_CURRENT:
+        return index_paths.index_database_path(index_dir)
+    return index_paths.legacy_index_database_path(index_dir)
+
+
+def source_database_path(index_dir, receipt: dict | None) -> Path:
+    """The database a record reads FROM."""
+    return _role_path(index_dir, _source_role(receipt))
+
+
+def published_database_path(index_dir, receipt: dict | None) -> Path:
+    """The database a record's cutover publishes TO.
+
+    The schema-8 kind always publishes the CURRENT name; that rename is the
+    whole point of the kind. A version-1 record publishes onto the name
+    runtime consumers open, which is what it has always done — before the
+    rename that was the retired name, after it the current one.
+    """
+    if is_kind_receipt(receipt):
+        return index_paths.index_database_path(index_dir)
+    return index_paths.runtime_database_path(index_dir)
+
+
+def staged_database_path(work_index_dir) -> Path:
+    """The staged file, named for the store module that will OPEN it.
+
+    Staging is opened by ``IndexStateStore``/``sqlite_vector_store``, so its
+    name is the runtime binding, not the record's publication target.
+    """
+    return index_paths.runtime_database_path(work_index_dir)
+
+
+def _owned_database_names() -> frozenset:
+    return frozenset({index_paths.INDEX_DATABASE_FILENAME,
+                      index_paths.LEGACY_INDEX_DATABASE_FILENAME})
+
+
+def _family_names(stem: str) -> tuple:
+    base = Path(stem)
+    return (base.name, *(path.name for path in index_paths.sidecar_paths(base)))
+
+
+def _memory_state_filename() -> str:
+    """The memory database's name, read from the module that CREATES it.
+
+    Lazy because ``index_state_store`` imports this module; taking the name
+    from its owner rather than copying the string is what keeps the staging
+    allowlist derived instead of hand-maintained.
+    """
+    import index_state_store
+
+    return index_state_store.MEMORY_STATE_FILENAME
+
+
+def _staging_allowlist() -> frozenset:
+    """Every FILE the staged build legitimately leaves under the staging index.
+
+    Composed from the producing modules' own canonical names, never a copied
+    literal: both owned database names and the rollback copy (``index_paths``),
+    and the memory state database (``index_state_store``).
+
+    Both database names are listed because a record staged before the runtime
+    rename resumes under code that stages after it; either name inside a
+    receipt-owned work directory is ours.
+
+    ``memory-state.sqlite`` is listed because the staged rebuild runs the REAL
+    coordinator, which invalidates memory state whenever the walk touches an
+    agent-memory record, and the memory reader-writer creates its database in
+    whatever index directory it is handed -- so on any repository carrying
+    memory records the staged build DOES produce it beside the staged store.
+    It is staging output that is never published: a freshly minted epoch at
+    generation 1 with no writer token, so discarding it discards nothing. The
+    live repository's own memory state is a different file in a different
+    directory and is never touched.
+
+    ``SchemaEightKindTests.test_the_staged_build_produces_nothing_the_staging_``
+    ``classifier_refuses`` drives a REAL staged build over a corpus that
+    includes a memory record and fails when the build starts producing
+    something this function does not cover.
+    """
+    names = set()
+    for stem in _owned_database_names() | {STAGING_ROLLBACK_STEM, _memory_state_filename()}:
+        names.update(_family_names(stem))
+    return frozenset(names)
+
+
+def _retired_graph_allowlist() -> frozenset:
+    """Owned names inside the RETIRED ``<index>/graph/`` folder.
+
+    Procedure step 6's owned-name allowlist, exactly as written: the current
+    project artifacts, the standalone graph state store with its sidecars, the
+    legacy JSON state file, the framework-owned map fingerprint marker, and the
+    retired framework-layer files some installs still carry. The atomic
+    writers' ``<owned name>.*.tmp`` siblings are matched by
+    :func:`_is_owned_graph_entry`, not listed here.
+
+    Cleanup is the only code that still needs to NAME these files -- wave
+    1xny6 retired ``index_state_store.GRAPH_STATE_STORE_RELPATH`` with its last
+    reader -- so the list lives with the arm that deletes them.
+    """
+    return frozenset({"project-graph.json", "project-graph-clusters.json",
+                      "project-graph-state.json", ".codebase-map.fingerprint",
+                      "framework-graph.json", "framework-graph-state.json",
+                      "framework-graph-clusters.json",
+                      *_family_names("project-graph-state.sqlite")})
+
+
+def _is_owned_graph_entry(name: str) -> bool:
+    """An owned name, or one of the atomic writers' ``<owned>.*.tmp`` siblings.
+
+    ``graph_indexer._write_json`` and ``graph_cluster._write_json`` promote
+    through ``tempfile.mkstemp(prefix=<owned name> + ".", suffix=".tmp")``, so a
+    crash between create and ``os.replace`` leaves exactly that shape behind.
+    """
+    owned = _retired_graph_allowlist()
+    if name in owned:
+        return True
+    if not name.endswith(".tmp"):
+        return False
+    return any(name.startswith(stem + ".") for stem in owned)
+
+
+def _work_prefix(receipt: dict | None) -> str:
+    """A distinct work-dir prefix per record kind.
+
+    Version-1 and version-2 staging never adopt each other's directory, so a
+    resumed record cannot inherit a candidate built under the other contract.
+    """
+    return KIND_WORK_PREFIX if is_kind_receipt(receipt) else LEGACY_WORK_PREFIX
+
+
 def read_receipt(index_dir: Path) -> dict | None:
     path = _safe(Path(index_dir) / RECEIPT)
     if not path.exists():
@@ -125,25 +343,38 @@ def read_receipt(index_dir: Path) -> dict | None:
         value = json.loads(path.read_text("utf-8"))
     except (OSError, ValueError) as exc:
         raise MigrationRequired("storage_receipt_unreadable") from exc
-    if (not isinstance(value, dict) or value.get("receipt_version") != 1
+    if (not isinstance(value, dict) or value.get("receipt_version") not in SUPPORTED_RECEIPT_VERSIONS
             or value.get("state") not in STATES
             or not re.fullmatch(r"[0-9a-f]{32}", str(value.get("migration_id", "")))
             or value.get("index_dir") != str(Path(index_dir).resolve())
             or value.get("root_identity") != _identity(Path(index_dir).parent.parent)):
         raise MigrationRequired("storage_receipt_identity_mismatch")
+    if value["receipt_version"] == RECEIPT_VERSION_CURRENT:
+        if value.get("kind") not in KINDS:
+            raise MigrationRequired("storage_receipt_kind_unsupported")
+        _source_role(value)
+        superseded = value.get("supersedes")
+        if superseded is not None and (not isinstance(superseded, dict)
+                or superseded.get("receipt_version") != RECEIPT_VERSION_LEGACY):
+            raise MigrationRequired("storage_receipt_supersedes_invalid")
+    elif value.get("kind") is not None:
+        # A version-1 record carrying a kind marker is rejected outright: old
+        # code tolerates the unknown field and would NOT fence on it, so the
+        # marker would advertise a migration the fence cannot enforce.
+        raise MigrationRequired("storage_receipt_kind_unsupported")
     return value
 
 
-def _sqlite_schema(index_dir: Path) -> str:
-    """Read the single schema authority through a qualified WAL-aware snapshot.
+def _database_schema(path: Path) -> str:
+    """Read one database's schema through a qualified WAL-aware snapshot.
 
     Bootstrap hosts may lack the incoming runtime. An existing file then needs
     a restart checkpoint and a qualified probe after normal dependency setup.
     File headers are never schema authority: committed metadata may be in WAL.
     """
-    path = _safe_sqlite(index_dir / "index-state.sqlite")
+    path = _safe_sqlite(Path(path))
     if not path.exists():
-        if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm")):
+        if any(sidecar.exists() for sidecar in index_paths.sidecar_paths(path)):
             raise MigrationRequired("storage_schema_unreadable: orphan SQLite sidecars retained; recover before setup")
         return "absent"
     identity = _identity(path)
@@ -161,7 +392,7 @@ def _sqlite_schema(index_dir: Path) -> str:
     try:
         row = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
         if _identity(path) != identity:
-            raise MigrationRequired("storage_source_identity_changed: index-state.sqlite")
+            raise MigrationRequired(f"storage_source_identity_changed: {path.name}")
         return str(row[0]) if row else "unknown"
     except MigrationRequired:
         raise
@@ -171,26 +402,114 @@ def _sqlite_schema(index_dir: Path) -> str:
         conn.close()
 
 
+def _identity_if_present(path: Path) -> dict | None:
+    path = _safe(Path(path))
+    return _identity(path) if path.exists() else None
+
+
+def _resolve_authority(resolution: dict, receipt: dict | None) -> tuple:
+    """Decide which of two owned names is authority, or refuse to decide.
+
+    Never mtime, never size, never "newest schema": only one name present, or
+    a version-2 receipt whose recorded identities still match what is on disk.
+    """
+    state = resolution["state"]
+    if state == index_paths.ABSENT:
+        return None, None, None
+    if state == index_paths.CURRENT:
+        return SOURCE_ROLE_CURRENT, None, None
+    if state == index_paths.LEGACY:
+        return SOURCE_ROLE_LEGACY, None, None
+    if (receipt and receipt["state"] in READABLE_STATES | {"cutover_pending"}
+            and receipt.get("published_sqlite_identity")
+            and _identity_if_present(resolution["current_path"]) == receipt["published_sqlite_identity"]):
+        # The recorded cutover identity landed on the current name: that file is
+        # authority. `cutover_pending` counts because the intent was recorded
+        # durably BEFORE the replace, so an interruption on either side of it is
+        # decidable by identity alone. The retained source stays until cleanup;
+        # anything else under the retired name is spurious.
+        retained = receipt.get("source_sqlite_identity")
+        reappeared = (receipt["state"] == "complete" or retained is None
+                      or _identity_if_present(resolution["legacy_path"]) != retained)
+        return SOURCE_ROLE_CURRENT, None, (SPURIOUS_LEGACY_GUIDANCE if reappeared else None)
+    return None, AUTHORITY_AMBIGUOUS, None
+
+
 def detect(index_dir: Path) -> dict:
     index_dir = _safe(Path(index_dir))
     receipt = read_receipt(index_dir)
     legacy = [name for name in LEGACY_NAMES if (index_dir / name).exists()
               or (index_dir / name).is_symlink()]
-    schema = _sqlite_schema(index_dir) if receipt is None else "receipt_owned"
-    if schema not in {"absent", "runtime_unavailable", "receipt_owned", SCHEMA_VERSION} | LEGACY_SCHEMA_VERSIONS:
-        raise MigrationRequired(f"storage_schema_unsupported: {schema}; preserve the shared database")
-    return {"legacy": legacy, "receipt": receipt, "sqlite_schema": schema,
-            "migration_required": bool((legacy or schema in LEGACY_SCHEMA_VERSIONS | {"runtime_unavailable"}) and not receipt
-                                       or receipt and receipt["state"] not in READABLE_STATES)}
+    resolution = index_paths.resolve_index_database(index_dir)
+    # Authority comes from presence plus the receipt, never from a schema
+    # comparison: "newest schema wins" is exactly the destructive guess.
+    authority_role, diagnostic, spurious = _resolve_authority(resolution, receipt)
+    # ALWAYS probe BOTH owned names. Receipt presence never short-circuits the
+    # probe: the durable once-marker is meta.store_schema_version in the
+    # published database, not a state word in a JSON file. A probe failure on
+    # the name that is NOT authority is recorded, not raised — a file an old
+    # host dropped beside the published index must be reported and preserved,
+    # never allowed to take the repository down.
+    schemas = {}
+    for role in SOURCE_ROLES:
+        path = resolution["current_path"] if role == SOURCE_ROLE_CURRENT else resolution["legacy_path"]
+        try:
+            schemas[role] = _database_schema(path)
+        except MigrationRequired:
+            # Tolerate ONLY when a different name is the proven authority. With
+            # no proven authority the undecidable probe must raise: `absent` is
+            # the one state that authorizes creating a database, so an orphan
+            # sidecar or an unreadable file may never read as a fresh index.
+            if authority_role is None or role == authority_role:
+                raise
+            schemas[role] = "unreadable"
+    authority_schema = schemas[authority_role] if authority_role else "absent"
+    if authority_schema not in {"absent", "runtime_unavailable", SCHEMA_VERSION} | LEGACY_SCHEMA_VERSIONS:
+        raise MigrationRequired(f"storage_schema_unsupported: {authority_schema}; preserve the shared database")
+    # The once-marker: schema 8 under the CURRENT name, nothing else.
+    marker_satisfied = (authority_role == SOURCE_ROLE_CURRENT
+                        and authority_schema == SCHEMA_VERSION)
+    # A COMPLETED version-1 record that published the current name satisfies the
+    # marker but installs no fence: a version-1 runner reads "complete", finds
+    # nothing under the retired name and creates a fresh empty database beside
+    # the published index. The kind's version-2 record is that fence.
+    fence_required = bool(receipt and not is_kind_receipt(receipt)
+                          and receipt["state"] == "complete"
+                          and receipt.get("published_sqlite_identity")
+                          and marker_satisfied)
+    kind_required = (bool(authority_role) and not marker_satisfied) or fence_required
+    active_pending = receipt is not None and receipt["state"] not in READABLE_STATES
+    # A record whose own state reads "done" does NOT clear a still-unsatisfied
+    # once-marker: a published version-1 conversion still owes the rename.
+    kind_can_start = kind_required and (receipt is None or receipt["state"] in READABLE_STATES)
+    return {"legacy": legacy, "receipt": receipt,
+            "sqlite_schema": "ambiguous" if diagnostic else authority_schema,
+            "resolution": resolution["state"], "schemas": schemas,
+            "authority_role": authority_role,
+            "authority_path": _role_path(index_dir, authority_role) if authority_role else None,
+            "kind_required": kind_required, "fence_required": fence_required,
+            "authority_diagnostic": diagnostic,
+            "spurious_legacy": spurious,
+            "migration_required": bool(
+                active_pending or kind_can_start or diagnostic
+                or (receipt is None and (legacy or authority_schema == "runtime_unavailable")))}
 
 
 def require_ready(index_dir: Path, allow_migration: bool = False) -> None:
-    state = detect(index_dir)
-    receipt = state["receipt"]
+    # The publication fence runs BEFORE any schema probe: when the receipt-owned
+    # cutover file has been replaced, that is the accurate diagnostic, and a
+    # probe of the replaced file would report an unreadable schema instead.
+    receipt = read_receipt(Path(index_dir))
     if receipt and receipt["state"] in READABLE_STATES - {"complete"}:
         _published_identity(Path(index_dir), receipt)
+    state = detect(index_dir)
     if allow_migration:
         return
+    if state["authority_diagnostic"]:
+        raise MigrationRequired(
+            state["authority_diagnostic"] + ": both index database names exist and no version-2 "
+            "receipt proves which is authority. Both files are preserved; recover the intended "
+            "one with the standard upgrade rather than deleting either.")
     if state["migration_required"]:
         raise MigrationRequired("storage_migration_required: run wf_upgrade; restart old hosts and resume the retained checkpoint")
 
@@ -500,14 +819,84 @@ def _pack_locator(ctx, consumed_pack: Path, digest: str) -> str:
     return str(consumed_pack)
 
 
+def _kind_dispatch(state: dict) -> bool:
+    """Is the NEXT record the schema-8 kind, or the legacy conversion first?
+
+    A Lance-era source (artifacts present, or a schema this module's version-1
+    conversion owns) takes the version-1 conversion first, unchanged. The kind
+    then runs on its result.
+    """
+    if not state["kind_required"]:
+        return False
+    if state["legacy"]:
+        return False
+    return state["schemas"][state["authority_role"]] not in LEGACY_CONVERSION_SCHEMAS
+
+
+def required_protocol(receipt: dict | None) -> int:
+    """The coordinator protocol a record needs to convert in-process."""
+    return PROTOCOL_SCHEMA8 if is_kind_receipt(receipt) else PROTOCOL_LEGACY
+
+
+def _new_receipt(ctx, root: Path, index_dir: Path, state: dict,
+                 superseded: dict | None = None) -> dict:
+    """Create the next record. One receipt file; one active record."""
+    old_hosts = list(getattr(ctx, "storage_old_hosts", []) if ctx is not None else [])
+    identified_mcp_pid = os.environ.get(OLD_MCP_PID_ENV)
+    if identified_mcp_pid:
+        if not identified_mcp_pid.isdecimal() or int(identified_mcp_pid) <= 0:
+            raise MigrationRequired("storage_host_identity_invalid")
+        old_hosts.append({"kind": "mcp", "pid": int(identified_mcp_pid),
+                          "source": "initiating_mcp_wrapper"})
+    upgrading_without_index = (bool(getattr(ctx, "from_version", None) if ctx is not None else None)
+                               and state["authority_role"] is None)
+    kind = _kind_dispatch(state)
+    role = state["authority_role"] or SOURCE_ROLE_LEGACY
+    source = _role_path(index_dir, role)
+    receipt = {"receipt_version": RECEIPT_VERSION_CURRENT if kind else RECEIPT_VERSION_LEGACY,
+               "migration_id": uuid.uuid4().hex,
+               "index_dir": str(index_dir.resolve()), "root_identity": _identity(root),
+               "source_version": getattr(ctx, "from_version", None) if ctx is not None else None,
+               "target_version": getattr(ctx, "to_version", None) if ctx is not None else None,
+               "pack_path": str(Path(ctx.zip_path).resolve()) if getattr(ctx, "zip_path", None) else None,
+               "pack_sha256": _file_hash(Path(ctx.zip_path)) if getattr(ctx, "zip_path", None) else None,
+               "state": "restart_required", "old_hosts": old_hosts,
+               "reason": ("index_database_rename" if kind
+                          else "existing_framework_without_index" if upgrading_without_index
+                          else "legacy_storage"),
+               "source_database": role,
+               "source_sqlite_identity": _identity_if_present(source),
+               "artifacts": {name: _identity(index_dir / name) for name in state["legacy"]}}
+    if kind:
+        receipt["kind"] = KIND_SCHEMA8
+        if superseded is not None:
+            receipt["supersedes"] = superseded
+        # The kind inherits the completed record's retired artifacts so one
+        # cleanup arm owns everything the chained conversion left behind.
+        if superseded is not None and superseded.get("artifacts"):
+            receipt["artifacts"] = {name: identity for name, identity
+                                    in superseded["artifacts"].items()
+                                    if (index_dir / name).exists()}
+    elif superseded is not None:
+        raise MigrationRequired("storage_receipt_supersedes_invalid")
+    return receipt
+
+
 def prepare_upgrade(ctx) -> dict | None:
     root = Path(ctx.root).resolve()
     index_dir = root / ".wavefoundry" / "index"
     state = detect(index_dir)
     receipt = state["receipt"]
+    if state["authority_diagnostic"]:
+        raise MigrationRequired(
+            state["authority_diagnostic"] + ": both index database names exist and no version-2 "
+            "receipt proves which is authority. Both files are preserved; stop every Wavefoundry "
+            "host and recover the intended database before resuming the upgrade.")
     if getattr(ctx, "rebuild_storage", False) and (
-            (receipt is None and not state["migration_required"])
-            or (receipt is not None and receipt["state"] == "complete")):
+            is_kind_receipt(receipt) or _kind_dispatch(state)
+            or (receipt is None and not state["migration_required"])
+            or (receipt is not None and receipt["state"] == "complete"
+                and not state["kind_required"])):
         raise MigrationRequired("storage_rebuild_not_applicable: no pending legacy storage conversion")
     # An existing framework can have a loaded old MCP writer even before its
     # first index exists. Fence that upgrade before setup creates schema 7.
@@ -515,33 +904,22 @@ def prepare_upgrade(ctx) -> dict | None:
     # fresh installer has none. Conservatively this also restarts a current,
     # never-indexed target once, without introducing a second capability marker.
     upgrading_without_index = (bool(getattr(ctx, "from_version", None))
-                               and state["sqlite_schema"] == "absent")
+                               and state["authority_role"] is None)
     if not state["migration_required"] and receipt is None and not upgrading_without_index:
         return None
     if getattr(ctx, "dry_run", False):
-        return {"state": "restart_required", "legacy": state["legacy"]}
+        return {"state": "restart_required", "legacy": state["legacy"],
+                "kind": KIND_SCHEMA8 if _kind_dispatch(state) else None}
     if receipt is None:
-        old_hosts = list(getattr(ctx, "storage_old_hosts", []))
-        identified_mcp_pid = os.environ.get(OLD_MCP_PID_ENV)
-        if identified_mcp_pid:
-            if not identified_mcp_pid.isdecimal() or int(identified_mcp_pid) <= 0:
-                raise MigrationRequired("storage_host_identity_invalid")
-            old_hosts.append({"kind": "mcp", "pid": int(identified_mcp_pid),
-                              "source": "initiating_mcp_wrapper"})
-        receipt = {"receipt_version": 1, "migration_id": uuid.uuid4().hex,
-                   "index_dir": str(index_dir.resolve()), "root_identity": _identity(root),
-                   "source_version": getattr(ctx, "from_version", None),
-                   "target_version": getattr(ctx, "to_version", None),
-                   "pack_path": str(Path(ctx.zip_path).resolve()) if getattr(ctx, "zip_path", None) else None,
-                   "pack_sha256": _file_hash(Path(ctx.zip_path)) if getattr(ctx, "zip_path", None) else None,
-                   "state": "restart_required", "old_hosts": old_hosts,
-                   "reason": "existing_framework_without_index" if upgrading_without_index else "legacy_storage",
-                   "source_sqlite_identity": (_identity(index_dir / "index-state.sqlite")
-                                              if (index_dir / "index-state.sqlite").exists() else None),
-                   "artifacts": {name: _identity(index_dir / name) for name in state["legacy"]}}
+        receipt = _new_receipt(ctx, root, index_dir, state)
         _write(index_dir, receipt)
-    if receipt["state"] == "complete":
-        return receipt
+    elif receipt["state"] == "complete":
+        if not state["kind_required"]:
+            return receipt
+        # The completed record's once-marker is satisfied; the next one is the
+        # schema-8 kind, which supersedes it in the same receipt file.
+        receipt = _new_receipt(ctx, root, index_dir, state, superseded=receipt)
+        _write(index_dir, receipt)
     if (getattr(ctx, "to_version", None) and receipt.get("target_version")
             and ctx.to_version != receipt["target_version"]):
         raise MigrationRequired("storage_target_changed: recover the recorded upgrade first")
@@ -559,7 +937,12 @@ def prepare_upgrade(ctx) -> dict | None:
         receipt["pack_path"] = _pack_locator(ctx, consumed_pack, expected)
         _write(index_dir, receipt)
     _select_strategy(ctx, index_dir, receipt)
-    if receipt["state"] in READABLE_STATES and getattr(ctx, "storage_migration_protocol", 0) == 1:
+    # The kind needs a coordinator that declares protocol 2; the version-1
+    # conversion needs only 1. A coordinator declaring less receives the
+    # existing restart handoff and the installed CLI resumes it.
+    protocol = int(getattr(ctx, "storage_migration_protocol", 0) or 0)
+    qualified = protocol >= required_protocol(receipt)
+    if receipt["state"] in READABLE_STATES and qualified:
         return receipt
     if receipt["state"] in READABLE_STATES:
         raise MigrationRequired("storage_current_runner_required: resume using the installed upgrade CLI; storage was already published")
@@ -568,7 +951,7 @@ def prepare_upgrade(ctx) -> dict | None:
     # Old archive dispatchers cannot honor new storage guards; always unwind
     # their installing invocation before running any native conversion.
     confirmed = os.environ.get(CONFIRM_ENV) == "1"
-    if getattr(ctx, "storage_migration_protocol", 0) != 1 or not confirmed:
+    if not qualified or not confirmed:
         _pause_for_restart(ctx, receipt)
     _hosts_gone(receipt)
     receipt["hosts_stopped_confirmed"] = True
@@ -793,6 +1176,10 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
     index_dir = root / ".wavefoundry" / "index"
     state = detect(index_dir)
     receipt = state["receipt"]
+    if state["authority_diagnostic"]:
+        raise MigrationRequired(
+            state["authority_diagnostic"] + ": both index database names exist and no version-2 "
+            "receipt proves which is authority; both files are preserved")
     rebuild = rebuild_requested(receipt)
     if not state["migration_required"] and receipt is None:
         return {"state": "not_applicable"}
@@ -802,7 +1189,11 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
     if receipt["state"] in READABLE_STATES:
         if receipt["state"] != "complete":
             _published_identity(index_dir, receipt)
-        return receipt
+        if not (state["kind_required"] and not is_kind_receipt(receipt)):
+            return receipt
+        # The version-1 conversion finished its package-bound recovery; the
+        # schema-8 kind now runs on its result, in this same upgrade.
+        receipt = _begin_chained_kind(root, index_dir, receipt, state, hosts_stopped)
     if not (hosts_stopped or receipt.get("hosts_stopped_confirmed")) or receipt["state"] == "restart_required":
         raise MigrationRequired("storage_restart_required")
     _refresh_hosts(root, receipt)
@@ -824,14 +1215,17 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
                 f"{exc}; storage migration paused before staging or cutover. "
                 "Original stores, candidate and receipt are retained; correct the runtime or "
                 "filesystem requirement and resume standard wf_upgrade.") from exc
+        if is_kind_receipt(receipt):
+            return _migrate_schema8(root, index_dir, receipt, runtime, state_store)
+        source_path = source_database_path(index_dir, receipt)
         if receipt["state"] != "cutover_pending":
             source_identity = receipt.get("source_sqlite_identity")
-            if source_identity is not None and _identity(index_dir / "index-state.sqlite") != source_identity:
-                raise MigrationRequired("storage_source_identity_changed: index-state.sqlite")
+            if source_identity is not None and _identity(source_path) != source_identity:
+                raise MigrationRequired(f"storage_source_identity_changed: {source_path.name}")
             if ("source_sqlite_identity" in receipt and source_identity is None
-                    and (index_dir / "index-state.sqlite").exists()):
-                raise MigrationRequired("storage_source_identity_changed: unexpected index-state.sqlite")
-            schema = _sqlite_schema(index_dir)
+                    and source_path.exists()):
+                raise MigrationRequired(f"storage_source_identity_changed: unexpected {source_path.name}")
+            schema = _database_schema(source_path)
             if schema == "runtime_unavailable":
                 raise MigrationRequired(
                     "storage_runtime_restart_required: run wf setup to provision the pinned native runtime; "
@@ -868,16 +1262,18 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
             _write(index_dir, receipt)
         fingerprint = _source_fingerprint(index_dir, receipt)
         source_size = sum((index_dir / name).stat().st_size for name in fingerprint)
-        live_size = (index_dir / "index-state.sqlite").stat().st_size if (index_dir / "index-state.sqlite").exists() else 0
+        live_size = source_path.stat().st_size if source_path.exists() else 0
         if shutil.disk_usage(index_dir).free < source_size * 2 + live_size * 2 + 64 * 1024 * 1024:
             raise MigrationRequired("storage_disk_space_insufficient: retain original stores and free staging space")
-        work = _safe(index_dir / ("sqlite-migration-" + receipt["migration_id"]))
+        work = _safe(index_dir / (LEGACY_WORK_PREFIX + receipt["migration_id"]))
         if work.exists() and receipt.get("work_identity") != _identity(work):
             raise MigrationRequired("storage_staging_identity_changed")
         work.mkdir(exist_ok=True)
-        live = _safe_sqlite(index_dir / "index-state.sqlite")
-        staged = _safe_sqlite(work / "index-state.sqlite")
-        backup = _safe_sqlite(work / "rollback.sqlite")
+        live = _safe_sqlite(published_database_path(index_dir, receipt))
+        # Staging is named for the store module that OPENS it, not for the
+        # record's publication target.
+        staged = _safe_sqlite(staged_database_path(work))
+        backup = _safe_sqlite(work / STAGING_ROLLBACK_STEM)
         receipt["work_dir"] = work.name
         receipt["work_identity"] = _identity(work)
         _write(index_dir, receipt)
@@ -891,16 +1287,17 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
                 _write(index_dir, receipt)
                 return receipt
             if (staged.exists() and _file_hash(staged) == receipt.get("candidate_sha256")
-                    and (not live.exists() and receipt.get("original_sha256") is None
-                         or live.exists() and _file_hash(live) == receipt.get("original_sha256"))):
+                    and (not source_path.exists() and receipt.get("original_sha256") is None
+                         or source_path.exists() and _file_hash(source_path) == receipt.get("original_sha256"))
+                    and (live == source_path or not live.exists())):
                 return _publish_candidate(root, receipt, staged, live)
             raise MigrationRequired("storage_cutover_recovery_required: retained candidate and rollback need verification")
-        for candidate in (staged, Path(str(staged) + "-wal"), Path(str(staged) + "-shm")):
+        for candidate in (staged, *index_paths.sidecar_paths(staged)):
             _safe(candidate).unlink(missing_ok=True)
-        if live.exists():
-            runtime.backup(_safe_sqlite(live), _safe_sqlite(staged))
+        if source_path.exists():
+            runtime.backup(_safe_sqlite(source_path), _safe_sqlite(staged))
             if not backup.exists():
-                runtime.backup(_safe_sqlite(live), _safe_sqlite(backup))
+                runtime.backup(_safe_sqlite(source_path), _safe_sqlite(backup))
             staging_conn = runtime.connect(_safe_sqlite(staged), full_durability=True)
             try:
                 if staging_conn.execute("PRAGMA auto_vacuum").fetchone() != (2,):
@@ -964,24 +1361,279 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
         # All handles are closed. Flush the staging file before atomic replace.
         with staged.open("rb") as handle:
             os.fsync(handle.fileno())
-        if live.exists():
-            conn = runtime.connect(_safe_sqlite(live))
-            try:
-                checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-                if checkpoint and checkpoint[0]:
-                    raise MigrationRequired("storage_handles_busy")
-            finally:
-                conn.close()
+        _quiesce_source(runtime, source_path)
         receipt.update(state="cutover_pending", candidate_sha256=_file_hash(staged),
                        published_sqlite_identity=_identity(staged),
-                       original_sha256=_file_hash(live) if live.exists() else None)
+                       original_sha256=_file_hash(source_path) if source_path.exists() else None)
         _write(index_dir, receipt)
         return _publish_candidate(root, receipt, staged, live)
 
 
+def _begin_chained_kind(root: Path, index_dir: Path, superseded: dict,
+                        state: dict, hosts_stopped: bool) -> dict:
+    """Supersede a finished version-1 record with the schema-8 kind.
+
+    Same upgrade, same stopped hosts, same package binding. The version-1
+    record is embedded verbatim under ``supersedes`` as historical evidence;
+    its retired artifacts and any explicit rebuild strategy carry forward so
+    ONE cleanup arm owns everything the chained conversion leaves behind.
+    """
+    if not (hosts_stopped or superseded.get("hosts_stopped_confirmed")):
+        raise MigrationRequired("storage_restart_required")
+    receipt = dict(superseded)
+    receipt.pop("restart_action", None)
+    receipt.pop("upgrade_publication", None)
+    for key in ("work_dir", "work_identity", "candidate_sha256", "original_sha256",
+                "published_sqlite_identity", "cutover_pid", "staging_pid", "verification",
+                "removed", "reclaimed_bytes", "disposition", "source_counts",
+                "candidate_counts", "source_preflight_counts", "last_failure"):
+        receipt.pop(key, None)
+    role = state["authority_role"] or SOURCE_ROLE_LEGACY
+    receipt.update(receipt_version=RECEIPT_VERSION_CURRENT, kind=KIND_SCHEMA8,
+                   migration_id=uuid.uuid4().hex, state="quiesced",
+                   reason="index_database_rename", source_database=role,
+                   source_sqlite_identity=_identity_if_present(_role_path(index_dir, role)),
+                   artifacts={name: identity for name, identity in superseded.get("artifacts", {}).items()
+                              if (index_dir / name).exists()},
+                   supersedes=superseded, hosts_stopped_confirmed=True)
+    _write(index_dir, receipt)
+    restore_checkpoint(root)
+    return receipt
+
+
+def _staging_index_dir(work: Path) -> Path:
+    """``<work>/.wavefoundry/index`` — the nested layout the entry needs.
+
+    The lock-free coordinator entry derives its repository root and its
+    test-run fence from the index directory's parents. Staging under a nested
+    ``.wavefoundry/index`` keeps every derived path inside the staging tree,
+    while the source walk still receives the real repository root explicitly.
+    """
+    return work / ".wavefoundry" / "index"
+
+
+def _clear_staging_tree(staging_index: Path) -> None:
+    """Forward-only restaging: discard any earlier candidate under this record."""
+    for child in sorted(staging_index.iterdir()) if staging_index.exists() else ():
+        _safe(child)
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _reset_staged_graph(conn) -> None:
+    """Start empty graph/extraction/community tables before the full rebuild.
+
+    Never seeded from the old graph folder: the transition is a rebuild from
+    current sources, not a conversion of old graph artifacts.
+    """
+    import graph_store
+    import graph_indexer
+    with conn:
+        for table in graph_store.GRAPH_TABLES:
+            conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM meta WHERE key LIKE ?",
+                     (graph_indexer.GRAPH_META_PREFIX + "%",))
+
+
+def _layer_chunk_counts(conn) -> dict:
+    return {layer: conn.execute(f"SELECT count(*) FROM chunks_{layer}").fetchone()[0]
+            for layer in ("docs", "code")}
+
+
+def _validate_staged_candidate(runtime, staged: Path, source_counts: dict) -> dict:
+    """Procedure step 4's staged participant validation, before any cutover."""
+    import sqlite_vector_store as vectors
+    # Read-write: the FTS integrity-check is a write statement, and this is an
+    # UNPUBLISHED staging copy the migration exclusively owns.
+    conn = runtime.connect(_safe_sqlite(staged))
+    try:
+        version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+        if version != (SCHEMA_VERSION,):
+            raise MigrationRequired("storage_staged_schema_unverified: original database retained")
+        if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise MigrationRequired("storage_staged_integrity_failed: original database retained")
+        counts = _layer_chunk_counts(conn)
+        if counts != source_counts:
+            raise MigrationRequired("storage_staged_counts_changed: original database retained")
+        for layer in ("docs", "code"):
+            integrity = vectors.vector_integrity(conn, layer)
+            if (integrity["missing_vectors"] or integrity["orphan_vectors"]
+                    or integrity["canonical"] != integrity["vectors"]):
+                raise MigrationRequired("storage_staged_vector_integrity_failed: original database retained")
+            conn.execute(f"INSERT INTO fts_{layer}(fts_{layer}, rank) VALUES('integrity-check',1)")
+        epoch = conn.execute("SELECT attempt_id,generation,status FROM build_state WHERE id=1").fetchone()
+        if epoch is None or epoch[2] != "complete":
+            raise MigrationRequired("storage_staged_epoch_unverified: original database retained")
+        import graph_indexer
+        graph = {"nodes": conn.execute("SELECT count(*) FROM graph_nodes").fetchone()[0],
+                 "edges": conn.execute("SELECT count(*) FROM graph_edges").fetchone()[0],
+                 "files": conn.execute("SELECT count(*) FROM graph_file_state").fetchone()[0]}
+        builder = conn.execute("SELECT value FROM meta WHERE key=?",
+                               (graph_indexer.GRAPH_META_PREFIX + "builder_version",)).fetchone()
+        if not builder or not str(builder[0]):
+            raise MigrationRequired("storage_staged_graph_unverified: rebuilt graph recorded no builder version")
+        return {"counts": counts, "graph": graph, "builder_version": str(builder[0]),
+                "attempt_id": epoch[0], "generation": epoch[1],
+                "rebuilt_at": time.time(), "pid": os.getpid()}
+    except MigrationRequired:
+        raise
+    except Exception as exc:
+        raise MigrationRequired("storage_staged_validation_failed: original database retained") from exc
+    finally:
+        conn.close()
+
+
+def _quiesce_source(runtime, source: Path) -> None:
+    """Truncate the source WAL so no committed frame is left behind on rename."""
+    if not source.exists():
+        return
+    conn = runtime.connect(_safe_sqlite(source))
+    try:
+        checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if checkpoint and checkpoint[0]:
+            raise MigrationRequired("storage_handles_busy")
+    finally:
+        conn.close()
+
+
+def _forward_recovery(source: Path) -> str:
+    return ("Recovery is FORWARD: re-run the standard upgrade from the retained "
+            f"{source.name}; the rollback copy is retained as evidence and is never "
+            "returned to service. No backward rollback to the old runner is offered.")
+
+
+def _resume_schema8_cutover(root: Path, index_dir: Path, receipt: dict,
+                            staged: Path, live: Path, source: Path) -> dict:
+    """Interruption before/after filesystem publication, by identity only."""
+    if live.exists() and _file_hash(live) == receipt.get("candidate_sha256"):
+        # Published before the receipt advanced; adopt it, never republish.
+        _published_identity(index_dir, receipt)
+        receipt["state"] = "published"
+        receipt["cutover_pid"] = receipt.get("staging_pid")
+        _write(index_dir, receipt)
+        restore_checkpoint(root)
+        return receipt
+    # The accepted schema-7 population includes the current filename. In that
+    # case the destination is still the original source before replacement;
+    # require both its recorded identity and checkpointed bytes before retrying.
+    if (staged.exists() and _file_hash(staged) == receipt.get("candidate_sha256")
+            and (not live.exists() or live == source)
+            and source.exists()
+            and _identity(source) == receipt.get("source_sqlite_identity")
+            and _file_hash(source) == receipt.get("original_sha256")):
+        return _publish_candidate(root, receipt, staged, live)
+    raise MigrationRequired("storage_cutover_recovery_required: retained candidate and source "
+                            "need verification. " + _forward_recovery(source))
+
+
+def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_store) -> dict:
+    """Stage, rebuild the graph from current sources, then publish the rename."""
+    source = _safe_sqlite(source_database_path(index_dir, receipt))
+    live = _safe_sqlite(published_database_path(index_dir, receipt))
+    work = _safe(index_dir / (KIND_WORK_PREFIX + receipt["migration_id"]))
+    if work.exists() and receipt.get("work_identity") != _identity(work):
+        raise MigrationRequired("storage_staging_identity_changed")
+    work.mkdir(exist_ok=True)
+    staging_index = _safe(_staging_index_dir(work))
+    staging_index.mkdir(parents=True, exist_ok=True)
+    staged = _safe_sqlite(staged_database_path(staging_index))
+    backup = _safe_sqlite(staging_index / STAGING_ROLLBACK_STEM)
+    receipt["work_dir"] = work.name
+    receipt["work_identity"] = _identity(work)
+    _write(index_dir, receipt)
+
+    if receipt["state"] == "cutover_pending":
+        return _resume_schema8_cutover(root, index_dir, receipt, staged, live, source)
+
+    source_identity = receipt.get("source_sqlite_identity")
+    if source_identity is None or not source.exists() or _identity(source) != source_identity:
+        raise MigrationRequired(f"storage_source_identity_changed: {source.name}. "
+                                + _forward_recovery(source))
+    if live.exists() and live != source:
+        raise MigrationRequired(
+            AUTHORITY_AMBIGUOUS + f": {live.name} already exists before this record's cutover; "
+            "both files are preserved. " + _forward_recovery(source))
+    schema = _database_schema(source)
+    if schema == "runtime_unavailable":
+        raise MigrationRequired(
+            "storage_runtime_restart_required: run wf setup to provision the pinned native runtime, "
+            "then resume ordinary wf_upgrade with confirm_hosts_stopped=True. The migration receipt "
+            "and original database are retained.")
+    if schema == SCHEMA_VERSION and live == source:
+        receipt.update(state="complete", disposition="already_current", reclaimed_bytes=0)
+        _write(index_dir, receipt)
+        return receipt
+    if schema not in LEGACY_SCHEMA_VERSIONS | {SCHEMA_VERSION}:
+        raise MigrationRequired(f"storage_schema_unsupported: {schema}; original database retained")
+    source_size = source.stat().st_size
+    if shutil.disk_usage(index_dir).free < source_size * 3 + 64 * 1024 * 1024:
+        raise MigrationRequired("storage_disk_space_insufficient: retain original stores and free staging space")
+
+    # Forward-only restaging: an interrupted earlier candidate is discarded and
+    # rebuilt from the retained source, never resumed in place.
+    _clear_staging_tree(staging_index)
+    runtime.backup(source, staged)
+    runtime.backup(source, backup)
+    # Precondition 2: pre-open the staged store ONCE in migration mode, so the
+    # legacy-to-current arm has run and the entry's non-migration open sees the
+    # current schema.
+    store = state_store.IndexStateStore(staging_index, migration=True)
+    try:
+        source_counts = _layer_chunk_counts(store._conn)
+        _reset_staged_graph(store._conn)
+        store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        store.close()
+    receipt.update(state="staged", staging_pid=os.getpid(),
+                   rollback={"name": backup.name, "identity": _identity(backup),
+                             "sha256": _file_hash(backup)})
+    _write(index_dir, receipt)
+
+    import indexer
+    import sqlite_vector_store as vector_store
+    # The entry always consumes prepared updates. Empty graph-only preparation
+    # stays in memory; any overflow belongs to the staging tree.
+    with vector_store.PreparedUpdates(staging_index) as prepared:
+        summary = indexer._build_index_locked(
+            Path(root), content="graph", full=True, index_dir=staging_index,
+            prepared=prepared)
+    if summary.get("failed"):
+        raise MigrationRequired(
+            "storage_staged_graph_rebuild_failed: " + str(summary.get("failure", "")) + ". "
+            "Original database and graph are retained. " + _forward_recovery(source))
+    receipt["staged_rebuild"] = _validate_staged_candidate(runtime, staged, source_counts)
+    receipt["state"] = "validated"
+    _write(index_dir, receipt)
+    # Committed rebuild output must live in the staged MAIN file: only that file
+    # is published, so a surviving staged WAL would silently drop rows.
+    _quiesce_source(runtime, staged)
+    for sidecar in index_paths.sidecar_paths(staged):
+        _safe(sidecar).unlink(missing_ok=True)
+
+    _assert_sources(index_dir, receipt)
+    _hosts_gone(receipt)
+    with staged.open("rb") as handle:
+        os.fsync(handle.fileno())
+    _quiesce_source(runtime, source)
+    if _identity(source) != source_identity:
+        raise MigrationRequired(f"storage_source_identity_changed: {source.name}. "
+                                + _forward_recovery(source))
+    # Cutover intent recorded durably BEFORE the atomic publish, so an
+    # interruption on either side of os.replace is decidable by identity.
+    receipt.update(state="cutover_pending", candidate_sha256=_file_hash(staged),
+                   published_sqlite_identity=_identity(staged),
+                   original_sha256=_file_hash(source),
+                   cutover={"source_role": _source_role(receipt), "source": source.name,
+                            "published": live.name, "intent_at": time.time()})
+    _write(index_dir, receipt)
+    return _publish_candidate(root, receipt, staged, live)
+
+
 def _published_identity(index_dir: Path, receipt: dict) -> Path:
     """Fence the cutover file, not its mutable generation or sidecar identities."""
-    live = _safe_sqlite(index_dir / "index-state.sqlite")
+    live = _safe_sqlite(published_database_path(index_dir, receipt))
     expected = receipt.get("published_sqlite_identity")
     if not expected:
         raise MigrationRequired(
@@ -998,9 +1650,9 @@ def _publish_candidate(root: Path, receipt: dict, staged: Path, live: Path) -> d
         raise MigrationRequired("storage_cutover_candidate_identity_changed")
     _safe_sqlite(live)
     try:
-        for suffix in ("-wal", "-shm"):
-            sidecar = _safe(Path(str(live) + suffix))
-            if sidecar.exists() and suffix == "-wal" and sidecar.stat().st_size:
+        for index, sidecar in enumerate(index_paths.sidecar_paths(live)):
+            sidecar = _safe(sidecar)
+            if sidecar.exists() and index == 0 and sidecar.stat().st_size:
                 raise MigrationRequired("storage_cutover_live_wal_changed")
             sidecar.unlink(missing_ok=True)
         os.replace(staged, live)
@@ -1063,10 +1715,18 @@ def verify_migration(root: Path) -> dict:
         return {"state": "not_applicable"}
     if receipt["state"] == "complete":
         return receipt
-    publication = receipt.get("upgrade_publication", {})
-    if publication.get("semantic_exit") != 0 or publication.get("graph_exit") != 0:
-        raise MigrationRequired("storage_all_layer_publication_unverified: resume standard wf_upgrade")
-    validate_rebuild_publication(root)
+    if is_kind_receipt(receipt):
+        # The kind's proof is its OWN validated staged rebuild, not a later
+        # coordinator child: the graph was rebuilt and validated before cutover.
+        if not isinstance(receipt.get("staged_rebuild"), dict):
+            raise MigrationRequired("storage_staged_rebuild_unverified: resume standard wf_upgrade")
+        if rebuild_requested(receipt):
+            validate_rebuild_publication(root)
+    else:
+        publication = receipt.get("upgrade_publication", {})
+        if publication.get("semantic_exit") != 0 or publication.get("graph_exit") != 0:
+            raise MigrationRequired("storage_all_layer_publication_unverified: resume standard wf_upgrade")
+        validate_rebuild_publication(root)
     prior_verification = receipt.get("verification", {})
     independently_opened = (prior_verification.get("pid") is not None
                             and prior_verification["pid"] != receipt.get("cutover_pid"))
@@ -1084,6 +1744,13 @@ def verify_migration(root: Path) -> dict:
         epoch = conn.execute("SELECT attempt_id,generation,status FROM build_state WHERE id=1").fetchone()
         if version != (SCHEMA_VERSION,) or epoch is None or epoch[2] != "complete":
             raise MigrationRequired("storage_publication_unverified")
+        if is_kind_receipt(receipt):
+            # Kind-aware: the rename only counts when the rebuilt graph actually
+            # survived the cutover into the published file.
+            staged_graph = receipt["staged_rebuild"].get("graph", {})
+            published_nodes = conn.execute("SELECT count(*) FROM graph_nodes").fetchone()[0]
+            if staged_graph.get("nodes") and not published_nodes:
+                raise MigrationRequired("storage_publication_graph_missing")
         if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
             raise MigrationRequired("storage_integrity_failed")
         for layer in ("docs", "code"):
@@ -1119,6 +1786,331 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _install_kind_fence(root: Path, index_dir: Path, superseded: dict) -> dict:
+    """Run the schema-8 kind on a store the completed conversion published.
+
+    The version-1 conversion publishes onto the name runtime consumers open,
+    so the once-marker (``meta.store_schema_version = 8`` in the current
+    database) is already satisfied and there is nothing to restage. What is
+    missing is the version-2 record: without it a version-1 runner reads a
+    "complete" version-1 receipt, finds nothing under the retired name and
+    creates a fresh empty database beside the published index. Installing the
+    record IS the fence, and it also retires any database the conversion left
+    behind under the retired name.
+    """
+    live = _safe_sqlite(index_paths.index_database_path(index_dir))
+    published = _identity_if_present(live)
+    if published is None or published != superseded.get("published_sqlite_identity"):
+        raise MigrationRequired(
+            "storage_publication_identity_changed: the completed conversion's published database "
+            "is not the current index database; preserve both files and resume standard wf_upgrade")
+    legacy = _safe_sqlite(index_paths.legacy_index_database_path(index_dir))
+    role = SOURCE_ROLE_LEGACY if legacy.exists() else SOURCE_ROLE_CURRENT
+    receipt = dict(superseded)
+    receipt.pop("restart_action", None)
+    for key in ("work_dir", "work_identity", "candidate_sha256", "original_sha256"):
+        receipt.pop(key, None)
+    receipt.update(receipt_version=RECEIPT_VERSION_CURRENT, kind=KIND_SCHEMA8,
+                   migration_id=uuid.uuid4().hex, state="verified",
+                   reason="index_database_fence", source_database=role,
+                   source_sqlite_identity=_identity_if_present(legacy) if role == SOURCE_ROLE_LEGACY else None,
+                   published_sqlite_identity=published,
+                   staged_rebuild={"inherited_from": superseded["migration_id"],
+                                   "at": time.time(), "restaged": False},
+                   supersedes=superseded)
+    _write(index_dir, receipt)
+    reclaimed = receipt.get("reclaimed_bytes", 0)
+    retired = _retire_source_database(index_dir, receipt) if role == SOURCE_ROLE_LEGACY else 0
+    receipt.update(state="complete", reclaimed_bytes=reclaimed + retired,
+                   retired_source_bytes=retired)
+    _write(index_dir, receipt)
+    restore_checkpoint(root)
+    return receipt
+
+
+def _plan_retire_source_database(index_dir: Path, receipt: dict) -> dict:
+    """VALIDATE the receipt-owned source retirement. Deletes nothing.
+
+    Every refusal this arm can raise -- ownership, identity, and a non-empty
+    ``-wal`` whose committed frames exist nowhere else -- lives here, so
+    :func:`cleanup_legacy` reaches all of them while the source is still
+    intact. Returns ``{"paths": [...], "bytes": n}``; an absent source plans
+    zero work, which is what makes a retry after a partial cleanup converge.
+    """
+    source = _safe_sqlite(source_database_path(index_dir, receipt))
+    identity = receipt.get("source_sqlite_identity")
+    if not source.exists():
+        return {"paths": [], "bytes": 0}
+    if source == published_database_path(index_dir, receipt):
+        # Same-name cutover already replaced the original. Its rollback copy
+        # is retired by the staging inventory, never by deleting the live file.
+        _published_identity(index_dir, receipt)
+        return {"paths": [], "bytes": 0}
+    if identity is None or _identity(source) != identity:
+        raise MigrationRequired(f"storage_cleanup_identity_changed: {source}. "
+                                + SPURIOUS_LEGACY_GUIDANCE)
+    reclaimed = source.stat().st_size
+    sidecars = []
+    for index, sidecar in enumerate(index_paths.sidecar_paths(source)):
+        sidecar = _safe(sidecar)
+        if not sidecar.exists():
+            continue
+        if index == 0 and sidecar.stat().st_size:
+            raise MigrationRequired("storage_cleanup_live_wal_changed: preserve the retired database "
+                                    f"until its write-ahead log is checkpointed: {sidecar}")
+        reclaimed += sidecar.stat().st_size
+        sidecars.append(sidecar)
+    return {"paths": [*sidecars, source], "bytes": reclaimed}
+
+
+def _apply_retire_source_database(plan: dict) -> int:
+    """Execute a validated retirement plan: sidecars first, main file last."""
+    parent = None
+    for path in plan["paths"]:
+        parent = path.parent
+        path.unlink()
+    if parent is not None:
+        _sync_directory(parent)
+    return plan["bytes"]
+
+
+def _retire_source_database(index_dir: Path, receipt: dict) -> int:
+    """Validate then delete, for the fence arm that has no staging to inventory."""
+    return _apply_retire_source_database(_plan_retire_source_database(index_dir, receipt))
+
+
+def _unknown_staging(path: Path) -> MigrationRequired:
+    """The staging refusal, NAMING the entry that caused it.
+
+    The refusal is only actionable if the operator can see which path to
+    remove; the message used to name nothing, so the recovery instruction was
+    "read the source".
+    """
+    return MigrationRequired(
+        f"storage_cleanup_unknown_staging_artifact: {path}. This entry is inside the "
+        "migration's own staging directory but is not something the staged build "
+        "produces. Nothing has been deleted. Remove or move the named entry, then "
+        "resume standard wf_upgrade; the retired source database and the receipt are "
+        "retained.")
+
+
+def _inventory_kind_staging(work: Path) -> dict:
+    """CLASSIFY exactly the nested staging structure. Deletes nothing.
+
+    ``<work>/.wavefoundry/index/`` holds the staged database family, the
+    rollback family, the memory state database the staged build's coordinator
+    creates, the prepared-updates spool, and the derived ``scan`` output. Any
+    other entry is an unknown staging artifact and refuses HERE -- before
+    :func:`cleanup_legacy` has deleted anything at all, so the operator can fix
+    the named path and retry.
+
+    Returns ``{"trees": [...], "files": [...], "dirs": [...], "bytes": n}``:
+    subtrees to remove wholesale, individual files to unlink, and the
+    directories to ``rmdir`` afterwards in the returned order.
+    """
+    reclaimed = 0
+    trees: list[Path] = []
+    files: list[Path] = []
+
+    def entries(directory: Path):
+        return sorted(directory.iterdir()) if directory.exists() else []
+
+    def tree_bytes(path: Path) -> int:
+        total = 0
+        for base, dirs, names in os.walk(path, followlinks=False):
+            _safe(Path(base))
+            for child in dirs + names:
+                node = _safe(Path(base) / child)
+                if node.is_file():
+                    total += node.stat().st_size
+        return total
+
+    for child in entries(work):
+        _safe(child)
+        if child.name != ".wavefoundry" or not child.is_dir():
+            raise _unknown_staging(child)
+    nested = work / ".wavefoundry"
+    for child in entries(nested):
+        _safe(child)
+        if not child.is_dir() or child.name not in {"index", "locks"}:
+            raise _unknown_staging(child)
+        if child.name == "locks":
+            reclaimed += tree_bytes(child)
+            trees.append(child)
+    staging_index = _staging_index_dir(work)
+    allowed = _staging_allowlist()
+    spool = frozenset(_family_names(PREPARED_SPOOL_STEM))
+    spool_dirs: list[Path] = []
+    for child in entries(staging_index):
+        _safe(child)
+        if child.is_dir():
+            if child.name in STAGING_DERIVED_DIRNAMES:
+                reclaimed += tree_bytes(child)
+                trees.append(child)
+                continue
+            if not child.name.startswith(PREPARED_SPOOL_PREFIX):
+                raise _unknown_staging(child)
+            for member in entries(child):
+                _safe(member)
+                if not member.is_file() or member.name not in spool:
+                    raise _unknown_staging(member)
+                reclaimed += member.stat().st_size
+                files.append(member)
+            spool_dirs.append(child)
+            continue
+        if not child.is_file() or child.name not in allowed:
+            raise _unknown_staging(child)
+        reclaimed += child.stat().st_size
+        files.append(child)
+    return {"trees": trees, "files": files,
+            "dirs": [*spool_dirs, staging_index, nested, work], "bytes": reclaimed}
+
+
+def _apply_kind_staging(plan: dict) -> int:
+    """Execute a validated staging plan. Every refusal already happened."""
+    for tree in plan["trees"]:
+        shutil.rmtree(tree)
+    for path in plan["files"]:
+        path.unlink()
+    for directory in plan["dirs"]:
+        if directory.exists():
+            directory.rmdir()
+    return plan["bytes"]
+
+
+def _inventory_retired_graph_directory(index_dir: Path) -> dict:
+    """Procedure step 6's pre-deletion inventory of ``<index>/graph/``.
+
+    ``lstat`` every entry WITHOUT following links and classify it against the
+    owned-name allowlist. Any unknown name, any nested directory, or any
+    symlink/reparse node at any depth preserves the WHOLE folder, reports the
+    entries, and records cleanup state ``retained_unowned_contents``. The
+    whole-tree primitive ``_remove_retired_component`` is the final delete step
+    only -- never the classifier -- so it is reached only when the inventory
+    says every entry is owned.
+
+    Returns ``{"state": ..., "path": ..., "entries": [...], "bytes": n}`` with
+    ``state`` one of ``absent``, ``removable`` or ``retained_unowned_contents``.
+    """
+    # ``_safe`` the ANCESTORS only. The folder itself is classified by lstat
+    # here, because a folder that IS a link must be PRESERVED (procedure step
+    # 6's rule) rather than refused -- and it is never followed either way.
+    graph_dir = _safe(index_dir) / GRAPH_OUTPUT_DIRNAME
+    try:
+        metadata = graph_dir.lstat()
+    except FileNotFoundError:
+        return {"state": "absent", "path": str(graph_dir), "entries": [], "bytes": 0}
+    if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+        # Not the framework-owned folder at all: never delete through a link,
+        # and never unlink a stray file under the folder's name.
+        return {"state": RETAINED_UNOWNED_CONTENTS, "path": str(graph_dir),
+                "entries": [graph_dir.name], "bytes": 0,
+                "reason": "the retired graph path is not a real directory"}
+    unowned: list[str] = []
+    reclaimed = 0
+    with os.scandir(graph_dir) as scan:
+        children = sorted(scan, key=lambda entry: entry.name)
+    for entry in children:
+        child_metadata = os.lstat(entry.path)
+        if _is_link_or_reparse(child_metadata):
+            unowned.append(entry.name)
+        elif stat.S_ISDIR(child_metadata.st_mode):
+            unowned.append(entry.name)
+        elif not _is_owned_graph_entry(entry.name):
+            unowned.append(entry.name)
+        else:
+            reclaimed += child_metadata.st_size
+    if unowned:
+        return {"state": RETAINED_UNOWNED_CONTENTS, "path": str(graph_dir),
+                "entries": unowned, "bytes": 0,
+                "reason": "unknown names, nested directories or link nodes are preserved "
+                          "with the whole folder"}
+    return {"state": "removable", "path": str(graph_dir),
+            "entries": [entry.name for entry in children], "bytes": reclaimed}
+
+
+def _apply_retired_graph_directory(root: Path, index_dir: Path, plan: dict) -> int:
+    """Delete the all-owned retired graph folder. The inventory already ruled."""
+    if plan["state"] != "removable":
+        return 0
+    from upgrade_wavefoundry import _remove_retired_component
+    outcome = _remove_retired_component(index_dir, GRAPH_OUTPUT_DIRNAME,
+                                        custom=False, ownership_root=root)
+    if outcome == "absent":
+        return 0
+    if outcome != "removed":
+        raise MigrationRequired(
+            f"storage_cleanup_removal_failed: {plan['path']} ({outcome}). Release handles or "
+            "correct permissions and resume standard wf_upgrade; receipt and remaining "
+            "sources are retained.")
+    return plan["bytes"]
+
+
+def _plan_legacy_artifacts(index_dir: Path, receipt: dict, removed: set) -> list:
+    """CLASSIFY the receipt's inherited Lance artifacts. Deletes nothing.
+
+    Ownership, identity and artifact-type refusals all live here so they fire
+    before any deletion, and the recorded byte counts come from the same walk.
+    """
+    plan = []
+    for name, identity in receipt["artifacts"].items():
+        _published_identity(index_dir, receipt)
+        if name not in LEGACY_NAMES:
+            raise MigrationRequired(f"storage_cleanup_path_unowned: {index_dir / name}")
+        path = _safe(index_dir / name)
+        if name in removed or not path.exists():
+            plan.append({"name": name, "kind": "absent", "path": str(path), "bytes": 0})
+            continue
+        if _identity(path) != identity:
+            raise MigrationRequired(f"storage_cleanup_identity_changed: {path}")
+        size = 0
+        for base, dirs, files in os.walk(path, followlinks=False):
+            _safe(Path(base))
+            for child in dirs + files:
+                node = _safe(Path(base) / child)
+                if node.is_file():
+                    size += node.stat().st_size
+        if path.is_dir():
+            plan.append({"name": name, "kind": "directory", "path": str(path), "bytes": size})
+        elif name == "__manifest" and path.is_file():
+            plan.append({"name": name, "kind": "file", "path": str(path),
+                         "bytes": path.stat().st_size})
+        else:
+            raise MigrationRequired(f"storage_cleanup_artifact_type_invalid: {path}")
+    return plan
+
+
+def _plan_staging(index_dir: Path, receipt: dict):
+    """CLASSIFY this record's staging directory, by kind. Deletes nothing."""
+    work_name = receipt.get("work_dir")
+    if not work_name:
+        return None
+    if work_name != _work_prefix(receipt) + receipt["migration_id"]:
+        raise MigrationRequired(f"storage_cleanup_work_identity_invalid: {index_dir / work_name}")
+    work = _safe(index_dir / work_name)
+    if not work.exists():
+        return None
+    if receipt.get("work_identity") != _identity(work):
+        raise MigrationRequired(f"storage_cleanup_work_identity_changed: {work}")
+    if is_kind_receipt(receipt):
+        return _inventory_kind_staging(work)
+    allowed = _staging_allowlist()
+    files = []
+    total = 0
+    for path in sorted(work.iterdir()):
+        _safe(path)
+        if not path.is_file() or path.name not in allowed:
+            raise _unknown_staging(path)
+        total += path.stat().st_size
+        files.append(path)
+    return {"trees": [], "files": files, "dirs": [work], "bytes": total}
+
+
+def _apply_legacy_staging(plan: dict) -> int:
+    """The version-1 record's flat staging directory. Validation already ran."""
+    return _apply_kind_staging(plan)
+
+
 def cleanup_legacy(root: Path) -> dict:
     """Delete only identity-bound obsolete project artifacts after verification."""
     root = Path(root).resolve()
@@ -1135,28 +2127,34 @@ def cleanup_legacy(root: Path) -> dict:
     # Revalidate the current coherent generation, not an obsolete exact epoch.
     receipt = verify_migration(root)
     _hosts_gone(receipt)
-    receipt["state"] = "cleanup_pending"
-    _write(index_dir, receipt)
     removed = set(receipt.get("removed", []))
     reclaimed = receipt.get("reclaimed_bytes", 0)
-    for name, identity in receipt["artifacts"].items():
+
+    # --- PLAN. Nothing below this comment mutates the filesystem. -----------
+    # Every refusal this function can raise is reachable HERE, while the
+    # operator's only index is still on disk. Source retirement used to run
+    # before the staging walk, so a staging refusal arrived after the source
+    # had been deleted and recorded as retired -- and the retry then skipped
+    # retirement, re-entered the same walk and refused again, permanently.
+    # Inventory first, refuse first, delete last.
+    artifact_plan = _plan_legacy_artifacts(index_dir, receipt, removed)
+    source_plan = None
+    if is_kind_receipt(receipt) and "retired_source_bytes" not in receipt:
         _published_identity(index_dir, receipt)
-        if name not in LEGACY_NAMES:
-            raise MigrationRequired("storage_cleanup_path_unowned")
-        path = _safe(index_dir / name)
-        if name in removed or not path.exists():
+        source_plan = _plan_retire_source_database(index_dir, receipt)
+    staging_plan = _plan_staging(index_dir, receipt)
+    graph_plan = (_inventory_retired_graph_directory(index_dir)
+                  if is_kind_receipt(receipt) else None)
+
+    # --- APPLY. Validation is finished; from here the work is irreversible. -
+    receipt["state"] = "cleanup_pending"
+    _write(index_dir, receipt)
+    for entry in artifact_plan:
+        name = entry["name"]
+        if entry["kind"] == "absent":
             removed.add(name)
             continue
-        if _identity(path) != identity:
-            raise MigrationRequired(f"storage_cleanup_identity_changed: {name}")
-        size = 0
-        for base, dirs, files in os.walk(path, followlinks=False):
-            _safe(Path(base))
-            for child in dirs + files:
-                node = _safe(Path(base) / child)
-                if node.is_file():
-                    size += node.stat().st_size
-        if path.is_dir():
+        if entry["kind"] == "directory":
             # Reuse the existing upgrade cleanup's fd-anchored POSIX deletion
             # and explicitly narrower, revalidated Windows no-follow fallback.
             from upgrade_wavefoundry import _remove_retired_component
@@ -1164,39 +2162,42 @@ def cleanup_legacy(root: Path) -> dict:
             if outcome == "unowned":
                 raise MigrationRequired(
                     "storage_cleanup_path_unowned: an owned index path changed or contains a "
-                    "symlink/junction. Restore the receipt-owned directory inside the repository "
-                    "and resume standard wf_upgrade; receipt and remaining sources are retained.")
+                    f"symlink/junction: {entry['path']}. Restore the receipt-owned directory "
+                    "inside the repository and resume standard wf_upgrade; receipt and remaining "
+                    "sources are retained.")
             if outcome != "removed":
                 raise MigrationRequired(
-                    "storage_cleanup_removal_failed: release handles or correct permissions and "
-                    "resume standard wf_upgrade; receipt and remaining sources are retained.")
-        elif name == "__manifest" and path.is_file():
-            size = path.stat().st_size
-            _safe(path).unlink()
+                    f"storage_cleanup_removal_failed: {entry['path']} ({outcome}). Release handles "
+                    "or correct permissions and resume standard wf_upgrade; receipt and remaining "
+                    "sources are retained.")
         else:
-            raise MigrationRequired("storage_cleanup_artifact_type_invalid")
-        reclaimed += size
+            _safe(Path(entry["path"])).unlink()
+        reclaimed += entry["bytes"]
         removed.add(name)
         receipt.update(removed=sorted(removed), reclaimed_bytes=reclaimed)
         _write(index_dir, receipt)
-    work_name = receipt.get("work_dir")
-    if work_name:
-        if work_name != "sqlite-migration-" + receipt["migration_id"]:
-            raise MigrationRequired("storage_cleanup_work_identity_invalid")
-        work = _safe(index_dir / work_name)
-        if work.exists():
-            if receipt.get("work_identity") != _identity(work):
-                raise MigrationRequired("storage_cleanup_work_identity_changed")
-            for path in work.iterdir():
-                _safe(path)
-                if not path.is_file() or path.name not in {"index-state.sqlite", "index-state.sqlite-wal", "index-state.sqlite-shm", "rollback.sqlite", "rollback.sqlite-wal", "rollback.sqlite-shm"}:
-                    raise MigrationRequired("storage_cleanup_unknown_staging_artifact")
-                reclaimed += path.stat().st_size
-                path.unlink()
-            work.rmdir()
+    if source_plan is not None:
+        retired = _apply_retire_source_database(source_plan)
+        reclaimed += retired
+        receipt.update(retired_source_bytes=retired, reclaimed_bytes=reclaimed)
+        _write(index_dir, receipt)
+    if staging_plan is not None:
+        reclaimed += (_apply_kind_staging(staging_plan) if is_kind_receipt(receipt)
+                      else _apply_legacy_staging(staging_plan))
+    if graph_plan is not None and graph_plan["state"] != "absent":
+        reclaimed += _apply_retired_graph_directory(root, index_dir, graph_plan)
+        receipt["graph_directory_cleanup"] = {
+            "state": "removed" if graph_plan["state"] == "removable" else graph_plan["state"],
+            "path": graph_plan["path"], "entries": graph_plan["entries"],
+            **({"reason": graph_plan["reason"]} if "reason" in graph_plan else {}),
+        }
     receipt.update(state="complete", removed=sorted(removed), reclaimed_bytes=reclaimed,
                    dependency_disposition="retained: shared/unregistered consumers not proven absent")
     _write(index_dir, receipt)
+    # Same upgrade: the schema-8 kind runs on the store the conversion just
+    # finished, installing the version-2 fence the version-1 record cannot.
+    if detect(index_dir)["fence_required"]:
+        return _install_kind_fence(root, index_dir, receipt)
     return receipt
 
 

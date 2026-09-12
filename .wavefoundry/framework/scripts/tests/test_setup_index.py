@@ -20,6 +20,17 @@ from unittest.mock import MagicMock, call, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SETUP_INDEX_PATH = SCRIPTS_ROOT / "setup_index.py"
+
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+# The RETIRED standalone graph state store's relative path. Wave 1xny6 lane L6b
+# removed `index_state_store.GRAPH_STATE_STORE_RELPATH` with its last reader;
+# the only code that still NAMES the file is the upgrade's pre-deletion
+# inventory, so tests that stage one pin its name to that owner.
+import sqlite_storage_migration as _ssm_for_retired_name  # noqa: E402
+RETIRED_GRAPH_STATE_RELPATH = (
+    f"{_ssm_for_retired_name.GRAPH_OUTPUT_DIRNAME}/project-graph-state.sqlite")
 PYPROJECT_PATH = SCRIPTS_ROOT.parents[2] / "pyproject.toml"
 
 FAKE_VENV_PYTHON = Path("/fake/venv/bin/python")
@@ -983,6 +994,49 @@ class SetupIndexTests(unittest.TestCase):
             result = self.mod._workflow_project_include_prefixes(root)
         self.assertEqual(result["docs"], ())
         self.assertEqual(result["code"], (".wavefoundry/framework/scripts",))
+
+
+class OptimizeAfterBuildAccountingTests(unittest.TestCase):
+    """AC-8 (wave 1xny6): the post-build pass reports ONE accounting entry.
+
+    Semantic and graph state share one database, so an operator must see one
+    store line — a second line would double-count the same reclaimed bytes.
+    """
+
+    def _store_module(self):
+        spec = importlib.util.spec_from_file_location(
+            "index_state_store", SCRIPTS_ROOT / "index_state_store.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["index_state_store"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_optimize_after_build_prints_one_store_line(self):
+        setup_index = load_setup_index()
+        indexer = load_indexer()
+        iss = self._store_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            index_dir = root / ".wavefoundry" / "index"
+            attempt = iss.begin_build_epoch(index_dir, "fixture")
+            self.assertTrue(iss.finalize_build_epoch(index_dir, attempt))
+            # A retired standalone graph database still on disk must not add a
+            # second accounting line before the upgrade's cleanup removes it.
+            retired = index_dir / RETIRED_GRAPH_STATE_RELPATH
+            retired.parent.mkdir(parents=True)
+            conn = iss.sqlite_runtime.connect(retired)
+            conn.execute("CREATE TABLE files(path TEXT PRIMARY KEY)")
+            conn.close()
+            out = io.StringIO()
+            with patch.object(setup_index, "_load_indexer_module", return_value=indexer), \
+                 patch.object(indexer, "_get_index_state_store", return_value=iss), \
+                 redirect_stdout(out):
+                setup_index._optimize_after_build(root)
+        lines = [line for line in out.getvalue().splitlines()
+                 if line.startswith("index optimize: store")]
+        self.assertEqual(len(lines), 1, out.getvalue())
+        self.assertIn("'index-state'", lines[0])
+        self.assertNotIn("graph", out.getvalue())
 
 
 class MigrationReaderDependencyTests(unittest.TestCase):

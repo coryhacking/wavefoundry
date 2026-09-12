@@ -10,10 +10,10 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +25,7 @@ _GI_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _GI_SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _GI_SCRIPTS_DIR)
 import subprocess_util  # noqa: E402
+import graph_store  # noqa: E402  shared graph/derived table DDL + table census
 
 try:
     from tree_sitter import Language, Parser as _TSParser
@@ -1343,46 +1344,138 @@ def _decode_state_record(raw: bytes, default: Any = None) -> Any:
         return default
 
 
+# Table/column names this module owns inside the shared index database. Kept
+# as constants so the scoped-reset DELETEs and the read paths cannot drift
+# apart by a typo (the reset is destructive; a typo would silently skip a
+# table and leave a half-reset graph generation behind).
+GRAPH_FILE_STATE_TABLE = "graph_file_state"
+GRAPH_MERGE_STATE_TABLE = "graph_merge_state"
+
+# Graph meta lives in the SHARED ``meta`` table alongside the semantic store's
+# own keys, so every graph key is namespaced. Without the prefix the graph's
+# ``store_schema_version``/``schema_version`` would collide head-on with
+# ``index_state_store``'s -- the graph would overwrite the resident schema
+# pin and the next open would refuse the store.
+GRAPH_META_PREFIX = "graph:"
+
+# Named per-file merge fragments in ``graph_merge_state``. ``fragment`` is the
+# file's resolved nodes/edges; ``rows`` is the digest of the graph rows that
+# file owns in the PUBLISHED generation (see GraphPublication) -- the two are
+# separate names so a fragment rewrite and a row rewrite are independently
+# diffable. ``di_synth_nodes`` is corpus-wide, not per file, so it is stored
+# under the empty path: the table's PK is (path, name), and no real
+# repo-relative path is ever empty.
+MERGE_FRAGMENT_NAME = "fragment"
+MERGE_ROWS_DIGEST_NAME = "rows"
+MERGE_DI_SYNTH_NAME = "di_synth_nodes"
+MERGE_CORPUS_PATH = ""
+
+
+
+def _read_merge_state_rows(conn, meta: dict, *, with_digests: bool = False):
+    """Reassemble the merge state from ``graph_merge_state``'s per-file rows.
+
+    Shared by :class:`GraphStateStore` and the read-only idle preflight so the
+    two can never disagree about what "the merge state" is. Returns the state
+    alone by default; with ``with_digests`` it also returns the byte digest of
+    each fragment read and each owner's published row digest, which is what
+    lets the publication write back only what actually changed.
+    """
+    files: dict[str, Any] = {}
+    di_synth_nodes: list = []
+    fragment_digests: dict[str, str] = {}
+    rows_digests: dict[str, str] = {}
+    di_digest = ""
+    rows = conn.execute(
+        f"SELECT path, name, fragment FROM {GRAPH_MERGE_STATE_TABLE}"
+    ).fetchall()
+    for path, name, raw in rows:
+        path = str(path)
+        name = str(name)
+        if raw is None:
+            continue
+        if name == MERGE_ROWS_DIGEST_NAME:
+            rows_digests[path] = bytes(raw).decode("utf-8", "replace")
+            continue
+        if name == MERGE_FRAGMENT_NAME:
+            entry = _decode_state_record(raw)
+            if isinstance(entry, dict):
+                files[path] = entry
+                if with_digests:
+                    fragment_digests[path] = _sha256_bytes(bytes(raw))
+            continue
+        if name == MERGE_DI_SYNTH_NAME and path == MERGE_CORPUS_PATH:
+            decoded = _decode_state_record(raw)
+            if isinstance(decoded, list):
+                di_synth_nodes = decoded
+            di_digest = _sha256_bytes(bytes(raw))
+    if not rows or (not files and not di_synth_nodes and not meta.get("payload_fingerprint")):
+        state = None
+    else:
+        state = {
+            "format": meta.get("merge_state_format", ""),
+            "payload_fingerprint": meta.get("payload_fingerprint", ""),
+            "files": files,
+            "di_synth_nodes": di_synth_nodes,
+        }
+        # Corpus-level, so it lives in meta rather than in any one file's
+        # fragment row. It still surfaces on the reassembled state because
+        # ``_valid_doc_link_merge_state`` reads it there.
+        if meta.get("locality_violation") == "1":
+            state["locality_violation"] = True
+    if with_digests:
+        return state, fragment_digests, rows_digests, di_digest
+    return state
+
+
 class GraphStateStore:
-    """SQLite-backed per-file graph state store (wave 1p9q3 / 1p9q2).
+    """Per-file graph extraction state on the CALLER's index connection.
 
-    Replaces the monolithic ``project-graph-state.json`` document with per-file
-    write granularity: a one-file build reads/writes O(changed) records instead
-    of parsing and rewriting the whole state per build. Backend selected by the
-    AC-7 spike (stdlib ``sqlite3`` vs per-file gzip blobs + manifest): SQLite
-    won every per-build criterion on a 5k-file corpus — dominant 1-file update
-    cycle 0.71 ms vs 22.65 ms, ~4 KB written vs ~337 KB — because the blob
-    manifest is itself an O(repo-count) document. Per-file gzip blobs remain
-    the documented fallback behind this abstraction (see the change doc's
-    Decision Log for the full rationale and overturn conditions).
+    Wave 1xny6 (``1xny5-ref``) moved this store out of its own
+    ``graph/project-graph-state.sqlite`` file and into the shared index
+    database. Two properties changed, and both are load-bearing:
 
-    Layout:
-      - ``meta``  — key/value store metadata: store/schema/builder/walker/
-        chunker versions + layer (whole-store invalidation), and the payload
-        binding (``payload_fingerprint``/``payload_size``/``payload_mtime_ns``/
-        ``payload_stat_state``) used for crash-consistency detection.
-      - ``files`` — one row per source file: ``path`` (PK), ``source_hash``,
-        and ``record`` = gzip compact-JSON ``{"source_hash":…, "artifact":…}``
-        (the same record shape the monolithic state carried per file).
-      - ``blobs`` — named auxiliary records; carries the ``merge_state``
-        sidecar (persistent merged maps + per-file resolved fragments).
+    * **Single binding.** ``sqlite_runtime``'s module contract forbids opening
+      the shared file with a second SQLite library in one process, so this
+      class never imports ``sqlite3``, never opens a connection, and never
+      owns one. It is handed the caller's ``sqlite_runtime`` connection --
+      normally ``IndexStateStore._conn`` -- and reads through it. Opening is
+      therefore ``IndexStateStore._open``'s job, which is also where a lock or
+      busy error PROPAGATES and structural corruption raises the typed
+      ``StorageRecoveryRequired`` recovery response. The old
+      ``except sqlite3.Error: unlink`` arm here is deleted: it could not tell a
+      busy timeout from corruption, and treating the former as the latter
+      destroys a healthy store.
+    * **No writes.** Every mutation is prepared before the publication
+      transaction and applied inside it by :class:`GraphPublication`. This
+      class is a reader and a version gate; it commits nothing, so a graph
+      read can never race or precede the semantic publication.
 
-    Durability: ``journal_mode=WAL`` + ``synchronous=NORMAL`` — atomic commit
-    and rollback on an app crash; an OS-level crash can at worst lose the last
-    commit (a lost build is re-buildable; never a torn store). ``busy_timeout``
-    covers concurrent hook-spawned builds. Version mismatch resets the whole
-    store (rows + blobs), preserving the historical ``_load_state``
-    whole-store invalidation semantics.
+    Layout inside the shared database:
+      - ``meta``  -- graph keys under the ``graph:`` prefix: store/schema/
+        builder/walker/chunker versions + layer (the version gate), and the
+        published ``payload_fingerprint``.
+      - ``graph_file_state`` -- one row per source file: ``path`` (PK),
+        ``source_hash``, and ``record`` = gzip compact-JSON
+        ``{"source_hash":..., "artifact":...}``.
+      - ``graph_merge_state`` -- NAMED per-file fragments (never one
+        corpus-wide blob): the merge fragment, the published row digest, and
+        the one corpus-wide ``di_synth_nodes`` entry.
 
-    Error posture (intentionally asymmetric): read-side probes used for
-    staleness/decision-making (``meta_all``, ``paths_with_hashes``,
-    ``get_blob``) swallow ``sqlite3.Error`` and degrade to empty — the caller
-    then takes the full-re-extract path. Mutating/build-critical operations
-    (``get_record``, ``iter_records``, ``apply_build``, ``set_meta``)
-    propagate — a mid-build store failure crashes the build loudly rather
-    than committing partial state. Both directions end at "loud crash or
-    full rebuild", never a silently wrong graph; corruption at open time is
-    handled by ``__init__``'s reset-and-recreate.
+    Staleness posture: a builder/walker/chunker/schema/layer mismatch no
+    longer resets anything at session open. ``ensure_current`` only RECORDS
+    that a reset is owed; the reads below then present an empty store (so the
+    merge takes its full re-extract path exactly as before) while the previous
+    generation's rows stay readable to every other reader until the rebuilt
+    rows commit. :class:`GraphPublication` performs the scoped DELETEs inside
+    the caller's publication transaction.
+
+    Error posture: reads PROPAGATE. The old asymmetry (probes swallow
+    ``sqlite3.Error`` and degrade to empty) existed because the store was its
+    own file and an unreadable file meant "no graph yet". On the shared
+    database an unreadable read is the semantic store being unreadable, and
+    degrading it to "empty graph" would request a full re-extract on a
+    transient lock.
     """
 
     _VERSION_KEYS = (
@@ -1396,13 +1489,13 @@ class GraphStateStore:
 
     def __init__(
         self,
-        path: Path,
+        conn,
         *,
         layer: str,
         walker_version: str,
         chunker_version: str,
     ) -> None:
-        self.path = Path(path)
+        self._conn = conn
         self.layer = layer
         self.walker_version = walker_version
         self.chunker_version = chunker_version
@@ -1410,70 +1503,34 @@ class GraphStateStore:
         self.record_reads = 0
         self.record_writes = 0
         self.record_deletes = 0
-        # Blob (merge_state sidecar) I/O is tracked separately — it is
-        # O(graph) per changed build, not O(changed), and hiding it in the
-        # row counters would under-report exactly the dominant byte term
-        # (delivery-review finding).
+        # Fragment I/O is tracked separately -- it is O(graph) per changed
+        # build, not O(changed), and hiding it in the row counters would
+        # under-report exactly the dominant byte term.
         self.blob_reads = 0
         self.blob_writes = 0
         self.blob_bytes_written = 0
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._conn = self._open()
-        except sqlite3.Error:
-            # Corrupted/unreadable database file: loudly delete and recreate.
-            # The empty store then forces a full re-extract (never a silently
-            # wrong graph).
-            print(
-                f"build_index: graph state store unreadable at {self.path} — "
-                "resetting store (a full re-extract follows)",
-                file=sys.stderr,
-                flush=True,
-            )
-            self._delete_store_files()
-            self._conn = self._open()
+        # Set by ``ensure_current``; consumed by ``GraphPublication``.
+        self.reset_pending = False
+        # Digests of the fragment bytes actually read, so the publication can
+        # write back only the fragments whose bytes changed.
+        self._fragment_digests: dict[str, str] = {}
+        self._rows_digests: dict[str, str] = {}
+        self._di_digest: str = ""
 
-    def _open(self) -> "sqlite3.Connection":
-        conn = sqlite3.connect(str(self.path), timeout=10.0)
-        if conn.execute("PRAGMA page_count").fetchone()[0] == 0:
-            # Must precede schema creation. Existing NONE stores converge at
-            # controlled maintenance, where the one-time VACUUM is explicit.
-            conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-        # WAL can be silently refused (e.g. some network filesystems fall
-        # back to a rollback journal, where multi-process locking is
-        # unreliable) — check the pragma's RESULT and warn loudly so a field
-        # report of store contention has a diagnostic to point at.
-        journal_mode = str(
-            (conn.execute("PRAGMA journal_mode=WAL").fetchone() or [""])[0]
-        )
-        if journal_mode.lower() != "wal":
-            print(
-                f"[graph-state-store] WARNING: journal_mode=WAL refused "
-                f"(got {journal_mode!r}); store at {self.path} may be on a "
-                f"filesystem with unreliable locking",
-                file=sys.stderr,
-            )
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=10000")
-        with conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS files ("
-                "path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, record BLOB NOT NULL)"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS blobs (key TEXT PRIMARY KEY, value BLOB NOT NULL)"
-            )
-        return conn
+    # -- meta ---------------------------------------------------------------
 
-    def _delete_store_files(self) -> None:
-        for suffix in ("", "-wal", "-shm"):
-            try:
-                os.unlink(f"{self.path}{suffix}")
-            except OSError:
-                pass
+    @staticmethod
+    def meta_key(key: str) -> str:
+        return GRAPH_META_PREFIX + key
+
+    def meta_all(self) -> dict[str, str]:
+        """Graph meta only, with the ``graph:`` prefix stripped."""
+        rows = self._conn.execute(
+            "SELECT key, value FROM meta WHERE key LIKE ?",
+            (GRAPH_META_PREFIX + "%",),
+        ).fetchall()
+        cut = len(GRAPH_META_PREFIX)
+        return {str(k)[cut:]: str(v) for k, v in rows}
 
     def _expected_versions(self) -> dict[str, str]:
         return {
@@ -1485,59 +1542,45 @@ class GraphStateStore:
             "layer": self.layer,
         }
 
-    def meta_all(self) -> dict[str, str]:
-        try:
-            rows = self._conn.execute("SELECT key, value FROM meta").fetchall()
-        except sqlite3.Error:
-            return {}
-        return {str(k): str(v) for k, v in rows}
-
     def versions_current(self) -> bool:
         meta = self.meta_all()
         expected = self._expected_versions()
         return all(meta.get(key) == expected[key] for key in self._VERSION_KEYS)
 
     def ensure_current(self) -> bool:
-        """Reset the whole store when any version key mismatches.
+        """Record (never perform) the whole-graph reset a version bump owes.
 
-        Preserves the historical `_load_state` semantics: a builder/walker/
-        chunker/schema mismatch invalidates everything and forces a full
-        re-extraction (the caller sees an empty ``files`` table). Returns
-        True when the store was already current.
+        Returns True when the store was already current. On a mismatch it sets
+        ``reset_pending``: the reads below then present an empty store, which
+        is the same signal the old in-place reset produced, while the previous
+        graph generation stays readable until the rebuilt rows commit inside
+        the publication transaction.
         """
         if self.versions_current():
             return True
-        self.reset()
+        self.reset_pending = True
         return False
 
-    def reset(self) -> None:
-        expected = self._expected_versions()
-        with self._conn:
-            self._conn.execute("DELETE FROM files")
-            self._conn.execute("DELETE FROM blobs")
-            self._conn.execute("DELETE FROM meta")
-            self._conn.executemany(
-                "INSERT INTO meta (key, value) VALUES (?, ?)",
-                sorted(expected.items()),
-            )
+    # -- reads --------------------------------------------------------------
 
     def paths_with_hashes(self) -> dict[str, str]:
-        """Cheap manifest read: every known path with its source hash.
-
-        Reads two small columns only — never decodes record blobs — so the
-        per-build removed-path detection stays O(paths), not O(bytes).
-        """
-        try:
-            rows = self._conn.execute("SELECT path, source_hash FROM files").fetchall()
-        except sqlite3.Error:
+        """Cheap manifest read: every known path with its source hash."""
+        if self.reset_pending:
             return {}
+        rows = self._conn.execute(
+            f"SELECT path, source_hash FROM {GRAPH_FILE_STATE_TABLE} WHERE layer = ?",
+            (self.layer,),
+        ).fetchall()
         return {str(p): str(h) for p, h in rows}
 
-    def get_record(self, rel_path: str) -> dict[str, Any] | None:
+    def get_record(self, rel_path: str) -> "dict[str, Any] | None":
+        if self.reset_pending:
+            return None
         row = self._conn.execute(
-            "SELECT record FROM files WHERE path = ?", (rel_path,)
+            f"SELECT record FROM {GRAPH_FILE_STATE_TABLE} WHERE path = ? AND layer = ?",
+            (rel_path, self.layer),
         ).fetchone()
-        if row is None:
+        if row is None or row[0] is None:
             return None
         self.record_reads += 1
         record = _decode_state_record(row[0])
@@ -1546,93 +1589,469 @@ class GraphStateStore:
     def iter_records(self):
         """Yield ``(path, record_dict)`` for every stored file record.
 
-        Full-scan decode — the full-(re)merge path only; incremental builds
+        Full-scan decode -- the full-(re)merge path only; incremental builds
         must not call this (AC-1: state I/O touches only changed files).
         """
-        cursor = self._conn.execute("SELECT path, record FROM files ORDER BY path")
+        if self.reset_pending:
+            return
+        cursor = self._conn.execute(
+            f"SELECT path, record FROM {GRAPH_FILE_STATE_TABLE} WHERE layer = ? ORDER BY path",
+            (self.layer,),
+        )
         for path, raw in cursor:
+            if raw is None:
+                continue
             record = _decode_state_record(raw)
             if isinstance(record, dict):
                 self.record_reads += 1
                 yield str(path), record
 
-    def get_blob(self, key: str) -> Any:
-        try:
-            row = self._conn.execute(
-                "SELECT value FROM blobs WHERE key = ?", (key,)
-            ).fetchone()
-        except sqlite3.Error:
-            return None
-        if row is None:
-            return None
-        self.blob_reads += 1
-        return _decode_state_record(row[0])
+    def read_merge_state(self) -> "dict[str, Any] | None":
+        """Reassemble the merge state from its per-file rows.
 
-    def apply_build(
-        self,
-        *,
-        puts: dict[str, dict[str, Any]],
-        deletes: list[str],
-        blobs: dict[str, Any],
-        meta: dict[str, str],
-    ) -> None:
-        """Apply one build's state mutations in a single transaction.
-
-        Crash consistency (AC-5): everything commits atomically or not at all;
-        an interrupted build rolls back to the previous consistent state and
-        the payload-binding meta keys detect the payload/store windows (see
-        finalize's persist step for the crash-window analysis).
+        The pre-1xny6 store kept one ``merge_state`` blob covering the whole
+        corpus, so every build rewrote O(graph) bytes to record a one-file
+        edit. The rows are per file now; this read reassembles the same
+        in-memory shape the merge already consumes, and remembers each
+        fragment's byte digest so the publication writes back only the
+        fragments that actually changed.
         """
-        with self._conn:
-            if deletes:
-                self._conn.executemany(
-                    "DELETE FROM files WHERE path = ?", [(p,) for p in deletes]
-                )
-            for rel, record in puts.items():
-                self._conn.execute(
-                    "INSERT INTO files (path, source_hash, record) VALUES (?, ?, ?) "
-                    "ON CONFLICT(path) DO UPDATE SET source_hash=excluded.source_hash, "
-                    "record=excluded.record",
-                    (rel, str(record.get("source_hash") or ""), _encode_state_record(record)),
-                )
-            for key, value in blobs.items():
-                encoded = _encode_state_record(value)
-                self._conn.execute(
-                    "INSERT INTO blobs (key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, encoded),
-                )
-                self.blob_writes += 1
-                self.blob_bytes_written += len(encoded)
-            for key, value in meta.items():
-                self._conn.execute(
-                    "INSERT INTO meta (key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, value),
-                )
-        self.record_writes += len(puts)
-        self.record_deletes += len(deletes)
+        self._fragment_digests = {}
+        self._rows_digests = {}
+        if self.reset_pending:
+            return None
+        state, fragment_digests, rows_digests, di_digest = _read_merge_state_rows(
+            self._conn, self.meta_all(), with_digests=True
+        )
+        self._fragment_digests = fragment_digests
+        self._rows_digests = rows_digests
+        self._di_digest = di_digest
+        self.blob_reads += len(fragment_digests)
+        return state
 
-    def set_meta(self, updates: dict[str, str]) -> None:
-        with self._conn:
-            for key, value in updates.items():
-                self._conn.execute(
-                    "INSERT INTO meta (key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, value),
-                )
+    def load_digests(self) -> None:
+        """Populate the fragment/row digests WITHOUT decoding any fragment.
+
+        Used on the path that already has a validated merge-state snapshot
+        from the read-only idle preflight: the snapshot saves the gzip+JSON
+        decode, but the publication still needs to know which fragment bytes
+        and which owners' rows are already on disk, or it would rewrite every
+        one of them and turn a one-file edit into a whole-corpus write.
+        """
+        self._fragment_digests = {}
+        self._rows_digests = {}
+        self._di_digest = ""
+        if self.reset_pending:
+            return
+        rows = self._conn.execute(
+            f"SELECT path, name, fragment FROM {GRAPH_MERGE_STATE_TABLE}"
+        ).fetchall()
+        for path, name, raw in rows:
+            if raw is None:
+                continue
+            name = str(name)
+            if name == MERGE_ROWS_DIGEST_NAME:
+                self._rows_digests[str(path)] = bytes(raw).decode("utf-8", "replace")
+            elif name == MERGE_FRAGMENT_NAME:
+                self._fragment_digests[str(path)] = _sha256_bytes(bytes(raw))
+            elif name == MERGE_DI_SYNTH_NAME and str(path) == MERGE_CORPUS_PATH:
+                self._di_digest = _sha256_bytes(bytes(raw))
+
+    def fragment_digests(self) -> dict[str, str]:
+        """Byte digests of the fragments the last ``read_merge_state`` returned."""
+        return dict(self._fragment_digests)
+
+    def rows_digests(self) -> dict[str, str]:
+        """Per-owner digests of the graph rows in the PUBLISHED generation."""
+        return dict(self._rows_digests)
+
+    def di_digest(self) -> str:
+        """Byte digest of the published corpus-wide DI-synth fragment."""
+        return self._di_digest
 
     def close(self) -> None:
-        try:
-            self._conn.close()
-        except sqlite3.Error:
-            pass
+        """No-op: the connection belongs to the caller, not to this store."""
+        self._conn = None
 
     def __del__(self):  # pragma: no cover - GC timing dependent
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        # Deliberately empty. Closing a connection this object does not own
+        # would tear down the caller's publication connection at GC time.
+        return
+
+
+# Node keys that have their own column in ``graph_nodes``; everything else on
+# a node travels in the ``attributes`` JSON.
+_NODE_BASE_KEYS = frozenset({"id", "label", "kind", "source_file", "source_location", "layer"})
+# Same for ``graph_edges``.
+_EDGE_BASE_KEYS = frozenset({"source", "target", "relation", "confidence", "evidence", "self_edge_kind"})
+
+# The owner key used for nodes and edges that belong to no source file
+# (``external::`` endpoints, DI-synthesized nodes). The table columns are NOT
+# NULL with a '' default, so the empty owner is a real, queryable bucket --
+# not a missing value -- and it is retired and rewritten like any other owner.
+_UNOWNED = ""
+
+
+class GraphSourceChanged(RuntimeError):
+    """A source file moved under a prepared graph row set; discard the attempt."""
+
+
+
+# Type tags for the digest renderer. Without them a value that changed TYPE
+# but not text (True -> "True") would hash identically, and the owner's rows
+# would not be rewritten even though the stored JSON would differ.
+_DIGEST_TYPE_TAGS = {str: "s", bool: "b", int: "i", float: "f", type(None): "z"}
+
+
+def _render_for_digest(payload: dict) -> str:
+    """A cheap, order-independent, type-aware rendering of one node/edge dict.
+
+    Equivalent in discriminating power to hashing the materialised row (the
+    row is a pure function of this dict) but without the per-item
+    ``json.dumps`` the row build pays. On a repository-scale graph this is the
+    difference between ~0.70 s and ~0.23 s of per-build preparation.
+    """
+    parts: list[str] = []
+    for key in sorted(payload):
+        value = payload[key]
+        parts.append(key)
+        parts.append(_DIGEST_TYPE_TAGS.get(type(value), "o"))
+        parts.append(str(value))
+    return "\x1f".join(parts)
+
+
+def _node_row(node: "dict[str, Any]", layer: str) -> tuple:
+    node_id = str(node.get("id") or "")
+    attributes = {k: v for k, v in node.items() if k not in _NODE_BASE_KEYS}
+    return (
+        node_id,
+        str(node.get("label") or ""),
+        str(node.get("kind") or ""),
+        str(node.get("source_file") or ""),
+        str(node.get("source_location") or ""),
+        str(node.get("layer") or layer),
+        1 if node_id.startswith("external::") else 0,
+        json.dumps(attributes, separators=(",", ":"), sort_keys=True),
+    )
+
+
+def _edge_row(edge: "dict[str, Any]", owner: str, occurrence: int) -> tuple:
+    attributes = {k: v for k, v in edge.items() if k not in _EDGE_BASE_KEYS}
+    return (
+        owner,
+        str(edge.get("source") or ""),
+        str(edge.get("target") or ""),
+        str(edge.get("relation") or ""),
+        str(edge.get("confidence") or ""),
+        str(edge.get("evidence") or ""),
+        str(edge.get("self_edge_kind") or ""),
+        occurrence,
+        json.dumps(attributes, separators=(",", ":"), sort_keys=True),
+    )
+
+
+class GraphCommunityPublication:
+    """Prepared community rows, diffed by member (wave 1xny6).
+
+    ``graph_community_members`` is keyed ``(node_id, community_id)`` precisely
+    so an unchanged member is never rewritten: a one-file edit touches the few
+    memberships that actually moved, not the whole corpus. An unchanged
+    member's ``input_fingerprint`` therefore keeps the value it was first
+    computed at -- it records when the membership was established, not when it
+    was last confirmed, which is what "not rewritten" means.
+
+    ``graph_analysis`` carries the COMPACT per-generation row: community
+    metadata and the bounded betweenness ranking, with the per-community
+    member lists deliberately left out (they are the rows above). One upsert
+    per generation, so this never becomes an O(graph) blob rewrite.
+    """
+
+    def __init__(self, *, layer: str, input_fingerprint: str,
+                 community_puts: list, community_deletes: list,
+                 member_inserts: list, member_deletes: list,
+                 analysis_row: "tuple | None") -> None:
+        self.layer = layer
+        self.input_fingerprint = input_fingerprint
+        self.community_puts = community_puts
+        self.community_deletes = community_deletes
+        self.member_inserts = member_inserts
+        self.member_deletes = member_deletes
+        self.analysis_row = analysis_row
+
+    def row_count(self) -> int:
+        return (len(self.community_puts) + len(self.community_deletes)
+                + len(self.member_inserts) + len(self.member_deletes)
+                + (1 if self.analysis_row else 0))
+
+    def apply(self, conn) -> dict:
+        for community_id in self.community_deletes:
+            conn.execute(
+                "DELETE FROM graph_communities WHERE community_id = ? AND layer = ?",
+                (community_id, self.layer),
+            )
+        for row in self.community_puts:
+            conn.execute(
+                "INSERT INTO graph_communities (community_id, layer, input_fingerprint, "
+                "label, seed_node_id, node_count, attributes) VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(community_id, layer) DO UPDATE SET "
+                "input_fingerprint=excluded.input_fingerprint, label=excluded.label, "
+                "seed_node_id=excluded.seed_node_id, node_count=excluded.node_count, "
+                "attributes=excluded.attributes",
+                row,
+            )
+        for node_id, community_id in self.member_deletes:
+            conn.execute(
+                "DELETE FROM graph_community_members WHERE node_id = ? AND community_id = ?",
+                (node_id, community_id),
+            )
+        for row in self.member_inserts:
+            conn.execute(
+                "INSERT INTO graph_community_members (node_id, community_id, layer, "
+                "input_fingerprint) VALUES (?,?,?,?) "
+                "ON CONFLICT(node_id, community_id) DO UPDATE SET layer=excluded.layer",
+                row,
+            )
+        if self.analysis_row is not None:
+            conn.execute(
+                "INSERT INTO graph_analysis (kind, layer, input_fingerprint, method, "
+                "payload, computed_at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(kind, layer) DO UPDATE SET "
+                "input_fingerprint=excluded.input_fingerprint, method=excluded.method, "
+                "payload=excluded.payload, computed_at=excluded.computed_at",
+                self.analysis_row,
+            )
+        return {
+            "communities": len(self.community_puts),
+            "communities_retired": len(self.community_deletes),
+            "members": len(self.member_inserts),
+            "members_retired": len(self.member_deletes),
+            "analysis": 1 if self.analysis_row else 0,
+        }
+
+
+class GraphPublication:
+    """Graph rows prepared BEFORE the publication transaction, applied inside it.
+
+    Wave 1xny6 (``1xny5-ref``): graph, extraction and community rows are
+    participants of the single semantic publication transaction. Everything
+    expensive -- extraction, merge, clustering, content hashing, the per-owner
+    row digests that decide what actually changed -- happens while no lock is
+    held. What runs inside ``BEGIN IMMEDIATE`` is a cheap ``(size, mtime_ns)``
+    recheck plus a change-sized set of row writes.
+
+    "Change-sized" is the whole point and is enforced by construction:
+
+    * node/edge rows are grouped by their OWNING source file and a per-owner
+      digest of the final rows is stored beside the merge fragments. An owner
+      whose digest is unchanged is not touched -- not re-deleted, not
+      re-inserted -- so a one-file edit writes that file's rows, plus any
+      owner whose rows genuinely changed through cross-file resolution, and
+      nothing else. A whole-table rewrite is never the incremental path.
+    * ``graph_file_state`` and ``graph_merge_state`` are per file. Fragments
+      are written back only where the encoded BYTES differ from what was read.
+    * community membership is diffed by member (see
+      :class:`GraphCommunityPublication`).
+
+    ``reset`` carries the version-bump reset that used to run as its own
+    commit at session open. Executing it here -- as scoped DELETEs on the
+    graph tables inside the caller's transaction -- is what lets the previous
+    graph generation stay readable until the rebuilt rows commit.
+    """
+
+    def __init__(
+        self,
+        *,
+        layer: str,
+        root: "Path | None" = None,
+        reset: bool = False,
+        file_puts: "dict[str, tuple[str, bytes]] | None" = None,
+        file_deletes: "list[str] | None" = None,
+        fragment_puts: "dict[str, bytes] | None" = None,
+        fragment_deletes: "list[str] | None" = None,
+        rows_digest_puts: "dict[str, str] | None" = None,
+        rows_digest_deletes: "list[str] | None" = None,
+        di_synth_bytes: "bytes | None" = None,
+        node_rows: "dict[str, list[tuple]] | None" = None,
+        edge_rows: "dict[str, list[tuple]] | None" = None,
+        owner_deletes: "set[str] | None" = None,
+        meta: "dict[str, str] | None" = None,
+        source_stat: "dict[str, tuple[int, int]] | None" = None,
+        payload_fingerprint: str = "",
+    ) -> None:
+        self.layer = layer
+        self.root = root
+        self.reset = reset
+        self.file_puts = file_puts or {}
+        self.file_deletes = list(file_deletes or ())
+        self.fragment_puts = fragment_puts or {}
+        self.fragment_deletes = list(fragment_deletes or ())
+        self.rows_digest_puts = rows_digest_puts or {}
+        self.rows_digest_deletes = list(rows_digest_deletes or ())
+        self.di_synth_bytes = di_synth_bytes
+        self.node_rows = node_rows or {}
+        self.edge_rows = edge_rows or {}
+        self.owner_deletes = set(owner_deletes or ())
+        self.meta = meta or {}
+        self.source_stat = source_stat or {}
+        self.payload_fingerprint = payload_fingerprint
+        self.community: "GraphCommunityPublication | None" = None
+
+    # -- the in-transaction source recheck ----------------------------------
+
+    def recheck_sources(self) -> None:
+        """Cheap ``(size, mtime_ns)`` recheck of the files whose rows we hold.
+
+        Deliberately NOT a re-hash: hashing is content work and belongs before
+        ``BEGIN IMMEDIATE``. This closes the window between preparing the rows
+        and taking the write lock, and it closes it in microseconds per file.
+        A change means the prepared rows describe a file that no longer exists
+        in that form -- raise, so the attempt rolls back and the next build
+        re-extracts, rather than publishing a graph that disagrees with disk.
+        """
+        if self.root is None or not self.source_stat:
+            return
+        for rel, expected in self.source_stat.items():
+            try:
+                st = os.stat(self.root / rel)
+            except OSError:
+                raise GraphSourceChanged(
+                    f"graph source vanished during publication: {rel}; retry indexing"
+                ) from None
+            if (st.st_size, st.st_mtime_ns) != expected:
+                raise GraphSourceChanged(
+                    f"graph source changed during publication: {rel}; retry indexing"
+                )
+
+    # -- application --------------------------------------------------------
+
+    def row_count(self) -> int:
+        """Rows this publication writes -- the AC-4 bounded-rows accounting."""
+        total = (
+            sum(len(rows) for rows in self.node_rows.values())
+            + sum(len(rows) for rows in self.edge_rows.values())
+            + len(self.file_puts) + len(self.file_deletes)
+            + len(self.fragment_puts) + len(self.fragment_deletes)
+            + len(self.rows_digest_puts) + len(self.rows_digest_deletes)
+            + (1 if self.di_synth_bytes is not None else 0)
+            + len(self.meta)
+        )
+        if self.community is not None:
+            total += self.community.row_count()
+        return total
+
+    def apply(self, conn) -> dict:
+        """Apply every graph participant inside the CALLER's open transaction.
+
+        No ``BEGIN``, no ``COMMIT``, no ``with conn:`` -- exactly the contract
+        ``graph_store.create_schema`` and ``sqlite_vector_store`` already
+        follow. The caller's single publication transaction owns atomicity.
+        """
+        self.recheck_sources()
+        counts = {"nodes": 0, "edges": 0, "files": 0, "files_retired": 0,
+                  "fragments": 0, "fragments_retired": 0, "owners_rewritten": 0,
+                  "reset": 1 if self.reset else 0}
+        if self.reset:
+            # Scoped DELETEs -- the replacement for the whole-store reset that
+            # used to run as an independent commit at session open. Inside
+            # this transaction the previous generation stayed readable right
+            # up to the commit that replaces it.
+            for table in graph_store.GRAPH_TABLES:
+                conn.execute(f"DELETE FROM {table}")
+            conn.execute("DELETE FROM meta WHERE key LIKE ?", (GRAPH_META_PREFIX + "%",))
+
+        owners = set(self.owner_deletes) | set(self.node_rows) | set(self.edge_rows)
+        for owner in owners:
+            conn.execute("DELETE FROM graph_nodes WHERE source_file = ? AND layer = ?",
+                         (owner, self.layer))
+            conn.execute("DELETE FROM graph_edges WHERE source_file = ?", (owner,))
+        counts["owners_rewritten"] = len(owners)
+
+        for owner, rows in self.node_rows.items():
+            if not rows:
+                continue
+            conn.executemany(
+                "INSERT INTO graph_nodes (node_id, label, kind, source_file, "
+                "source_location, layer, external, attributes) VALUES (?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(node_id) DO UPDATE SET label=excluded.label, "
+                "kind=excluded.kind, source_file=excluded.source_file, "
+                "source_location=excluded.source_location, layer=excluded.layer, "
+                "external=excluded.external, attributes=excluded.attributes",
+                rows,
+            )
+            counts["nodes"] += len(rows)
+        for owner, rows in self.edge_rows.items():
+            if not rows:
+                continue
+            conn.executemany(
+                "INSERT INTO graph_edges (source_file, source_id, target_id, relation, "
+                "confidence, evidence, self_edge_kind, occurrence, attributes) "
+                "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_file, source_id, target_id, "
+                "relation, confidence, evidence, occurrence) DO UPDATE SET "
+                "self_edge_kind=excluded.self_edge_kind, attributes=excluded.attributes",
+                rows,
+            )
+            counts["edges"] += len(rows)
+
+        for rel in self.file_deletes:
+            conn.execute(
+                f"DELETE FROM {GRAPH_FILE_STATE_TABLE} WHERE path = ? AND layer = ?",
+                (rel, self.layer),
+            )
+            counts["files_retired"] += 1
+        now = time.time()
+        for rel, (source_hash, record) in self.file_puts.items():
+            conn.execute(
+                f"INSERT INTO {GRAPH_FILE_STATE_TABLE} (path, layer, source_hash, record, "
+                "extracted_at) VALUES (?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+                "layer=excluded.layer, source_hash=excluded.source_hash, "
+                "record=excluded.record, extracted_at=excluded.extracted_at",
+                (rel, self.layer, source_hash, record, now),
+            )
+            counts["files"] += 1
+
+        for rel in self.fragment_deletes:
+            conn.execute(
+                f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ?", (rel,)
+            )
+            counts["fragments_retired"] += 1
+        for rel, encoded in self.fragment_puts.items():
+            conn.execute(
+                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                "fragment=excluded.fragment",
+                (rel, MERGE_FRAGMENT_NAME, encoded),
+            )
+            counts["fragments"] += 1
+        for owner in self.rows_digest_deletes:
+            conn.execute(
+                f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ? AND name = ?",
+                (owner, MERGE_ROWS_DIGEST_NAME),
+            )
+        for owner, digest in self.rows_digest_puts.items():
+            conn.execute(
+                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                "fragment=excluded.fragment",
+                (owner, MERGE_ROWS_DIGEST_NAME, digest.encode("utf-8")),
+            )
+        if self.di_synth_bytes is not None:
+            conn.execute(
+                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                "fragment=excluded.fragment",
+                (MERGE_CORPUS_PATH, MERGE_DI_SYNTH_NAME, self.di_synth_bytes),
+            )
+
+        for key, value in self.meta.items():
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (GRAPH_META_PREFIX + key, value),
+            )
+
+        if self.community is not None:
+            counts.update(self.community.apply(conn))
+        return counts
 
 
 def _pending_doc_link_repairs(
@@ -1662,22 +2081,27 @@ def _valid_doc_link_merge_state(merge_state: Any) -> bool:
     )
 
 
-def _payload_binding_fingerprint(meta: dict[str, str], graph_path: Path) -> str:
-    """Read-only proof shared by idle planning and graph finalization."""
-    if meta.get("payload_stat_state") != "bound":
+def _index_state_store_module():
+    """Lazy import: the store module must not pull tree-sitter at import time."""
+    import index_state_store
+
+    return index_state_store
+
+
+def graph_published_fingerprint(meta: dict[str, str]) -> str:
+    """The fingerprint of the graph rows in the PUBLISHED generation.
+
+    Wave 1xny6 retired the payload/store crash-consistency binding this
+    replaces. Graph rows, merge fragments and this meta key now commit in ONE
+    transaction with the semantic publication, so the recorded fingerprint IS
+    the fingerprint of the committed rows -- there is no second artifact whose
+    stat has to be cross-checked, and therefore no torn window to detect.
+    ``graph_rows_state`` is set to ``published`` by the same transaction that
+    writes the rows; anything else reads as "no published generation".
+    """
+    if meta.get("graph_rows_state") != "published":
         return ""
-    fingerprint = str(meta.get("payload_fingerprint") or "")
-    if not fingerprint:
-        return ""
-    try:
-        st = graph_path.stat()
-    except OSError:
-        return ""
-    if str(st.st_size) != meta.get("payload_size"):
-        return ""
-    if str(st.st_mtime_ns) != meta.get("payload_mtime_ns"):
-        return ""
-    return fingerprint
+    return str(meta.get("payload_fingerprint") or "")
 
 
 def read_pending_doc_link_repairs(
@@ -1691,9 +2115,8 @@ def read_pending_doc_link_repairs(
     to update_graph_index within the same lock/epoch-fenced build call to avoid
     decoding the merge blob twice. The session verifies its metadata again.
     """
-    if layer not in GRAPH_STORE_FILENAMES:
+    if layer not in GRAPH_FILENAMES:
         return None
-    store_path = index_dir / GRAPH_DIRNAME / GRAPH_STORE_FILENAMES[layer]
     expected = {
         "store_schema_version": GRAPH_STORE_SCHEMA_VERSION,
         "schema_version": GRAPH_SCHEMA_VERSION,
@@ -1702,27 +2125,41 @@ def read_pending_doc_link_repairs(
         "chunker_version": chunker_version,
         "layer": layer,
     }
+    iss = _index_state_store_module()
     try:
-        conn = sqlite3.connect(f"{store_path.resolve().as_uri()}?mode=ro", uri=True, timeout=2.0)
-        try:
-            # Bind metadata and blob to the same SQLite read snapshot.
-            conn.execute("BEGIN")
-            meta = dict(conn.execute("SELECT key, value FROM meta"))
-            if any(meta.get(key) != value for key, value in expected.items()):
-                return {"meta": meta, "merge_state": None, "pending_docs": [], "rebuild_required": True}
-            row = conn.execute("SELECT value FROM blobs WHERE key = 'merge_state'").fetchone()
-            merge_state = _decode_state_record(row[0]) if row else None
-        finally:
-            conn.close()
-    except (OSError, sqlite3.Error):
+        conn = iss.open_read_only(index_dir)
+    except Exception:  # noqa: BLE001 - an unreadable store claims no pending work
         return None
-    # A committed summary can already have consumed its link obligation while
-    # payload publication is still pending. Idleness requires the same binding
-    # proof as finalize, so an unchanged retry reaches its full-merge fallback.
+    if conn is None:
+        return None
+    try:
+        # Bind metadata and fragments to the same SQLite read snapshot.
+        conn.execute("BEGIN")
+        cut = len(GRAPH_META_PREFIX)
+        meta = {
+            str(k)[cut:]: str(v)
+            for k, v in conn.execute(
+                "SELECT key, value FROM meta WHERE key LIKE ?",
+                (GRAPH_META_PREFIX + "%",),
+            )
+        }
+        if any(meta.get(key) != value for key, value in expected.items()):
+            return {"meta": meta, "merge_state": None, "pending_docs": [], "rebuild_required": True}
+        merge_state = _read_merge_state_rows(conn, meta)
+    except Exception:  # noqa: BLE001 - unreadable state claims no pending work
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    # Idleness requires the same published-rows proof finalize uses, so an
+    # unchanged retry reaches its full-merge fallback rather than trusting a
+    # merge state the published generation does not vouch for.
     rebuild_required = (
         not _valid_doc_link_merge_state(merge_state)
-        or _payload_binding_fingerprint(meta, index_dir / GRAPH_DIRNAME / GRAPH_FILENAMES[layer])
-        != str(merge_state.get("payload_fingerprint") or "")
+        or graph_published_fingerprint(meta)
+        != str((merge_state or {}).get("payload_fingerprint") or "")
     )
     return {
         "meta": meta,
@@ -1741,24 +2178,28 @@ def read_state_builder_version(index_dir: Path, layer: str = "project") -> str:
     Returns ``""`` when the version cannot be determined — callers treat that
     exactly like the historical missing/corrupted-state contract.
     """
-    if layer not in GRAPH_STORE_FILENAMES:
+    if layer not in GRAPH_FILENAMES:
         return ""
-    store_path = index_dir / GRAPH_DIRNAME / GRAPH_STORE_FILENAMES[layer]
-    if store_path.exists():
+    iss = _index_state_store_module()
+    try:
+        conn = iss.open_read_only(index_dir)
+    except Exception:  # noqa: BLE001 - undeterminable version reads as missing
+        return ""
+    if conn is not None:
         try:
-            conn = sqlite3.connect(
-                f"file:{store_path.as_posix()}?mode=ro", uri=True, timeout=2.0
-            )
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key = ?",
+                (GRAPH_META_PREFIX + "builder_version",),
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            row = None
+        finally:
             try:
-                row = conn.execute(
-                    "SELECT value FROM meta WHERE key = 'builder_version'"
-                ).fetchone()
-            finally:
                 conn.close()
-            if row and row[0]:
-                return str(row[0])
-        except sqlite3.Error:
-            return ""
+            except Exception:  # noqa: BLE001
+                pass
+        if row and row[0]:
+            return str(row[0])
         return ""
     legacy_path = index_dir / GRAPH_DIRNAME / GRAPH_STATE_FILENAMES[layer]
     if legacy_path.exists():
@@ -1766,120 +2207,6 @@ def read_state_builder_version(index_dir: Path, layer: str = "project") -> str:
         if isinstance(state, dict):
             return str(state.get("builder_version") or "")
     return ""
-
-
-def read_bound_graph_payload_source_hash(
-    root: Path,
-    source_path: str,
-    layer: str = "project",
-) -> dict[str, Any] | None:
-    """Return an exact published graph snapshot and its source-file receipt.
-
-    The graph payload and SQLite state store publish in separate atomic steps.
-    This fail-closed reader therefore binds the bytes read from one opened graph
-    inode to the store's ``bound`` fingerprint/size/mtime metadata and fetches
-    the requested per-file source hash in the same read-only SQLite statement.
-    It never constructs :class:`GraphStateStore` and never creates or repairs
-    index state.  Any missing, corrupt, pending, replaced, or mismatched input
-    returns ``None``.
-    """
-    if layer not in GRAPH_FILENAMES or layer not in GRAPH_STORE_FILENAMES:
-        return None
-    rel_source = _repo_rel(source_path)
-    if not rel_source:
-        return None
-    graph_dir = root / ".wavefoundry" / "index" / GRAPH_DIRNAME
-    graph_path = graph_dir / GRAPH_FILENAMES[layer]
-    store_path = graph_dir / GRAPH_STORE_FILENAMES[layer]
-    try:
-        with graph_path.open("rb") as graph_file:
-            stat_before = os.fstat(graph_file.fileno())
-            raw = graph_file.read()
-            stat_after_read = os.fstat(graph_file.fileno())
-            if (
-                stat_before.st_dev,
-                stat_before.st_ino,
-                stat_before.st_size,
-                stat_before.st_mtime_ns,
-            ) != (
-                stat_after_read.st_dev,
-                stat_after_read.st_ino,
-                stat_after_read.st_size,
-                stat_after_read.st_mtime_ns,
-            ):
-                return None
-            decoded = gzip.decompress(raw) if raw[:2] == _GZIP_MAGIC else raw
-            payload = json.loads(decoded.decode("utf-8"))
-            if not isinstance(payload, dict) or not payload:
-                return None
-            fingerprint = str(payload.get("input_fingerprint") or "")
-            if not fingerprint:
-                return None
-
-            conn = sqlite3.connect(
-                f"file:{store_path.as_posix()}?mode=ro",
-                uri=True,
-                timeout=2.0,
-            )
-            try:
-                conn.execute("PRAGMA query_only=ON")
-                row = conn.execute(
-                    "SELECT "
-                    "(SELECT source_hash FROM files WHERE path = ?), "
-                    "(SELECT value FROM meta WHERE key = 'payload_stat_state'), "
-                    "(SELECT value FROM meta WHERE key = 'payload_fingerprint'), "
-                    "(SELECT value FROM meta WHERE key = 'payload_size'), "
-                    "(SELECT value FROM meta WHERE key = 'payload_mtime_ns'), "
-                    "(SELECT value FROM meta WHERE key = 'builder_version')",
-                    (rel_source,),
-                ).fetchone()
-            finally:
-                conn.close()
-
-            stat_after_state = os.fstat(graph_file.fileno())
-            published_stat = graph_path.stat()
-            observed_identity = (
-                stat_after_read.st_dev,
-                stat_after_read.st_ino,
-                stat_after_read.st_size,
-                stat_after_read.st_mtime_ns,
-            )
-            if observed_identity != (
-                stat_after_state.st_dev,
-                stat_after_state.st_ino,
-                stat_after_state.st_size,
-                stat_after_state.st_mtime_ns,
-            ) or observed_identity != (
-                published_stat.st_dev,
-                published_stat.st_ino,
-                published_stat.st_size,
-                published_stat.st_mtime_ns,
-            ):
-                return None
-    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError, gzip.BadGzipFile):
-        return None
-
-    if not row or not row[0]:
-        return None
-    source_hash, state, bound_fingerprint, bound_size, bound_mtime, builder = (
-        str(value or "") for value in row
-    )
-    if (
-        state != "bound"
-        or bound_fingerprint != fingerprint
-        or bound_size != str(stat_after_read.st_size)
-        or bound_mtime != str(stat_after_read.st_mtime_ns)
-        or builder != str(payload.get("builder_version") or "")
-        or builder != GRAPH_BUILDER_VERSION
-    ):
-        return None
-    payload.setdefault("layer", layer)
-    payload.setdefault("schema_version", GRAPH_SCHEMA_VERSION)
-    payload.setdefault("nodes", [])
-    payload.setdefault("edges", [])
-    payload["present"] = True
-    payload["graph_path"] = str(graph_path.relative_to(root)).replace("\\", "/")
-    return {"payload": payload, "source_hash": source_hash}
 
 
 _DI_SIGNALS_MOD = None
@@ -11195,9 +11522,12 @@ class GraphIndexSession:
         state: dict[str, Any] | None = None,
         unreadable_dirs: set[str] | None = None,
         doc_link_repair_plan: dict[str, Any] | None = None,
+        state_conn=None,
+        selected_paths: set[str] | None = None,
     ) -> None:
         if layer not in GRAPH_FILENAMES:
             raise ValueError(f"Unsupported graph layer: {layer}")
+        self.selected_paths = selected_paths
         self.root = root
         self.index_dir = index_dir
         self.layer = layer
@@ -11216,6 +11546,16 @@ class GraphIndexSession:
         self.state_path = index_dir / GRAPH_DIRNAME / GRAPH_STATE_FILENAMES[layer]
         self.store_path = index_dir / GRAPH_DIRNAME / GRAPH_STORE_FILENAMES[layer]
         self._store: GraphStateStore | None = None
+        # Wave 1xny6: the graph state lives in the shared index database, so
+        # the session reads through the CALLER's connection. ``_owned_store``
+        # is the standalone fallback (tests, the retirement API) -- a session
+        # handed a connection never opens or closes one.
+        self._state_conn = state_conn
+        self._owned_store = None
+        # Set by ``finalize``: the prepared graph rows the caller applies
+        # inside its publication transaction. ``None`` until finalize runs,
+        # and on the zero-change fast path (which publishes nothing).
+        self.publication: "GraphPublication | None" = None
         self.graph_path = index_dir / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
         self.pending_code: dict[str, dict[str, Any]] = {}
         self.pending_doc_text: dict[str, str] = {}
@@ -11267,20 +11607,26 @@ class GraphIndexSession:
                 for rel in (self._state.get("files") or {})
                 if _path_under_unreadable(rel, self.unreadable_dirs)
             }
+        if selected_paths is not None:
+            self._current_paths |= set(self._state.get("files") or {}) - selected_paths
 
     def _ensure_store(self) -> GraphStateStore:
-        """Open (once) the per-file SQLite state store for this session.
+        """Bind (once) the graph state reader to the index connection.
 
-        Wave 1p9q3 (1p9q2). Side effects on first open:
-        - One-time legacy discard: a monolithic ``project-graph-state.json``
-          is DELETED (decision: discard, not migrate — the version-mismatch
-          path already forces a full re-extract on upgrade, so a one-time
-          re-extract is the established upgrade cost and migration code would
-          be single-use complexity). Idempotent: the file is simply gone on
-          subsequent opens.
-        - Whole-store version check: any schema/builder/walker/chunker/layer
-          mismatch resets the store (rows + merge sidecar), preserving the
-          historical ``_load_state`` invalidation semantics.
+        Wave 1xny6: there is nothing to OPEN here any more. The graph state
+        lives in the shared index database, so the session reads it through
+        the caller's ``sqlite_runtime`` connection -- the single-binding rule.
+        A session constructed without one (tests, the standalone retirement
+        API) opens its own ``IndexStateStore`` and owns closing it; that open
+        is also where a lock/busy error propagates and structural corruption
+        raises the typed recovery response, rather than being mistaken for
+        corruption and deleting a healthy store.
+
+        The version gate no longer mutates anything: ``ensure_current`` only
+        RECORDS the reset a builder/walker/chunker/schema/layer bump owes, and
+        :class:`GraphPublication` performs it as scoped DELETEs inside the
+        publication transaction, so the previous graph generation stays
+        readable until the rebuilt rows commit.
         """
         if self._store is None:
             if self.state_path.exists():
@@ -11288,15 +11634,20 @@ class GraphIndexSession:
                     self.state_path.unlink()
                     print(
                         "build_index: legacy monolithic graph state discarded "
-                        f"({self.state_path.name}) — the per-file state store "
+                        f"({self.state_path.name}) — the shared index database "
                         "supersedes it; a one-time full re-extract follows",
                         file=sys.stderr,
                         flush=True,
                     )
                 except OSError:
                     pass
+            conn = self._state_conn
+            if conn is None:
+                iss = _index_state_store_module()
+                self._owned_store = iss.IndexStateStore(self.index_dir)
+                conn = self._owned_store._conn
             self._store = GraphStateStore(
-                self.store_path,
+                conn,
                 layer=self.layer,
                 walker_version=self.walker_version,
                 chunker_version=self.chunker_version,
@@ -11305,16 +11656,17 @@ class GraphIndexSession:
         return self._store
 
     def close_store(self) -> None:
-        """Close the state-store connection.
+        """Release the state reader (and an owned connection, if any).
 
-        Hook-spawned builds are short-lived processes, but tests (and the
-        in-process auto-rebuild path) construct many sessions — an explicit
-        close avoids fd/WAL-handle buildup. A later store access transparently
-        reopens.
+        A session handed the caller's connection never closes it: the caller's
+        publication transaction runs on that connection after finalize.
         """
         if self._store is not None:
             self._store.close()
             self._store = None
+        if self._owned_store is not None:
+            self._owned_store.close()
+            self._owned_store = None
 
     def _load_state(self) -> dict[str, Any]:
         """Load the lightweight session state view from the per-file store.
@@ -13796,17 +14148,190 @@ class GraphIndexSession:
         return simple_lower, complex_pattern, complex_lower
 
     def _payload_binding_ok(self, store: GraphStateStore) -> str:
-        """Return the bound payload fingerprint when the on-disk payload file
-        matches the store's recorded binding (size + mtime_ns + bound marker),
-        else ``""``.
+        """The fingerprint of the graph rows in the published generation.
 
-        Wave 1p9q3 (1p9q2) crash-consistency probe: the payload artifact and
-        the SQLite store cannot commit atomically *together*, so the store
-        records which payload it vouches for. Any mismatch (torn window,
-        manual deletion, out-of-band rewrite) degrades to a loud full re-merge
-        — never a silently inconsistent graph.
+        Wave 1p9q3's crash-consistency probe compared a payload FILE's stat
+        against a binding the separate state store recorded, because the two
+        could not commit together. Wave 1xny6 made them one transaction: the
+        rows, the merge fragments and this fingerprint commit atomically with
+        the semantic publication, so the recorded value IS the committed rows'
+        fingerprint and there is no torn window left to detect. An unpublished
+        or interrupted attempt reads as ``""`` and degrades to the same loud
+        full re-merge.
         """
-        return _payload_binding_fingerprint(store.meta_all(), self.graph_path)
+        return graph_published_fingerprint(store.meta_all())
+
+    def _prepare_publication(
+        self,
+        *,
+        store: "GraphStateStore",
+        graph_payload: dict,
+        input_fingerprint: str,
+        merge_files: dict,
+        di_synth_nodes: list,
+        locality_violation: bool,
+        row_puts: dict,
+        deletes: list,
+    ) -> "GraphPublication":
+        """Group, hash and diff this build's graph rows -- outside any lock.
+
+        Three diffs decide what the publication actually writes, and each one
+        exists to keep a small edit small:
+
+        1. **Rows, by owning file.** Nodes carry ``source_file``; an edge is
+           owned by its SOURCE node's file (``""`` for ``external::`` and
+           DI-synthesized endpoints, which is a real bucket, not a null). A
+           digest of each owner's final rows -- final meaning after every
+           cross-file rewrite, so a globally-derived attribute flip on an
+           untouched file is caught -- is compared against the digest stored
+           beside that owner's merge fragment. Only owners whose digest moved
+           are deleted and re-inserted.
+        2. **Merge fragments, by file.** Compared as ENCODED BYTES against the
+           bytes read, so a fragment that merged to the same content is not
+           rewritten.
+        3. **File extraction state.** ``row_puts`` is already the changed set.
+
+        The source stat snapshot is taken here, before the transaction, and
+        rechecked (size + mtime_ns only) inside it -- content hashing must not
+        happen under the write lock.
+        """
+        layer = self.layer
+        nodes = graph_payload.get("nodes") or []
+        edges = graph_payload.get("edges") or []
+
+        # --- Phase 1: group by owner and digest, WITHOUT materialising rows.
+        # Every build walks the whole node/edge set (a global attribute flip on
+        # an untouched file has to be caught), so the per-item cost of this
+        # pass is the one that shows up in the delta wall time. Rendering a
+        # dict into a tagged key/value string is ~3x cheaper than building the
+        # row tuple with its `json.dumps` attributes, and on an incremental
+        # almost every owner turns out to be unchanged, so the expensive form
+        # is only built for the handful that actually changed.
+        owner_of_node: dict[str, str] = {}
+        node_by_owner: dict[str, list] = {}
+        digest_items: dict[str, list] = {}
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            owner = str(node.get("source_file") or _UNOWNED)
+            owner_of_node[str(node.get("id") or "")] = owner
+            node_by_owner.setdefault(owner, []).append(node)
+            digest_items.setdefault(owner, []).append("n" + _render_for_digest(node))
+
+        edge_by_owner: dict[str, list] = {}
+        for edge in edges:
+            if not isinstance(edge, dict):
+                continue
+            owner = owner_of_node.get(str(edge.get("source") or ""), _UNOWNED)
+            edge_by_owner.setdefault(owner, []).append(edge)
+            digest_items.setdefault(owner, []).append("e" + _render_for_digest(edge))
+
+        # Sorted, so the digest is a pure function of the owner's row SET and
+        # never of assembly order.
+        owners = set(node_by_owner) | set(edge_by_owner)
+        new_digests: dict[str, str] = {}
+        for owner in owners:
+            acc = hashlib.sha256()
+            for item in sorted(digest_items.get(owner, ())):
+                acc.update(item.encode("utf-8"))
+                acc.update(b"\0")
+            new_digests[owner] = acc.hexdigest()
+
+        stored_digests = store.rows_digests()
+        reset_pending = store.reset_pending
+        changed_owners = {
+            owner for owner, digest in new_digests.items()
+            if reset_pending or stored_digests.get(owner) != digest
+        }
+        retired_owners = set(stored_digests) - owners
+
+        # --- Phase 2: materialise rows for the changed owners only.
+        node_rows: dict[str, list] = {}
+        edge_rows: dict[str, list] = {}
+        for owner in changed_owners:
+            node_rows[owner] = [
+                _node_row(node, layer) for node in node_by_owner.get(owner, ())
+            ]
+            occurrence_seen: dict[tuple, int] = {}
+            rows = []
+            for edge in edge_by_owner.get(owner, ()):
+                key = (str(edge.get("source") or ""), str(edge.get("target") or ""),
+                       str(edge.get("relation") or ""), str(edge.get("confidence") or ""),
+                       str(edge.get("evidence") or ""))
+                occurrence = occurrence_seen.get(key, 0)
+                occurrence_seen[key] = occurrence + 1
+                rows.append(_edge_row(edge, owner, occurrence))
+            edge_rows[owner] = rows
+
+        # Fragment diff, on the encoded bytes.
+        stored_fragments = store.fragment_digests()
+        fragment_puts: dict[str, bytes] = {}
+        for rel, entry in merge_files.items():
+            encoded = _encode_state_record(entry)
+            if reset_pending or stored_fragments.get(rel) != _sha256_bytes(encoded):
+                fragment_puts[rel] = encoded
+        fragment_deletes = sorted(set(stored_fragments) - set(merge_files))
+
+        file_puts: dict[str, tuple] = {}
+        source_stat: dict[str, tuple] = {}
+        for rel, record in row_puts.items():
+            file_puts[rel] = (
+                str(record.get("source_hash") or ""),
+                _encode_state_record(record),
+            )
+            try:
+                st = os.stat(self.root / rel)
+            except OSError:
+                # A file that vanished between extraction and here has nothing
+                # to recheck; the merge's own removal handling owns its rows.
+                continue
+            source_stat[rel] = (st.st_size, st.st_mtime_ns)
+
+        di_encoded = _encode_state_record(di_synth_nodes)
+        di_synth_bytes = (
+            di_encoded
+            if reset_pending or store.di_digest() != _sha256_bytes(di_encoded)
+            else None
+        )
+
+        meta = dict(store._expected_versions())
+        meta["merge_state_format"] = _MERGE_STATE_FORMAT
+        meta["payload_fingerprint"] = input_fingerprint
+        # The rows and this marker commit together, so "published" is a fact
+        # about the committed transaction, not a promise about a later write.
+        meta["graph_rows_state"] = "published"
+        # The payload's non-row header (versions, generated_at, fingerprint,
+        # counts). One small meta row, written in the same transaction as the
+        # rows it describes, so `read_graph_payload_rows` can rebuild the
+        # payload without consulting the derived artifact at all.
+        meta["payload_header"] = json.dumps(
+            {k: v for k, v in graph_payload.items() if k not in ("nodes", "edges")},
+            separators=(",", ":"), sort_keys=True,
+        )
+        meta["locality_violation"] = "1" if locality_violation else "0"
+        # Wave 1xny6 lane L6b: the DERIVED payload file's stat binding
+        # (`payload_stat_state`/`payload_size`/`payload_mtime_ns`) is gone with
+        # the file and its writer. `graph_rows_state` above is the whole proof
+        # now: it commits with the rows it describes.
+
+        return GraphPublication(
+            layer=layer,
+            root=self.root,
+            reset=reset_pending,
+            file_puts=file_puts,
+            file_deletes=list(deletes),
+            fragment_puts=fragment_puts,
+            fragment_deletes=fragment_deletes,
+            rows_digest_puts={o: new_digests[o] for o in changed_owners},
+            rows_digest_deletes=sorted(retired_owners),
+            di_synth_bytes=di_synth_bytes,
+            node_rows=node_rows,
+            edge_rows=edge_rows,
+            owner_deletes=retired_owners,
+            meta=meta,
+            source_stat=source_stat,
+            payload_fingerprint=input_fingerprint,
+        )
 
     def finalize(self) -> dict[str, Any]:
         """Merge per-file artifacts into the graph payload.
@@ -13855,13 +14380,14 @@ class GraphIndexSession:
         scan-excluded doc, a memory target into ``docs/waves/``) are evidence
         a from-scratch build carries too and are deliberately kept.
 
-        Persist order + crash windows (AC-5): store commit (rows + sidecar +
-        binding meta with ``payload_stat_state='pending'``) → payload write →
-        binding stat commit. A crash in any window leaves the binding either
-        stale or pending; the next build detects the mismatch and performs a
-        loud full re-merge from the (newer-or-equal) committed rows — a lost
-        build is re-buildable, a torn one is detectable, and a wrong graph is
-        never served silently.
+        Persist order + crash windows (AC-5): wave 1xny6 collapsed the old
+        three-step order (store commit → payload write → binding stat commit)
+        into ONE commit. The rows, the merge fragments and
+        ``graph_rows_state='published'`` land in the coordinator's single
+        publication transaction, so there is no second artifact to tear against
+        and no binding to go stale: a crash either committed that transaction
+        or it did not. A lost build is re-buildable and a wrong graph is never
+        served silently.
         """
         import time as _time
 
@@ -13919,8 +14445,12 @@ class GraphIndexSession:
         if (isinstance(plan, dict) and plan.get("meta") == store.meta_all()
                 and "merge_state" in plan):
             merge_state = plan["merge_state"]
+            # The snapshot saves the decode, not the diff inputs: without the
+            # digests the publication cannot tell which fragments and which
+            # owners' rows are already published, and would rewrite all of them.
+            store.load_digests()
         else:
-            merge_state = store.get_blob("merge_state")
+            merge_state = store.read_merge_state()
         pending_link_docs = _pending_doc_link_repairs(
             merge_state, current_paths, self.unreadable_dirs,
         ) - drop_paths
@@ -13935,7 +14465,7 @@ class GraphIndexSession:
                 and bound_fp == str(merge_state.get("payload_fingerprint") or "")
                 and store.meta_all().get("merge_state_format") == _MERGE_STATE_FORMAT
             ):
-                payload = _read_json(self.graph_path, None)
+                payload = read_graph_payload_rows(store._conn, self.layer)
                 if (
                     isinstance(payload, dict)
                     and str(payload.get("input_fingerprint") or "") == bound_fp
@@ -13949,8 +14479,10 @@ class GraphIndexSession:
                     stats["blob_bytes"] = store.blob_bytes_written - blob_bytes_before
                     payload["merge_stats"] = stats
                     return payload
-            # Fall through: the binding is inconsistent — re-merge loudly below
-            # rather than serve a payload the store cannot vouch for.
+            # Fall through: the published rows do not vouch for a complete
+            # generation (no published fingerprint, a merge state that
+            # disagrees with it, or a format bump) — re-merge loudly below
+            # rather than serve a graph the rows cannot vouch for.
 
         # --- Acquire the persistent merge state. ---
         merge_files: dict[str, dict[str, Any]] = {}
@@ -14793,20 +15325,28 @@ class GraphIndexSession:
         # is in none of the three sets; the 1x54z posture serves the subtree
         # AS OF THE LAST READABLE BUILD. The store cannot tell such a file
         # from one deleted earlier (neither has a row) and a stat raises
-        # under a real outage, but the last published payload can: an edge
+        # under a real outage, but the last published generation can: an edge
         # whose endpoint lies under an unreadable directory is kept only when
-        # that payload served it (same source, target and relation), so an
+        # that generation served it (same source, target and relation), so an
         # edge the last readable build dropped stays absent and one it served
         # survives until the directory is readable again and the from-scratch
-        # resolver decides. The payload is read once, only during an outage.
+        # resolver decides. Read once, only during an outage.
+        #
+        # Wave 1xny6 lane L6b: read from the published ROWS, not from the
+        # retired ``project-graph.json`` artifact. This merge has not published
+        # yet, so ``graph_edges`` still holds exactly the last published
+        # generation -- the same content the file carried, without depending on
+        # a derived artifact that no longer exists.
         _last_served_keys: "set[tuple[str, str, str]] | None" = None
         if self.unreadable_dirs:
-            _last_payload = _read_json(self.graph_path, None)
-            _last_served_keys = {
-                (str(e.get("source") or ""), str(e.get("target") or ""), str(e.get("relation") or ""))
-                for e in ((_last_payload or {}).get("edges") or [])
-                if isinstance(e, dict)
-            } if isinstance(_last_payload, dict) else set()
+            _last_served_keys = set()
+            try:
+                for src, tgt, rel in self._ensure_store()._conn.execute(
+                    "SELECT source_id, target_id, relation FROM graph_edges"
+                ):
+                    _last_served_keys.add((str(src), str(tgt), str(rel)))
+            except Exception:  # noqa: BLE001 - an unreadable generation served nothing
+                _last_served_keys = set()
 
         def _edge_servable(key: tuple) -> bool:
             src, tgt, rel = key[0], key[1], key[2]
@@ -15021,15 +15561,12 @@ class GraphIndexSession:
             )),
         }
 
-        # --- Persist: store commit first, then payload, then binding stat. ---
-        merge_state_out: dict[str, Any] = {
-            "format": _MERGE_STATE_FORMAT,
-            "payload_fingerprint": input_fingerprint,
-            "files": merge_files,
-            "di_synth_nodes": di_synth_nodes,
-        }
+        # --- Prepare (never apply) the graph participants of the caller's
+        # publication transaction. Everything below is hashing, grouping and
+        # diffing: no BEGIN, no COMMIT, no write. The caller applies the plan
+        # inside its single publication transaction, so graph rows, merge
+        # fragments and the semantic rows commit atomically or not at all.
         if locality_violation:
-            merge_state_out["locality_violation"] = True
             print(
                 "build_index: graph merge encountered a node outside its own "
                 "file's id space — incremental merge disabled for this layer "
@@ -15038,30 +15575,22 @@ class GraphIndexSession:
                 flush=True,
             )
         deletes = sorted(set(known_paths) - set(merge_files))
-        store.apply_build(
-            puts=row_puts,
+        self.publication = self._prepare_publication(
+            store=store,
+            graph_payload=graph_payload,
+            input_fingerprint=input_fingerprint,
+            merge_files=merge_files,
+            di_synth_nodes=di_synth_nodes,
+            locality_violation=locality_violation,
+            row_puts=row_puts,
             deletes=deletes,
-            blobs={"merge_state": merge_state_out},
-            meta={
-                "merge_state_format": _MERGE_STATE_FORMAT,
-                "payload_fingerprint": input_fingerprint,
-                "payload_stat_state": "pending",
-            },
         )
-        _write_json(self.graph_path, graph_payload)
-        try:
-            st = self.graph_path.stat()
-            store.set_meta(
-                {
-                    "payload_size": str(st.st_size),
-                    "payload_mtime_ns": str(st.st_mtime_ns),
-                    "payload_stat_state": "bound",
-                }
-            )
-        except OSError:
-            # Binding stays "pending": the next build detects it and degrades
-            # to a loud full re-merge (never a silently inconsistent graph).
-            pass
+        store.record_writes += len(row_puts)
+        store.record_deletes += len(deletes)
+        store.blob_writes += len(self.publication.fragment_puts)
+        store.blob_bytes_written += sum(
+            len(v) for v in self.publication.fragment_puts.values()
+        )
 
         # Lightweight session state view (historical shape, hash-only entries).
         state_files_light: dict[str, dict[str, str]] = {}
@@ -15392,6 +15921,122 @@ def _path_under_unreadable(rel: str, unreadable_dirs: "set[str] | None") -> bool
     return False
 
 
+
+def _node_from_row(row) -> dict:
+    node = {
+        "id": str(row[0]),
+        "label": str(row[1]),
+        "kind": str(row[2]),
+        "source_file": str(row[3]),
+        "source_location": str(row[4]),
+        "layer": str(row[5]),
+    }
+    try:
+        attributes = json.loads(row[6]) if row[6] else {}
+    except (ValueError, TypeError):
+        attributes = {}
+    if isinstance(attributes, dict):
+        node.update(attributes)
+    return node
+
+
+def _edge_from_row(row) -> dict:
+    # Mirrors ``_edge``: optional fields are OMITTED when empty, never
+    # written as "". The differential harness compares whole node dicts and
+    # edge keys, so a reconstructed payload that carried empty strings would
+    # not equal a from-scratch build's.
+    edge = {
+        "source": str(row[0]),
+        "target": str(row[1]),
+        "relation": str(row[2]),
+        "confidence": str(row[3]),
+    }
+    if row[4]:
+        edge["evidence"] = str(row[4])
+    if row[5]:
+        edge["self_edge_kind"] = str(row[5])
+    try:
+        attributes = json.loads(row[6]) if row[6] else {}
+    except (ValueError, TypeError):
+        attributes = {}
+    if isinstance(attributes, dict):
+        edge.update(attributes)
+    return edge
+
+
+def read_graph_payload_rows(conn, layer: str = "project") -> "dict[str, Any] | None":
+    """Rebuild the graph payload from the PUBLISHED rows.
+
+    Wave 1xny6: this is what makes the ``project-graph.json`` artifact
+    derived. The merge's zero-change fast path used to re-read that file and
+    cross-check its stat against the store, so deleting or failing to write it
+    forced a loud full re-merge of a graph that was perfectly intact. The rows
+    and the header commit in one transaction, so reading them back cannot
+    observe a torn state; ``None`` means no published generation.
+
+    Node and edge ORDER matches what ``finalize`` persists (node id; then
+    source/target/relation), so a reconstructed payload is byte-comparable
+    with a freshly merged one.
+    """
+    cut = len(GRAPH_META_PREFIX)
+    meta = {
+        str(k)[cut:]: str(v)
+        for k, v in conn.execute(
+            "SELECT key, value FROM meta WHERE key LIKE ?", (GRAPH_META_PREFIX + "%",)
+        )
+    }
+    if not graph_published_fingerprint(meta):
+        return None
+    try:
+        header = json.loads(meta.get("payload_header") or "")
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(header, dict):
+        return None
+    nodes = [
+        _node_from_row(row)
+        for row in conn.execute(
+            "SELECT node_id, label, kind, source_file, source_location, layer, attributes "
+            "FROM graph_nodes WHERE layer = ? ORDER BY node_id", (layer,)
+        )
+    ]
+    edges = [
+        _edge_from_row(row)
+        for row in conn.execute(
+            "SELECT source_id, target_id, relation, confidence, evidence, "
+            "self_edge_kind, attributes FROM graph_edges "
+            "ORDER BY source_id, target_id, relation"
+        )
+    ]
+    payload = dict(header)
+    payload["nodes"] = nodes
+    payload["edges"] = edges
+    return payload
+
+
+def _apply_standalone_publication(session, publication) -> None:
+    """Publish a graph-only build that has no coordinating transaction.
+
+    One ``BEGIN IMMEDIATE``/``COMMIT`` on the store's own connection: the same
+    single-transaction contract the build coordinator provides, for callers
+    that are not the coordinator (direct ``update_graph_index`` callers and
+    the standalone retirement API). A failure rolls the whole thing back and
+    publishes nothing.
+    """
+    iss = _index_state_store_module()
+    store = iss.IndexStateStore(session.index_dir)
+    try:
+        conn = store._conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            publication.apply(conn)
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        store.close()
+
 def update_graph_index(
     *,
     root: Path,
@@ -15406,7 +16051,19 @@ def update_graph_index(
     verbose: bool = False,
     unreadable_dirs: set[str] | None = None,
     doc_link_repair_plan: dict[str, Any] | None = None,
+    state_conn=None,
+    selected_paths: set[str] | None = None,
 ) -> dict[str, Any]:
+    """Extract, merge and PREPARE this layer's graph rows.
+
+    Wave 1xny6 split preparation from publication. With ``state_conn`` (the
+    build coordinator's index connection) the prepared rows are returned on
+    the payload under ``_publication`` and the CALLER applies them inside its
+    single publication transaction -- nothing is committed here. Without one,
+    this is a standalone publication: it opens its own store and applies the
+    plan in one transaction of its own, which keeps the retirement API and
+    direct callers working unchanged.
+    """
     # Wave 1p2q3 (1p2tz post-ship-3 perf): the lru caches on path resolvers
     # (`_probe_ts_alias_target_cached`, `_resolve_relative_ts_import_cached`)
     # and the per-file declared-names cache are NOT cleared per-build by
@@ -15429,68 +16086,80 @@ def update_graph_index(
         verbose=verbose,
         unreadable_dirs=unreadable_dirs,
         doc_link_repair_plan=doc_link_repair_plan,
+        state_conn=state_conn,
+        selected_paths=selected_paths,
     )
-    changed_set = {str(rel).replace("\\", "/") for rel in changed}
-    removed_set = {str(rel).replace("\\", "/") for rel in removed}
-    # After builder/walker/chunker bumps GraphIndexSession starts with empty cached
-    # artifacts. Incremental indexer runs only pass a small ``changed`` set (e.g. docs
-    # from the post-edit hook), which would otherwise write a nearly empty graph.
-    if not (session._state.get("files") or {}):
-        changed_set = {
-            str(file_path.relative_to(root)).replace("\\", "/")
-            for file_path in files
-            if file_path.is_file()
-        }
-        if verbose and changed_set:
+    try:
+        changed_set = {str(rel).replace("\\", "/") for rel in changed}
+        removed_set = {str(rel).replace("\\", "/") for rel in removed}
+        # After builder/walker/chunker bumps GraphIndexSession starts with empty cached
+        # artifacts. Incremental indexer runs only pass a small ``changed`` set (e.g. docs
+        # from the post-edit hook), which would otherwise write a nearly empty graph.
+        if not (session._state.get("files") or {}):
+            changed_set = {
+                str(file_path.relative_to(root)).replace("\\", "/")
+                for file_path in files
+            }
+            if verbose and changed_set:
+                print(
+                    f"build_index: graph state empty for {layer} layer — "
+                    f"re-extracting {len(changed_set)} file(s) in corpus",
+                    flush=True,
+                )
+        if verbose:
             print(
-                f"build_index: graph state empty for {layer} layer — "
-                f"re-extracting {len(changed_set)} file(s) in corpus",
+                f"build_index: graph extraction inputs for {layer} layer — "
+                f"{len(changed_set)} changed, {len(removed_set)} removed",
                 flush=True,
             )
-    if verbose:
-        print(
-            f"build_index: graph extraction inputs for {layer} layer — "
-            f"{len(changed_set)} changed, {len(removed_set)} removed",
-            flush=True,
-        )
-    # Wave 1p2q3 (1p2tz post-ship-3 perf): bucket files by kind so code-file
-    # extraction can parallelize; doc/seed stays serial (cross-file symbol
-    # dependency makes it sequential by nature).
-    #
-    # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): parallelize the read loop with
-    # a `ThreadPoolExecutor`. `Path.read_text` releases the GIL during the
-    # syscall, so multiple threads issue concurrent reads to the page cache.
-    # On SSD this cuts the parent's pre-extraction stage by ~1-2s on large-
-    # scale (1,500+ file) workloads. Bucketing into code / doc lists stays
-    # serial (and trivially fast) because it only inspects `rel` and the
-    # cached `kind`. Below the parallel-extraction file-count threshold
-    # the read overhead is small enough that the serial path is fine.
-    code_work_items: list[tuple[str, str]] = []  # (rel_path, source_text)
-    doc_work_items: list[tuple[str, str]] = []   # (rel_path, source_text)
+        # Wave 1p2q3 (1p2tz post-ship-3 perf): bucket files by kind so code-file
+        # extraction can parallelize; doc/seed stays serial (cross-file symbol
+        # dependency makes it sequential by nature).
+        #
+        # Wave 1p2q3 (1p2wd post-ship 1.3.31 perf): parallelize the read loop with
+        # a `ThreadPoolExecutor`. `Path.read_text` releases the GIL during the
+        # syscall, so multiple threads issue concurrent reads to the page cache.
+        # On SSD this cuts the parent's pre-extraction stage by ~1-2s on large-
+        # scale (1,500+ file) workloads. Bucketing into code / doc lists stays
+        # serial (and trivially fast) because it only inspects `rel` and the
+        # cached `kind`. Below the parallel-extraction file-count threshold
+        # the read overhead is small enough that the serial path is fine.
+        code_work_items: list[tuple[str, str]] = []  # (rel_path, source_text)
+        doc_work_items: list[tuple[str, str]] = []   # (rel_path, source_text)
 
-    def _read_one(file_path: "Path") -> tuple[str, str, str] | None:
-        rel = _repo_rel(file_path.relative_to(root))
-        if rel not in changed_set:
-            return None
-        if _is_memory_archive_body_path(rel) or _is_legacy_memory_pointer_path(rel):
-            return None
-        if _is_minified_file(rel):
-            return None
-        try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None
-        return (rel, text, _kind_for_path(rel))
+        def _read_one(file_path: "Path") -> tuple[str, str, str] | None:
+            rel = _repo_rel(file_path.relative_to(root))
+            if rel not in changed_set:
+                return None
+            if _is_memory_archive_body_path(rel) or _is_legacy_memory_pointer_path(rel):
+                return None
+            if _is_minified_file(rel):
+                return None
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                raise OSError(f"graph extraction could not read {rel}: {exc}") from exc
+            return (rel, text, _kind_for_path(rel))
 
-    if len(files) >= _PARALLEL_EXTRACTION_THRESHOLD:
-        # Worker count for file reads: tuned smaller than extraction since
-        # this is purely I/O-bound and the page cache saturates quickly.
-        # Use `min(cpu_count, 8)` capped at the file count so we don't spawn
-        # more threads than there's work for.
-        from concurrent.futures import ThreadPoolExecutor as _TPool
-        _read_workers = max(2, min(8, len(files), os.cpu_count() or 4))
-        with _TPool(max_workers=_read_workers, thread_name_prefix="wavefoundry-read") as _pool:
-            for result in _pool.map(_read_one, files):
+        if len(files) >= _PARALLEL_EXTRACTION_THRESHOLD:
+            # Worker count for file reads: tuned smaller than extraction since
+            # this is purely I/O-bound and the page cache saturates quickly.
+            # Use `min(cpu_count, 8)` capped at the file count so we don't spawn
+            # more threads than there's work for.
+            from concurrent.futures import ThreadPoolExecutor as _TPool
+            _read_workers = max(2, min(8, len(files), os.cpu_count() or 4))
+            with _TPool(max_workers=_read_workers, thread_name_prefix="wavefoundry-read") as _pool:
+                for result in _pool.map(_read_one, files):
+                    if result is None:
+                        continue
+                    rel, text, kind = result
+                    if kind == "code":
+                        code_work_items.append((rel, text))
+                    else:
+                        doc_work_items.append((rel, text))
+        else:
+            for file_path in files:
+                result = _read_one(file_path)
                 if result is None:
                     continue
                 rel, text, kind = result
@@ -15498,209 +16167,218 @@ def update_graph_index(
                     code_work_items.append((rel, text))
                 else:
                     doc_work_items.append((rel, text))
-    else:
-        for file_path in files:
-            result = _read_one(file_path)
-            if result is None:
-                continue
-            rel, text, kind = result
-            if kind == "code":
-                code_work_items.append((rel, text))
-            else:
-                doc_work_items.append((rel, text))
 
-    worker_count = _auto_scale_worker_count(len(code_work_items))
-    use_parallel = (
-        worker_count > 1
-        and len(code_work_items) >= _PARALLEL_EXTRACTION_THRESHOLD
-    )
-    if use_parallel:
-        # Pre-load gitattrs once in the parent; pass to workers.
-        if session._gitattrs_patterns is None:
-            session._gitattrs_patterns = _load_gitattributes_generated_paths(root)
-        gitattrs_list = list(session._gitattrs_patterns)
-        backend = _PARALLEL_EXTRACTION_BACKEND if _PARALLEL_EXTRACTION_BACKEND in ("threads", "processes") else "threads"
-        if verbose:
-            print(
-                f"build_index: graph extraction parallel — "
-                f"{worker_count} {backend}, "
-                f"{len(code_work_items)} code files (threshold "
-                f"{_PARALLEL_EXTRACTION_THRESHOLD})",
-                flush=True,
-            )
-
-        def _pdbg(msg: str) -> None:
+        worker_count = _auto_scale_worker_count(len(code_work_items))
+        use_parallel = (
+            worker_count > 1
+            and len(code_work_items) >= _PARALLEL_EXTRACTION_THRESHOLD
+        )
+        if use_parallel:
+            # Pre-load gitattrs once in the parent; pass to workers.
+            if session._gitattrs_patterns is None:
+                session._gitattrs_patterns = _load_gitattributes_generated_paths(root)
+            gitattrs_list = list(session._gitattrs_patterns)
+            backend = _PARALLEL_EXTRACTION_BACKEND if _PARALLEL_EXTRACTION_BACKEND in ("threads", "processes") else "threads"
             if verbose:
-                try:
-                    import threading as _t
-                    thread_names = sorted(t.name for t in _t.enumerate())
-                    thread_suffix = f" [threads={len(thread_names)}: {','.join(thread_names[:6])}{'...' if len(thread_names) > 6 else ''}]"
-                except Exception:
-                    thread_suffix = ""
-                print(f"build_index: [parallel-debug] {msg}{thread_suffix}", flush=True)
+                print(
+                    f"build_index: graph extraction parallel — "
+                    f"{worker_count} {backend}, "
+                    f"{len(code_work_items)} code files (threshold "
+                    f"{_PARALLEL_EXTRACTION_THRESHOLD})",
+                    flush=True,
+                )
 
-        # Wave 1p2q3 (1p2wd post-ship 1.3.28): pass parent's pre-loaded state
-        # and gitattrs patterns to every worker. With threads this is a free
-        # reference share; with processes it's a per-task pickle cost the
-        # operator accepts when opting into the process backend. Eliminates
-        # 1,542× redundant `_load_state()` JSON parses + `.gitattributes`
-        # disk reads that serialized on the GIL under thread parallelism
-        # (field kernel-sample histogram: 43% of samples in mutex/condvar
-        # waits, classic GIL thrashing from sequential Python work).
-        _shared_state = session._state
-        _shared_gitattrs = session._gitattrs_patterns or frozenset()
-        worker_args = [
-            (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version, _shared_state, _shared_gitattrs)
-            for rel, text in code_work_items
-        ]
-
-        if backend == "threads":
-            # Wave 1p2q3 (1p2wd post-ship 1.3.27 / Bug 4 finale): thread backend.
-            # Process-mode parallel-4 ran 1.6× SLOWER than serial on the field
-            # 1,542-file workload across both batch=24 (44.0s) and batch=128
-            # (45.2s) — disproving the IPC-amortization hypothesis. The
-            # dominant overhead was spawn-mode worker boot (each worker re-
-            # imports tree-sitter from scratch) plus per-task pickle. Threads
-            # eliminate both: shared interpreter state means tree-sitter loads
-            # once in the parent; result return is a direct Python reference
-            # with no pickle. Tree-sitter parsers release the GIL during
-            # parse, so the per-file hot path still parallelizes across cores.
-            # Theoretical ceiling ~1.3-1.5× over serial; we expect to actually
-            # hit something close to that since the IPC cost we'd been
-            # paying with processes is now ~zero.
-            from concurrent.futures import ThreadPoolExecutor
-            _pdbg(f"thread backend: constructing ThreadPoolExecutor (max_workers={worker_count})")
-            try:
-                with ThreadPoolExecutor(
-                    max_workers=worker_count,
-                    thread_name_prefix="wavefoundry-extract",
-                ) as pool:
-                    _pdbg("pool entered; iterating pool.map")
-                    _seen = 0
-                    for rel_path, entry in pool.map(_extract_artifact_for_worker, worker_args):
-                        _seen += 1
-                        if _seen == 1:
-                            _pdbg(f"first task returned: rel_path={rel_path!r}")
-                        elif _seen % 250 == 0:
-                            _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
-                        if entry is not None:
-                            session.pending_code[rel_path] = entry
-                    _pdbg(f"pool drained: {_seen} task results consumed")
-            except Exception as exc:
+            def _pdbg(msg: str) -> None:
                 if verbose:
-                    print(
-                        f"build_index: parallel extraction (threads) failed "
-                        f"({type(exc).__name__}: {exc}); falling back to serial",
-                        flush=True,
-                    )
-                for rel, text in code_work_items:
-                    session.record_file(rel, text)
-        else:
-            # Process-mode backend (opt-in via WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND=processes).
-            # Kept for benchmarking and for any workload where the Python-side
-            # walker (GIL-bound) dominates parse time enough that spawn overhead
-            # amortizes. The chunked-bounded-in-flight + spawn-mode + sys.path
-            # mutation + worker initializer + per-task git-subprocess gating
-            # all stay in place. See full root-cause analysis in
-            # `docs/waves/1p2q3 field-feedback-round-4/1p2wd-bug parallel-
-            # extraction-fork-deadlock-spawn-mode-fix.md`.
-            _pdbg("step 1/8: worker_args built (process backend)")
-            from concurrent.futures import ProcessPoolExecutor
-            chunksize = max(1, len(worker_args) // (worker_count * 4))
-            start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
-            _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
-            # Wave 1p8gu (review fix MP-1): window-free mp context so spawn workers do not each flash a
-            # console window on Windows (pythonw.exe). Returns None on Windows without pythonw → the
-            # `mp_ctx is None` branch below falls back to serial extraction (no worker windows).
-            mp_ctx = subprocess_util.windowless_mp_context(start_method)
-            _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
-            graph_indexer_path = str(Path(__file__).resolve())
-            graph_indexer_dir = str(Path(graph_indexer_path).parent)
-            path_inserted = False
-            if graph_indexer_dir not in sys.path:
-                sys.path.insert(0, graph_indexer_dir)
-                path_inserted = True
-            _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
-            try:
-                if mp_ctx is None:
+                    try:
+                        import threading as _t
+                        thread_names = sorted(t.name for t in _t.enumerate())
+                        thread_suffix = f" [threads={len(thread_names)}: {','.join(thread_names[:6])}{'...' if len(thread_names) > 6 else ''}]"
+                    except Exception:
+                        thread_suffix = ""
+                    print(f"build_index: [parallel-debug] {msg}{thread_suffix}", flush=True)
+
+            # Wave 1p2q3 (1p2wd post-ship 1.3.28): pass parent's pre-loaded state
+            # and gitattrs patterns to every worker. With threads this is a free
+            # reference share; with processes it's a per-task pickle cost the
+            # operator accepts when opting into the process backend. Eliminates
+            # 1,542× redundant `_load_state()` JSON parses + `.gitattributes`
+            # disk reads that serialized on the GIL under thread parallelism
+            # (field kernel-sample histogram: 43% of samples in mutex/condvar
+            # waits, classic GIL thrashing from sequential Python work).
+            _shared_state = session._state
+            _shared_gitattrs = session._gitattrs_patterns or frozenset()
+            worker_args = [
+                (rel, text, str(root), layer, gitattrs_list, walker_version, chunker_version, _shared_state, _shared_gitattrs)
+                for rel, text in code_work_items
+            ]
+
+            if backend == "threads":
+                # Wave 1p2q3 (1p2wd post-ship 1.3.27 / Bug 4 finale): thread backend.
+                # Process-mode parallel-4 ran 1.6× SLOWER than serial on the field
+                # 1,542-file workload across both batch=24 (44.0s) and batch=128
+                # (45.2s) — disproving the IPC-amortization hypothesis. The
+                # dominant overhead was spawn-mode worker boot (each worker re-
+                # imports tree-sitter from scratch) plus per-task pickle. Threads
+                # eliminate both: shared interpreter state means tree-sitter loads
+                # once in the parent; result return is a direct Python reference
+                # with no pickle. Tree-sitter parsers release the GIL during
+                # parse, so the per-file hot path still parallelizes across cores.
+                # Theoretical ceiling ~1.3-1.5× over serial; we expect to actually
+                # hit something close to that since the IPC cost we'd been
+                # paying with processes is now ~zero.
+                from concurrent.futures import ThreadPoolExecutor
+                _pdbg(f"thread backend: constructing ThreadPoolExecutor (max_workers={worker_count})")
+                try:
+                    with ThreadPoolExecutor(
+                        max_workers=worker_count,
+                        thread_name_prefix="wavefoundry-extract",
+                    ) as pool:
+                        _pdbg("pool entered; iterating pool.map")
+                        _seen = 0
+                        for rel_path, entry in pool.map(_extract_artifact_for_worker, worker_args):
+                            _seen += 1
+                            if _seen == 1:
+                                _pdbg(f"first task returned: rel_path={rel_path!r}")
+                            elif _seen % 250 == 0:
+                                _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                            if entry is not None:
+                                session.pending_code[rel_path] = entry
+                        _pdbg(f"pool drained: {_seen} task results consumed")
+                except Exception as exc:
+                    if verbose:
+                        print(
+                            f"build_index: parallel extraction (threads) failed "
+                            f"({type(exc).__name__}: {exc}); falling back to serial",
+                            flush=True,
+                        )
                     for rel, text in code_work_items:
                         session.record_file(rel, text)
-                else:
-                    try:
-                        _pdbg(
-                            f"step 7/8: constructing ProcessPoolExecutor "
-                            f"(max_workers={worker_count}, initializer=_worker_init_graph_indexer)"
-                        )
-                        from concurrent.futures import wait as _wait, FIRST_COMPLETED
-                        batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
-                        batches = [
-                            worker_args[i:i + batch_size]
-                            for i in range(0, len(worker_args), batch_size)
-                        ]
-                        _pdbg(f"batched {len(worker_args)} tasks into {len(batches)} batches of up to {batch_size}")
-                        with ProcessPoolExecutor(
-                            max_workers=worker_count,
-                            mp_context=mp_ctx,
-                            initializer=_worker_init_graph_indexer,
-                            initargs=(graph_indexer_path,),
-                        ) as pool:
-                            _pdbg("step 8/8: pool entered; about to bounded-in-flight submit batches (workers will spawn on first submit)")
-                            batch_iter = iter(batches)
-                            in_flight: set = set()
-                            for _ in range(worker_count):
-                                try:
-                                    next_batch = next(batch_iter)
-                                except StopIteration:
-                                    break
-                                in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
-                            _pdbg(f"pre-warm: submitted {len(in_flight)} batches (one per worker); waiting for first result")
-                            _seen = 0
-                            while in_flight:
-                                done, in_flight = _wait(in_flight, return_when=FIRST_COMPLETED)
-                                for fut in done:
-                                    batch_results = fut.result()
-                                    for rel_path, entry in batch_results:
-                                        _seen += 1
-                                        if _seen == 1:
-                                            _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
-                                        elif _seen % 250 == 0:
-                                            _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
-                                        if entry is not None:
-                                            session.pending_code[rel_path] = entry
-                                    try:
-                                        next_batch = next(batch_iter)
-                                        in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
-                                    except StopIteration:
-                                        pass
-                            _pdbg(f"pool drained: {_seen} task results consumed")
-                    except Exception as exc:
-                        if verbose:
-                            print(
-                                f"build_index: parallel extraction failed "
-                                f"({type(exc).__name__}: {exc}); falling back to serial",
-                                flush=True,
-                            )
+            else:
+                # Process-mode backend (opt-in via WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND=processes).
+                # Kept for benchmarking and for any workload where the Python-side
+                # walker (GIL-bound) dominates parse time enough that spawn overhead
+                # amortizes. The chunked-bounded-in-flight + spawn-mode + sys.path
+                # mutation + worker initializer + per-task git-subprocess gating
+                # all stay in place. See full root-cause analysis in
+                # `docs/waves/1p2q3 field-feedback-round-4/1p2wd-bug parallel-
+                # extraction-fork-deadlock-spawn-mode-fix.md`.
+                _pdbg("step 1/8: worker_args built (process backend)")
+                from concurrent.futures import ProcessPoolExecutor
+                chunksize = max(1, len(worker_args) // (worker_count * 4))
+                start_method = os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_START_METHOD", "spawn")
+                _pdbg(f"step 4/8: getting mp context for start_method={start_method!r} (chunksize={chunksize})")
+                # Wave 1p8gu (review fix MP-1): window-free mp context so spawn workers do not each flash a
+                # console window on Windows (pythonw.exe). Returns None on Windows without pythonw → the
+                # `mp_ctx is None` branch below falls back to serial extraction (no worker windows).
+                mp_ctx = subprocess_util.windowless_mp_context(start_method)
+                _pdbg(f"step 5/8: mp_ctx acquired ({type(mp_ctx).__name__ if mp_ctx is not None else 'None'})")
+                graph_indexer_path = str(Path(__file__).resolve())
+                graph_indexer_dir = str(Path(graph_indexer_path).parent)
+                path_inserted = False
+                if graph_indexer_dir not in sys.path:
+                    sys.path.insert(0, graph_indexer_dir)
+                    path_inserted = True
+                _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
+                try:
+                    if mp_ctx is None:
                         for rel, text in code_work_items:
                             session.record_file(rel, text)
-            finally:
-                if path_inserted:
-                    try:
-                        sys.path.remove(graph_indexer_dir)
-                    except ValueError:
-                        pass
-    else:
-        for rel, text in code_work_items:
+                    else:
+                        try:
+                            _pdbg(
+                                f"step 7/8: constructing ProcessPoolExecutor "
+                                f"(max_workers={worker_count}, initializer=_worker_init_graph_indexer)"
+                            )
+                            from concurrent.futures import wait as _wait, FIRST_COMPLETED
+                            batch_size = max(1, min(128, len(worker_args) // (worker_count * 3)))
+                            batches = [
+                                worker_args[i:i + batch_size]
+                                for i in range(0, len(worker_args), batch_size)
+                            ]
+                            _pdbg(f"batched {len(worker_args)} tasks into {len(batches)} batches of up to {batch_size}")
+                            with ProcessPoolExecutor(
+                                max_workers=worker_count,
+                                mp_context=mp_ctx,
+                                initializer=_worker_init_graph_indexer,
+                                initargs=(graph_indexer_path,),
+                            ) as pool:
+                                _pdbg("step 8/8: pool entered; about to bounded-in-flight submit batches (workers will spawn on first submit)")
+                                batch_iter = iter(batches)
+                                in_flight: set = set()
+                                for _ in range(worker_count):
+                                    try:
+                                        next_batch = next(batch_iter)
+                                    except StopIteration:
+                                        break
+                                    in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                                _pdbg(f"pre-warm: submitted {len(in_flight)} batches (one per worker); waiting for first result")
+                                _seen = 0
+                                while in_flight:
+                                    done, in_flight = _wait(in_flight, return_when=FIRST_COMPLETED)
+                                    for fut in done:
+                                        batch_results = fut.result()
+                                        for rel_path, entry in batch_results:
+                                            _seen += 1
+                                            if _seen == 1:
+                                                _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
+                                            elif _seen % 250 == 0:
+                                                _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                                            if entry is not None:
+                                                session.pending_code[rel_path] = entry
+                                        try:
+                                            next_batch = next(batch_iter)
+                                            in_flight.add(pool.submit(_extract_artifacts_for_worker_batch, next_batch))
+                                        except StopIteration:
+                                            pass
+                                _pdbg(f"pool drained: {_seen} task results consumed")
+                        except Exception as exc:
+                            if verbose:
+                                print(
+                                    f"build_index: parallel extraction failed "
+                                    f"({type(exc).__name__}: {exc}); falling back to serial",
+                                    flush=True,
+                                )
+                            for rel, text in code_work_items:
+                                session.record_file(rel, text)
+                finally:
+                    if path_inserted:
+                        try:
+                            sys.path.remove(graph_indexer_dir)
+                        except ValueError:
+                            pass
+        else:
+            for rel, text in code_work_items:
+                session.record_file(rel, text)
+
+        # Doc/seed files always sequential (need cross-file symbol_terms).
+        for rel, text in doc_work_items:
             session.record_file(rel, text)
 
-    # Doc/seed files always sequential (need cross-file symbol_terms).
-    for rel, text in doc_work_items:
-        session.record_file(rel, text)
+        # Every selected source must produce extraction state, even when its
+        # artifact has no nodes. Intentional document exclusions and walker-
+        # shadowed paths are not newly selected extraction work.
+        missing = ({rel for rel, _ in code_work_items} - session.pending_code.keys())
+        missing |= ({rel for rel, _ in doc_work_items
+                     if not session._is_doc_scan_excluded(rel)}
+                    - session.pending_doc_text.keys())
+        if missing:
+            raise RuntimeError("graph extraction incomplete: " + ", ".join(sorted(missing)))
 
-    try:
         payload = session.finalize()
+        publication = session.publication
+        if publication is not None:
+            if state_conn is None:
+                # Standalone publication: exactly one transaction, owned here.
+                _apply_standalone_publication(session, publication)
+            else:
+                # Coordinated publication: the caller commits these rows with
+                # its semantic rows. Nothing is written on this path.
+                payload["_publication"] = publication
     finally:
-        # Close on every path — a fault mid-finalize must not leak the store
-        # connection (the SQLite transaction rolls back on close).
+        # Close on every path — extraction and finalize faults must not leak an owned
+        # store connection. A caller-supplied connection is left open: the
+        # caller's publication transaction still needs it.
         session.close_store()
     if verbose:
         counts = payload.get("counts") or {}
@@ -15789,6 +16467,7 @@ def retire_orphaned_graph_paths(
     chunker_version: str,
     verbose: bool = False,
     unreadable_dirs: set[str] | None = None,
+    state_conn=None,
 ) -> dict[str, Any]:
     """Retire graph store rows for paths outside the current corpus (1u8nz).
 
@@ -15812,8 +16491,14 @@ def retire_orphaned_graph_paths(
     path, ``_execute_orphan_store_reconcile`` in indexer.py, reaches this
     function, wired at BOTH reap seams inside ``_build_index_locked``'s build
     epoch: the zero-change idle pass and the changed/build-path reap. On the
-    build path the ordinary graph merge has normally already performed the
-    same prune, so the plan's graph set is usually empty there.
+    build path the ordinary graph merge has ALWAYS already performed the same
+    prune (it runs with full walk parity on every build-path run), so wave
+    1xny6 drops the graph entry from the build-path orphan plan rather than
+    running a second merge against rows the first merge's still-uncommitted
+    plan already retires. This function is therefore reached only from the
+    zero-change idle pass. With ``state_conn`` the retirement is PREPARED and
+    returned for the caller's publication transaction -- retirement happens
+    inside the coordinated transaction -- instead of committing on its own.
     """
     return update_graph_index(
         root=root,
@@ -15827,31 +16512,58 @@ def retire_orphaned_graph_paths(
         chunker_version=chunker_version,
         verbose=verbose,
         unreadable_dirs=unreadable_dirs,
+        state_conn=state_conn,
     )
 
 
-def read_graph_payload(root: Path, layer: str = "project") -> dict[str, Any]:
-    # Wave 1p4ww: single project graph — the framework graph layer was removed.
+def read_published_graph_snapshot(root: Path, layer: str = "project") -> "dict[str, Any] | None":
+    """The published graph payload and its per-file source receipts, from ROWS.
+
+    Wave 1xny6 lane L6b replaces two derived-FILE readers with this one:
+    ``read_graph_payload`` (which decoded ``project-graph.json``) and
+    ``read_bound_graph_payload_source_hash`` (which existed only to bind the
+    bytes it read from that file to the store's recorded stat of the file).
+    With the rows as the single authority there is no second artifact to bind:
+    ONE read-only connection reads the payload header, the nodes, the edges and
+    the extraction manifest inside ONE SQLite read snapshot, so payload and
+    source hashes cannot straddle a publication.
+
+    Deliberately does NOT go through the graph-query accessors: those may
+    synchronously rebuild a stale graph and invalidate their cache, and this is
+    a defensive read. ``None`` means no published generation, an unreadable
+    store, or an unsupported layer -- every one of which the caller treats as
+    "no exact answer available".
+    """
     if layer not in GRAPH_FILENAMES:
-        raise ValueError(f"Unsupported graph layer: {layer}")
+        return None
     index_dir = root / ".wavefoundry" / "index"
-    graph_path = index_dir / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
-    payload = _read_json(graph_path, {})
-    if isinstance(payload, dict) and payload:
-        payload.setdefault("layer", layer)
-        payload.setdefault("schema_version", GRAPH_SCHEMA_VERSION)
-        payload.setdefault("nodes", [])
-        payload.setdefault("edges", [])
-        payload.setdefault("counts", {"files": 0, "nodes": len(payload.get("nodes") or []), "edges": len(payload.get("edges") or [])})
-        payload["present"] = True
-        payload["graph_path"] = str(graph_path.relative_to(root)).replace("\\", "/")
-        return payload
-    return {
-        "layer": layer,
-        "schema_version": GRAPH_SCHEMA_VERSION,
-        "present": False,
-        "graph_path": str(graph_path.relative_to(root)).replace("\\", "/"),
-        "nodes": [],
-        "edges": [],
-        "counts": {"files": 0, "nodes": 0, "edges": 0},
-    }
+    try:
+        conn = _index_state_store_module().open_read_only(index_dir)
+    except Exception:  # noqa: BLE001 - an unreadable store reads as absent
+        return None
+    if conn is None:
+        return None
+    try:
+        conn.execute("BEGIN")
+        payload = read_graph_payload_rows(conn, layer)
+        if not payload:
+            return None
+        source_hash = {str(row[0]): str(row[1] or "") for row in conn.execute(
+            "SELECT path, source_hash FROM "
+            + _index_state_store_module().GRAPH_EXTRACTION_MANIFEST_TABLE)}
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    payload.setdefault("layer", layer)
+    payload.setdefault("schema_version", GRAPH_SCHEMA_VERSION)
+    payload.setdefault("nodes", [])
+    payload.setdefault("edges", [])
+    payload.setdefault("counts", {"files": 0, "nodes": len(payload.get("nodes") or []),
+                                  "edges": len(payload.get("edges") or [])})
+    payload["present"] = True
+    return {"payload": payload, "source_hash": source_hash,
+            "builder_version": str(payload.get("builder_version") or "")}

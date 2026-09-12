@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -144,8 +144,9 @@ If you launched a detached background setup build, poll `index_build_status(laye
 
 ## Local index storage
 
-Fresh setup uses `.wavefoundry/index/index-state.sqlite` for docs/code chunks,
-vectors, FTS and indexing state. Text is stored once. Standard setup provisions
+Fresh setup uses `.wavefoundry/index/index.sqlite` for docs/code chunks,
+vectors, FTS, indexing state, the code graph and its communities. Text is stored
+once and every layer publishes in one transaction. Standard setup provisions
 the pinned SQLite runtime and extension without a LanceDB runtime dependency.
 An existing legacy index follows **Upgrade Wavefoundry**, including any required
 host restart and retained recovery checkpoint; do not delete it to force a

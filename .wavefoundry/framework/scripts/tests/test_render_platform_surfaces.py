@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1418,6 +1419,7 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         ".wavefoundry/framework/index/",
         ".wavefoundry/logs/",
         ".wavefoundry/**/*.lock",
+        ".wavefoundry/locks/",
         ".wavefoundry/dashboard-server.json",
         ".wavefoundry/upgrade-in-progress.json",
         ".wavefoundry/guard-overrides.json",
@@ -1477,6 +1479,74 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         self.assertEqual(text.count(".wavefoundry/index/"), 1)
         self.assertEqual(text.count(".wavefoundry/logs/"), 1)
         self.assertIn("node_modules/", text)
+
+    def test_seed_050_canonical_block_matches_the_renderer_constant(self):
+        # Wave 1xny6 AC-10: seed 050 reproduces `_GITIGNORE_BLOCK` verbatim and calls itself the
+        # source of truth for `render_gitignore_block`, but nothing bound the two. It had already
+        # drifted twice (missing `.wavefoundry/guard-overrides.json`, then `.wavefoundry/locks/`),
+        # so an operator following the seed would hand-seed an INCOMPLETE block and the renderer
+        # would silently disagree with its own documentation. This test is the binding: the fenced
+        # block that follows the seed's "canonical entries" sentence must equal the constant
+        # line for line, so adding an entry to one without the other fails here.
+        seed_path = (PROJECT_ROOT / "framework" / "seeds"
+                     / "050-agent-entry-surface-bootstrap.prompt.md")
+        seed = seed_path.read_text(encoding="utf-8")
+        marker = "The canonical entries"
+        self.assertIn(marker, seed, "seed 050 must still introduce the canonical ignore entries")
+        after = seed.split(marker, 1)[1]
+        fence = "```gitignore\n"
+        self.assertIn(fence, after, "the canonical entries must be a ```gitignore fenced block")
+        block = after.split(fence, 1)[1].split("\n```", 1)[0]
+        self.assertEqual(
+            block.split("\n"),
+            list(self.mod._GITIGNORE_BLOCK),
+            "seed 050's canonical block has drifted from "
+            "render_platform_surfaces._GITIGNORE_BLOCK; update the seed (under "
+            "seed_edit_allowed) so the documented source of truth matches the writer",
+        )
+
+    def test_locks_directory_ignored_by_real_git_and_rendered_once(self):
+        # AC-12 (wave 1xny6): `.wavefoundry/locks/` must make EVERYTHING under that directory
+        # ignored — not just `*.lock` files — while the `.wavefoundry/**/*.lock` wildcard stays.
+        # The oracle is real `git check-ignore`: only git decides what a pattern actually covers,
+        # so a substring assertion on the rendered text would not prove the rule works.
+        if shutil.which("git") is None:  # pragma: no cover - git is present in this repo's CI
+            raise unittest.SkipTest("git unavailable")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            init = subprocess.run(["git", "init", "-q", str(root)], capture_output=True)
+            if init.returncode != 0:  # pragma: no cover - defensive
+                raise unittest.SkipTest(
+                    f"git init failed: {init.stderr.decode('utf-8', 'replace').strip()}"
+                )
+            self.mod.render_gitignore_block(root)
+            for rel in (".wavefoundry/locks/probe.txt", ".wavefoundry/locks-other/probe.txt"):
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("x", encoding="utf-8")
+
+            def check_ignore(rel: str) -> int:
+                # 0 = ignored, 1 = not ignored (128 would be an error, which must not pass).
+                return subprocess.run(
+                    ["git", "-C", str(root), "check-ignore", "-q", rel], capture_output=True
+                ).returncode
+
+            self.assertEqual(
+                check_ignore(".wavefoundry/locks/probe.txt"), 0,
+                "a non-.lock file under .wavefoundry/locks/ must be ignored",
+            )
+            self.assertEqual(
+                check_ignore(".wavefoundry/locks-other/probe.txt"), 1,
+                ".wavefoundry/locks-other/ must NOT be swept up by the locks-directory rule",
+            )
+
+            # Repeated render: the entry must appear exactly once inside the managed block.
+            self.mod.render_gitignore_block(root)
+            text = (root / ".gitignore").read_text(encoding="utf-8")
+        self.assertEqual(text.count(".wavefoundry/locks/"), 1,
+                         "repeated renders must not duplicate the locks-directory entry")
+        self.assertIn(".wavefoundry/**/*.lock", text,
+                      "the lock-file wildcard must be retained alongside the directory rule")
 
     def test_main_wires_gitignore_render(self):
         # AC-5: render_platform_surfaces.main() calls render_gitignore_block (runs on every

@@ -1248,6 +1248,7 @@ def _detect_changes(
     files: list[Path],
     root: Path,
     old_meta: dict[str, dict],
+    selected_paths: set[str] | None = None,
 ) -> tuple[dict[str, dict], set[str], set[str]]:
     """Return (current_file_meta, changed_paths, removed_paths).
 
@@ -1257,7 +1258,9 @@ def _detect_changes(
 
     old_meta maps rel_path -> {"hash": str, "mtime": float, "size": int, "inode": int}.
     """
-    current: dict[str, dict] = {}
+    current: dict[str, dict] = ({rel: entry for rel, entry in old_meta.items()
+                                if rel not in selected_paths}
+                               if selected_paths is not None else {})
     changed: set[str] = set()
 
     for f in files:
@@ -2008,7 +2011,7 @@ def _run_streaming_full_rebuild(
 
 
 def optimize_index_tables(index_dir: Path, tables=("docs", "code")) -> dict:
-    """Maintain the shared file once, plus the separate graph store, without re-embedding."""
+    """Maintain the shared semantic/graph file once, without re-embedding."""
     iss = _get_index_state_store()
     if not (index_dir / vector_store.FILENAME).exists():
         return {}
@@ -2580,6 +2583,7 @@ def _execute_orphan_store_reconcile(
     chunker_version: str = "",
     verbose: bool = False,
     unreadable_dirs: "set[str] | None" = None,
+    state_conn=None,
 ) -> dict:
     """Execute a previously planned orphan-store reconciliation.
 
@@ -2629,16 +2633,34 @@ def _execute_orphan_store_reconcile(
                 chunker_version=chunker_version,
                 unreadable_dirs=unreadable_dirs,
                 verbose=verbose,
+                state_conn=state_conn,
             )
             if isinstance(payload, dict):
                 payload.pop("merge_stats", None)
-                graph_cluster.update_graph_clusters(
+                publication = payload.pop("_publication", None)
+                cluster_payload = graph_cluster.update_graph_clusters(
                     root=root,
                     index_dir=index_dir,
                     layer=graph_layer,
                     graph_payload=payload,
                     verbose=verbose,
+                    state_conn=state_conn,
                 )
+                cluster_publication = (
+                    cluster_payload.pop("_publication", None)
+                    if isinstance(cluster_payload, dict) else None
+                )
+                if publication is not None:
+                    # Retirement rows join the CALLER's publication
+                    # transaction rather than committing on their own.
+                    if cluster_publication is not None:
+                        publication.community = cluster_publication
+                    stats["graph_publication"] = {
+                        "publication": publication,
+                        "graph_payload": payload,
+                        "cluster_payload": cluster_payload,
+                        "cluster_recomputed": cluster_publication is not None,
+                    }
             # stats["graph"] reports the PLANNED count (the plan's graph set);
             # the walk-parity merge may prune more store-minus-walk paths.
             stats["graph"] = len(graph_orphans)
@@ -3471,6 +3493,45 @@ def _get_index_state_store():
     return _index_state_store_mod
 
 
+
+# Per-layer publication statuses recorded by ``build_layer_state``.
+LAYER_PUBLISHED = "published"
+LAYER_STALE = "stale"
+
+
+def _layer_publication_state(
+    *,
+    build_docs: bool,
+    build_code: bool,
+    graph_published: bool,
+    graph_sources_changed: bool,
+) -> "dict[str, str]":
+    """Which layers this build publishes, and which it must mark stale.
+
+    The rule the change doc states, encoded once so both build paths and the
+    tests read the same function:
+
+    * a layer this build published gets ``published`` at this generation;
+    * a layer it did NOT publish gets no row written at all, so it keeps the
+      generation it was actually published under -- a graph-only build must
+      not advertise semantic freshness, and a semantic-only build must not
+      advertise graph freshness;
+    * the one exception is the graph on a semantic-only build whose SOURCE
+      inputs changed: leaving that row untouched would let it read as current
+      against a corpus it no longer describes, so it is marked ``stale``.
+    """
+    state: dict[str, str] = {}
+    if build_docs:
+        state["docs"] = LAYER_PUBLISHED
+    if build_code:
+        state["code"] = LAYER_PUBLISHED
+    if graph_published:
+        state["graph"] = LAYER_PUBLISHED
+    elif graph_sources_changed:
+        state["graph"] = LAYER_STALE
+    return state
+
+
 def _build_graph_artifacts(
     *,
     root: Path,
@@ -3485,7 +3546,22 @@ def _build_graph_artifacts(
     verbose: bool = False,
     unreadable_dirs: "set[str] | None" = None,
     doc_link_repair_plan: "dict | None" = None,
+    state_conn=None,
+    selected_paths: set[str] | None = None,
 ) -> dict[str, Any]:
+    """Extract, merge and cluster the graph, PREPARING its publication rows.
+
+    Wave 1xny6 (``1xny5-ref``): with ``state_conn`` nothing here writes. The
+    graph, extraction and community rows are prepared against the caller's
+    index connection and returned under ``publication`` so the coordinator
+    applies them inside the SINGLE publication transaction that also carries
+    the semantic rows. The former pre-transaction writes -- a graph payload
+    file, a cluster payload file and an independent graph-store commit, all
+    landing before ``BEGIN IMMEDIATE`` and none of them rolled back by a
+    failed publication -- are gone, and lane L6b retired the two transitional
+    derived writers with them, so an ordinary build writes no graph files at
+    all.
+    """
     graph_indexer = _get_graph_indexer()
     graph_cluster = _get_graph_cluster()
     _t0 = time.monotonic()
@@ -3503,6 +3579,8 @@ def _build_graph_artifacts(
         chunker_version=chunker_version,
         unreadable_dirs=unreadable_dirs,
         verbose=verbose,
+        state_conn=state_conn,
+        **({"selected_paths": selected_paths} if selected_paths is not None else {}),
         **({"doc_link_repair_plan": doc_link_repair_plan} if doc_link_repair_plan is not None else {}),
     )
     if verbose:
@@ -3517,13 +3595,25 @@ def _build_graph_artifacts(
     # AFTER the payload write (returned to the caller, never persisted). Pop
     # before the cluster pass so downstream consumers see the pure payload.
     merge_stats = graph_payload.pop("merge_stats", None) if isinstance(graph_payload, dict) else None
+    # The prepared graph rows travel separately from the payload: the payload
+    # is graph CONTENT (and is handed to the cluster pass), the publication is
+    # SQL. Wave 1xny6 lane L6b retired the post-commit derived artifact writer
+    # this payload also used to feed.
+    publication = graph_payload.pop("_publication", None) if isinstance(graph_payload, dict) else None
     cluster_payload = graph_cluster.update_graph_clusters(
         root=root,
         index_dir=index_dir,
         layer=layer,
         graph_payload=graph_payload,
         verbose=verbose,
+        state_conn=state_conn,
     )
+    cluster_publication = (
+        cluster_payload.pop("_publication", None)
+        if isinstance(cluster_payload, dict) else None
+    )
+    if publication is not None and cluster_publication is not None:
+        publication.community = cluster_publication
     if verbose:
         print(
             f"build_index: graph phase complete ({layer} layer) — "
@@ -3564,7 +3654,15 @@ def _build_graph_artifacts(
         file=sys.stderr,
         flush=True,
     )
-    return {"graph_payload": graph_payload, "cluster_payload": cluster_payload}
+    return {
+        "graph_payload": graph_payload,
+        "cluster_payload": cluster_payload,
+        "publication": publication,
+        # False when the fingerprint gate reused the previous generation's
+        # communities: there is nothing new to write, and rewriting the
+        # derived artifact would move its mtime for no content change.
+        "cluster_recomputed": cluster_publication is not None,
+    }
 
 
 def _build_secrets_artifacts(
@@ -3750,6 +3848,16 @@ def _validate_prepared_removals(
                            + ", ".join(sorted(invalid)[:5]) + "; retry indexing")
 
 
+def _close_owned_build_store(store) -> None:
+    """Release an owned writer without replacing its active failure."""
+    failing = sys.exc_info()[0] is not None
+    try:
+        store.close()
+    except Exception:
+        if not failing:
+            raise
+
+
 def _build_index_locked(
     root: Path,
     *,
@@ -3772,6 +3880,14 @@ def _build_index_locked(
     Returns a summary dict with counts.
     """
     requested_files = tuple(files) if files is not None else None
+    selected_paths = None
+    if requested_files is not None:
+        selected_paths = set()
+        for path in requested_files:
+            candidate = Path(os.path.normpath(path if path.is_absolute() else root / path))
+            if _is_relative_to(candidate, root):
+                selected_paths.add(candidate.relative_to(root).as_posix())
+        files = [root / rel for rel in sorted(selected_paths)]
     try:
         import numpy as np
     except ImportError:
@@ -3799,7 +3915,7 @@ def _build_index_locked(
         include_generated=include_generated)
     if storage_rebuild:
         if requested_files is not None:
-            raise RuntimeError("storage_rebuild_requires_complete_source_walk")
+            return _build_failed_result(files, "storage_rebuild_requires_complete_source_walk: run a complete walk with files=None")
         if content != "graph":
             content, full = "all", True
         rebuild_inventory = preflight_rebuild_sources(root, index_dir, **rebuild_options)
@@ -3808,6 +3924,57 @@ def _build_index_locked(
                          getattr(_get_chunker(), "CHUNKER_VERSION", ""))
     config_path = root / "docs" / "workflow-config.json"
     prepared_config_hash = _sha256(config_path) if config_path.is_file() else None
+
+    policy_identity = json.dumps({
+        "options": rebuild_options,
+        "inputs": {name: (prepared_config_hash if name == "docs/workflow-config.json" else
+                          _sha256(root / name) if (root / name).is_file() else None)
+                   for name in ("docs/workflow-config.json", ".gitignore", ".aiignore", ".gitattributes", ".git/info/exclude")},
+    }, sort_keys=True)
+    policy_needs_refresh = False
+    prior_layer_paths = {"docs": set(), "code": set()}
+    if selected_paths is not None:
+        reason = "explicit full rebuild" if full else None
+        iss = _get_index_state_store()
+        conn = None
+        try:
+            conn = iss.open_read_only(index_dir)
+            if conn is None and (index_dir / vector_store.FILENAME).exists():
+                reason = reason or "existing storage schema/currency is unreadable"
+            if conn is not None:
+                conn.execute("BEGIN")
+                prior_meta = _load_meta(index_dir)
+                if not prior_meta:
+                    reason = reason or "existing storage provenance is unproven"
+                prior_policy = conn.execute("SELECT value FROM meta WHERE key='targeted_corpus_policy'").fetchone()
+                if prior_meta:
+                    if prior_policy != (policy_identity,):
+                        reason = reason or "corpus policy changed or is unproven"
+                    if prior_meta.get("walker_version") != WALKER_VERSION:
+                        reason = reason or "walker version changed"
+                    for layer, model in (("docs", DOCS_MODEL), ("code", CODE_MODEL)):
+                        present = layer in prior_meta.get("content", [])
+                        if not present and content in (layer, "all"):
+                            reason = reason or f"{layer} index currency is unproven"
+                        if present:
+                            precision = _predicted_precision_class(model, _onnx_providers())
+                            expected = f"{model}@{precision}@{_identity_fingerprint_for_class(precision)}"
+                            if (prior_meta.get("model_versions", {}).get(layer) != expected
+                                    or prior_meta.get("chunker_versions", {}).get(layer) != prepared_identity[3]):
+                                reason = reason or f"{layer} model/chunker identity changed"
+                        prior_layer_paths[layer] = {row[0] for row in conn.execute(f"SELECT DISTINCT path FROM chunks_{layer}")}
+                        prior_layer_paths[layer] |= {row[0] for row in conn.execute("SELECT path FROM layer_path_state WHERE layer=?", (layer,))}
+                    graph_store = _get_graph_indexer().GraphStateStore(conn, layer=_graph_layer_for_index_dir(index_dir),
+                        walker_version=WALKER_VERSION, chunker_version=prepared_identity[3])
+                    if not graph_store.versions_current():
+                        reason = reason or "graph builder/schema identity changed"
+        except Exception as exc:
+            reason = reason or f"storage currency cannot be established: {exc}"
+        finally:
+            if conn is not None:
+                conn.close()
+        if reason:
+            return _build_failed_result(files, f"Targeted indexing refused: {reason}; run a complete walk with files=None (wf setup --full when rebuilding).")
 
     # --- 1sed6 review fix (reset-before-decisions): settle store schema
     # currency FIRST. The version-gated reset used to fire lazily at the
@@ -3826,6 +3993,8 @@ def _build_index_locked(
                 _pre_store = _iss_pre.IndexStateStore(index_dir)
                 try:
                     _pre_store.ensure_current()
+                    policy_needs_refresh = (_pre_store._conn.execute(
+                        "SELECT value FROM meta WHERE key='targeted_corpus_policy'").fetchone() != (policy_identity,))
                     if not full:
                         for layer in ("docs", "code"):
                             if _pre_store._conn.execute(
@@ -3838,9 +4007,9 @@ def _build_index_locked(
             except vector_store.runtime.CorruptionError as exc:
                 return _build_failed_result(files or [],
                     "Canonical SQLite index is corrupt. Stop all Wavefoundry database-owning "
-                    "hosts; preserve index-state.sqlite and any sibling -wal/-shm files "
-                    "outside .wavefoundry/index, then run wf setup --full. Keep separate "
-                    "graph/memory stores and any migration receipt/rollback intact. "
+                    "hosts; preserve index.sqlite and any sibling -wal/-shm files "
+                    "outside .wavefoundry/index, then run wf setup --full. Keep the separate "
+                    "memory store and any migration receipt/rollback intact. "
                     f"If migration is pending, resume its recorded recovery first. Detail: {exc}")
             except Exception as exc:  # noqa: BLE001 - store must be decidable before any mutation
                 return _build_failed_result(
@@ -4178,6 +4347,9 @@ def _build_index_locked(
     # limitation, not a regression).
     docs_prefix_eligible_rel: set[str] = set(docs_eligible_rel)
     docs_eligible_rel |= code_eligible_rel
+    if selected_paths is not None:
+        docs_eligible_rel |= prior_layer_paths["docs"] - selected_paths
+        code_eligible_rel |= prior_layer_paths["code"] - selected_paths
     # Full replacement also removes previously indexed paths absent from its
     # captured census. Preserve those decisions for the same publication guard.
     _full_removed_by_layer = {"docs": set(), "code": set()}
@@ -4212,7 +4384,7 @@ def _build_index_locked(
         removed_broad: set[str] = set()
     else:
         # Incremental: use stat cache — only read files with changed mtime/size/inode
-        current_file_meta, changed_broad, removed_broad = _detect_changes(files_for_meta, root, old_file_meta)
+        current_file_meta, changed_broad, removed_broad = _detect_changes(files_for_meta, root, old_file_meta, selected_paths)
         # Wave 1x54z (1u8o3): a path the walk could not SEE is not a removal.
         # ``os.walk`` skips a directory whose ``scandir`` fails, so every path
         # under it drops out of ``files_for_meta`` and would read as removed:
@@ -4272,6 +4444,8 @@ def _build_index_locked(
                 (docs_prefix_eligible_rel if build_docs else set())
                 | (code_eligible_rel if build_code else set())
             )
+            if selected_paths is not None:
+                chunk_eligible_rel_paths &= selected_paths
             drifted = _detect_vector_drift(
                 index_dir,
                 current_file_meta,
@@ -4352,6 +4526,8 @@ def _build_index_locked(
     files_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files}
     files_for_graph_rel = {str(f.relative_to(root)).replace("\\", "/") for f in files_for_graph}
     changed_for_graph = changed_broad & files_for_graph_rel
+    if selected_paths is not None:
+        files_for_graph_rel |= set(current_file_meta) - selected_paths
     # --- 1sek8: per-layer change detection ---
     # Each SEMANTIC layer compares the current walk hash against the hash it
     # last embedded (index-state store `layer_path_state`), scoped to its own
@@ -4384,10 +4560,10 @@ def _build_index_locked(
             # post-upgrade build, not the second.
             _state = _iss_layer.layer_hashes(index_dir, _layer) or {}
             if rechunk_all:
-                layer_stale[_layer] = set(_eligible)
+                layer_stale[_layer] = set(_eligible) if selected_paths is None else _eligible & selected_paths
                 continue
             _stale_set: set[str] = set()
-            for _rel in _eligible:
+            for _rel in (_eligible if selected_paths is None else _eligible & selected_paths):
                 _cur = current_file_meta.get(_rel, {}).get("hash")
                 if _cur is None or _cur != _state.get(_rel):
                     _stale_set.add(_rel)
@@ -4446,6 +4622,9 @@ def _build_index_locked(
             root, index_dir, set(current_file_meta.keys()), verbose=verbose,
             unreadable_dirs=_unreadable_dirs,
         )
+        if selected_paths is not None:
+            _orphan_plan = {k: (set(v) & selected_paths if k in _ORPHAN_RECONCILE_STORES else v)
+                            for k, v in _orphan_plan.items()}
         _needs_orphan_reconcile = any(
             _orphan_plan.get(k) for k in _ORPHAN_RECONCILE_STORES
         )
@@ -4547,7 +4726,7 @@ def _build_index_locked(
             return _build_failed_result(
                 files, f"no-op drift reconcile failed: {_exc}"
             )
-        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile and not _needs_graph_recovery:
+        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile and not _needs_graph_recovery and not policy_needs_refresh:
             if verbose:
                 print("build_index: index is up to date", flush=True)
             # Wave 1x6ti (1x551): a deferral here opens no epoch, so the
@@ -4625,41 +4804,87 @@ def _build_index_locked(
             reap_idle.pop("deferred_by_table", None)
             _cleanup_layer_state_for_reaped(index_dir, _reap_idle_paths)
         _graph_orphans_reconciled = 0
-        if _needs_graph_recovery:
-            try:
-                _build_graph_artifacts(
-                    root=root, index_dir=index_dir, layer=graph_layer,
-                    files=files_for_graph, current_file_meta=current_file_meta,
-                    changed=changed_for_graph, removed=removed,
-                    walker_version=WALKER_VERSION,
+        # Wave 1xny6: the idle pass publishes through the same participant
+        # contract as the build path -- one connection, one transaction. Its
+        # participant set is smaller (there are no semantic rows on a
+        # zero-change pass), but a graph recovery or an orphan retirement is
+        # still applied inside a transaction and finalized by the same CAS.
+        try:
+            _idle_store = _iss_epoch.IndexStateStore(index_dir)
+        except Exception as exc:  # noqa: BLE001
+            return _build_failed_result(files, f"could not open the index store: {exc}")
+        try:
+            _idle_graph_publication = None
+            if _needs_graph_recovery:
+                try:
+                    _idle_artifacts = _build_graph_artifacts(
+                        root=root, index_dir=index_dir, layer=graph_layer,
+                        state_conn=_idle_store._conn,
+                        **({"selected_paths": selected_paths} if selected_paths is not None else {}),
+                        files=files_for_graph, current_file_meta=current_file_meta,
+                        changed=changed_for_graph, removed=removed,
+                        walker_version=WALKER_VERSION,
+                        chunker_version=current_chunker_version,
+                        unreadable_dirs=_unreadable_dirs, verbose=verbose,
+                        doc_link_repair_plan=_doc_link_plan,
+                    )
+                    _idle_graph_publication = _idle_artifacts.get("publication")
+                except Exception as exc:  # noqa: BLE001 - preserve dirty epoch for retry
+                    return _build_failed_result(files, f"idle graph recovery failed: {exc}")
+                # The same merge already retires graph orphans. Reconcile only
+                # the sidecars below, preserving the existing planned-count result
+                # and avoiding a second graph merge over an outdated snapshot.
+                _graph_orphans_reconciled = len(_orphan_plan.get("graph") or ())
+                _orphan_plan = dict(_orphan_plan, graph=set())
+            # 1u8nz: execute the orphan-store reconciliation INSIDE the epoch. A
+            # removal-only pass is not a no-op: it opens and finalizes this epoch
+            # (the generation advance is what publishes the removals to readers).
+            _orphan_stats = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
+            if _needs_orphan_reconcile:
+                _orphan_stats = _execute_orphan_store_reconcile(
+                    root,
+                    index_dir,
+                    _orphan_plan,
+                    files_for_graph=files_for_graph,
+                    current_file_meta=current_file_meta,
+                    graph_layer=graph_layer,
+                    unreadable_dirs=_unreadable_dirs,
                     chunker_version=current_chunker_version,
-                    unreadable_dirs=_unreadable_dirs, verbose=verbose,
-                    doc_link_repair_plan=_doc_link_plan,
+                    verbose=verbose,
+                    state_conn=_idle_store._conn,
                 )
-            except Exception as exc:  # noqa: BLE001 - preserve dirty epoch for retry
-                return _build_failed_result(files, f"idle graph recovery failed: {exc}")
-            # The same merge already retires graph orphans. Reconcile only
-            # the sidecars below, preserving the existing planned-count result
-            # and avoiding a second graph merge over an outdated snapshot.
-            _graph_orphans_reconciled = len(_orphan_plan.get("graph") or ())
-            _orphan_plan = dict(_orphan_plan, graph=set())
-        # 1u8nz: execute the orphan-store reconciliation INSIDE the epoch. A
-        # removal-only pass is not a no-op: it opens and finalizes this epoch
-        # (the generation advance is what publishes the removals to readers).
-        _orphan_stats = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
-        if _needs_orphan_reconcile:
-            _orphan_stats = _execute_orphan_store_reconcile(
-                root,
-                index_dir,
-                _orphan_plan,
-                files_for_graph=files_for_graph,
-                current_file_meta=current_file_meta,
-                graph_layer=graph_layer,
-                unreadable_dirs=_unreadable_dirs,
-                chunker_version=current_chunker_version,
-                verbose=verbose,
-            )
-        _orphan_stats["graph"] += _graph_orphans_reconciled
+                _retirement = _orphan_stats.pop("graph_publication", None)
+                if _retirement is not None:
+                    _idle_graph_publication = _retirement.get("publication")
+            _orphan_stats["graph"] += _graph_orphans_reconciled
+            # The one publication transaction of the idle pass.
+            if _idle_graph_publication is not None or policy_needs_refresh:
+                _conn = _idle_store._conn
+                try:
+                    _conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        _epoch = _conn.execute(
+                            "SELECT attempt_id,status FROM build_state WHERE id=1"
+                        ).fetchone()
+                        if _epoch != (_idle_attempt, "building"):
+                            raise RuntimeError("Prepared index attempt is no longer current")
+                        if _idle_graph_publication is not None:
+                            _idle_graph_publication.apply(_conn)
+                            _iss_epoch.write_build_layer_state_locked(
+                                _conn, {"graph": LAYER_PUBLISHED}, attempt_id=_idle_attempt,
+                            )
+                        _conn.execute("INSERT INTO meta(key,value) VALUES('targeted_corpus_policy',?) "
+                                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (policy_identity,))
+                        _conn.execute("COMMIT")
+                    except BaseException:
+                        _conn.execute("ROLLBACK")
+                        raise
+                except Exception as exc:  # noqa: BLE001
+                    return _build_failed_result(
+                        files, f"idle graph publication failed: {exc}"
+                    )
+        finally:
+            _close_owned_build_store(_idle_store)
         _idle_heal_stats: dict = {}
         if _needs_heal or _epoch_dirty or reap_idle.get("total", 0):
             _idle_heal_stats = _sync_chunk_derived_state(
@@ -4887,379 +5112,460 @@ def _build_index_locked(
     except Exception as exc:  # noqa: BLE001 - fence failure fails the build
         return _build_failed_result(files, f"could not open the build epoch: {exc}")
 
+    # Wave 1xny6: ONE connection carries this build from graph preparation to
+    # the publication commit. The graph pass reads its state through it (the
+    # single-binding rule: no second SQLite library on the shared file), and
+    # the same connection runs `BEGIN IMMEDIATE` below, so the prepared graph
+    # rows commit with the semantic rows instead of ahead of them.
     try:
-        import numpy as _np
-        graph_layer = _graph_layer_for_index_dir(index_dir)
-        # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph extraction
-        # runs on the main thread, NOT in the docs/code ThreadPoolExecutor.
-        # A field session on 1.3.21 surfaced a deadlock: when
-        # `_build_graph_artifacts` ran inside the threadpool's
-        # `wavefoundry-index_0` worker thread, the graph layer's own
-        # multi-process parallel extraction (`ProcessPoolExecutor` with spawn
-        # start method) blocked indefinitely at `Process.start()`. macOS
-        # Python 3.13 has a known hazard where `multiprocessing` spawn-mode
-        # `Process.start()` from a non-main thread deadlocks on internal
-        # signal-handler and pickle state. The graph layer already
-        # parallelizes per-file extraction across multiple processes, so
-        # threading the graph build added zero concurrency benefit anyway —
-        # it just exposed the hazard. Docs/code embedding and preparation use
-        # threads; semantic writes are serialized later in one SQLite transaction.
-        # Secrets scan runs as a threadpool future (project layer only).
-        # CORRECTION (wave 1p8gu review MP-4): the secrets scanner DOES use a
-        # ProcessPoolExecutor (spawn) internally when the changed-file set is
-        # >= 50 files (wave_lint_lib/secrets_validators.check_hardcoded_secrets) —
-        # the earlier "no ProcessPoolExecutor" claim here was wrong. That pool is
-        # routed through subprocess_util.windowless_mp_context so its workers are
-        # console-free on Windows (cross-ref MP-1), and it falls back to a serial
-        # scan when a window-free context cannot be guaranteed.
-        _run_secrets = graph_layer == "project"
-        pool_workers = (1 if build_docs else 0) + (1 if build_code else 0) + (1 if _run_secrets else 0)
-        _docs_elapsed: list[float] = []
-        _code_elapsed: list[float] = []
-        _secrets_elapsed: list[float] = []
-        # pool_workers >= 1 whenever _run_secrets is True so ThreadPoolExecutor
-        # is always constructed — nullcontext path only applies to graph-only
-        # framework-layer runs where _run_secrets is False.
-        if pool_workers > 0:
-            _pool_cm = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="wavefoundry-index")
-        else:
-            import contextlib as _ctx_mod
-            _pool_cm = _ctx_mod.nullcontext(None)
-        with _pool_cm as executor:
-            futures = []
-            if verbose:
-                layers = ", ".join(filter(None, [
-                    "docs" if build_docs else "",
-                    "code" if build_code else "",
-                    "secrets" if _run_secrets else "",
-                    "graph",
-                ]))
-                print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
-            if full:
-                # Wave 1p5ch: the full rebuild streams on the MAIN thread (see
-                # _run_streaming_full_rebuild below, after the secrets future is submitted) so it
-                # never materializes the whole chunk list. Nothing is submitted to the pool here;
-                # the secrets scan still runs concurrently as its own future.
-                pass
-            else:
-                # Wave 1rsh9: drift-flagged paths are exempt from the registry
-                # skip inside the incremental write — their registry rows
-                # mirror the PRE-drift canonical state and would wrongly report
-                # "unchanged", silently defeating the drift repair.
-                _skip_exempt = set(drifted)
-                # 1sek8: each table's writer receives ITS layer's stale set
-                # (plus removals) — a stale path with zero new chunks means
-                # "delete this path's rows in this table", so handing one
-                # layer's changes to the other's writer would destroy content.
-                # _layer_written collects per-table completion for the
-                # end-of-build layer-hash commit.
-                _layer_written: dict[str, set[str]] = {}
-                if build_docs:
-                    def _write_docs_incr(
-                        _db_path=semantic_db_path,
-                        _stale=(layer_stale["docs"] | removed),
-                        _doc_chunks=new_doc_chunks,
-                        _docs_emb=docs_embedder,
-                        _verbose=verbose,
-                        _elapsed=_docs_elapsed,
-                        _exempt=_skip_exempt,
-                        _written=_layer_written,
-                    ) -> None:
-                        _t0 = time.monotonic()
-                        _prepare_incremental_vectors(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
-                        _elapsed.append(time.monotonic() - _t0)
-                    futures.append(executor.submit(_write_docs_incr))
-                if build_code:
-                    def _write_code_incr(
-                        _db_path=semantic_db_path,
-                        _stale=(layer_stale["code"] | removed),
-                        _code_chunks=new_code_chunks,
-                        _code_emb=code_embedder,
-                        _verbose=verbose,
-                        _elapsed=_code_elapsed,
-                        _exempt=_skip_exempt,
-                        _written=_layer_written,
-                    ) -> None:
-                        _t0 = time.monotonic()
-                        _prepare_incremental_vectors(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
-                        _elapsed.append(time.monotonic() - _t0)
-                    futures.append(executor.submit(_write_code_incr))
-            # Secrets scan runs as a future (project layer) — concurrent with graph.
-            # Uses ThreadPoolExecutor internally for file-read parallelism so it is
-            # safe to submit from here (no ProcessPoolExecutor spawn inside).
-            if _run_secrets:
-                # Wave 1x4ol (1x4oj): `full` here means "rebuild the GRAPH from
-                # scratch"; it says nothing about whether any file's CONTENT
-                # changed, which is the only thing secret detection depends on.
-                # Passing it through as a full SCAN bypassed the per-file
-                # content-hash cache and re-read every tracked file on every
-                # graph rebuild (198.5 s of a 203 s command on this repository,
-                # 0 cache-skipped). A graph-only build now takes the scanner's
-                # incremental path: `changed_broad` still names every file, so
-                # every file is a candidate, and the cache skips exactly those
-                # whose content hash AND rules fingerprint match. The scanner's
-                # own escalations (rules hash, SCANNER_VERSION, missing ledger)
-                # are untouched and still force a real full scan on their own.
-                _secrets_full = bool(full) and content != "graph"
-                def _write_secrets(
-                    _root=root,
-                    _index_dir=index_dir,
-                    _changed=changed_broad,
-                    _removed=removed_broad,
-                    _full=_secrets_full,
-                    _verbose=verbose,
-                    _elapsed=_secrets_elapsed,
-                ) -> None:
-                    _t0 = time.monotonic()
-                    _build_secrets_artifacts(
-                        root=_root,
-                        index_dir=_index_dir,
-                        changed=_changed,
-                        removed=_removed,
-                        full=_full,
-                        verbose=_verbose,
-                    )
-                    _elapsed.append(time.monotonic() - _t0)
-                futures.append(executor.submit(_write_secrets))
-            # Wave 1p5ch: the full rebuild streams the docs/code embed+write on the MAIN thread
-            # (bounded buffer; never holds the whole chunk list), concurrently with the in-flight
-            # secrets future. The incremental path used the docs/code futures submitted above.
-            if full:
-                _run_streaming_full_rebuild(
-                    db_path=semantic_db_path,
-                    files_to_index=files_to_index,
-                    root=root,
-                    build_docs=build_docs,
-                    build_code=build_code,
-                    docs_embedder=docs_embedder,
-                    code_embedder=code_embedder,
-                    chunks_emitted_by_file=chunks_emitted_by_file,
-                    buffer_chunks=_resolve_embed_buffer_chunks(root),
-                    verbose=verbose,
-                    docs_elapsed=_docs_elapsed,
-                    code_elapsed=_code_elapsed,
-                    docs_eligible_rel=docs_eligible_rel if build_docs else None,
-                    code_eligible_rel=code_eligible_rel if build_code else None,
-                    prepared=prepared,
-                    strict_reads=storage_rebuild,
-                )
-            # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
-            # extraction runs synchronously on the main thread, concurrently
-            # with the in-flight docs/code/secrets futures above. This is the
-            # load-bearing fix for the field-reported hang — see the long comment at the
-            # top of this try-block.
-            _build_graph_artifacts(
-                root=root,
-                index_dir=index_dir,
-                layer=graph_layer,
-                files=files_for_graph,
-                current_file_meta=current_file_meta,
-                changed=changed_for_graph,
-                removed=removed,
-                # Wave 1x54z (1u8o3): on an incremental build the merge keeps
-                # known paths under a directory the walk could not read (they
-                # are carried forward as unchanged everywhere else); a FULL
-                # rebuild prepares graph state from the current corpus. The
-                # semantic removal guard below refuses publication if omitted
-                # prior paths are unreadable; the global epoch stays unavailable.
-                unreadable_dirs=(_unreadable_dirs if not full else None),
-                walker_version=WALKER_VERSION,
-                chunker_version=current_chunker_version,
-                verbose=verbose,
-            )
-            for f in futures:
-                f.result()
-
-        # Wave 1p5ch: persist chunks_emitted into current_file_meta AFTER the write — for the full
-        # rebuild the streaming pass populated chunks_emitted_by_file during the write (the
-        # incremental path populated it earlier). The cache-hit path in _detect_changes preserves
-        # prior counts for unchanged files; this populates every file just chunked so the next
-        # incremental drift check sees the truth once the bookkeeping is written below.
-        for rel, count in chunks_emitted_by_file.items():
-            entry = current_file_meta.get(rel)
-            if isinstance(entry, dict):
-                entry["chunks_emitted"] = count
-
-        # Counts are computed after the prepared transaction publishes below.
-        total_doc_chunks = total_code_chunks = 0
-    except Exception as exc:
-        print(f"build_index: index update failed: {exc}", file=sys.stderr)
-        raise
-
-    new_model_versions = dict(old_model_versions)
-    # Wave 1p936: record the precision class for each built layer using the SAME predictor the
-    # compare site uses (`_predicted_precision_class`), NOT the resolved-embedder class — the two
-    # MUST agree or a same-machine incremental build would perpetually re-embed (the compare would
-    # keep seeing a class mismatch it just wrote). `make_embedder` is constructed to resolve exactly
-    # what the predictor reports (GPU→full incl. non-offload fastembed fallback; no-GPU + INT8
-    # source→int8), so the recorded class stays truthful about the stored vectors on a real build.
-    # A layer with no embedding work this run (embedder is None — e.g. an empty incremental update)
-    # preserves whatever class was already recorded.
-    build_providers = _onnx_providers()
-    if build_docs:
-        docs_class = (
-            _predicted_precision_class(DOCS_MODEL, build_providers)
-            if docs_embedder is not None
-            else _precision_class_from_version(old_model_versions.get("docs"))
-        )
-        new_model_versions["docs"] = (
-            f"{DOCS_MODEL}@{docs_class}@{_identity_fingerprint_for_class(docs_class)}"
-        )
-    if build_code:
-        code_class = (
-            _predicted_precision_class(CODE_MODEL, build_providers)
-            if code_embedder is not None
-            else _precision_class_from_version(old_model_versions.get("code"))
-        )
-        new_model_versions["code"] = (
-            f"{CODE_MODEL}@{code_class}@{_identity_fingerprint_for_class(code_class)}"
-        )
-    new_chunker_versions = dict(old_chunker_versions)
-    if build_docs and current_chunker_version:
-        new_chunker_versions["docs"] = current_chunker_version
-    if build_code and current_chunker_version:
-        new_chunker_versions["code"] = current_chunker_version
-    available_content = set(meta.get("content", []))
-    if build_docs:
-        available_content.add("docs")
-    if build_code:
-        available_content.add("code")
-    new_meta = {
-        "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "model_versions": new_model_versions,
-        "chunker_versions": new_chunker_versions,
-        "walker_version": WALKER_VERSION,
-        "content": sorted(available_content),
-        "file_meta": current_file_meta,
-    }
-    # Wave 1rsh9 (1rrr0) established the store as the working source of truth
-    # for per-path build state; 1sed6 made it the ONLY truth (meta.json retired).
-    # --- 1sed6: canonical build metadata is a MANDATORY store resident ---
-    # No JSON export, no fallback: a bookkeeping failure fails the build
-    # visibly (the epoch is never finalized, readers stay failed-closed, and
-    # the next build retries from durable state). The silent
-    # JSON-success/SQLite-failure mode this replaced could publish an index
-    # state the system cannot actually serve.
-    _state_store = _get_index_state_store()
-    if _state_store is None:
-        return _build_failed_result(
-            files, "index-state store module unavailable — cannot record canonical build state"
-        )
-    # Reap canonical rows whose path is no longer in the current eligible set.
-    # Runs on every incremental update across both tables — the workflow-
-    # config-evolution blind spot is invisible from the build snapshot alone (the
-    # narrowing already updated meta), so the reaper must reconcile canonical chunks
-    # directly. Reaping both tables regardless of ``content`` arg keeps the
-    # cross-content failure mode closed: a docs-only update reaps code-table
-    # orphans (and vice versa). Full rebuilds drop the tables entirely so
-    # this pass is a no-op there. Runs BEFORE the chunk-index reconcile below
-    # so the FTS/registry never retain reaped (excluded) content between builds.
-    stranded_rows_reaped = 0
-    stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
-    orphan_rows_reconciled: dict[str, int] = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
-    _reap_deferred_build: dict = {}
-    _reap_preserved_build: dict = {}
-    _reap_paths_by_table: dict = {}
-    if not full:
-        reap_result = _reap_stranded_vector_rows(
-            semantic_db_path,
-            set(current_file_meta.keys()),
-            root=root,
-            tables=("docs", "code"),
-            verbose=verbose,
-            eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
-            unreadable_dirs=_unreadable_dirs,
-            prepared=prepared,
-        )
-        _reap_paths_by_table = reap_result.pop("paths_by_table", {})
-        _reap_preserved_build = _preserved_summary(reap_result.pop("preserved_by_table", None))
-        _reap_deferred_build = _deferred_summary(reap_result.pop("deferred_by_table", None))
-        stranded_rows_reaped_by_table = reap_result
-        stranded_rows_reaped = reap_result.get("total", 0)
-        # 1u8nz: orphan-store reconciliation at the build-path reap seam (same
-        # epoch). By this point the ordinary graph merge above already pruned
-        # store-minus-walk, so the plan's graph set is normally empty here;
-        # the sidecars (file_freshness / secret_scan_cache) are the stores
-        # that leak on ordinary incrementals and get reconciled now.
-        _orphan_plan_build = _plan_orphan_store_reconcile(
-            root, index_dir, set(current_file_meta.keys()), verbose=verbose,
-            unreadable_dirs=_unreadable_dirs,
-        )
-        if any(_orphan_plan_build.get(k) for k in _ORPHAN_RECONCILE_STORES):
-            orphan_rows_reconciled = _execute_orphan_store_reconcile(
-                root,
-                index_dir,
-                _orphan_plan_build,
-                files_for_graph=files_for_graph,
-                current_file_meta=current_file_meta,
-                graph_layer=graph_layer,
-                unreadable_dirs=_unreadable_dirs,
-                chunker_version=current_chunker_version,
-                verbose=verbose,
-            )
-
-    # One native writer transaction publishes vectors, text, FTS and all indexing state.
-    store = _state_store.IndexStateStore(index_dir)
+        store = _iss_epoch.IndexStateStore(index_dir)
+    except Exception as exc:  # noqa: BLE001 - a store that will not open fails the build
+        return _build_failed_result(files, f"could not open the index store: {exc}")
     try:
-        conn = store._conn
-        conn.execute("BEGIN IMMEDIATE")
         try:
-            epoch = conn.execute("SELECT attempt_id,status FROM build_state WHERE id=1").fetchone()
-            if epoch != (_build_attempt,"building"):
-                raise RuntimeError("Prepared index attempt is no longer current")
-            def validate_sources():
-                if storage_rebuild and preflight_rebuild_sources(root, index_dir, **rebuild_options) != rebuild_inventory:
-                    raise RuntimeError("storage_rebuild_source_changed: retry the complete rebuild")
-                current_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
-                                    getattr(_get_chunker(), "CHUNKER_VERSION", ""))
-                current_config = _sha256(config_path) if config_path.is_file() else None
-                if current_identity != prepared_identity or current_config != prepared_config_hash:
-                    raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
-                for rel in chunks_emitted_by_file:
-                    expected = current_file_meta.get(rel,{}).get("hash")
-                    if expected and _sha256(root / rel) != expected:
-                        raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
-                _validate_prepared_removals(
-                    root, index_dir, removed_broad,
-                    {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
-                     for layer in ("docs", "code")}, requested_files=requested_files,
-                    respect_ignore=respect_ignore, include_prefixes=include_prefixes,
-                    project_include_prefixes=project_include_prefixes,
-                    include_tests=include_tests, include_generated=include_generated)
-            validate_sources()
-            prepared.apply(store)
-            _state_store.write_build_bookkeeping_locked(conn,new_meta)
-            if full:
-                for layer, enabled, eligible in (("docs",build_docs,docs_eligible_rel),("code",build_code,code_eligible_rel)):
-                    if enabled:
-                        conn.execute("DELETE FROM layer_path_state WHERE layer=?", (layer,))
-                        conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?)",
-                            ((layer,r,current_file_meta[r]['hash']) for r in eligible if r in current_file_meta))
+            import numpy as _np
+            graph_layer = _graph_layer_for_index_dir(index_dir)
+            # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph extraction
+            # runs on the main thread, NOT in the docs/code ThreadPoolExecutor.
+            # A field session on 1.3.21 surfaced a deadlock: when
+            # `_build_graph_artifacts` ran inside the threadpool's
+            # `wavefoundry-index_0` worker thread, the graph layer's own
+            # multi-process parallel extraction (`ProcessPoolExecutor` with spawn
+            # start method) blocked indefinitely at `Process.start()`. macOS
+            # Python 3.13 has a known hazard where `multiprocessing` spawn-mode
+            # `Process.start()` from a non-main thread deadlocks on internal
+            # signal-handler and pickle state. The graph layer already
+            # parallelizes per-file extraction across multiple processes, so
+            # threading the graph build added zero concurrency benefit anyway —
+            # it just exposed the hazard. Docs/code embedding and preparation use
+            # threads; semantic writes are serialized later in one SQLite transaction.
+            # Secrets scan runs as a threadpool future (project layer only).
+            # CORRECTION (wave 1p8gu review MP-4): the secrets scanner DOES use a
+            # ProcessPoolExecutor (spawn) internally when the changed-file set is
+            # >= 50 files (wave_lint_lib/secrets_validators.check_hardcoded_secrets) —
+            # the earlier "no ProcessPoolExecutor" claim here was wrong. That pool is
+            # routed through subprocess_util.windowless_mp_context so its workers are
+            # console-free on Windows (cross-ref MP-1), and it falls back to a serial
+            # scan when a window-free context cannot be guaranteed.
+            # The scanner may escalate to a complete scan (missing ledger or
+            # changed rules), so it cannot respect an explicit selection.
+            # Leave its content-addressed cache for the next ordinary walk.
+            _run_secrets = graph_layer == "project" and selected_paths is None
+            pool_workers = (1 if build_docs else 0) + (1 if build_code else 0) + (1 if _run_secrets else 0)
+            _docs_elapsed: list[float] = []
+            _code_elapsed: list[float] = []
+            _secrets_elapsed: list[float] = []
+            # pool_workers >= 1 whenever _run_secrets is True so ThreadPoolExecutor
+            # is always constructed — nullcontext path only applies to graph-only
+            # framework-layer runs where _run_secrets is False.
+            if pool_workers > 0:
+                _pool_cm = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="wavefoundry-index")
             else:
-                for layer, written in _layer_written.items():
-                    conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?) "
-                        "ON CONFLICT(layer,path) DO UPDATE SET hash=excluded.hash",
-                        ((layer,r,current_file_meta[r]['hash']) for r in written if r in current_file_meta))
-                    conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
-                        ((layer,r) for r in set(removed_broad) | set(_reap_paths_by_table.get(layer,()))))
-            for layer in ("docs", "code"):
-                integrity = vector_store.vector_integrity(conn, layer)
-                if integrity['missing_vectors'] or integrity['orphan_vectors']:
-                    raise RuntimeError(f"{layer}: vector integrity failed "
-                                       f"({integrity['missing_vectors']} missing, "
-                                       f"{integrity['orphan_vectors']} orphaned); explicit full rebuild required")
-            if storage_rebuild and build_docs and build_code:
-                sqlite_storage_migration.record_rebuild_proof(
-                    conn, storage_receipt, rebuild_inventory, rebuild_options, new_meta, _build_attempt)
-            validate_sources()
-            conn.execute("COMMIT")
-        except BaseException:
-            conn.execute("ROLLBACK")
+                import contextlib as _ctx_mod
+                _pool_cm = _ctx_mod.nullcontext(None)
+            with _pool_cm as executor:
+                futures = []
+                if verbose:
+                    layers = ", ".join(filter(None, [
+                        "docs" if build_docs else "",
+                        "code" if build_code else "",
+                        "secrets" if _run_secrets else "",
+                        "graph",
+                    ]))
+                    print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
+                if full:
+                    # Wave 1p5ch: the full rebuild streams on the MAIN thread (see
+                    # _run_streaming_full_rebuild below, after the secrets future is submitted) so it
+                    # never materializes the whole chunk list. Nothing is submitted to the pool here;
+                    # the secrets scan still runs concurrently as its own future.
+                    pass
+                else:
+                    # Wave 1rsh9: drift-flagged paths are exempt from the registry
+                    # skip inside the incremental write — their registry rows
+                    # mirror the PRE-drift canonical state and would wrongly report
+                    # "unchanged", silently defeating the drift repair.
+                    _skip_exempt = set(drifted)
+                    # 1sek8: each table's writer receives ITS layer's stale set
+                    # (plus removals) — a stale path with zero new chunks means
+                    # "delete this path's rows in this table", so handing one
+                    # layer's changes to the other's writer would destroy content.
+                    # _layer_written collects per-table completion for the
+                    # end-of-build layer-hash commit.
+                    _layer_written: dict[str, set[str]] = {}
+                    if build_docs:
+                        def _write_docs_incr(
+                            _db_path=semantic_db_path,
+                            _stale=(layer_stale["docs"] | removed),
+                            _doc_chunks=new_doc_chunks,
+                            _docs_emb=docs_embedder,
+                            _verbose=verbose,
+                            _elapsed=_docs_elapsed,
+                            _exempt=_skip_exempt,
+                            _written=_layer_written,
+                        ) -> None:
+                            _t0 = time.monotonic()
+                            _prepare_incremental_vectors(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
+                            _elapsed.append(time.monotonic() - _t0)
+                        futures.append(executor.submit(_write_docs_incr))
+                    if build_code:
+                        def _write_code_incr(
+                            _db_path=semantic_db_path,
+                            _stale=(layer_stale["code"] | removed),
+                            _code_chunks=new_code_chunks,
+                            _code_emb=code_embedder,
+                            _verbose=verbose,
+                            _elapsed=_code_elapsed,
+                            _exempt=_skip_exempt,
+                            _written=_layer_written,
+                        ) -> None:
+                            _t0 = time.monotonic()
+                            _prepare_incremental_vectors(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
+                            _elapsed.append(time.monotonic() - _t0)
+                        futures.append(executor.submit(_write_code_incr))
+                # Secrets scan runs as a future (project layer) — concurrent with graph.
+                # Uses ThreadPoolExecutor internally for file-read parallelism so it is
+                # safe to submit from here (no ProcessPoolExecutor spawn inside).
+                if _run_secrets:
+                    # Wave 1x4ol (1x4oj): `full` here means "rebuild the GRAPH from
+                    # scratch"; it says nothing about whether any file's CONTENT
+                    # changed, which is the only thing secret detection depends on.
+                    # Passing it through as a full SCAN bypassed the per-file
+                    # content-hash cache and re-read every tracked file on every
+                    # graph rebuild (198.5 s of a 203 s command on this repository,
+                    # 0 cache-skipped). A graph-only build now takes the scanner's
+                    # incremental path: `changed_broad` still names every file, so
+                    # every file is a candidate, and the cache skips exactly those
+                    # whose content hash AND rules fingerprint match. The scanner's
+                    # own escalations (rules hash, SCANNER_VERSION, missing ledger)
+                    # are untouched and still force a real full scan on their own.
+                    _secrets_full = bool(full) and content != "graph"
+                    def _write_secrets(
+                        _root=root,
+                        _index_dir=index_dir,
+                        _changed=changed_broad,
+                        _removed=removed_broad,
+                        _full=_secrets_full,
+                        _verbose=verbose,
+                        _elapsed=_secrets_elapsed,
+                    ) -> None:
+                        _t0 = time.monotonic()
+                        _build_secrets_artifacts(
+                            root=_root,
+                            index_dir=_index_dir,
+                            changed=_changed,
+                            removed=_removed,
+                            full=_full,
+                            verbose=_verbose,
+                        )
+                        _elapsed.append(time.monotonic() - _t0)
+                    futures.append(executor.submit(_write_secrets))
+                # Wave 1p5ch: the full rebuild streams the docs/code embed+write on the MAIN thread
+                # (bounded buffer; never holds the whole chunk list), concurrently with the in-flight
+                # secrets future. The incremental path used the docs/code futures submitted above.
+                if full:
+                    _run_streaming_full_rebuild(
+                        db_path=semantic_db_path,
+                        files_to_index=files_to_index,
+                        root=root,
+                        build_docs=build_docs,
+                        build_code=build_code,
+                        docs_embedder=docs_embedder,
+                        code_embedder=code_embedder,
+                        chunks_emitted_by_file=chunks_emitted_by_file,
+                        buffer_chunks=_resolve_embed_buffer_chunks(root),
+                        verbose=verbose,
+                        docs_elapsed=_docs_elapsed,
+                        code_elapsed=_code_elapsed,
+                        docs_eligible_rel=docs_eligible_rel if build_docs else None,
+                        code_eligible_rel=code_eligible_rel if build_code else None,
+                        prepared=prepared,
+                        strict_reads=storage_rebuild,
+                    )
+                # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
+                # extraction runs synchronously on the main thread, concurrently
+                # with the in-flight docs/code/secrets futures above. This is the
+                # load-bearing fix for the field-reported hang — see the long comment at the
+                # top of this try-block.
+                _graph_artifacts = _build_graph_artifacts(
+                    root=root,
+                    index_dir=index_dir,
+                    layer=graph_layer,
+                    state_conn=store._conn,
+                    **({"selected_paths": selected_paths} if selected_paths is not None else {}),
+                    files=files_for_graph,
+                    current_file_meta=current_file_meta,
+                    changed=changed_for_graph,
+                    removed=removed,
+                    # Wave 1x54z (1u8o3): on an incremental build the merge keeps
+                    # known paths under a directory the walk could not read (they
+                    # are carried forward as unchanged everywhere else); a FULL
+                    # rebuild prepares graph state from the current corpus. The
+                    # semantic removal guard below refuses publication if omitted
+                    # prior paths are unreadable; the global epoch stays unavailable.
+                    unreadable_dirs=(_unreadable_dirs if not full else None),
+                    walker_version=WALKER_VERSION,
+                    chunker_version=current_chunker_version,
+                    verbose=verbose,
+                )
+                for f in futures:
+                    f.result()
+
+            # Wave 1p5ch: persist chunks_emitted into current_file_meta AFTER the write — for the full
+            # rebuild the streaming pass populated chunks_emitted_by_file during the write (the
+            # incremental path populated it earlier). The cache-hit path in _detect_changes preserves
+            # prior counts for unchanged files; this populates every file just chunked so the next
+            # incremental drift check sees the truth once the bookkeeping is written below.
+            for rel, count in chunks_emitted_by_file.items():
+                entry = current_file_meta.get(rel)
+                if isinstance(entry, dict):
+                    entry["chunks_emitted"] = count
+
+            # Counts are computed after the prepared transaction publishes below.
+            total_doc_chunks = total_code_chunks = 0
+        except Exception as exc:
+            print(f"build_index: index update failed: {exc}", file=sys.stderr)
             raise
-    except Exception as exc:
-        return _build_failed_result(files, f"Atomic semantic publication failed: {exc}")
+        _graph_publication = _graph_artifacts.get("publication")
+
+        new_model_versions = dict(old_model_versions)
+        # Wave 1p936: record the precision class for each built layer using the SAME predictor the
+        # compare site uses (`_predicted_precision_class`), NOT the resolved-embedder class — the two
+        # MUST agree or a same-machine incremental build would perpetually re-embed (the compare would
+        # keep seeing a class mismatch it just wrote). `make_embedder` is constructed to resolve exactly
+        # what the predictor reports (GPU→full incl. non-offload fastembed fallback; no-GPU + INT8
+        # source→int8), so the recorded class stays truthful about the stored vectors on a real build.
+        # A layer with no embedding work this run (embedder is None — e.g. an empty incremental update)
+        # preserves whatever class was already recorded.
+        build_providers = _onnx_providers()
+        if build_docs:
+            docs_class = (
+                _predicted_precision_class(DOCS_MODEL, build_providers)
+                if docs_embedder is not None
+                else _precision_class_from_version(old_model_versions.get("docs"))
+            )
+            new_model_versions["docs"] = (
+                f"{DOCS_MODEL}@{docs_class}@{_identity_fingerprint_for_class(docs_class)}"
+            )
+        if build_code:
+            code_class = (
+                _predicted_precision_class(CODE_MODEL, build_providers)
+                if code_embedder is not None
+                else _precision_class_from_version(old_model_versions.get("code"))
+            )
+            new_model_versions["code"] = (
+                f"{CODE_MODEL}@{code_class}@{_identity_fingerprint_for_class(code_class)}"
+            )
+        new_chunker_versions = dict(old_chunker_versions)
+        if build_docs and current_chunker_version:
+            new_chunker_versions["docs"] = current_chunker_version
+        if build_code and current_chunker_version:
+            new_chunker_versions["code"] = current_chunker_version
+        available_content = set(meta.get("content", []))
+        if build_docs:
+            available_content.add("docs")
+        if build_code:
+            available_content.add("code")
+        new_meta = {
+            "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "model_versions": new_model_versions,
+            "chunker_versions": new_chunker_versions,
+            "walker_version": WALKER_VERSION,
+            "content": sorted(available_content),
+            "file_meta": current_file_meta,
+        }
+        # Wave 1rsh9 (1rrr0) established the store as the working source of truth
+        # for per-path build state; 1sed6 made it the ONLY truth (meta.json retired).
+        # --- 1sed6: canonical build metadata is a MANDATORY store resident ---
+        # No JSON export, no fallback: a bookkeeping failure fails the build
+        # visibly (the epoch is never finalized, readers stay failed-closed, and
+        # the next build retries from durable state). The silent
+        # JSON-success/SQLite-failure mode this replaced could publish an index
+        # state the system cannot actually serve.
+        _state_store = _get_index_state_store()
+        if _state_store is None:
+            return _build_failed_result(
+                files, "index-state store module unavailable — cannot record canonical build state"
+            )
+        # Reap canonical rows whose path is no longer in the current eligible set.
+        # Runs on every incremental update across both tables — the workflow-
+        # config-evolution blind spot is invisible from the build snapshot alone (the
+        # narrowing already updated meta), so the reaper must reconcile canonical chunks
+        # directly. Reaping both tables regardless of ``content`` arg keeps the
+        # cross-content failure mode closed: a docs-only update reaps code-table
+        # orphans (and vice versa). Full rebuilds drop the tables entirely so
+        # this pass is a no-op there. Runs BEFORE the chunk-index reconcile below
+        # so the FTS/registry never retain reaped (excluded) content between builds.
+        stranded_rows_reaped = 0
+        stranded_rows_reaped_by_table: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
+        orphan_rows_reconciled: dict[str, int] = {"file_freshness": 0, "secret_scan_cache": 0, "graph": 0}
+        _reap_deferred_build: dict = {}
+        _reap_preserved_build: dict = {}
+        _reap_paths_by_table: dict = {}
+        if not full:
+            reap_result = _reap_stranded_vector_rows(
+                semantic_db_path,
+                set(current_file_meta.keys()),
+                root=root,
+                tables=("docs", "code"),
+                verbose=verbose,
+                eligible_by_table={"docs": docs_eligible_rel, "code": code_eligible_rel},
+                unreadable_dirs=_unreadable_dirs,
+                prepared=prepared,
+            )
+            _reap_paths_by_table = reap_result.pop("paths_by_table", {})
+            _reap_preserved_build = _preserved_summary(reap_result.pop("preserved_by_table", None))
+            _reap_deferred_build = _deferred_summary(reap_result.pop("deferred_by_table", None))
+            stranded_rows_reaped_by_table = reap_result
+            stranded_rows_reaped = reap_result.get("total", 0)
+            # 1u8nz: orphan-store reconciliation at the build-path reap seam (same
+            # epoch). By this point the ordinary graph merge above already pruned
+            # store-minus-walk, so the plan's graph set is normally empty here;
+            # the sidecars (file_freshness / secret_scan_cache) are the stores
+            # that leak on ordinary incrementals and get reconciled now.
+            _orphan_plan_build = _plan_orphan_store_reconcile(
+                root, index_dir, set(current_file_meta.keys()), verbose=verbose,
+                unreadable_dirs=_unreadable_dirs,
+            )
+            # Wave 1xny6: the graph merge above ran with full walk parity and its
+            # prepared publication already retires every known-minus-current path
+            # — but it has not COMMITTED yet, so the plan (which reads published
+            # rows) still lists them. Running a second merge here would prepare a
+            # rival plan from pre-publication state and overwrite the first. Take
+            # the retirement count from the plan that is actually publishing.
+            if selected_paths is not None:
+                _orphan_plan_build = {k: (set(v) & selected_paths if k in _ORPHAN_RECONCILE_STORES else v)
+                                      for k, v in _orphan_plan_build.items()}
+            _planned_graph_orphans = set(_orphan_plan_build.get("graph") or ())
+            if _graph_publication is not None and _planned_graph_orphans:
+                orphan_rows_reconciled["graph"] = len(
+                    _planned_graph_orphans & set(_graph_publication.file_deletes)
+                )
+                _orphan_plan_build = dict(_orphan_plan_build, graph=set())
+            if any(_orphan_plan_build.get(k) for k in _ORPHAN_RECONCILE_STORES):
+                _sidecar_stats = _execute_orphan_store_reconcile(
+                    root,
+                    index_dir,
+                    _orphan_plan_build,
+                    files_for_graph=files_for_graph,
+                    current_file_meta=current_file_meta,
+                    graph_layer=graph_layer,
+                    unreadable_dirs=_unreadable_dirs,
+                    chunker_version=current_chunker_version,
+                    verbose=verbose,
+                    state_conn=store._conn,
+                )
+                # Only reachable when the graph pass published nothing this build
+                # (its zero-change fast path). There is then no rival plan, so the
+                # retirement becomes THE graph participant of this transaction.
+                _retirement = _sidecar_stats.pop("graph_publication", None)
+                if _retirement is not None:
+                    _graph_publication = _retirement.get("publication")
+                _sidecar_stats["graph"] += orphan_rows_reconciled["graph"]
+                orphan_rows_reconciled = _sidecar_stats
+
+        # One native writer transaction publishes vectors, text, FTS, the graph,
+        # extraction and community rows, and all indexing state (wave 1xny6). The
+        # connection is the one the graph pass already read through.
+        _publication_held_ms = 0.0
+        _graph_rows_written: dict = {}
+        try:
+            conn = store._conn
+            conn.execute("BEGIN IMMEDIATE")
+            _held_t0 = time.monotonic()
+            try:
+                epoch = conn.execute("SELECT attempt_id,status FROM build_state WHERE id=1").fetchone()
+                if epoch != (_build_attempt,"building"):
+                    raise RuntimeError("Prepared index attempt is no longer current")
+                def validate_sources():
+                    if storage_rebuild and preflight_rebuild_sources(root, index_dir, **rebuild_options) != rebuild_inventory:
+                        raise RuntimeError("storage_rebuild_source_changed: retry the complete rebuild")
+                    current_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
+                                        getattr(_get_chunker(), "CHUNKER_VERSION", ""))
+                    current_config = _sha256(config_path) if config_path.is_file() else None
+                    if current_identity != prepared_identity or current_config != prepared_config_hash:
+                        raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
+                    for rel in chunks_emitted_by_file:
+                        expected = current_file_meta.get(rel,{}).get("hash")
+                        if expected and _sha256(root / rel) != expected:
+                            raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
+                    _validate_prepared_removals(
+                        root, index_dir, removed_broad,
+                        {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
+                         for layer in ("docs", "code")}, requested_files=requested_files,
+                        respect_ignore=respect_ignore, include_prefixes=include_prefixes,
+                        project_include_prefixes=project_include_prefixes,
+                        include_tests=include_tests, include_generated=include_generated)
+                validate_sources()
+                prepared.apply(store)
+                _state_store.write_build_bookkeeping_locked(conn,new_meta)
+                conn.execute("INSERT INTO meta(key,value) VALUES('targeted_corpus_policy',?) "
+                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (policy_identity,))
+                if full:
+                    for layer, enabled, eligible in (("docs",build_docs,docs_eligible_rel),("code",build_code,code_eligible_rel)):
+                        if enabled:
+                            conn.execute("DELETE FROM layer_path_state WHERE layer=?", (layer,))
+                            conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?)",
+                                ((layer,r,current_file_meta[r]['hash']) for r in eligible if r in current_file_meta))
+                else:
+                    for layer, written in _layer_written.items():
+                        conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?) "
+                            "ON CONFLICT(layer,path) DO UPDATE SET hash=excluded.hash",
+                            ((layer,r,current_file_meta[r]['hash']) for r in written if r in current_file_meta))
+                        conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
+                            ((layer,r) for r in set(removed_broad) | set(_reap_paths_by_table.get(layer,()))))
+                for layer in ("docs", "code"):
+                    integrity = vector_store.vector_integrity(conn, layer)
+                    if integrity['missing_vectors'] or integrity['orphan_vectors']:
+                        raise RuntimeError(f"{layer}: vector integrity failed "
+                                           f"({integrity['missing_vectors']} missing, "
+                                           f"{integrity['orphan_vectors']} orphaned); explicit full rebuild required")
+                if storage_rebuild and build_docs and build_code:
+                    sqlite_storage_migration.record_rebuild_proof(
+                        conn, storage_receipt, rebuild_inventory, rebuild_options, new_meta, _build_attempt)
+                # Per-layer publication state: which generation and attempt each
+                # layer was last published under. A layer this build did not
+                # publish keeps its own row, so a graph-only build never advertises
+                # semantic freshness it did not establish, and vice versa. The
+                # scalar build_state.generation stays THE reader token; these rows
+                # describe layers relative to it.
+                _state_store.write_build_layer_state_locked(
+                    conn,
+                    _layer_publication_state(
+                        build_docs=build_docs,
+                        build_code=build_code,
+                        graph_published=_graph_publication is not None,
+                        graph_sources_changed=bool(changed_for_graph or removed),
+                    ),
+                    attempt_id=_build_attempt,
+                )
+                validate_sources()
+                # Graph, extraction and community rows join the semantic rows as
+                # participants. Everything expensive already happened outside this
+                # lock; `apply` does a cheap (size, mtime_ns) recheck and a
+                # change-sized set of writes. It runs AFTER the trailing
+                # `validate_sources` so the broad content-hash gate reports a
+                # source that moved during embedding; the graph's stat recheck is
+                # the last-mile guard for the window this gate does not cover
+                # (files the graph indexes that emitted no semantic chunks).
+                if _graph_publication is not None:
+                    _graph_rows_written = _graph_publication.apply(conn)
+                    _graph_rows_written["planned_total"] = _graph_publication.row_count()
+                conn.execute("COMMIT")
+                # The lock-held segment: BEGIN IMMEDIATE to COMMIT. Reported on
+                # every build so the incremental publication cost is observable in
+                # the field, not only under a benchmark.
+                _publication_held_ms = (time.monotonic() - _held_t0) * 1000.0
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        except Exception as exc:
+            return _build_failed_result(files, f"Atomic semantic publication failed: {exc}")
+        # Wave 1xny6 lane L6b: the transitional graph and cluster JSON writers that
+        # ran here are retired. The committed rows are the graph's only authority
+        # and every reader is on them, so ordinary indexing no longer recreates the
+        # retired `.wavefoundry/index/graph/` directory.
     finally:
-        store.close()
+        _close_owned_build_store(store)
     _counts = vector_store.layer_counts(index_dir)
     total_doc_chunks, total_code_chunks = _counts["docs"], _counts["code"]
 
@@ -5284,7 +5590,9 @@ def _build_index_locked(
     # lock. Zero-change builds skip on the git-HEAD + path-set fingerprint;
     # end-of-build maintenance (passive WAL checkpoint + bounded incremental reclamation) keeps the
     # store bounded under the long-lived MCP server. Never fails the build.
-    if _state_store is not None:
+    # These optional derived summaries recompute the whole corpus; a targeted
+    # patch must not rewrite unselected freshness/attribution rows.
+    if _state_store is not None and selected_paths is None:
         _state_store.update_freshness_from_build(
             root, index_dir, current_file_meta.keys(), verbose=verbose
         )
@@ -5359,6 +5667,8 @@ def _build_index_locked(
         "stranded_reap_deferred": _reap_deferred_build,
         "stranded_reap_preserved": _reap_preserved_build,
         "orphan_rows_reconciled": orphan_rows_reconciled,
+        "publication_held_ms": round(_publication_held_ms, 3),
+        "graph_rows_written": _graph_rows_written,
     }
     files_summary = f"{len(added)} added, {len(updated)} updated, {len(removed)} removed"
     if build_docs:

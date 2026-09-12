@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-11
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -65,3 +65,8 @@ Three durable facts from the 2026-09-02 review-churn-follow-ups wave, all found 
 (2) **A `cross_generation` comparison attributes corpus drift to the change.** `_quality_comparison` is zero-tolerance (`cur + 1e-12 < base`) over holdout aggregate and per-class metrics, so documents added or changed between the two generations move holdout metrics with no retrieval edit at all; this wave's after-receipt returned `fail` on five `code_ask` regressions of at most 0.055 nDCG@10 across 37 generations. The proof pattern that settles it: reverse-patch the wave's own diff onto a scratch copy of the production modules and re-hash with `_production_identity`; equality with the before-receipt's digest bounds the wave's whole production change byte-exactly, and a call-site census plus an AST reachability closure from `code_ask`, `code_search`, `docs_search`, and `code_lexical` then shows whether any changed symbol is reachable. A drift-free same-generation pair is not available today: `run_evaluation`'s `production_scripts_dir` is identity-only (it hashes that directory but runs the imported modules), so the evaluator cannot measure pre-change bytes on the current generation.
 
 (3) **`wf_prepare_wave(mode='ready')` gardens the canonical copy of a shipped/canonical doc pair but not its shipped twin**, which breaks `test_shipped_templates_are_byte_identical_to_canonical` on the next full suite (here `docs/references/install-log-format.md` was re-stamped and `.wavefoundry/framework/install/install-log-format.md` was not). After any gardening pass, re-sync every shipped/canonical pair before the last suite run, and keep the full suite genuinely last because any edit under `.wavefoundry/framework/` invalidates the close-time test receipt.
+
+
+## SQLite publication measurement (wave 1xny6)
+
+Measure acquired writer time after `BEGIN IMMEDIATE` returns through `COMMIT` return, with acquisition wait separate. Freeze each per-run record before clearing reusable buffers; a pre-execution trace callback cannot prove the held interval. Use both a delayed acquisition and delayed commit as negative controls. See the active [timing evidence memory](../agents/memory/1xoyl-mem%20measure-acquired-writer-intervals-and-freeze-per-run-timing-.md).

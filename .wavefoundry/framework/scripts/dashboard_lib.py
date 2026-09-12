@@ -83,14 +83,6 @@ DASHBOARD_SERVER_LOCK_NAME = "dashboard-server.lock"
 # written at byte 0+) gates concurrency without overlapping the metadata region, so the same-process
 # rewrite succeeds. POSIX keeps its whole-file advisory `flock` (no offset, unchanged).
 _LOCK_BYTE_OFFSET = 1 << 30  # 1 GiB — well beyond any dashboard metadata length
-GRAPH_DIRNAME = "graph"
-# Wave 1p4ww: single project graph — the framework graph layer was removed.
-GRAPH_FILENAMES = {
-    "project": "project-graph.json",
-}
-GRAPH_CLUSTER_FILENAMES = {
-    "project": "project-graph-clusters.json",
-}
 
 
 class DashboardLockBusy(RuntimeError):
@@ -337,70 +329,75 @@ def dashboard_cmdline_pids(root: Path) -> list[int] | None:
             continue
         if pid == self_pid:
             continue
-        # Wave 1p9hl: extract the --root value with a quote-aware regex instead of a bare rest.split().
-        # On Windows the cmdline comes from Win32_Process.CommandLine, where subprocess.list2cmdline
-        # QUOTES any arg containing spaces (e.g. --root "C:\Users\First Last\repo"). A whitespace split
-        # truncated that value at the first space, so the --root token never matched → an empty pid list
-        # → duplicate dashboards + the 1p8pf port-climb. The regex handles both `--root <value>` and
-        # `--root=<value>`, each quoted (spaces allowed) or bare, and never treats a backslash as an
-        # escape (Windows paths are literal). Windows paths never contain literal quote chars, so the
-        # captured value needs no further dequoting.
-        matched = False
-        for m in _ROOT_ARG_RE.finditer(rest):
-            cand = m.group("quoted")
-            if cand is None:
-                cand = m.group("bare")
-            if not cand:
+        # Refuse duplicate roots, even when one happens to match. POSIX ps is
+        # flattened, not shell-quoted: only an entire trailing value can safely
+        # represent a spaced root. Never reinterpret an option-like suffix.
+        roots = list(re.finditer(r"(?<!\S)--root(?==|\s|$)", rest))
+        if len(roots) != 1:
+            continue
+        value = rest[roots[0].end():].removeprefix("=").strip()
+        if os.name == "nt" or value.startswith('"'):
+            matches = list(_ROOT_ARG_RE.finditer(rest))
+            if len(matches) != 1:
                 continue
-            try:
-                if Path(cand).resolve() == target:
-                    matched = True
-                    break
-            except OSError:
-                if cand == str(target):
-                    matched = True
-                    break
+            suffix = rest[matches[0].end():]
+            if suffix and (not suffix[0].isspace() or (os.name != "nt" and suffix.strip())):
+                continue
+            cand = matches[0].group("quoted") or matches[0].group("bare")
+        else:
+            if re.search(r"(?:^|\s)-", value) or '"' in value or "'" in value:
+                continue
+            cand = value
+        if not cand:
+            continue
+        try:
+            matched = Path(cand).resolve() == target
+        except OSError:
+            matched = cand == str(target)
         if matched:
             pids.append(pid)
     return pids
 
 
-def graph_path(root: Path, layer: str = "project") -> Path:
-    if layer not in GRAPH_FILENAMES:
-        raise ValueError(f"Unsupported graph layer: {layer}")
-    return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_FILENAMES[layer]
-
-
-def graph_cluster_path(root: Path, layer: str = "project") -> Path:
-    if layer not in GRAPH_CLUSTER_FILENAMES:
-        raise ValueError(f"Unsupported graph layer: {layer}")
-    return root / ".wavefoundry" / "index" / GRAPH_DIRNAME / GRAPH_CLUSTER_FILENAMES[layer]
-
-
 def read_graph_cluster_payload(root: Path, layer: str) -> dict[str, Any]:
-    path = graph_cluster_path(root, layer)
-    data = _read_json(path, {})
-    if isinstance(data, dict) and data:
-        data.setdefault("layer", layer)
-        data.setdefault("cluster_schema_version", "1")
-        data.setdefault("communities", [])
-        data.setdefault("community_count", len(data.get("communities") or []))
-        try:
-            data["cluster_mtime"] = path.stat().st_mtime_ns
-        except OSError:
-            data["cluster_mtime"] = 0
-        data["present"] = True
-        data["cluster_path"] = str(path.relative_to(root)).replace("\\", "/")
-        return data
-    return {
+    """The dashboard's community view, served from the published rows.
+
+    Wave 1xny6: reads the generation-bound snapshot instead of the retired
+    ``project-graph-clusters.json``. ``cluster_mtime`` is gone — a file mtime
+    was never a fact about the served content — and ``community_generation``
+    replaces it as the change signal.
+    """
+    import graph_snapshot
+
+    snapshot = graph_snapshot.acquire(root, layer)
+    return _cluster_view(snapshot, layer)
+
+
+def _cluster_view(snapshot, layer: str) -> dict[str, Any]:
+    import graph_snapshot
+
+    base = {
         "layer": layer,
         "cluster_schema_version": "1",
-        "cluster_mtime": 0,
-        "present": False,
-        "cluster_path": str(path.relative_to(root)).replace("\\", "/"),
-        "communities": [],
-        "community_count": 0,
+        "community_generation": snapshot.community_content_generation,
+        "generation": snapshot.generation,
+        "cluster_path": graph_snapshot.component_path(graph_snapshot.COMMUNITY_COMPONENT),
     }
+    if not snapshot.clusters_present:
+        return {**base, "present": False, "communities": [], "community_count": 0,
+                "state": snapshot.state, "diagnostic": snapshot.diagnostic}
+    data = dict(snapshot.clusters)
+    data.update(base)
+    # Copy each community out of the shared resident view: the dashboard's
+    # enrichment pass mutates what it is handed, and the resident object is
+    # shared with every other reader in this process.
+    data["communities"] = [
+        {**c, "node_ids": list(c.get("node_ids") or [])}
+        for c in (snapshot.clusters.get("communities") or []) if isinstance(c, dict)
+    ]
+    data["community_count"] = len(data["communities"])
+    data["present"] = True
+    return data
 
 
 def _enrich_graph_nodes_for_dashboard(data: dict[str, Any]) -> None:
@@ -439,47 +436,63 @@ def _enrich_graph_nodes_for_dashboard(data: dict[str, Any]) -> None:
 
 
 def read_graph_payload(root: Path, layer: str) -> dict[str, Any]:
-    path = graph_path(root, layer)
-    data = _read_json(path, {})
-    if isinstance(data, dict) and data:
-        data.setdefault("layer", layer)
+    """The dashboard's graph view, served from one published generation.
+
+    Wave 1xny6: the graph and its communities come from ONE pinned snapshot, so
+    the node set the dashboard renders and the community colouring it applies
+    can never be from two different builds — the shape that made a re-render
+    mid-build show nodes with communities that no longer contained them.
+
+    ``graph_version`` (the browser's re-render signal) is the published
+    generation. It replaces ``max(graph_mtime, cluster_mtime)``: the files
+    those mtimes described are retired, and a generation moves exactly when the
+    served content is republished.
+
+    The node dicts are copied before enrichment. ``_enrich_graph_nodes_for_dashboard``
+    writes ``degree``/``community_id`` INTO them, and the resident payload is
+    shared with every other reader in this process.
+    """
+    import graph_snapshot
+
+    with graph_snapshot.pinned(root, layer) as snapshot:
+        cluster_data = _cluster_view(snapshot, layer)
+        graph_component = graph_snapshot.component_path(graph_snapshot.GRAPH_COMPONENT)
+        if not snapshot.present:
+            return {
+                "layer": layer,
+                "schema_version": "1",
+                "graph_generation": snapshot.graph_content_generation,
+                "generation": snapshot.generation,
+                "graph_version": snapshot.generation,
+                "present": False,
+                "graph_path": graph_component,
+                "state": snapshot.state,
+                "diagnostic": snapshot.diagnostic,
+                "nodes": [],
+                "edges": [],
+                "counts": {"files": 0, "nodes": 0, "edges": 0},
+                "clusters": cluster_data,
+            }
+        source = snapshot.graph
+        data = dict(source)
+        data["nodes"] = [dict(n) if isinstance(n, dict) else n
+                         for n in (source.get("nodes") or [])]
+        data["edges"] = list(source.get("edges") or [])
         data.setdefault("schema_version", "1")
-        data.setdefault("nodes", [])
-        data.setdefault("edges", [])
-        data.setdefault("counts", {"files": 0, "nodes": len(data.get("nodes") or []), "edges": len(data.get("edges") or [])})
-        cluster_data = read_graph_cluster_payload(root, layer)
-        try:
-            data["graph_mtime"] = path.stat().st_mtime_ns
-        except OSError:
-            data["graph_mtime"] = 0
-        data["cluster_mtime"] = int(cluster_data.get("cluster_mtime") or 0)
-        data["graph_version"] = max(int(data.get("graph_mtime") or 0), int(data.get("cluster_mtime") or 0))
+        data.setdefault("counts", {
+            "files": 0,
+            "nodes": len(data["nodes"]),
+            "edges": len(data["edges"]),
+        })
+        data["layer"] = layer
+        data["graph_generation"] = snapshot.graph_content_generation
+        data["generation"] = snapshot.generation
+        data["graph_version"] = snapshot.generation
         data["clusters"] = cluster_data
         data["present"] = True
-        data["graph_path"] = str(path.relative_to(root)).replace("\\", "/")
+        data["graph_path"] = graph_component
         _enrich_graph_nodes_for_dashboard(data)
         return data
-    return {
-        "layer": layer,
-        "schema_version": "1",
-        "graph_mtime": 0,
-        "cluster_mtime": 0,
-        "graph_version": 0,
-        "present": False,
-        "graph_path": str(path.relative_to(root)).replace("\\", "/"),
-        "nodes": [],
-        "edges": [],
-        "counts": {"files": 0, "nodes": 0, "edges": 0},
-        "clusters": {
-            "layer": layer,
-            "cluster_schema_version": "1",
-            "cluster_mtime": 0,
-            "present": False,
-            "cluster_path": str(graph_cluster_path(root, layer).relative_to(root)).replace("\\", "/"),
-            "communities": [],
-            "community_count": 0,
-        },
-    }
 
 
 def dashboard_browser_open_enabled() -> bool:

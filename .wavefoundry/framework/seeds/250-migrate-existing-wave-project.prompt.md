@@ -34,6 +34,13 @@ In post-unpack handoff mode, this staged file is the canonical migration instruc
 
 For target repositories, the preferred Wavefoundry-managed layout is:
 
+The `.wavefoundry/index.sqlite` path below and in the `config.json` example is
+this migration's own HISTORICAL name and location, kept intentionally so an
+existing `config.json` written by an earlier migration still matches. It is NOT
+the current index database: a Wavefoundry-managed index lives at
+`.wavefoundry/index/index.sqlite`, provisioned by `wf setup`, not by this
+migration. Do not repoint these two illustrations.
+
 ```text
 .wavefoundry/
   config.json

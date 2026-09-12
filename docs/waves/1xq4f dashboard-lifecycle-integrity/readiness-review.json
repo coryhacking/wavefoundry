@@ -1,0 +1,1105 @@
+{
+  "phase": "readiness",
+  "date": "2026-09-11",
+  "status": "passed",
+  "previous_dashboard_only_review": {
+    "phase": "readiness",
+    "date": "2026-09-11",
+    "status": "approved",
+    "primer_depth": "standard",
+    "policy_council_seats": [
+      "red-team",
+      "security-reviewer"
+    ],
+    "supplemental_reviewers": [
+      "qa-reviewer",
+      "architecture-reviewer",
+      "reality-checker"
+    ],
+    "primer": {
+      "context": "/root/dashboard_primer",
+      "strongest_challenge": "Preserving explicit relative root argv while changing child cwd changes repository identity. Injection-only cannot satisfy the contract.",
+      "best_alternative": "Normalize one absolute root pair and use explicit stop/start outcome states; retain existing identity channel.",
+      "thinking_stances_applied": [
+        "adversarial",
+        "constructive",
+        "simplicity"
+      ],
+      "primer_questions": [
+        "Does root normalization preserve parent-selected repository across discovery, absolute, relative, equals and spaced forms on supported platforms?",
+        "What evidence distinguishes confirmed new start, adopted instance, pending/failed start and unverified stop?"
+      ],
+      "findings_resolved_in_plan": [
+        "Relative-root normalization",
+        "Already-stopped restart permitted",
+        "Actual PID on raced instance adoption",
+        "Managed launcher scope clarified"
+      ]
+    },
+    "seat_reports": [
+      {
+        "role": "security-reviewer",
+        "phase": "readiness",
+        "verdict": "approved",
+        "scope": "Plan feasibility and trust boundary only; not implementation qualification",
+        "artifact": "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md",
+        "artifact_sha256": "112715eb0bb675b43782b471070e362865e3ef4ee1bab94c778b8499dabbb35b",
+        "actor": "dashboard_security",
+        "context": "/root/dashboard_security",
+        "independent_of_plan_editor": true,
+        "fresh_context_for_reverification": false,
+        "repair_author": "/root",
+        "finding": {
+          "id": "security-readiness-spaced-root",
+          "classification": "required_ac",
+          "actionability": "do_now",
+          "original_verdict": "needs-revision",
+          "status": "resolved_in_plan",
+          "summary": "Read-only dashboard_lib scope made native POSIX spaced-root identity AC unachievable",
+          "anchors": [
+            "dashboard_lib.py:74",
+            "dashboard_lib.py:307",
+            "dashboard_lib.py:341"
+          ],
+          "resolution": "Matcher explicitly admitted to L1, conservative ambiguity refusal, exact repository isolation and native-output/prefix/suffix/malformed regression tests specified"
+        },
+        "probe": {
+          "method": "Real macOS ps output and production dashboard_cmdline_pids over owned harmless Python child carrying dashboard_server.py marker and spaced --root argument",
+          "expected": "Owned PID recognized after identity parsing is repaired",
+          "observed": "ps flattened unquoted spaced path; current production scanner returned []",
+          "cleanup": "Child terminated and waited; temporary directory removed",
+          "sandbox": "Initial ps PermissionError; repeated with approved escalation",
+          "limits": "Not an HTTP dashboard launch; no Windows/Linux native execution"
+        },
+        "strongest_alternative": {
+          "option": "Normalize launcher argv and fix reporting only; retain scanner unchanged",
+          "assessment": "Smaller edit but demonstrably fails spaced-root managed launch; not acceptable for stated AC. Narrow scanner repair preserves command-line identity without introducing a new identity channel."
+        },
+        "safe_implementation_contract": [
+          "Keep platform command-line/argv acquisition faithful to native representation",
+          "Exact resolved repository association; reject uncertain argument boundaries rather than infer authority",
+          "No root-prefix, substring, metadata-PID, or URL-only signalling fallback",
+          "Separate successful-scan no-match from established scan-unavailable behavior",
+          "Bound tests to owned child processes; always teardown and reap/close handles",
+          "Require public CLI identity/stop positive tests plus wrong-root/prefix/suffix/malformed/ambiguous no-signal negative tests"
+        ],
+        "threat_model": {
+          "actor": "Trusted local operator and same-user process",
+          "changed_boundary": false,
+          "credible_attacker_chain": false
+        },
+        "limitations": [
+          "Readiness approval only",
+          "Implementation and mutation proof remain future required evidence",
+          "Native Windows/Linux not tested"
+        ],
+        "integrity": {
+          "plan_edited_by_reviewer": false,
+          "source_edited": false,
+          "approval_recorded": false
+        }
+      },
+      {
+        "role": "qa-reviewer",
+        "phase": "readiness",
+        "verdict": "PASS",
+        "scope": "Independent review of revised plan, not delivery verification",
+        "actor": "dashboard_qa",
+        "independent": true,
+        "fresh_context": false,
+        "finding": {
+          "summary": "Initial read-only dashboard_lib scope made native spaced-root identity unreachable",
+          "disposition": "do_now",
+          "plan_repair_verified": true,
+          "remaining_blocker": false,
+          "evidence": "Real macOS ps output omitted quotes around a spaced absolute root; production dashboard_cmdline_pids detected the no-spaces control but missed the spaced root. All test children terminated and waited in finally blocks. Revised plan includes matcher repair, native output coverage, exact-root isolation and ambiguous-input refusal."
+        },
+        "ac_review": {
+          "AC-1": "Real CLI daemon entry and production scanner; root-injection deletion is the falsifying mutation.",
+          "AC-2": "Launch through CLI, stop through tool, assert process exit plus metadata cleanup; all children require teardown.",
+          "AC-3": "Outcome matrix includes stop success, confirmed absence, unverified-live refusal and partial/error stop; assert no start invocation for refusal and diagnostics retained.",
+          "AC-4": "Real immediately-exiting child verifies reap; pending child and competing verified instance are distinct outcomes with actual PID attribution; no restart success from pending/adoption alone.",
+          "AC-5": "Existing never-signal-unverified assertions retained; scan unavailable explicitly separate from successful no-match; named loosened-target mutation required.",
+          "AC-6": "Discovery, split/equal root forms, absolute/relative paths, spaces, one normalized pair and daemon marker are explicit; native-output scanner case now has an owned implementation seam."
+        },
+        "source_anchors": [
+          ".wavefoundry/framework/scripts/dashboard_server.py:966-989",
+          ".wavefoundry/framework/scripts/dashboard_lib.py:287-357",
+          ".wavefoundry/framework/scripts/server_impl.py:14065-14110",
+          ".wavefoundry/framework/scripts/server_impl.py:14321-14431",
+          ".wavefoundry/framework/scripts/tests/test_dashboard_server.py:2152",
+          ".wavefoundry/framework/scripts/tests/test_dashboard_server.py:2407",
+          ".wavefoundry/framework/scripts/tests/test_dashboard_server.py:2516"
+        ],
+        "execution": {
+          "platform": "macOS ARM64",
+          "probe": "Production dashboard_cmdline_pids against harmless temporary Python children carrying dashboard_server.py and --root argv, actual ps output",
+          "no_spaces_control_detected": true,
+          "spaced_root_detected": false,
+          "children_reaped": true,
+          "source_edits": false,
+          "full_test_suite_run": false
+        },
+        "limitations": [
+          "Readiness approves verification design, not unimplemented behavior.",
+          "No Windows or Linux native execution was performed.",
+          "Scanner probe exercises actual argv parsing but is not a serving dashboard; AC-1/2 still require real CLI lifecycle tests during implementation.",
+          "No product mutation tests were run during planning."
+        ]
+      },
+      {
+        "wave": "1xq4f",
+        "phase": "readiness",
+        "context": "repair_producer-independent-dashboard-readiness",
+        "independent_of_implementation": true,
+        "architecture": {
+          "verdict": "approve_readiness",
+          "boundaries": [
+            "CLI daemon argv -> detached child cwd",
+            "Shared cmdline scanner -> MCP lifecycle and upgrade detection",
+            "MCP stop/start outcomes -> restart report"
+          ],
+          "invariants": [
+            "Exactly one absolute root preserves parent-selected repository across cwd changes.",
+            "Matcher repair must retain exact root isolation, conservative ambiguity refusal and None versus empty scan distinction.",
+            "No new signalling authority or database/schema boundary. Existing loopback/metadata ownership remains unchanged."
+          ],
+          "primer_response": "Discovery, absolute/relative, split/equal and spaces are explicitly covered by AC6; native POSIX output differs from Windows CIM quoted output, so bounded shared parser work is necessary, not optional. The revised plan admits it and requires real platform output where available.",
+          "required_docs": "Planned data-and-control-flow update is sufficient; domain-map ownership unchanged.",
+          "findings": [],
+          "mutation_table": [
+            {
+              "mechanism": "daemon root normalization",
+              "mutation": "omit normalization or retain relative token",
+              "planned_detection": "AC1/2/6 CLI child identity, stop and selected-root assertions",
+              "executed_now": "Existing daemon capture retained --root=relative root with cwd changed to selected absolute root; confirms repair premise."
+            },
+            {
+              "mechanism": "restart outcome derivation",
+              "mutation": "unconditional restarted=True",
+              "planned_detection": "AC3/4 unverified-live, pending and adopted outcome assertions",
+              "executed_now": "Current public restart function body reproduced all three false-positive restarted outcomes using inert lifecycle seams."
+            }
+          ]
+        },
+        "reality": {
+          "verdict": "approve_readiness",
+          "assumptions": [
+            {
+              "claim": "Root injection alone repairs CLI identity",
+              "status": "refuted for spaces under current parser",
+              "disposition": "Addressed: revised plan includes bounded dashboard_lib parsing; synthetic unquoted-spaced fixture reproduces miss."
+            },
+            {
+              "claim": "Top-level status ok means stop occurred",
+              "status": "refuted by source and executed function-body probe",
+              "disposition": "Addressed: lifecycle contract requires stopped or confirmed already_stopped and preserves diagnostics."
+            },
+            {
+              "claim": "Missing readiness at deadline means child died",
+              "status": "not assumed by revised plan",
+              "disposition": "Addressed: exited/reaped, live/pending, and verified competing adoption are separate outcomes."
+            },
+            {
+              "claim": "Confirmed absent dashboards should remain restartable",
+              "status": "verified current stop response distinguishes already_stopped",
+              "disposition": "Addressed: explicit start permission for confirmed absence."
+            },
+            {
+              "claim": "Native Windows process matching and handle cleanup will work",
+              "status": "unverified native execution",
+              "disposition": "Plan requires platform-faithful fixtures and native output where available; delivery must disclose unexecuted native platforms."
+            }
+          ],
+          "findings": [],
+          "primer_response": "The revised outcome matrix supplies distinct public evidence for stop success/absence/refusal/error and startup exit/pending/own serving/adopted serving; adoption cannot be attributed to this restart. Existing bounded wait is reused, and timeout does not invent termination authorization."
+        },
+        "evidence": {
+          "probe": "/tmp/1xq4f-architecture-probe.py",
+          "results": "/tmp/1xq4f-architecture-probe.json",
+          "source": [
+            "dashboard_server.py:966-1011",
+            "dashboard_lib.py:263-357",
+            "server_impl.py:14024-14111",
+            "server_impl.py:14321-14431"
+          ],
+          "native_ps": "Attempt refused by sandbox EPERM; inert child terminated and waited. No real dashboard was started or stopped. Synthetic scanner fixture used instead; security primer native observation is not claimed as my execution.",
+          "limitations": [
+            "Readiness approval only, no implementation or delivery approval.",
+            "Restart probe executes unchanged function body with mocked lifecycle boundaries; not full registered MCP integration.",
+            "No native Windows/Linux execution, no guard mutants on yet-unimplemented fixes."
+          ]
+        }
+      }
+    ],
+    "operator_questions": [],
+    "stop_condition": "All Requirements, AC and Scope branches resolved; implementation and native platform verification remain future work.",
+    "moderator": {
+      "wave": "1xq4f",
+      "phase": "readiness",
+      "actor": "dashboard_final_council",
+      "context": "/root/dashboard_final_council",
+      "independent": true,
+      "fresh_context": true,
+      "plan_sha256": "112715eb0bb675b43782b471070e362865e3ef4ee1bab94c778b8499dabbb35b",
+      "code_review_verdict": "approved_readiness",
+      "council_verdict": "approved_readiness",
+      "scope": "Current plan, current source and feasibility review only; no implementation or delivery approval.",
+      "anonymized_merit_synthesis": [
+        {
+          "seat": "Seat 1",
+          "evidence": "Public restart-body inert probes distinguish stop refusal, pending and adoption; source shows unconditional success. Revised outcome matrix directly addresses each.",
+          "weight": "Supports feasibility; no live MCP claim."
+        },
+        {
+          "seat": "Seat 2",
+          "evidence": "Native macOS ps loses quoting for spaced root; production scanner misses it. Revised plan owns scanner repair and conservative exact-root tests.",
+          "weight": "Load-bearing evidence that launcher-only repair was insufficient; addressed in current plan."
+        },
+        {
+          "seat": "Seat 3",
+          "evidence": "Independent scanner positive no-spaces control and negative spaced-root probe; AC-by-AC falsifying assertions identified.",
+          "weight": "Corroborates parser gap and confirms test design; does not prove future implementation."
+        }
+      ],
+      "role_reattachment": {
+        "Seat 1": "repair_producer: architecture-reviewer and reality-checker lenses in one context, not independent seats",
+        "Seat 2": "dashboard_security: security-reviewer",
+        "Seat 3": "dashboard_qa: supplemental qa-reviewer"
+      },
+      "protocol_disclosure": "Fresh moderator/code reviewer synthesized existing isolated primer and reports. Policy-bound council red-team/security; QA supplemental. Architecture/reality came from one independent reviewer context. No claim that all default fixed seats or a separate rotating fifth seat independently ran.",
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none",
+        "basis": "Current readiness verdicts align; earlier plan gaps were repaired. This aggregate covers actual supplied reports, not five fictional seats."
+      },
+      "primer_response": {
+        "root_question": "One resolved absolute root pair addresses discovery, split/equal, explicit relative and absolute forms before child cwd changes. Actual POSIX unquoted spaced output and Windows quoted CIM output need distinct faithful handling; ambiguous argv cannot confer signal authority.",
+        "outcomes_question": "Stop success or confirmed absence alone permits start. Refusal/error/partial stop forbids start and retains diagnostics. Own confirmed serving child permits started; dead child must be reaped, live timeout is pending, concurrent verified instance is adopted with actual PID. Pending/adoption alone cannot establish restarted."
+      },
+      "strongest_alternative": "Launcher-only normalization plus truthful responses is smaller but native spaced-root scanner evidence refutes its sufficiency. Replacing cmdline identity with metadata/start-time authority creates a larger trust change. Narrow normalized argv, bounded scanner repair and explicit outcomes is the strongest current path.",
+      "findings": [],
+      "improvements_recommended": [
+        "At delivery require malformed duplicate --root and flag-looking spaced suffix cases to demonstrate conservative ambiguity refusal; test wrong-root prefix/suffix without signals.",
+        "At delivery assert actual PID attribution and non-invocation of start after refusal, not just restarted false.",
+        "Retain native Windows/Linux limitations explicitly and test Windows quoting/handle behavior with platform-faithful fixtures where native execution is unavailable."
+      ],
+      "execution": {
+        "public_path": "dashboard_server.main([--daemon, --root=repo space])",
+        "expected": "Parent-selected root must remain child-selected root after cwd changes.",
+        "observed": "Current public entry leaves relative equal-form root and changes cwd; captured child selects repo space/repo space. Assertion detected known-bad behavior. Private split-form capture independently reproduced same issue. Daemon marker preserved.",
+        "artifact_or_test_id": "1xq4f-final-readiness-daemon-main-relative-equals-known-bad",
+        "seams": "isolated_popen and windowless interpreter mocked; real argument parsing, discover_root and daemon command construction executed. Temporary repo removed, no process spawned.",
+        "source_anchors": [
+          "dashboard_server.py:966-1011",
+          "dashboard_lib.py:263-357",
+          "server_impl.py:13900-14115",
+          "server_impl.py:14160-14235",
+          "server_impl.py:14321-14431"
+        ]
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Readiness refuted-plan control: executed dashboard_server.main with valid relative --root=repo space and mocked detached spawn; asserted current child root changes after cwd relocation. Current revised plan expressly requires the opposite invariant."
+      },
+      "limitations": [
+        "No source edits, typed events, or wave activation.",
+        "No real HTTP daemon, native Windows/Linux or delivered mutation qualification in this review.",
+        "Readiness integrity attests to current review and bounded public entry feasibility probe only."
+      ],
+      "context_id": "/root/dashboard_final_council"
+    },
+    "current_blockers": []
+  },
+  "expanded_scope_review": {
+    "primer": {
+      "mode": "council-adversarial-primer",
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "changes": [
+        "1xpo1",
+        "1xoye"
+      ],
+      "depth": "full supplemental to configured standard targeted readiness; does not change policy receipt or seat roster",
+      "thinking_stances_applied": [
+        {
+          "stance": "adversarial",
+          "result": "A wider parser for lossy POSIX command output can falsely authorize another process; typed graph failure propagation can still disappear at an outer dashboard or MCP translation."
+        },
+        {
+          "stance": "constructive",
+          "result": "Represent observed lifecycle and storage outcomes explicitly at existing producer/consumer boundaries, then derive success flags and recovery from those observations."
+        },
+        {
+          "stance": "simplicity",
+          "result": "Keep the selected command-line identity and unified SQLite architecture; use one bounded parser repair, local read transaction, lifetime finally blocks and typed failure fields rather than new identity or storage backends."
+        },
+        {
+          "stance": "first-principles",
+          "result": "Identity, liveness, serving readiness and operation attribution are different facts; published generation consistency and ability to open the native storage runtime are likewise separate facts."
+        },
+        {
+          "stance": "analogical",
+          "result": "Treat each lifecycle result like a transaction receipt: an acknowledgement must prove the claimed operation, and an unavailable dependency must not be translated into an empty inventory."
+        }
+      ],
+      "strongest_challenge": {
+        "statement": "The plans correctly name the defects, but their hardest requirement is preserving distinctions across shared adapters: stronger matching must not widen signal authority, serving/adoption must not prove a restart by this call, and not-ready graph data must not erase a persistent recovery cause.",
+        "evidence": "dashboard_cmdline_pids currently searches a flattened process command string and accepts any matching --root candidate; wf_start_dashboard_response accepts metadata PID equality or mere URL reachability, then reports its own spawned PID; graph_snapshot catches every Exception and dashboard_lib converts non-present clusters into an ordinary empty view.",
+        "classification": "code-validated current defects; future regression risk is inference",
+        "plan_status": "Already substantially covered by dashboard AC-3 through AC-6 and lifecycle outcome contract, compatibility AC-3, and serialized shared-file ownership. Not a new blocking defect in the written plan.",
+        "highest_risk_example": "For a spaced POSIX root, ps output loses argument boundaries. A parser that accepts a target-root prefix before an apparent option can conflate another root containing option-like text with the target. Existing requirement to reject ambiguous identity must take precedence over convenient substring matching."
+      },
+      "best_alternative": {
+        "proposal": "Keep the selected architecture, but drive implementation from small outcome tables at current boundaries. For dashboard start, separately record spawned child live/exited, repository-verified instance, HTTP serving evidence, and whether that instance is the spawned child or an adopted competitor; derive started/restarted flags afterward. For graph reads, distinguish absent, transient not-ready, and persistent typed storage/runtime/migration failure before any public formatting. Add producer-to-public-consumer controls for these rows. Put the direct graph read in one BEGIN-to-ROLLBACK scope and wrap each owned build-store lifetime in finally.",
+        "better_because": "It prevents independently correct local patches from reintroducing false success or false absence when the shared response adapters compose them.",
+        "cost": "More explicit response/test cases and careful compatibility review of consumers; no need for a new generic result framework or identity channel."
+      },
+      "consequence_of_current_path": "If implementation only patches the headline root argument and inner exception handlers, public tools can still claim an operation they did not perform or prescribe rebuild for a runtime/filesystem failure. If it follows the existing detailed ACs and boundary controls, the selected bounded repair is adequate.",
+      "recommendation": "Proceed with the bounded plans after the council explicitly answers the three questions and assigns shared dashboard/server files one writer at a time; use the existing ACs as delivery gates, keeping native package qualification separately outstanding.",
+      "primer_questions": [
+        "Which exact POSIX/Windows process-output cases establish one unambiguous repository root, and which option-like/spaced/duplicate-root/prefix/suffix cases must conservatively refuse signalling? Can the chosen parser meet AC-6 without inventing argument boundaries lost by ps?",
+        "At every dashboard/MCP graph consumer, can the same injected native-runtime, WAL refusal and pending-migration cause survive to an actionable public result while genuine absence and an in-flight build retain their distinct controls? Which named tests fail if any outer adapter restores exception-to-absence translation?",
+        "Do the planned public tests distinguish successful spawn from pending child, dead child and adopted competitor, and distinguish rollback from actual owned-connection closure with retained tracebacks on both idle and changed builds? What remains explicitly unproven on native Windows/Linux/Intel after local tests?"
+      ],
+      "evidence_basis": [
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+          "lines": "966-1011",
+          "observed": "Detached child argv removes --daemon but does not normalize/inject resolved root; child cwd changes to root."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "lines": "287-357",
+          "observed": "Process scan consumes flattened ps/CIM strings and quote-aware root regex; successful any-candidate match authorizes inclusion."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "lines": "13900-14115;14399-14431",
+          "observed": "Start reports started true even without URL, adopts reachable metadata but returns spawned PID; restart derives success from envelope status then assigns restarted true."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "lines": "16513-16562",
+          "observed": "Direct graph helper reads payload and source manifest on one connection without BEGIN, despite docstring promising one snapshot."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_snapshot.py",
+          "lines": "280-389",
+          "observed": "Shared reader correctly uses BEGIN/ROLLBACK, but broad handlers at open and read erase failure details into not-ready."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "lines": "374-385",
+          "observed": "Cluster view returns present false and empty communities without failure cause when clusters_present is false."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "lines": "4726-4797;5030-5033;5452-5470",
+          "observed": "Idle reconciliation has no enclosing lifetime finally; publication catches BaseException for rollback but only Exception for close, leaving cancellation able to bypass close."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+          "lines": "2028-2056",
+          "observed": "Ordinary and symlink inventory cases share one loop with unconditional plant(entry); no capability-aware symlink skip exists."
+        },
+        {
+          "path": "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md",
+          "lines": "18-39;68-91",
+          "observed": "Four bounded repairs, mutation controls, full owned-store lifetime, cross-plan serialization and explicit unqualified native hosts are recorded."
+        },
+        {
+          "path": "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md",
+          "lines": "35-39;52-64;95;151",
+          "observed": "Root normalization, ambiguous-match refusal, absent/pending/adopted distinctions and shared-file serialization are already in the plan."
+        }
+      ],
+      "confidence": "high",
+      "limitations": [
+        "Read-only source validation via MCP definition/outline/targeted reads; no implementation executed and no new runtime reproducer run in this primer.",
+        "Prior compatibility runtime claims were not independently re-executed; their mechanisms were verified in current source.",
+        "No readiness verdict or specialist signoff; council must synthesize.",
+        "Full supplemental stance coverage was authorized by coordinator; configured standard targeted receipt remains unchanged."
+      ],
+      "new_blocking_plan_findings": []
+    },
+    "security": {
+      "role": "security-reviewer",
+      "phase": "prepare",
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "changes": [
+        "1xpo1",
+        "1xoye"
+      ],
+      "verdict": "pass",
+      "approval": "approved-with-notes",
+      "overall_security_severity": "none",
+      "new_blocking_plan_findings": [],
+      "scope": "Expanded two-plan readiness only; no implementation or delivery approval.",
+      "threat_model": {
+        "preserved": "Single-user, operator authority, local/loopback operation; operator-owned content and same-user processes trusted. No supported untrusted actor/authority delta was established for these defects.",
+        "classification": "Identity misclassification and failure erasure are required-contract/correctness risks under the documented threat model. Plans preserve confinement, migration ownership and existing signal authority.",
+        "promotion_triggers": "Reassess for non-loopback, multi-user, third-party repository/CI or privilege-separated operation."
+      },
+      "strongest_challenge": {
+        "statement": "Flattened POSIX command strings cannot recover arbitrary lost argument boundaries. A parser that accepts a root prefix followed by option-like text can authorize a different root; every consumer of the shared scanner can signal that PID.",
+        "disposition": "Covered by dashboard conservative-ambiguity refusal and exact-root requirements; no readiness blocker. Delivery must prefer refusal over speculative parsing. Managed argv may place normalized root last to reduce ambiguity, without a new identity channel."
+      },
+      "strongest_alternative": {
+        "proposal": "Use explicit boundary outcome tables at existing scanner/lifecycle and graph read/consumer seams. Keep one normalized root argument and unified SQLite, distinguish observed serving from this-call spawn attribution, preserve typed storage causes, and close owned stores in finally.",
+        "assessment": "Adopt within planned bounded scope. Replacing process identity or restoring JSON storage adds authority and recovery complexity without fixing the stated boundary contracts."
+      },
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "Accept one exact normalized root only when platform output establishes its boundary. Cover split/equal roots, relative normalization before cwd change, ordinary spaced native roots and Windows quoted command lines. Reject duplicate/conflicting roots, malformed quoting, prefix/suffix lookalikes and option-like ambiguous suffixes. A POSIX flattened line cannot by itself distinguish root /tmp/repo plus --open from the single root /tmp/repo --open; conservative refusal outranks convenience. Actual native process-output evidence and signal-target assertions remain delivery requirements."
+        },
+        {
+          "question": 2,
+          "answer": "The plan explicitly requires same runtime/WAL/migration causes through MCP and dashboard, distinct from absent/in-flight controls. Current _read_pinned erases exceptions and _cluster_view erases cause again, so inner-only tests are inadequate. Named delivery tests must inject at storage boundary and assert final graph/community dashboard and MCP result; restoring either swallowing adapter must falsify those tests. These tests do not exist as completed evidence in this review."
+        },
+        {
+          "question": 3,
+          "answer": "Dashboard lifecycle outcome contract explicitly distinguishes dead child, pending live child, own serving child and verified competing instance, and denies restarted for pending/adoption alone. Compatibility AC-2 explicitly retains tracebacks and covers idle and changed builds, rollback plus actual owned closure and build-lock release. Native Windows/Linux/Intel package qualification remains outstanding; no native or process-termination proof inferred from local scanner mocks."
+        }
+      ],
+      "symbol_evidence": [
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "symbol": "dashboard_cmdline_pids",
+          "lines": "287-357",
+          "verified": "MCP outline and targeted read: flattened ps/CIM strings, any matching root candidate accepted, resolves exact candidate then returns PID."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "wf_stop_dashboard_response",
+          "lines": "14321-14396",
+          "verified": "MCP definition/read: scanner PIDs become targets; successful scan-unverified live PID preserved with diagnostic; targets enter terminate function. Scan-unavailable fallback remains explicitly distinct."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "wf_start_dashboard_response / wf_restart_dashboard_response",
+          "lines": "14057-14115;14399-14431",
+          "verified": "MCP read: start reports started despite absent URL and returns spawned PID even after other serving evidence; restart forces true after envelope-only gates."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_snapshot.py",
+          "symbol": "_read_pinned",
+          "lines": "280-389",
+          "verified": "MCP read: read transaction and close exist, broad open/read exceptions become _not_ready with no underlying diagnostic."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "symbol": "read_graph_cluster_payload / _cluster_view",
+          "lines": "360-397",
+          "verified": "MCP read: published snapshot passes through adapter; non-present clusters become ordinary empty community response."
+        },
+        {
+          "path": "docs/architecture/threat-model.md",
+          "lines": "17-49",
+          "verified": "Actor classifications and conjunctive credible-threat gate checked directly."
+        }
+      ],
+      "execution_evidence": [
+        {
+          "probe": "Read-only dashboard_cmdline_pids with isolated_run mocked; no processes launched or signalled. Python -B loaded current module.",
+          "expected": "Current scanner accepts exact root and conflicting duplicate, rejects prefix lookalike, accepts ambiguous option-suffix flat string.",
+          "observed": {
+            "exact": [
+              424242
+            ],
+            "duplicate_conflict": [
+              424242
+            ],
+            "prefix": [],
+            "flat_option_ambiguity": [
+              424242
+            ]
+          },
+          "interpretation": "Confirms mechanism covered by planned ambiguity controls; not a proof of repaired behavior or native argv fidelity."
+        }
+      ],
+      "review_notes": [
+        {
+          "actionability": "do_now",
+          "timing": "during implementation under existing dashboard AC-5/AC-6",
+          "note": "Pin duplicate-root and option-like-suffix refusals to signal-target negative controls; do not report scanner match alone as identity assurance."
+        },
+        {
+          "actionability": "do_now",
+          "timing": "during implementation under existing compatibility AC-3",
+          "note": "Producer-to-public-consumer failure controls must preserve actionable codes without replacing them with misleading graph rebuild instructions."
+        }
+      ],
+      "confinement_regex_chains": "No new path-input API or confinement relaxation is planned. Process commands use argument arrays and static PowerShell source; no supplied root interpolation into shell was observed. Dynamic root regex changes must escape literal values if introduced; symbol-extraction re.escape path is outside scope and was not revalidated. No credible exploit chains identified.",
+      "limitations": [
+        "Read-only plan review; original compatibility runtime demonstrations were not rerun.",
+        "No full suite, real child lifecycle, native Windows/Linux/Intel or packaged qualification executed.",
+        "No new implementation inspected; all required mutation controls remain delivery work.",
+        "Prior dashboard-only security report was not reused as expanded approval."
+      ],
+      "independence": {
+        "fresh_context": true,
+        "source_edits": false,
+        "reviewer": "expanded_security"
+      }
+    },
+    "moderator": {
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "phase": "readiness",
+      "verdict": "PASS",
+      "context_id": "/root/expanded_council",
+      "fresh_context": true,
+      "independent": true,
+      "changes": [
+        "1xpo1",
+        "1xoye"
+      ],
+      "policy_input_digest": "4340d0058b2370df8b3195d3437b1ab818779736d1679dce3a70456b6db5827a",
+      "primer_depth": "standard with full supplemental stance coverage",
+      "seat_roster": [
+        "red-team",
+        "security-reviewer"
+      ],
+      "rotating_seat": "security-reviewer",
+      "protocol": "Bound targeted receipt selects two seats; full five-seat roster was not run or claimed. Attributed red-team primer considered first; Phase 2 output stripped to Seat 1 for merit synthesis before identity reattachment. One Phase 2 seat means random ordering is trivial.",
+      "red_team_primer_summary": "Strongest challenge is preserving identity, liveness, serving and operation attribution, plus absence, transience and persistent graph failures across shared adapters. All five supplemental stances and three questions were supplied to security seat.",
+      "anonymized_merit_synthesis": "Seat 1 independently confirms the flattened-process ambiguity with exact/duplicate/prefix/option-like controls, and confirms the graph producer-to-consumer erasure chain. Evidence supports the plan's conservative refusal and final-response tests. No new blocker; all three primer answers are concrete and remain implementation obligations. Outcome-table alternative improves correctness without expanding authority or restoring parallel storage.",
+      "reattached_synthesis": "Seat 1 is security-reviewer. It confirms and extends the red-team challenge with mocked scanner evidence; no security blocker was downgraded. Moderator agrees independently after current-tree reads.",
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none"
+      },
+      "material_disagreements": [],
+      "strongest_alternative": "Use explicit outcome tables at existing boundaries: normalized root last on both managed launchers, conservative legacy ambiguity refusal, separate own-serving/pending/dead/adopted start outcomes, typed absent/transient/storage-failure reads, one transaction and lifetime finally. This is better because final response assertions prevent adapters from losing locally correct distinctions. New identity channels and a JSON backend are weaker for this bounded scope.",
+      "improvements_recommended": [
+        "Put normalized managed --root pair last on daemon and MCP spawn paths; assert negative signal-target controls for duplicates and ambiguous option-like suffixes.",
+        "Write producer-to-public-consumer diagnostic controls; mutating either inner or outer erasure must fail named tests.",
+        "Make dashboard own-serving/dead/pending/adopted outcome table explicit in test cases and derive restarted only from completed operation.",
+        "Retain traceback references while checking owned connection closure, rollback and build lock release for changed and idle builds.",
+        "Serialize shared dashboard/server and documentation files; keep native package qualification visibly outstanding."
+      ],
+      "blockers": [],
+      "moderator_evidence": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbol": "read_published_graph_snapshot",
+          "observed": "One connection but no BEGIN between graph rows and source manifest reads."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_snapshot.py",
+          "symbol": "_read_pinned",
+          "observed": "Existing BEGIN/ROLLBACK close pattern provides bounded precedent; broad open/read exception handlers erase cause."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_build_index_locked",
+          "observed": "Idle reconciliation lacks lifetime finally; publication catches BaseException to rollback but only Exception to close."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_server.py",
+          "symbol": "_daemonize",
+          "observed": "Root is not injected in child_args despite cwd change; marker exists in main."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/dashboard_lib.py",
+          "symbol": "dashboard_cmdline_pids / _cluster_view",
+          "observed": "Any matching root candidate accepted; nonpresent clusters erase cause."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "symbol": "wf_start_dashboard_response / wf_restart_dashboard_response",
+          "observed": "Start accepts metadata PID equality or URL alone and reports spawned PID even absent URL; restart forces true after status-only checks."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+          "symbol": "cases inventory loop with plant(entry)",
+          "observed": "Ordinary and symlink cases share unconditional creation; capability error precedes inventory assertions."
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Readiness-safe control: my wf_prepare_wave(dry_run) rejected the stale 3b6207c9875f32792c01 receipt against current digest 4340d0058b2370df8b3195d3437b1ab818779736d1679dce3a70456b6db5827a. Source review independently refuted the direct helper's ONE SQLite read snapshot claim because no BEGIN exists, contrasted with _read_pinned BEGIN/ROLLBACK. No product behavior is certified."
+      },
+      "limitations": [
+        "Readiness current-tree and plan feasibility review only; no implementation or product tests executed by moderator.",
+        "Security scanner probe is attributed seat evidence, not my own execution.",
+        "No native Windows/Linux/Intel macOS package qualification.",
+        "Prepare review inspection also reports missing specialist lane approvals; this Council approval does not certify or waive those lanes. Coordinator must honor final lifecycle result."
+      ],
+      "artifacts": [
+        "/tmp/1xq4f-expanded-primer.json",
+        "/tmp/1xq4f-expanded-security.json"
+      ]
+    }
+  },
+  "current_state": "Prepare and all readiness lanes passed; wave activated for implementation.",
+  "three_change_review": {
+    "primer": {
+      "mode": "council-adversarial-primer",
+      "phase": "readiness",
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "context": "/root/three_change_primer",
+      "primer_depth": "standard",
+      "scope": [
+        "1xpo1 dashboard lifecycle",
+        "1xoye compatibility/recovery",
+        "1x81v targeted preservation",
+        "dashboard metadata path documentation correction"
+      ],
+      "thinking_stances_applied": [
+        {
+          "stance": "adversarial",
+          "result": "A subset can survive semantic deletion yet still prune graph paths or stamp graph-builder currency after cache reset. Empty selection reaches idle reap and orphan reconciliation."
+        },
+        {
+          "stance": "constructive",
+          "result": "Represent explicit selection separately from retained membership. Merge prior per-participant state minus explicitly selected removals plus successful selected updates; give graph resolution the retained membership while extracting only selected changes."
+        },
+        {
+          "stance": "simplicity",
+          "result": "Keep existing coordinated SQLite publication and graph merge; refuse incompatible targeted requests rather than silently expanding to a full walk or creating another persistence path."
+        }
+      ],
+      "supplemental_stances": [
+        {
+          "stance": "first-principles",
+          "result": "The request is a patch, not a census: absence from a selection proves nothing about existence. Preserve unselected state even when an unlisted source has disappeared from disk."
+        },
+        {
+          "stance": "analogical",
+          "result": "Treat a targeted build like an update transaction rather than table replacement, with compatibility preconditions checked before writes."
+        }
+      ],
+      "strongest_challenge": "The implementation must separate three sets: selected paths including explicit missing paths, retained corpus membership, and paths actually eligible for extraction. Reusing the selected list as membership destroys unlisted graph/auxiliary rows; widening the extraction list by walking or stat-filtering all previous paths can wrongly retire or re-extract unselected files. Independently, graph builder/schema mismatch can erase cached artifacts and falsely publish a subset as current even when semantic model/chunker/walker identities match.",
+      "best_alternative": {
+        "design": "Normalize and retain the explicit request set before filtering missing files. Compute selected updates/removals without treating omissions as deletions. Carry prior unselected bookkeeping and each layer's memberships forward; pass retained graph membership separately from selected extraction work. Keep the existing shared transaction and ordinary complete-walk behavior. Perform read-only compatibility checks covering full=True, storage migration, semantic identities, graph builder/schema and corpus policy before ensure_current or any publication mutation; return complete-walk guidance on mismatch.",
+        "better_because": "One authoritative selection boundary prevents divergent semantic, graph and idle-maintenance interpretations without duplicating storage architecture.",
+        "tradeoff": "Requires bounded producer signature/state plumbing and a cross-participant SQLite regression; refusing stale partial calls sacrifices convenience but avoids hidden full-walk cost and false currency."
+      },
+      "consequence_of_current_path": "A narrow removed-set fix could leave successful-looking builds with missing graph links or auxiliary receipts, or a completed generation that conceals stale graph extraction. Subsequent ordinary builds may unnecessarily regenerate content or preserve incorrect currency.",
+      "primer_questions": [
+        "Can each seat identify how selected-existing, selected-missing, empty, and unselected-but-now-missing paths flow through _detect_changes, both semantic eligibility/reap paths, idle orphan reconciliation, GraphIndexSession._current_paths, finalize retirement/link resolution, and per-layer hashes without broadening extraction?",
+        "Can each seat show that explicit full or stale model/chunker/walker/graph-builder/schema/corpus-policy/storage state refuses before ensure_current or any reset, while compatible partial publication retains one generation and owned handles close on failure? Which named real-SQLite assertions and known-bad controls falsify those claims?"
+      ],
+      "recommendation": "Proceed to fixed-seat readiness review using the revised explicit requirements; require the all-participant and currency matrix during implementation. Retain dashboard identity/no-signal outcome tests and compatibility read-transaction/handle-lifetime checks from the existing two-change packet.",
+      "passblock": {
+        "assessment": "PASS_TO_COUNCIL",
+        "blocking_plan_gap": false,
+        "basis": "Coordinator revised Requirements 3, AC-3 and Plan Review to explicitly include graph builder/schema and refusal before ensure_current. I re-read the revised plan. Required preservation and test scope already cover the remaining implementation obligations. This primer is not a council or delivery signoff."
+      },
+      "coordinator_clarifications_verified": [
+        "Graph builder/schema currency explicitly named",
+        "Refuse before schema reset/initialization or other mutation",
+        "Graph current-path/finalize and idle eligibility/orphan consumers explicitly named"
+      ],
+      "evidence_basis": [
+        "indexer._detect_changes (.wavefoundry/framework/scripts/indexer.py:1247): removed=old-current",
+        "indexer._build_index_locked (:3881-3940): storage gate and ensure_current before compatibility derivation; :4041-4121 full/rechunk escalation; :4179-4226 explicit selection drops missing files; :4242-4273 per-layer eligibility from subset; :4308 change derivation; :4514-4540 idle reap and orphan plans",
+        "indexer._validate_prepared_removals (:3798-3843): selected-request recheck retains only existing requested paths; must preserve explicit deletion race defense",
+        "graph_indexer.GraphIndexSession._current_paths (:11576-11607): files-derived membership with only unreadable-subtree widening",
+        "graph_indexer.GraphIndexSession._ensure_store (:11609-11651): independent graph compatibility gate schedules reset for publication",
+        "graph_indexer.GraphIndexSession.finalize (:14405-14452): known-minus-current retirement and pending document link repair",
+        "graph_indexer.update_graph_index (:16087-16102): empty graph state expands extraction only over supplied files",
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md"
+      ],
+      "probe": {
+        "expected": "Current targeted change detector mistakes omitted files for removals.",
+        "observed": {
+          "files_one_removed": [
+            "two.py"
+          ],
+          "files_empty_removed": [
+            "one.py",
+            "two.py"
+          ]
+        },
+        "method": "Executed unchanged production _detect_changes AST body with inert stat/hash helpers; no filesystem or SQLite changes.",
+        "limitations": "Not the public full build; establishes only the local deletion derivation. Real SQLite preservation/mutation proofs remain implementation work."
+      },
+      "confidence": "high",
+      "retrieval": {
+        "mcp_first": true,
+        "code_ask": "index_not_ready; no completed semantic epoch",
+        "validation": "MCP code_outline, code_keyword and targeted code_read used directly against current source."
+      },
+      "limitations": [
+        "Prior dashboard and compatibility reports orient retained scope; this pass independently drills newly admitted selection/currency mechanics, not all historical mechanisms.",
+        "No Windows/Linux native execution or full build performed.",
+        "No plans, source files, approvals or wave state edited by this reviewer."
+      ],
+      "plan_sha256": "2e1362863ab8840e58974a01655e27fd3e362b4d61a08459aafe6cf2d44d54e3"
+    },
+    "contract_seat": {
+      "role": "docs-contract-reviewer",
+      "actor": "three_docs_contract",
+      "context": "/root/three_docs_contract",
+      "phase": "readiness",
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "verdict": "PASS",
+      "scope": "Independent rotating readiness seat for all three admitted plans; source drill-in focuses on newly admitted targeted preservation. Prior dashboard/compatibility evidence retained in readiness-review.json, not represented as newly executed.",
+      "primer_questions": [
+        {
+          "question": 1,
+          "answer": "Current selection normalization discards missing inputs before files_for_meta/files_for_graph derivation; both semantic eligibility sets then contain only selected existing paths. _detect_changes consumes that subset, so old-minus-current removes unselected paths. The idle path separately passes the subset to canonical reap and orphan reconciliation. GraphIndexSession constructs _current_paths from files that currently exist and finalize prunes known-minus-current, also using current_paths for pending link repair. Thus preserving removed_broad alone cannot satisfy the contract. Revised Requirements 1-2 and Plan Review require retention at each participant. Implementation must retain explicit selected missing paths separately, merge prior unselected per-participant membership/hashes, and restrict extraction to selected eligible work. files=[] removes nothing; an unselected path now absent on disk remains retained until a complete walk or explicit selection. Do not run all retained paths through is_file to construct membership."
+        },
+        {
+          "question": 2,
+          "answer": "Current storage-rebuild selection guard occurs before ensure_current, but generic ensure_current at indexer.py:3921 precedes semantic compatibility derivation. GraphStateStore.ensure_current independently records reset at graph_indexer.py:11651. Revised Requirement 3 explicitly requires refusal before schema initialization/reset or other mutation for full=True, model/chunker/walker, graph builder/schema, corpus policy and pending storage rebuild. A read-only preflight must precede these mutating preparation paths. Compatibility C1 owns unconditional connection cleanup and common publication; the plan explicitly serializes T1 after C1. One coordinated generation and rollback/closed owned handles remain delivery assertions, not established by this readiness read."
+        }
+      ],
+      "affected_contract_surfaces": [
+        "docs/architecture/data-and-control-flow.md targeted-build caveat, indexing/reap and graph read/lifetime/recovery paths",
+        "docs/architecture/threat-model.md endpoint metadata carrier path",
+        "Three admitted change documents and wave.md"
+      ],
+      "confirmed_aligned": [
+        "Targeted contract is programmatic only; no CLI/MCP files parameter is promised.",
+        "Complete-walk deletion/exclusion/unreadable-subtree behavior is explicitly retained.",
+        "Global currency refusal covers graph identities in addition to semantic identities.",
+        "Compatibility plan preserves typed failure recovery and distinguishes unbuilt content from runtime failure.",
+        "Dashboard plan preserves process command-line identity authority and truthful start/restart outcomes.",
+        "Shared implementation and documentation files have serialization owners."
+      ],
+      "required_delivery_documentation": [
+        "Replace destructive files= caveat only after implementation; explicitly contrast files=None full discovery with files=[] membership no-op.",
+        "Explain explicit missing-path retirement, unselected preservation even if now absent, complete-walk compatibility recovery, and refusal of full=True plus selection.",
+        "Keep current whole-walk orphan/reap prose scoped to complete walks so it cannot contradict partial update semantics.",
+        "Correct remaining threat-model table endpoint metadata path at line 59 as well as checking line 67; current table still names .wavefoundry/dashboard-server.json while line 67 names .wavefoundry/locks/dashboard-server.lock.",
+        "Document single-generation graph snapshot and deterministic handle lifetime without claiming native Windows/Linux qualification from local or mocked tests."
+      ],
+      "strongest_challenge": "A semantic deletion fix can pass two-file chunk assertions while graph current-path is_file filtering, finalize link resolution, or idle orphan cleanup silently changes retained state; independent graph reset can then stamp a partial corpus current.",
+      "stronger_alternative": {
+        "design": "Separate explicit selection, retained per-participant membership and extraction candidates. Carry forward stored unselected authority without re-walking or stat filtering it; pass retained graph membership separately from selected extraction. Perform read-only compatibility checks before all reset/init paths and keep existing coordinated publication.",
+        "tradeoff": "Small state/signature plumbing and refusal on incompatible partial calls, avoiding a second persistence architecture or hidden complete-walk cost."
+      },
+      "named_sqlite_assertions_required": [
+        {
+          "proposed_test": "test_targeted_update_preserves_all_unselected_participants",
+          "assertions": "Seed two dual-output files and graph; snapshot unselected chunks/vectors/FTS/extraction/bookkeeping/layer hashes; update one; compare untouched state and single publication generation. Include unselected now-missing source and graph path/link endpoint.",
+          "known_bad": "Remove carry-forward from semantic or graph membership; respective equality assertions must fail."
+        },
+        {
+          "proposed_test": "test_targeted_empty_and_explicit_delete_then_complete_walk",
+          "assertions": "Empty selection leaves membership intact; selected missing retires only selected state; subsequent complete walk skips regeneration/reembedding for unchanged retained content and still removes genuinely deleted paths.",
+          "known_bad": "Restore old-minus-selected removal or subset idle eligibility; membership assertions fail."
+        },
+        {
+          "proposed_test": "test_targeted_currency_refusal_precedes_store_mutation",
+          "assertions": "Parameterize full, semantic identity, graph builder/schema, corpus policy and storage rebuild mismatches; assert complete-walk guidance, unchanged prior corpus/metadata/generation and no ensure_current/reset/init call before refusal.",
+          "known_bad": "Move refusal after ensure_current or permit graph mismatch; mutation sentinel/state assertions fail."
+        },
+        {
+          "proposed_test": "compatibility_plan_AC2_named_traceback_regressions",
+          "assertions": "Retain tracebacks from graph-publication cancellation and changed/idle reconciliation errors; owned connections closed, lock released, participant writes rolled back.",
+          "known_bad": "Remove finally cleanup; retained connection remains queryable."
+        }
+      ],
+      "evidence": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "lines": "3881-3940",
+          "claim": "Storage rebuild guard and early ensure_current ordering."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "lines": "4179-4330",
+          "claim": "Missing input filtering, per-layer eligibility, broad metadata/change authority."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "lines": "4497-4540",
+          "claim": "Independent idle reap and orphan reconciliation consumers."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "lines": "11576-11651",
+          "claim": "is_file-derived graph membership and independent graph compatibility reset scheduling."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "lines": "14405-14452",
+          "claim": "Graph known-minus-current retirement and pending link repair."
+        }
+      ],
+      "findings": [],
+      "remaining_readiness_blocker": false,
+      "retrieval": {
+        "mcp_first": true,
+        "code_ask": "index_not_ready",
+        "validation": "code_outline plus direct MCP code_read ranges; docs direct reads."
+      },
+      "execution": {
+        "new_runtime_probe": false,
+        "evidence_type": "Code-grounded plan feasibility validation; primer local _detect_changes probe reviewed as prior evidence only.",
+        "test_names": "Proposed required implementation regression names, not existing or passing tests."
+      },
+      "limitations": [
+        "No implementation, delivery, native platform, runtime regression or mutation success claimed.",
+        "Prior two-change reports are retained evidence rather than independently repeated execution.",
+        "No code/plan edits, approval event or lifecycle mutations."
+      ],
+      "passblock": {
+        "assessment": "PASS_READINESS",
+        "basis": "Revised explicit requirements cover all validated preservation/currency consumers and name delivery falsification; no remaining plan gap."
+      }
+    },
+    "moderator": {
+      "phase": "readiness",
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "context": "/root/three_council",
+      "verdict": "PASS",
+      "review_policy_receipt": "review-policy-3594b1460c29848fe4c0",
+      "input_digest": "e594b008acc29feb0da6bfb4e84a3555cfa3eb0db866bf88aa2c8c4b99675377",
+      "primer_depth": "standard",
+      "roster": [
+        "red-team",
+        "docs-contract-reviewer"
+      ],
+      "rotating_best_alternative_seat": "docs-contract-reviewer",
+      "anonymized_first_pass": {
+        "method": "Read contract output with role/context/actor/seat identity fields removed and labeled Seat 1 before restoring attribution; primer stays attributed by protocol. Targeted roster has one subsequent fixed/rotating seat, so random ordering is trivial.",
+        "assessment": "Seat 1 independently confirms three-set separation and mutation-before-refusal hazard with source anchors; specific participant tests and explicit future-proof limitations justify readiness. No blocking lane finding to soften."
+      },
+      "attribution": {
+        "Seat_1": "docs-contract-reviewer /root/three_docs_contract",
+        "primer": "red-team /root/three_change_primer"
+      },
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none"
+      },
+      "material_disagreements": [],
+      "challenge_round": "Not triggered: no split or disputed high/critical blocker.",
+      "primer_response": {
+        "question_1": "Explicit selected-existing and selected-missing request set must survive normalization separately from retained membership and extraction. Current _detect_changes, semantic eligible sets, idle reap/orphan plans and graph _current_paths/finalize each consume corpus authority. Preserve unlisted stored state without is_file filtering or broad extraction, including now-missing unselected files. Empty selection changes no membership; explicit deletion retires only the selected path. Revised plan names these consequences.",
+        "question_2": "Read-only preflight must reject selected full=True and storage/model/chunker/walker/graph-builder/schema/corpus-policy incompatibility before IndexStateStore initialization/ensure_current. Graph reset is scheduled independently and later applied in the shared transaction. C1 cleanup must cover selected paths as well as changed/idle branches. All-participant SQLite equality, generation/refusal sentinels and retained-traceback tests are required delivery evidence, not already passing tests."
+      },
+      "strongest_alternative": "Separate explicit request, retained per-participant membership and extraction candidates; carry forward unselected state and reuse coordinated publication with read-only compatibility preflight. This is stronger than a removed_broad-only fix because graph link/prune and idle reap/orphan consumers remain authoritative independently. Removing files= or silently widening to a full walk would sacrifice useful targeted behavior or violate bounded scope/cost; neither is stronger.",
+      "improvements_recommended": [
+        "Implement test_targeted_update_preserves_all_unselected_participants with graph endpoint and now-missing unselected source controls.",
+        "Implement test_targeted_empty_and_explicit_delete_then_complete_walk including no unnecessary re-embedding.",
+        "Implement test_targeted_currency_refusal_precedes_store_mutation with schema initialization/ensure_current sentinels and graph identity cases.",
+        "Correct threat-model metadata table as well as prose to .wavefoundry/locks/dashboard-server.lock; scope whole-walk reap prose explicitly.",
+        "Serialize T1 after compatibility C1 and shared dashboard/docs writes as plans require."
+      ],
+      "evidence": [
+        "MCP code_ask index_not_ready; direct MCP code_outline/code_keyword/code_read validated current source.",
+        "indexer.py:4179-4320 selection normalization, semantic eligibility and _detect_changes input; :4508-4540 idle maintenance.",
+        "indexer.py:3881-3940 storage gate and early ensure_current.",
+        "graph_indexer.py:11576-11651 graph membership and independent reset; :16513-16562 snapshot helper has one connection but no explicit transaction.",
+        "dashboard_lib.py:287-357 matcher exact-root mechanism; :194-202 metadata path.",
+        "All three admitted plans directly read; wf_review_wave(prepare) full docs lint passed."
+      ],
+      "known_bad_control": {
+        "kind": "readiness-safe refuted claim",
+        "claim": "Preserving removed_broad alone is sufficient to preserve targeted unselected content; one read connection alone provides a graph snapshot.",
+        "observed": "Refuted against independent semantic eligibility/idle orphan and graph current-path consumers, plus sequential snapshot reads without BEGIN. Current plans explicitly require the omitted sites and explicit transaction, so these reduced plans fail the source-grounded census.",
+        "execution": "Executed source/plan review, not runtime behavior or tests."
+      },
+      "limitations": [
+        "No implementation, full runtime regression, mutation-test pass, native Windows/Linux/Intel qualification or delivery approval claimed.",
+        "Prior dashboard and compatibility reports remain historical evidence, not new independent execution.",
+        "Targeted roster follows bound Prepare policy rather than pretending five full seats ran.",
+        "Review-wave inspection reported absent prepare specialist approvals; council does not grant those lane approvals or activation."
+      ],
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "specialist_readiness": {
+    "code-arch": {
+      "wave": "1xq4f",
+      "phase": "readiness",
+      "context": "/root/ready_code_arch",
+      "verdict": "PASS",
+      "lanes": [
+        "code-reviewer",
+        "architecture-reviewer"
+      ],
+      "independence": "One fresh reviewer context executes both lanes; independent from implementation, not two independent reviewer seats. Prior reports supplied navigation; verdict formed by direct current source/plan checks.",
+      "findings": [],
+      "scope": "Feasibility review of all three admitted plans, not implemented behavior.",
+      "code_review": {
+        "conclusion": "Requirements address existing hazards with bounded owners and falsifiable ACs. T1 must follow C1, shared dashboard files serialize C2 with L1/L2.",
+        "known_bad_control": "Refuted reduced plan 'changing removed_broad alone preserves unselected corpus': indexer.py:4242-4273 derives separate layer eligibility, :4514-4540 performs independent reap/orphan plans; GraphIndexSession._current_paths at graph_indexer.py:11576 filters existing supplied files. Current plan explicitly includes these consumers.",
+        "future_tests": [
+          "all-participant SQLite unchanged-state equality, including unselected now-missing files and graph links",
+          "empty selection, selected deletion and ordinary-walk no-reembedding",
+          "refusal before ensure_current for semantic and graph/global identities",
+          "retained traceback cleanup under publication cancellation and idle reconciliation failure",
+          "dashboard stop/start outcome matrix and native spaced command-line roots"
+        ],
+        "independent_reference": "Directly read admitted Requirements/ACs and current producer/consumer code; implementation has not landed."
+      },
+      "architecture_review": {
+        "conclusion": "Plan preserves sqlite_runtime sole binding, caller-owned graph publication and indexer transaction ownership; uses explicit bounded reader transaction rather than a second backend. Dashboard retains cmdline authority and no-signal rule. No new tool parameter or cross-root authority.",
+        "known_bad_control": "Refuted claim 'one read connection guarantees generation consistency': read_published_graph_snapshot at graph_indexer.py:16540-16546 performs sequential payload and source-manifest reads without BEGIN. Read-only current code inspection distinguishes missing transaction from planned explicit transaction.",
+        "required_docs": [
+          "data-and-control-flow targeted vs complete census, connection ownership and dashboard identity",
+          "graph-index-system snapshot/typed failure contract",
+          "testing-architecture capability-only skips",
+          "threat-model metadata table and prose path correction"
+        ],
+        "schema_limit": "No schema change is authorized. Review validated existing ownership contracts; delivery must verify actual table/constraint assertions against DDL for newly implemented queries."
+      },
+      "retrieval": {
+        "code_ask": "index_not_ready",
+        "validation": "MCP code_outline and targeted code_read, direct plan and architecture reads"
+      },
+      "limitations": [
+        "No runtime tests, production execution, mutation tests or native-platform qualification claimed.",
+        "Prior primer runtime probe is prior evidence only.",
+        "Both approvals share this context.",
+        "No source or plan edits."
+      ]
+    },
+    "qa-security": {
+      "wave": "1xq4f",
+      "phase": "readiness",
+      "context_id": "/root/ready_qa_security",
+      "verdict": "PASS",
+      "roles": [
+        "qa-reviewer",
+        "security-reviewer"
+      ],
+      "independence": "One fresh reviewer context covers two specialist lanes, independent from implementer. Not two independent council seats. No source or plan edits.",
+      "retrieval": "code_ask returned index_not_ready; direct MCP outlines and targeted reads validated production paths and test seams.",
+      "qa": {
+        "verdict": "PASS_READINESS",
+        "ac_mapping": {
+          "targeted AC1": "Two dual-output sources, both semantic layers and graph; compare all unselected participant state including FTS, vectors, extraction, bookkeeping and hashes; include unselected now-missing source and graph link endpoints.",
+          "targeted AC2": "Sequence targeted update, empty selection, explicit selected missing deletion, then ordinary walk. Assert no unrelated deletion or re-embedding; complete walk retains authoritative deletion.",
+          "targeted AC3": "Read-only mismatch preflight for full, model/chunker/walker, graph builder/schema, corpus policy and pending rebuild; unchanged SQLite state/generation plus ensure_current/reset/init sentinels.",
+          "compatibility AC1": "Real two-connection interleaving and exact-definition consumer, explicit transaction and cleanup. Existing test_graph_snapshot_readers.test_a_publication_during_the_read_cannot_tear_the_snapshot provides harness precedent, not proof of newly repaired direct helper.",
+          "compatibility AC2": "Retain traceback after changed and idle reconciliation failures and graph-publication cancellation; assert closed owned connection, lock release and rollback individually.",
+          "compatibility AC3": "Inject runtime/storage/migration faults at storage seam and assert final MCP/dashboard causes and recovery; absence/inflight controls.",
+          "compatibility AC4": "Inventory ordinary cases run under symlink capability denial; skip only unsupported symlink cases and retain reparse/ownership controls.",
+          "dashboard AC1/2/6": "Drive actual CLI daemon in isolated temp root, real native process output where available, one absolute resolved root, scan and stop; root syntax/spacing plus no second detach.",
+          "dashboard AC3/4": "Public outcome matrix for stop success/absence/error/unverified and start own serving/dead/pending/adopted, reaping exited child; no restart attribution to adoption/pending.",
+          "dashboard AC5": "Negative signal-target assertion for alive successful-scan unmatched PID; distinct scan unavailable fallback."
+        },
+        "known_bad_control": "Executed readiness source census refutes reduced plan 'fix removed_broad only': indexer 4520 and 4538 independently reap subset eligibility and orphan authority; graph 11576 and 14425 independently retire missing membership. Also direct helper 16541-16546 has no transaction despite snapshot claim. Revised plans explicitly cover these omitted mechanisms.",
+        "delivery_mutation_table": [
+          [
+            "selection carry-forward omitted",
+            "participant equality and empty/delete sequence must fail; not run"
+          ],
+          [
+            "currency refusal delayed after ensure_current",
+            "no-mutation sentinel and prior corpus assertion must fail; not run"
+          ],
+          [
+            "read transaction removed",
+            "two-connection helper/consumer test must fail; not run"
+          ],
+          [
+            "owned finally cleanup removed",
+            "retained-traceback closed-connection assertions must fail; not run"
+          ],
+          [
+            "typed failures swallowed",
+            "public consumer recovery assertions must fail; not run"
+          ],
+          [
+            "unconditional symlink creation restored",
+            "capability-denial ordinary coverage must fail; not run"
+          ],
+          [
+            "root normalization/readiness/restart guards removed",
+            "CLI identity/stop and public lifecycle outcome assertions must fail; not run"
+          ],
+          [
+            "unverified PID added to targets",
+            "no-signal assertion must fail; not run"
+          ]
+        ]
+      },
+      "security": {
+        "verdict": "approved-with-notes",
+        "overall_severity": "none",
+        "actor_boundary": "Documented single-user operator/same-user authority remains trusted. No less-trusted controlling actor plus authority delta established. Selection data loss/currency and PID misclassification are admitted correctness/safety contracts.",
+        "confinement": "No new caller parameter or root authority. Existing targeted path branch uses candidate.relative_to(root) without resolve, so do not claim robust traversal/symlink confinement verified; plan preserves existing rejection boundary. Newly introduced path handling must normalize and confine before using selected deletion keys. No shell root interpolation observed in static scanner argument arrays; literal regex values must be escaped if introduced. Symbol-extraction re.escape outside scope, not revalidated.",
+        "pid_authority": "dashboard_lib 341-355 accepts any matching root token; server_impl 14338-14382 makes scanner set signal authority. Revised plan requires ambiguity/duplicate/prefix/suffix refusal and exact-root isolation. Recorded metadata or responding URL alone cannot supply signal authority. Successful unmatched scan vs unavailable fallback is explicit.",
+        "currency": "indexer 3919-3921 initializes/ensure_current before later currency decisions; graph 11651 separately schedules reset. New partial refusal must precede both, preserve no mutation and recovery guidance.",
+        "known_bad_control": "Executed source review refutes claim 'alive recorded PID may be safely added when successful scan found no match': stop path 14345-14375 expressly refuses it and retains metadata/diagnostic. Earlier security scanner probe is attributed evidence, not rerun.",
+        "chains": "No credible exploit chain established under existing threat model; reassess for remote/multi-user/untrusted repository/privilege separation."
+      },
+      "findings": [],
+      "limitations": [
+        "Readiness review only. No product runtime test or focused code mutation executed here.",
+        "No native Windows/Linux/Intel macOS package qualification; previous runtime probes attributed, not rerun.",
+        "All ACs remain unchecked and all delivery falsifiers remain required implementation work."
+      ]
+    },
+    "perf-release": {
+      "wave": "1xq4f dashboard-lifecycle-integrity",
+      "changes": [
+        "1xpo1",
+        "1xoye",
+        "1x81v"
+      ],
+      "phase": "readiness",
+      "context_id": "/root/expanded_council",
+      "shared_context_disclosure": "Same /root/expanded_council context performs both lanes and retains its earlier two-change Council readiness review. This is disclosed shared readiness context, not two isolated reviewers. No implementation or repair was performed or retained; fresh_context=true means no retained repair context, and independent=true means independent of implementation.",
+      "fresh_context": true,
+      "independent": true,
+      "performance_review": {
+        "verdict": "PASS",
+        "findings": [],
+        "basis": "New targeted plan explicitly preserves unselected state without silent complete walk, rejects incompatible global currency before mutation, and AC-2 forbids needless re-embedding on subsequent ordinary walk. MCP definition/read verified existing targeted normalization/eligibility and graph membership boundaries. Snapshot fix is one call-scoped read transaction with cleanup; it need not widen materialization beyond existing full graph reads. Existing bounded dashboard wait retained. No new benchmark claim.",
+        "recommendations": [
+          "Use spies on walk_repo and extraction/embedding invocations to catch hidden work broadening; preserve old unselected membership without stat-filtering every retained path.",
+          "Keep transaction open only for materialization; no embedding/extraction/network work while pinned. Check release on failure.",
+          "Use existing all-content publication timing definition if measuring: successful BEGIN return through COMMIT return, acquisition wait separately."
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Readiness-safe refuted reduced plan: preserving only removed paths cannot preserve partial-build cost/corpus semantics. Current _build_index_locked derives both eligible sets from selected files and GraphIndexSession.__init__ stat-filters current membership. Current read_published_graph_snapshot claims one snapshot without BEGIN. Direct MCP reads refuted these reduced claims; complete plan requires separate retained membership and bounded transaction. No runtime performance pass claimed."
+        }
+      },
+      "release_review": {
+        "verdict": "PASS",
+        "findings": [],
+        "basis": "Three-plan scope adds no dependency, schema-version, VERSION or packaging algorithm change; compatibility explicitly excludes pinned dependency changes and partial migration. Targeted mismatch refuses with complete-walk guidance. Native G4 remains outstanding and no bridge release is introduced. Git diff on VERSION/build_pack.py showed no changes; .gitignore retains /wavefoundry-*.zip. No package built; manifest/stamp validation applies when packaging is requested.",
+        "recommendations": [
+          "Keep capability-specific symlink skips visibly distinct from passed native ownership/handle tests.",
+          "Before future release, execute actual packaged setup/upgrade, semantic/graph reads, incremental publication and fresh-process reopen on outstanding Windows/Linux/Intel targets.",
+          "Preserve end-user changelog/recovery guidance without claiming additional platform qualification."
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Readiness-safe rejected qualification claim: capability-denial fixture and wheel inventory do not prove native Windows/Linux/Intel execution. Checked the actual new plan scope and explicit qualification gate, which retain real packaged setup/upgrade/reopen and Windows handle/capability execution as outstanding. The proposed local-only qualification shortcut fails this gate; no native execution claimed."
+        }
+      },
+      "evidence": [
+        "indexer._build_index_locked current MCP reads 3881-3935,4179-4273",
+        "graph_indexer.GraphIndexSession.__init__ and _ensure_store current MCP reads11576-11651",
+        "graph_indexer.read_published_graph_snapshot current MCP read16513-16562",
+        "docs/architecture/performance-budget.md",
+        "docs/contributing/build-and-verification.md",
+        "three admitted plans plus /tmp/1xq4f-three-{primer,contract,council}.json"
+      ],
+      "limitations": [
+        "Readiness feasibility and contract checks only; no runtime tests, benchmark, native package test or delivery approval.",
+        "Roles initially looked up under specialists; found canonical role docs at docs/agents/performance-reviewer.md and release-reviewer.md and read them.",
+        "Independent of implementation, but these two lane judgments share this prior Council context and are not independent votes from two agents."
+      ]
+    }
+  }
+}

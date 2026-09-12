@@ -17,6 +17,12 @@ from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent
 SCRIPTS_ROOT = TESTS_ROOT.parents[0]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+
+import graph_fixture_support as gfs  # noqa: E402
 PROJECT_ROOT = TESTS_ROOT.parents[2]  # .wavefoundry
 REPO_ROOT = PROJECT_ROOT.parent
 GEN_PATH = SCRIPTS_ROOT / "gen_codebase_map.py"
@@ -30,12 +36,6 @@ def load_gen():
     sys.modules["gen_codebase_map"] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-def _graph_dir(root: Path) -> Path:
-    d = root / ".wavefoundry" / "index" / "graph"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def _node(nid, kind, label, source_file):
@@ -55,11 +55,8 @@ def _build_two_area_fixture(root: Path) -> None:
         {"source": "api/server.py::serve", "target": "src/auth.py::login", "relation": "calls"},
         {"source": "api/server.py", "target": "api/server.py::serve", "relation": "defines"},
     ]
-    (_graph_dir(root) / "project-graph.json").write_text(
-        json.dumps({"schema_version": "1", "builder_version": "1", "layer": "project",
-                    "nodes": nodes, "edges": edges}),
-        encoding="utf-8",
-    )
+    # Wave 1xny6: fixtures publish graph + community ROWS; the map reads the
+    # published generation, not a standalone artifact.
     communities = [
         {"community_id": "project:c0", "label": "auth", "seed_node_id": "src/auth.py::login",
          "node_ids": ["src/auth.py", "src/auth.py::login", "src/auth.py::Session"],
@@ -68,11 +65,11 @@ def _build_two_area_fixture(root: Path) -> None:
          "node_ids": ["api/server.py", "api/server.py::serve"],
          "node_count": 2, "boundary_node_count": 1},
     ]
-    (_graph_dir(root) / "project-graph-clusters.json").write_text(
-        json.dumps({"cluster_schema_version": "1", "cluster_builder_version": "9",
-                    "layer": "project", "communities": communities,
-                    "community_count": len(communities)}),
-        encoding="utf-8",
+    gfs.publish_graph(
+        root, nodes=nodes, edges=edges,
+        clusters=gfs.cluster_payload(communities, cluster_builder_version="9",
+                                     graph_builder_version="1"),
+        builder_version="1",
     )
 
 

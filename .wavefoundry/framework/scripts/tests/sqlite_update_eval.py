@@ -18,6 +18,30 @@ import sys
 import time
 
 
+def _index_paths():
+    """Resolve the owned database names from the single definition."""
+    import importlib.util as _util
+    spec = _util.spec_from_file_location(
+        "index_paths", Path(__file__).resolve().parents[1] / "index_paths.py")
+    module = _util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _owned_index_names():
+    paths = _index_paths()
+    names = []
+    for stem in (paths.INDEX_DATABASE_FILENAME, paths.LEGACY_INDEX_DATABASE_FILENAME):
+        base = Path(stem)
+        names += [base.name] + [p.name for p in paths.sidecar_paths(base)]
+    return names
+
+
+def _index_database(index_dir):
+    return _index_paths().runtime_database_path(index_dir)
+
+
+
 def percentile(values, fraction):
     return sorted(values)[max(0, math.ceil(len(values) * fraction) - 1)]
 
@@ -54,13 +78,13 @@ def run(args):
     # Preserve the full indexed filesystem. Exclude only transient ownership
     # records and backup the semantic SQLite main/WAL through its native API.
     shutil.copytree(source, target, ignore=shutil.ignore_patterns(
-        "index-state.sqlite", "index-state.sqlite-wal", "index-state.sqlite-shm",
+        *_owned_index_names(),
         "index-build.lock", "upgrade-in-progress.json", "sqlite-migration.json",
         "__pycache__", "*.pyc"))
     index_dir = target / ".wavefoundry/index"
     source_index = source / ".wavefoundry/index"
-    old = apsw.Connection(str(source_index / "index-state.sqlite"), flags=apsw.SQLITE_OPEN_READONLY)
-    new = apsw.Connection(str(index_dir / "index-state.sqlite"))
+    old = apsw.Connection(str(_index_database(source_index)), flags=apsw.SQLITE_OPEN_READONLY)
+    new = apsw.Connection(str(_index_database(index_dir)))
     try:
         with new.backup("main", old, "main") as backup:
             while not backup.done:

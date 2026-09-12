@@ -1,0 +1,2474 @@
+{
+  "schema_version": 1,
+  "wave_id": "1xny3",
+  "scope": "Final evaluation review and final-scope readiness rebind; no production adoption approval. Typed authority is events.jsonl.",
+  "reviewed_packet": {
+    "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+    "files": [
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+        "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+      },
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+        "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+      },
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+        "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+      },
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+        "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+      },
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+        "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+      },
+      {
+        "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+        "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+      },
+      {
+        "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+        "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+      },
+      {
+        "path": "docs/architecture/decisions/README.md",
+        "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+      },
+      {
+        "path": "docs/ARCHITECTURE.md",
+        "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+      }
+    ],
+    "time_budget": "360 seconds per lane; targeted checks only; no new full benchmarks",
+    "sweep_rule": "targeted tests per mutant; whole-file runs only for survivors",
+    "required_lanes": [
+      "code-reviewer",
+      "qa-reviewer",
+      "architecture-reviewer",
+      "docs-contract-reviewer",
+      "performance-reviewer"
+    ],
+    "phase": "finalized evaluation: current scope/readiness rebind and delivery evidence, no production implementation",
+    "readiness_state": "wf_review_wave detected finalized change policy_input_digest stale. wf_prepare_wave ready reports pending03aa9b2945691d73e22c. Needs fresh council confirmation before typed readiness can rebind. No scope/budget or source code changes proposed."
+  },
+  "reports": {
+    "primer": {
+      "mode": "council-adversarial-primer",
+      "depth": "full",
+      "context_id": "/root/graph_delivery_council/red_primer",
+      "strongest_challenge": "A real transaction benefit must not privilege costly normalized persistence or J without proving the production publication boundary. publish preserves build_state; broad communities are frozen separate. J report latency, broad memory and C update median regress. ADR substantially answers this; no new blocker.",
+      "best_alternative": "Generation-addressed immutable graph/community snapshot stored in shared SQLite and loaded into existing resident GraphQueryIndex. Prepare semantic changes/extraction/resolution/community/serialization outside txn, publish state and generation together, pin generation across complete response and retain old cache until readers finish. Unmeasured startup/writer/disk/overlap-memory costs; competing experiment, not winner.",
+      "thinking_stances_applied": [
+        "adversarial",
+        "constructive",
+        "simplicity",
+        "first-principles",
+        "analogical"
+      ],
+      "primer_questions": [
+        "Does final recommendation permit only another design/conversion evaluation, preserve failed adoption screen and exclude endorsement normalized/J; what measured benefit justifies next representation?",
+        "Which production participants must join generation boundary including build_state, layer bookkeeping, graph cache and communities; what whole-response probe detects mixed generations?",
+        "Are conclusions confined to900 historical ordered pairs, separate fresh source graph parity, tiny real semantic replacement and observation-only maintenance repeat; any summary erases failure or generalizes H memory?"
+      ],
+      "executed": "All9 Git blobs matched; recomputed six raw pooled query p95 values,900 exact ordered hash pairs,zero qualified errors,delta median+42.4378%,rebuild median+0.3199%,119543+130-5=119668.",
+      "source_anchors": [
+        "graph_lifecycle_eval.producer",
+        "graph_lifecycle_eval.prepared_graph",
+        "graph_lifecycle_eval.publish",
+        "graph_lifecycle_eval.recovery",
+        "graph_eval.broad_worker",
+        "ADR lines15-24,37-57"
+      ],
+      "limitations": [
+        "No fresh benchmarks,rebuilds,crash,migration or live mutations",
+        "No production epoch integration,complete-response concurrency qualification,full semantic rebuild,maintenance long-run,additional platform execution"
+      ],
+      "recommendation": "Evidence supports qualified evaluation and disclosed negative results; required lane judgments remain their owners. Readiness rebind separate from delivery and production conversion."
+    },
+    "architecture-review": {
+      "role": "architecture-reviewer",
+      "context_id": "graph-1xny3-architecture-seat-20260910-final",
+      "verification_context": {
+        "actor": "architecture-reviewer",
+        "context_id": "graph-1xny3-architecture-seat-20260910-final",
+        "fresh_context": true,
+        "independent": true
+      },
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "verdict": "PASS for evaluation delivery only",
+      "findings": [],
+      "readiness_rebind": {
+        "endorsement": true,
+        "phase": "readiness",
+        "policy_receipt_id": "post-results03aa9b2945691d73e22c",
+        "scope": "Finalized evaluation results and existing scope; no new implementation, production conversion, revised budget or cutover authorization. This is a fresh council scope rebind, not retroactive producer qualification.",
+        "known_bad_control": "Current receipt rejects a fabricated production_epoch_advanced=true claim; final plan requires separate admitted/readied conversion and retains deferred AC4."
+      },
+      "delivery": {
+        "endorsement": true,
+        "signoff_key": "architecture-review",
+        "scope": "Evaluation artifacts accurately distinguish isolated transaction feasibility from production generation boundary and serving-cache adoption. Required AC3/AC6 are satisfied as scoped evidence and proposed design, not adoption qualification.",
+        "expected": "Receipt pairs agree within their own cohorts; original failure and production epoch exclusion remain; actual publish rollback exposes no new rows and pinned old reader remains old across commit.",
+        "observed": {
+          "receipt_positive": 900,
+          "query-hash": "rejected",
+          "graph-pair": "rejected",
+          "epoch-overclaim": "rejected",
+          "publication_positive": [
+            "before_commit",
+            "after_commit"
+          ],
+          "rollback-mutant": "rejected: rollback exposed new graph/semantic state",
+          "final_nine_blob_recheck": [
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+              "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+            },
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+              "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+            },
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+              "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+            },
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+              "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+            },
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+              "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+            },
+            {
+              "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+              "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+            },
+            {
+              "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+              "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+            },
+            {
+              "path": "docs/architecture/decisions/README.md",
+              "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+            },
+            {
+              "path": "docs/ARCHITECTURE.md",
+              "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+            }
+          ]
+        }
+      },
+      "boundaries_touched": [
+        "Wave-local evaluation harness imports runtime producers in authorized isolated scratch scope; no shipped graph/semantic ownership change.",
+        "Proposed shared authority joins graph rows, compressed extraction records, community artifact and actual tiny code semantic replacement.",
+        "Current indexer/build-state epoch and layer bookkeeping remain outside prototype publication; broad reports use frozen separate communities."
+      ],
+      "invariants": [
+        {
+          "invariant": "Production build epoch remains publication authority until integrated conversion",
+          "source": "docs/architecture/layering-rules.md Shared semantic storage; graph_lifecycle_eval.publish",
+          "result": "Preserved as explicit exclusion: publish copies build_state then asserts unchanged; ADR requires epoch/build-layer integration and retained fences."
+        },
+        {
+          "invariant": "Graph symbols differ from semantic chunks",
+          "source": "graph_lifecycle_eval.mapping; continuation_round2.lifecycle.mapping; ADR Preserve contracts",
+          "result": "21609 mapped and18545 unmapped symbols,27008 pairs,5034 symbols with multiple chunks; declaration-start overlap only. No universal semantic coverage claim."
+        },
+        {
+          "invariant": "Whole response must be generation consistent including community/cache data",
+          "source": "ADR Preserve contracts and Gates1-2; graph_lifecycle_eval.recovery; broad manifest community_input",
+          "result": "Prototype reader snapshots exercised for published participants; production whole-response invariant not yet qualified and explicitly gated."
+        }
+      ],
+      "strongest_challenge": {
+        "challenge": "Single-transaction benefit could improperly privilege normalized/J representation despite costly full rewrites and incomplete production boundary.",
+        "response": "Agree with the risk; reject interpreting preference as normalized/J adoption. ADR explicitly keeps deployed graph, separates persistence/cache, presents compact snapshot alternative and gates production integration. Actual benefit is isolated co-publication/recovery capability, not measured production operational gain; J reports fail retained allowance, broad memory worsens, C deltas regress42.44%. This supports another bounded representation/conversion design only."
+      },
+      "primer_questions": [
+        {
+          "question": 1,
+          "answer": "Yes, endorsement is only subsequent design/qualification while retaining A. No normalized/J adoption; the failed material-benefit/adoption screen remains. Measured capability motivating next design is transaction/recovery of actual graph/extraction/community plus tiny real semantic replacement, with graph source rebuild median+0.32%; no production simplification or resource win is yet proven."
+        },
+        {
+          "question": 2,
+          "answer": "Production boundary must include chunks, vectors/registry and FTS, per-file/index-layer bookkeeping, build_state/global complete epoch, extraction files/blobs/meta, resolved graph identities/edges/evidence, community artifact and generation-specific serving cache invalidation. Required future probe: start full risk/report response at generationN, pause after acquiring graph/cache, commitN+1 changing graph edges, community/hub data and semantic rows, resume response; require every output member fromN, next fresh request entirelyN+1. Repeat rollback/crash and startup; per-access transactions cannot prove this."
+        },
+        {
+          "question": 3,
+          "answer": "Yes. Recomputed900 exact ordered hash pairs concern historical served graph only. Six fresh source rebuilds agree and20 deltas pair exactly, separately; semantic recovery replaces two actual384-dimension code chunks, not all semantics. First maintenance combined assertion remains failed with unknown predicate/counts, later reuse is observation-only. Broad A313.5/J376.8MiB disproves generalizing original bounded H memory saving."
+        }
+      ],
+      "mutation_table": [
+        {
+          "mechanism": "Receipt ordered response parity",
+          "mutation": "Replace one actual J response hash",
+          "failing_test": "receipt_check equality; rejected"
+        },
+        {
+          "mechanism": "Source cohort delta parity",
+          "mutation": "Replace one actual delta graph digest",
+          "failing_test": "receipt_check graph/community pair equality; rejected"
+        },
+        {
+          "mechanism": "Prototype/production epoch claim boundary",
+          "mutation": "production_epoch_advanced=true",
+          "failing_test": "receipt_check required False; rejected"
+        },
+        {
+          "mechanism": "Publication rollback atomicity",
+          "mutation": "Actual extracted publish commits requested rollback",
+          "failing_test": "run_publish rollback view invariant: rollback exposed new graph/semantic state"
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: actual publish AST rollback-to-commit under real SQLite transaction; independent receipt-parser controls mutate ordered hash, paired graph digest and epoch claim."
+      },
+      "references": [
+        "graph_lifecycle_eval.publish, prepared_graph, recovery, mapping",
+        "continuation_round2.raw_qualified_query_runs, lifecycle.raw_six_source_rebuilds, lifecycle.raw_twenty_deltas, lifecycle.full_corpus_recovery, lifecycle.maintenance_failure",
+        "ADR1xny4 Decision, Preserve contracts, Gates for a subsequent conversion",
+        "change1xny2 Evaluation Gates, Continued evaluation, AC3 andAC6",
+        "docs/architecture/layering-rules.md Shared semantic storage"
+      ],
+      "public_path": "Closest faithful bounded boundary: actual graph_lifecycle_eval.publish source extracted unchanged and executed against real SQLite WAL connections; real checked-in receipt parsed and compared. No public production graph migration exists in this evaluation.",
+      "independent_reference": "Independent old/new transactional visibility invariant from the stated publication contract; reviewer-created receipt mutations and raw paired comparison, not summary pass flags.",
+      "limitations": [
+        "No new full benchmark, crash process, embedding, rebuild, live store query or production MCP request run. Existing crash77 and native-vector receipts inspected, not rerun.",
+        "Publication fixture uses stdlib SQLite and reduced graph/semantic table shapes with adapted store connection; it proves source transaction ordering/rollback, not APSW/vector schema compatibility or actual producer integration. EXTRA_SCHEMA retained verbatim.",
+        "Paired receipt hashes prove recorded equality, not arbitrary graph semantics; source and historical query cohorts remain separate.",
+        "Small fixed probes only; no whole-file runs needed because all focused mutants were killed. Initial broad reads truncated; targeted MCP rereads of load-bearing publication/ADR/scope and selective raw JSON recovered necessary evidence.",
+        "Mandatory orientation and supplied red-team primer were read as context; no prior review verdict used as evidence. No implementation/recheck context retained.",
+        "Schema7 production upgrade, supported-platform runs, complete semantic rebuild, production epochs/cache/community integration, maintenance longevity and alternative representation cost remain unqualified."
+      ],
+      "safety_and_authorization": "Authorized read-only specialist review; probes write only dedicated temporary SQLite files and /tmp reports, never repository state or ledger. No benchmark workers or external calls.",
+      "alternative_reconciliation": "Pending rotating-seat alternative; independent initial assessment complete.",
+      "final_nine_blob_recheck": {
+        "all_match": true,
+        "files": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+          }
+        ]
+      },
+      "artifacts": [
+        "/tmp/graph-1xny3-architecture-controls.py",
+        "/tmp/graph-1xny3-architecture-controls.json"
+      ],
+      "process_supplement": {
+        "pre_primer_read": "I began by reading the packet, architecture role, repository orientation and architecture/evaluation artifacts before the primer text was available in my context. I did not record a standalone pre-primer concern or verdict; I cannot honestly reconstruct an independently recorded prior.",
+        "pre_primer_limitation": "The initial assignment referred to an inherited primer, but none was visible. I asked the moderator for the strongest challenge and three questions and received them during the artifact review.",
+        "primer_effect": "The supplied primer focused my subsequent scrutiny on whether isolated co-publication could be mistaken for production boundary or normalized/J adoption qualification. I checked actual publish source preserving build_state and the separate frozen community input, then executed transaction and receipt controls. The primer sharpened the questions and the scope of endorsement; no documented before/after verdict change can be claimed because I had not recorded a pre-primer verdict.",
+        "null_finding_declaration": "No material architecture finding was identified within this bounded evaluation-delivery and final-scope readiness review. This is a null finding for the reviewed scope, not a universal defect-absence claim or production-adoption approval.",
+        "rotating_alternative": "Not yet chosen or received; reconciliation remains pending.",
+        "fingerprint_binding": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "current_blob_recheck": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "expected": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "observed": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "expected": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "observed": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "expected": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "observed": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "expected": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "observed": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "expected": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "observed": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "expected": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "observed": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "expected": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "observed": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "expected": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "observed": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "match": true
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "expected": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "observed": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "match": true
+          }
+        ],
+        "current_all_nine_match": true,
+        "authority": "Process facts only; no repository edits, benchmarks, ledger writes or new implementation review."
+      }
+    },
+    "architecture-final": {
+      "role": "architecture-reviewer",
+      "context_id": "/root/graph_architecture_final",
+      "verification_context": {
+        "actor": "graph_architecture_final",
+        "context_id": "/root/graph_architecture_final",
+        "fresh_context": true,
+        "independent": true
+      },
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "verdict": "PASS for evaluation delivery only",
+      "readiness_rebind": {
+        "endorsement": true,
+        "verdict": "approve",
+        "policy_receipt_id": "post-results03aa9b2945691d73e22c",
+        "scope": "Finalized evidence and existing evaluation scope only. No additional implementation or budget approved."
+      },
+      "delivery": {
+        "endorsement": true,
+        "verdict": "approve",
+        "signoff_key": "architecture-review",
+        "scope": "Evaluation and proposed ADR; production graph conversion, cache replacement and adoption remain unapproved."
+      },
+      "production_adoption": "not_approved",
+      "findings": [],
+      "null_finding_declaration": "No material architecture finding in this bounded evaluation scope; this is not a universal defect-absence claim.",
+      "pre_primer": {
+        "recorded_at": 1789062293.159691,
+        "phase": "pre-primer",
+        "concern": "The isolated single-transaction prototype justifies investigating shared persistence, but the ADR must not confuse transaction atomicity with a whole-response reader generation contract. Native lazy hydration regresses broad serving workloads and memory; preserving GraphQueryIndex and evaluating persistence independently is essential. A preferred shared database direction remains provisional until cross-store immutable generation publication is weighed and full semantic-plus-graph lifecycle measured.",
+        "materials_read": [
+          "/tmp/graph-1xny3-delivery-packet.json",
+          "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md"
+        ],
+        "prior_report_read": false,
+        "primer_read": false
+      },
+      "independent_judgment_before_prior_report": {
+        "recorded_at": 1789062318.895689,
+        "prior_report_read": false,
+        "readiness_rebind": "approve",
+        "scoped_delivery": "approve",
+        "production_adoption": "not_approved",
+        "basis": "Frozen ADR explicitly preserves deployed serving baseline, makes persistence a preferred future direction, discloses regressions and leaves production epoch/whole-response integration unqualified. These are suitable evaluated boundaries rather than an implemented production integration.",
+        "primer_engagement": "Agree normalized SQL and lazy hydration must not inherit the transaction benefit as adoption approval. ADR already separates them. Production ownership must join build_state, layer bookkeeping, graph caches and communities under a pinned response generation.",
+        "rotating_alternative": "Separate graph persistence with retained resident GraphQueryIndex, immutable semantic/graph/community generations and one active-generation manifest could supply logical atomic publication while preserving storage formats. Prepare and verify every referenced generation before atomically switching the manifest; pin it for the whole response, retain prior generations until readers release, and recover unreferenced staged generations. It exchanges a single SQLite transaction for a cross-store publication, durability, retention and recovery protocol. Unmeasured overlap disk/memory, startup, writer and crash behavior prevent declaring it better or worse. It deserves qualification alongside shared snapshot storage; no current evidence establishes normalized shared tables as the unique solution."
+      },
+      "primer_engagement": {
+        "strongest_challenge": "Shared transaction feasibility must not confer adoption approval on costly normalized/J persistence while production build_state and complete reader generation integration remain absent.",
+        "response": "Agree; independent targeted publish read shows build_state copied and asserted unchanged. ADR gates production integration, separates cache/persistence, discloses report, memory, delta and maintenance negatives.",
+        "effect": "Primer sharpened participant and snapshot questions; did not reverse pre-primer concern or independently recorded scope judgment.",
+        "question_answers": [
+          "Only another design/qualification effort is supported. Single transaction recovery capability is a scoped observed benefit; complete production operational gain is unproven.",
+          "A future publication boundary must cover semantic canonical rows, vectors, registry, FTS, per-layer bookkeeping/build_state, extraction records, graph identities/evidence, communities and serving cache. Whole-response concurrency must pin one generation across all participants.",
+          "900 ordered response pairs concern the historical graph, source rebuild/deltas concern a distinct cohort, semantic replacement is small, first maintenance failure remains, and broad memory does not reproduce bounded H saving. Numerical claims here come from ADR and attributed prior evidence, not a new benchmark."
+        ]
+      },
+      "rotating_alternative": "Separate graph persistence with retained resident GraphQueryIndex, immutable semantic/graph/community generations and one active-generation manifest could supply logical atomic publication while preserving storage formats. Prepare and verify every referenced generation before atomically switching the manifest; pin it for the whole response, retain prior generations until readers release, and recover unreferenced staged generations. It exchanges a single SQLite transaction for a cross-store publication, durability, retention and recovery protocol. Unmeasured overlap disk/memory, startup, writer and crash behavior prevent declaring it better or worse. It deserves qualification alongside shared snapshot storage; no current evidence establishes normalized shared tables as the unique solution.",
+      "alternative_reconciliation": "Separate-store immutable generations and a shared-store compact immutable snapshot are both credible competitors to normalized shared tables. The former avoids forcing graph persistence into semantic schema and keeps current serving; the latter preserves a single transactional authority. Both still require full-response pinning, generation reclamation, crash recovery and measured startup/disk/overlap-memory. Neither is measured here, so no winner is declared and no redesign is requested inside this completed evaluation.",
+      "boundaries_touched": [
+        "Wave-local evaluation harness imports runtime producers in authorized isolated scratch scope; no shipped graph/semantic ownership change.",
+        "Proposed shared authority joins graph rows, compressed extraction records, community artifact and actual tiny code semantic replacement.",
+        "Current indexer/build-state epoch and layer bookkeeping remain outside prototype publication; broad reports use frozen separate communities."
+      ],
+      "invariants": [
+        {
+          "invariant": "Production build epoch remains publication authority until integrated conversion",
+          "source": "docs/architecture/layering-rules.md Shared semantic storage; graph_lifecycle_eval.publish",
+          "result": "Preserved as explicit exclusion: publish copies build_state then asserts unchanged; ADR requires epoch/build-layer integration and retained fences."
+        },
+        {
+          "invariant": "Graph symbols differ from semantic chunks",
+          "source": "graph_lifecycle_eval.mapping; continuation_round2.lifecycle.mapping; ADR Preserve contracts",
+          "result": "21609 mapped and18545 unmapped symbols,27008 pairs,5034 symbols with multiple chunks; declaration-start overlap only. No universal semantic coverage claim."
+        },
+        {
+          "invariant": "Whole response must be generation consistent including community/cache data",
+          "source": "ADR Preserve contracts and Gates1-2; graph_lifecycle_eval.recovery; broad manifest community_input",
+          "result": "Prototype reader snapshots exercised for published participants; production whole-response invariant not yet qualified and explicitly gated."
+        }
+      ],
+      "source_validation_executed_this_pass": [
+        "MCP code_outline graph_lifecycle_eval.py and graph_eval.py",
+        "MCP code_read graph_lifecycle_eval.py 202-329: prepare outside writer; single transaction; build_state unchanged; restore with read snapshot",
+        "MCP code_read graph_lifecycle_eval.py 40-50 and graph_eval.py 195-225: full graph/extraction/community/publication prototype schema",
+        "Read ADR, architecture-reviewer role, domain-map and layering-rules; orientation bulk output truncated, targeted load-bearing architecture reads complete",
+        "Read-only git hash-object for every frozen file and exact sha256(json.dumps(files,sort_keys=True).encode()) recomputation"
+      ],
+      "fingerprint_check": {
+        "files_checked": 9,
+        "blobs_match": true,
+        "actual_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "expected_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "fingerprint_matches": true
+      },
+      "prior_executed_evidence": {
+        "attribution": "Executed by prior architecture reviewer, inspected after recording own independent judgment; not executed or independently reproduced by this fresh pass. Prior report preserved unchanged.",
+        "report": "/tmp/graph-1xny3-architecture-review.json",
+        "controls": "/tmp/graph-1xny3-architecture-controls.json",
+        "observed": {
+          "receipt_positive": 900,
+          "query-hash": "rejected",
+          "graph-pair": "rejected",
+          "epoch-overclaim": "rejected",
+          "publication_positive": [
+            "before_commit",
+            "after_commit"
+          ],
+          "rollback-mutant": "rejected: rollback exposed new graph/semantic state"
+        },
+        "mutation_table": [
+          {
+            "mechanism": "Receipt ordered response parity",
+            "mutation": "Replace one actual J response hash",
+            "failing_test": "receipt_check equality; rejected"
+          },
+          {
+            "mechanism": "Source cohort delta parity",
+            "mutation": "Replace one actual delta graph digest",
+            "failing_test": "receipt_check graph/community pair equality; rejected"
+          },
+          {
+            "mechanism": "Prototype/production epoch claim boundary",
+            "mutation": "production_epoch_advanced=true",
+            "failing_test": "receipt_check required False; rejected"
+          },
+          {
+            "mechanism": "Publication rollback atomicity",
+            "mutation": "Actual extracted publish commits requested rollback",
+            "failing_test": "run_publish rollback view invariant: rollback exposed new graph/semantic state"
+          }
+        ],
+        "limitations": [
+          "No new full benchmark, crash process, embedding, rebuild, live store query or production MCP request run. Existing crash77 and native-vector receipts inspected, not rerun.",
+          "Publication fixture uses stdlib SQLite and reduced graph/semantic table shapes with adapted store connection; it proves source transaction ordering/rollback, not APSW/vector schema compatibility or actual producer integration. EXTRA_SCHEMA retained verbatim.",
+          "Paired receipt hashes prove recorded equality, not arbitrary graph semantics; source and historical query cohorts remain separate."
+        ]
+      },
+      "mutation_table_this_pass": [
+        {
+          "mechanism": "Evaluation-only ADR boundary",
+          "mutation": "Replace explicit production-cutover exclusion with approved production cutover; memory-only mutation",
+          "failing_test": "evaluation_contract: production cutover exclusion missing",
+          "execution_owner": "/root/graph_architecture_final"
+        }
+      ],
+      "new_mutation_execution": "Executed one tiny current-ADR contract negative control. No runtime, database, or benchmark probes.",
+      "required_doc_updates": "None for evaluation completion. Production domain-map/layering ownership and full generation boundary updates belong to separate admitted/readied conversion scope already gated by ADR.",
+      "actionability": "not_issue",
+      "process_truth": "Fresh bounded seat records pre-primer concern before opening primer, then own judgment before opening prior report. Does not repair prior process history or claim prior probes as own. No repository, ledger, production store, or benchmark writes. Temporary review artifacts only.",
+      "limitations": [
+        "No new benchmark, live transaction probe, runtime mutation, crash, production source run, whole-file suite or full schema integration test. One document-contract negative control executed.",
+        "No production epoch/cache/community integration, full semantic-plus-graph rebuild, long-run maintenance, or other-platform qualification.",
+        "Prior report executable evidence inspected and attributed; source validation and fingerprint binding independently performed.",
+        "Rotating and compact-snapshot alternatives unmeasured."
+      ],
+      "completed_at": 1789062375.607931,
+      "own_executed_contract_check": {
+        "check": "current frozen ADR evaluation contract",
+        "positive_expected": "evaluation-only contract accepted",
+        "positive_observed": "evaluation-only contract accepted",
+        "mutation": "Replace explicit production-cutover exclusion with approved production cutover; memory-only mutation",
+        "negative_expected": "production cutover exclusion missing",
+        "negative_observed": "production cutover exclusion missing",
+        "known_bad_detected": true,
+        "runtime_scope": "A tiny document contract check, not SQLite or public runtime execution."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: read current frozen proposed ADR, assert four explicit evaluation/production boundary clauses; replace production-cutover exclusion with positive adoption claim in memory and observe rejection. No runtime public path is claimed; reviewed public artifact is actual ADR."
+      },
+      "public_path": "Actual published proposed ADR at docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md; no production runtime path changed or exercised.",
+      "independent_reference": "Assignment evaluation-only authority and separate conversion requirement, expressed as explicit current ADR clauses. This check detects removed required wording; it is not an independent semantic prose classifier."
+    },
+    "security-review": {
+      "role": "security-reviewer",
+      "context_id": "/root/graph_security_check",
+      "wave_id": "1xny3",
+      "verification_context": {
+        "actor": "security-reviewer",
+        "context_id": "/root/graph_security_check",
+        "fresh_context": true,
+        "independent": true
+      },
+      "time_budget_seconds": 360,
+      "sweep_rule": "targeted tests per mutant; whole-file only survivors",
+      "whole_file_runs": 0,
+      "provisional_pre_primer_concern": "Whether crash and model-failure probes stay confined to owned scratch while preserving failed observations, since these controls underpin the evaluation integrity claims.",
+      "primer_effect": "Shifted recommendation scrutiny toward the incomplete production publication boundary; independent source reads and executable controls support scoped evaluation approval, not a normalized-table or J adoption claim.",
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "ADR Decision and Gates permit subsequent conversion qualification while retaining deployed graph; original adoption screen remains unmet. Actual prepared graph/extraction/community plus tiny semantic replacement publication is the measured benefit supporting further shared-authority design work. It does not privilege normalized rows or J; immutable SQLite snapshot plus existing resident cache remains an unmeasured alternative.",
+          "anchors": [
+            "ADR Decision paragraphs and recommendation table",
+            "ADR Gates for a subsequent conversion items 1-3",
+            "graph_lifecycle_eval.publish"
+          ]
+        },
+        {
+          "question": 2,
+          "answer": "Production build_state/global epochs, layer bookkeeping, graph cache invalidation, community readers and the complete public response must join a generation boundary. publish deliberately preserves build_state. A future whole-response interleaving probe must commit between graph and community/cache phases and require all response participants carry one generation; current per-operation and participant-view evidence does not establish it.",
+          "anchors": [
+            "graph_lifecycle_eval.publish: epoch equality assertion",
+            "graph_lifecycle_eval.participant_view",
+            "graph_lifecycle_eval.recovery",
+            "ADR Preserve contracts paragraph and Gates items 1-2"
+          ]
+        },
+        {
+          "question": 3,
+          "answer": "ADR and retained raw receipt distinguish 900 historical ordered pairs from fresh-source parity, tiny actual FP32 semantic replacement, and one observation-only maintenance repeat. Broad memory does not generalize H savings. Original maintenance failure remains with unavailable counts and unknown failed subcondition; no inference of physical file growth is justified.",
+          "anchors": [
+            "benchmark-results.json continuation_round2.lifecycle.full_corpus_recovery",
+            "benchmark-results.json continuation_round2.lifecycle.maintenance_failure",
+            "ADR Evidence and consequences paragraphs"
+          ]
+        }
+      ],
+      "final_scope_readiness_rebind": {
+        "verdict": "approved-with-notes",
+        "scope": "Current finalized evaluation scope and policy-digest rebind only; no new source work or production adoption",
+        "reason": "Current plan scope and ADR retain failed screens and explicit conversion gates; executable safety controls remain effective in selected probes."
+      },
+      "scoped_delivery": {
+        "verdict": "approved-with-notes",
+        "overall_severity": "none",
+        "scope": "Security and evidence-integrity seat for non-shipping isolated evaluation; full production integration expressly excluded"
+      },
+      "findings": [],
+      "null_declaration": "No new actionable security or required-scope correctness finding established by the selected review. No exploit chain identified.",
+      "trust_classification": {
+        "controlling_actor": "Operator invoking local wave-owned harness and controlling scratch/model cache",
+        "attacker_reachability": false,
+        "authority_delta": "none",
+        "promotion_trigger_observed": false,
+        "basis": "docs/architecture/threat-model.md Threat Actors and Trust Classification; wave change Scope and Isolation; no new public tool or remote service introduced."
+      },
+      "evidence": [
+        {
+          "proposition": "Owned scratch cleanup rejects symlink escape before deletion, while legitimate owned cleanup works.",
+          "execution_status": "executed",
+          "public_path": "graph_lifecycle_eval.reset_dir mutation boundary calling graph_eval.owned",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/graph-1xny3-security-probe.py",
+          "expected": "Escape raises ValueError and outside-root sentinel remains; in-root disposable directory resets.",
+          "observed": "scratch escape refused; sentinel preserved; legitimate reset true. Removing ownership confinement deletes reviewer-owned sentinel and fails preservation assertion.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-security-probe-result.json",
+          "source_anchors": [
+            "graph_eval.owned",
+            "graph_lifecycle_eval.reset_dir",
+            "graph_lifecycle_eval.clone_sources"
+          ]
+        },
+        {
+          "proposition": "Diagnostic-write failure does not prevent guard termination, and owned-child RSS/termination and deadline controls execute.",
+          "execution_status": "executed",
+          "public_path": "graph_eval.py safety --root NEW_OWNED_SCRATCH",
+          "expected": "Safety CLI succeeds; guard-stop actual exit89 despite failed diagnostic write, removed-finally mutant exit1; child is accounted for and reaped.",
+          "observed": "CLI exit0 with outside-path, symlink, deadline, owned child and diagnostic-write checks; guard cap control exit88.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-security-probe-result.json safety_cli",
+          "source_anchors": [
+            "graph_eval.main",
+            "graph_eval.safety_probes",
+            "graph_eval.guard_stop",
+            "graph_eval.stop_owned_children"
+          ]
+        },
+        {
+          "proposition": "Selected offline semantic-spool failure paths reject escaping cache links and fail locally on empty owned cache.",
+          "execution_status": "executed",
+          "public_path": "graph_lifecycle_eval.semantic_spool actual FastEmbed constructor boundary",
+          "expected": "Escaping link rejected before model construction; missing model produces failure without network connection.",
+          "observed": "ValueError scratch escape refused; actual model constructor ValueError Could not load model snowflake/snowflake-arctic-embed-s from any source; zero socket.connect attempts observed; HF_HUB_OFFLINE=1 and FASTEMBED_CACHE_PATH points to owned empty cache.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-security-probe-result.json cache_symlink/offline_empty_cache",
+          "source_anchors": [
+            "graph_lifecycle_eval.semantic_spool",
+            "retrieval_eval.main cache copying and offline environment block"
+          ]
+        },
+        {
+          "proposition": "An error after prepared graph replacement rolls back graph generation and community together.",
+          "execution_status": "executed",
+          "public_path": "graph_lifecycle_eval.publish against actual initialized schema-7 IndexStateStore, small fixture",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/graph-1xny3-security-transaction-probe.py",
+          "expected": "Injected before_commit exception preserves old node/generation/community.",
+          "observed": "Baseline preserved old/1/6F6C64; rollback-to-commit mutation exposed new/2/6E6577 and preservation assertion failed.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-security-transaction-result.json",
+          "source_anchors": [
+            "graph_lifecycle_eval.publish",
+            "graph_lifecycle_eval.participant_view",
+            "graph_lifecycle_eval.recovery"
+          ]
+        }
+      ],
+      "mutation_table": [
+        {
+          "mutant": "Remove owned target confinement",
+          "targeted_test": "outside-root symlink cleanup sentinel preservation",
+          "result": "killed",
+          "observed_failure": "outside owned-root sentinel destroyed",
+          "whole_file_run": false
+        },
+        {
+          "mutant": "publish exception path ROLLBACK -> COMMIT",
+          "targeted_test": "before_commit exception preserves old publication",
+          "result": "killed",
+          "observed_failure": "new generation 2 and new community visible after failure",
+          "whole_file_run": false
+        },
+        {
+          "mutant": "guard_stop removed finally",
+          "targeted_test": "safety CLI diagnostic-write failure exit assertion",
+          "result": "killed",
+          "observed_failure": "mutant exit1 versus expected exit89",
+          "whole_file_run": false,
+          "independent_reference_note": "Existing harness-owned control; separate reviewer sentinel and transaction tests supply independent invariants"
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      },
+      "retained_receipt_evidence": {
+        "source": "benchmark-results.json continuation_round2.lifecycle",
+        "observed": "full_corpus_recovery retains crash_exit77, rollback true, old snapshot before/after commit, replacement of two real 384-dimensional vectors, production_epoch_advanced false. maintenance_failure retains original AssertionError, unavailable counts and unknown subcondition, plus separately labeled observation-only repeat.",
+        "execution_status": "inferred",
+        "note": "Read and reconciled with source; not freshly rerun full corpus or crash77."
+      },
+      "limitations": [
+        "No fresh full benchmarks, full source rebuild, complete production semantic-plus-graph producer, complete-response generation interleaving, platform migration or long-running maintenance run.",
+        "Actual empty-cache failure probe and escaping-cache rejection do not qualify the full offline model pipeline, successful provider initialization, cache-copy capacity, or all possible network APIs. socket.connect instrumentation covers the selected constructor execution.",
+        "Small publication probe covers graph/community rollback, not fresh semantic embedding or process-crash77. Historical real replacement/crash evidence is distinguished from this seat own execution.",
+        "Resource cap-plus-one sample is synthetic and does not qualify maximum host memory consumption; owned-child probe uses one actual child. No universal descendant-process census.",
+        "Current review is single-user/operator-owned scratch. No stronger isolation against malicious same-user races is claimed.",
+        "No new regex or symbol interpolation path is shipped; re.escape enforcement is not affected or freshly swept.",
+        "No repo edits, ledger writes, raw artifact replacement, full-suite run, commit or closure performed."
+      ],
+      "safety_and_authorization": "Authorized bounded evaluation review. All probe mutations, deletion sentinel and SQLite files are under newly created reviewer-owned temporary parent; live store is never opened by probes. Child terminations target only harness-owned handles/groups. External network is denied at selected constructor boundary. Frozen evidence remains unchanged.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "start_tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "end_tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "end_fingerprint_equal": true,
+      "end_files": [
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+          "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+          "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+          "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+          "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+          "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+          "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+        },
+        {
+          "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+          "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+        },
+        {
+          "path": "docs/architecture/decisions/README.md",
+          "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+        }
+      ]
+    },
+    "security-alternative": {
+      "role": "security-reviewer",
+      "context_id": "/root/graph_security_alternative",
+      "wave_id": "1xny3",
+      "verification_context": {
+        "actor": "security-reviewer",
+        "context_id": "/root/graph_security_alternative",
+        "fresh_context": true,
+        "independent": true,
+        "method": "Focused design comparison and nine-file content identity check; no execution of prior security probes"
+      },
+      "reviewed_artifacts": [
+        "/tmp/graph-1xny3-security-review.json",
+        "/tmp/graph-1xny3-delivery-packet.json",
+        "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md"
+      ],
+      "alternative": {
+        "design": "Retain separate graph store and resident GraphQueryIndex; prepare immutable semantic and graph generations and publish a durable atomic active-generation manifest. Pin generation identity across the complete response and defer reclamation until no reader needs old generations, if necessary for cross-generation consistency.",
+        "measured": false
+      },
+      "security_safety_comparison": [
+        {
+          "dimension": "Publication and crash recovery",
+          "shared_sqlite": "A transaction provides a simpler common durability and rollback boundary for participants actually inside it; prior reviewer evidence supports the isolated graph/community rollback only. Production epochs, caches and complete responses remain outside the qualified boundary.",
+          "separate_immutable_generations": "Can provide coherent response authority without sharing a database writer, if all referenced generations are complete and durable before manifest publication and every participant follows the manifest. Requires explicit orphan-stage recovery, missing-generation handling, crash-safe manifest persistence and restart reconciliation across stores. These are unmeasured proof obligations."
+        },
+        {
+          "dimension": "Serving and availability",
+          "shared_sqlite": "Keeping the resident graph cache remains compatible with shared persistence, but writer contention and the prototype full graph rewrite create an availability concern requiring change-sized writes or another representation. Neither is an established exploit.",
+          "separate_immutable_generations": "Retains established resident query behavior and avoids coupling graph preparation to the shared semantic writer or requiring the prototype full rewrite. Does not prove lower latency, memory, disk or build costs; retaining overlapping generations can increase peak storage."
+        },
+        {
+          "dimension": "Reader lifetime and cleanup",
+          "shared_sqlite": "SQLite snapshot semantics simplify database readers; cached graph and community state still need generation-aware whole-response pinning.",
+          "separate_immutable_generations": "Manifest reads alone are insufficient: response-wide pinning must bind semantic, graph and community readers, and cleanup must not reclaim pinned generations. Cleanup should resolve only owned generation paths and validate manifested identities; cross-store recovery and reclamation expand failure paths."
+        },
+        {
+          "dimension": "Authority and threat scope",
+          "shared_sqlite": "No new authority boundary in this non-shipping local evaluation.",
+          "separate_immutable_generations": "Also need not add an authority boundary; files and manifests remain operator-owned. No claim of protection from malicious same-user races, remote attackers, or unqualified platform filesystem semantics."
+        }
+      ],
+      "rationale": "Affirm approved-with-notes for current evaluation readiness rebind and scoped delivery. The alternative is credible and prevents treating SQLite consolidation as the unique way to obtain a consistent publication boundary. Shared SQLite remains a defensible preferred investigation direction because it reduces cross-store commit/recovery coordination, but security evidence does not establish its superiority or production readiness. The separate-generation alternative must remain explicitly available for subsequent comparison; no existing finding is invalidated by acknowledging it.",
+      "final_scope_readiness_rebind": {
+        "verdict": "approved-with-notes",
+        "scope": "Finalized isolated evaluation and policy-digest rebind only; no production conversion"
+      },
+      "scoped_delivery": {
+        "verdict": "approved-with-notes",
+        "overall_severity": "none",
+        "scope": "Focused security/safety alternative reconciliation for the evaluation"
+      },
+      "findings": [],
+      "notes": [
+        "Any future choice must prove crash/restart recovery and response-wide semantic/graph/community consistency, including production epochs and layer bookkeeping.",
+        "An atomic manifest design has not been benchmarked or failure-tested by this review; shared SQLite evidence also remains narrower than a production lifecycle.",
+        "The current ADR includes shared snapshot/resident-cache alternatives but does not yet explicitly record this separate-store immutable-generation alternative. Record the comparison as a design note; this is not a blocker to the frozen evaluation scope."
+      ],
+      "evidence_attribution": {
+        "prior_probes": "Ownership escape, offline model/cache failure, guard termination and transaction mutation evidence are attributed solely to /root/graph_security_check in /tmp/graph-1xny3-security-review.json; not executed or independently reproduced here.",
+        "own_execution": "Read supplied review/packet/ADR and computed nine current git blob hashes only."
+      },
+      "limitations": [
+        "No new probes, benchmarks, code retrieval investigation, production integration review or platform execution.",
+        "No repo, ledger or ADR edits; only this temporary review artifact written.",
+        "No universal security, performance or durability claim; no adversarial same-user isolation claim."
+      ],
+      "nine_blob_check": {
+        "packet_tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "count": 9,
+        "all_match": true,
+        "files": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "expected_git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "actual_git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "matches": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "expected_git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "actual_git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "matches": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "expected_git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "actual_git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "matches": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "expected_git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "actual_git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "matches": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "expected_git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "actual_git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "matches": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "expected_git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "actual_git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "matches": true
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "expected_git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "actual_git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "matches": true
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "expected_git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "actual_git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "matches": true
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "expected_git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "actual_git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "matches": true
+          }
+        ]
+      }
+    },
+    "qa-review": {
+      "role": "qa-reviewer",
+      "context_id": "/root/graph_qa_check",
+      "fresh_context": true,
+      "independent": true,
+      "independence_method": "Fresh delegated context, not an implementation actor; no other current seat report read before first verdict. Read supplied primer only after stating independent pre-primer concern. Prior historical receipts were read as evidence, not as this reviewer judgment.",
+      "policy_input_digest": "3ca5cb6f3152e64fe602d63c800c5003fba2d35d97034454962b64d4ba8784fa",
+      "pending_policy_receipt": "review-policy-03aa9b2945691d73e22c",
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "readiness_rebind_verdict": "approve finalized evaluation scope at refreshed policy digest; no new implementation planned",
+      "scoped_delivery_verdict": "approve evidence-complete evaluation with explicit AC4 deferral; no production conversion, J adoption, normalized representation adoption, maintenance guarantee or retrieval-quality approval",
+      "pre_primer_concern": "Whether 900 claimed exact matches and twenty source/state transitions derive from paired raw faithful observations rather than count summaries or shared-hypothesis digest checks; AC4 and cohort identity must be separate.",
+      "primer_effect": "Sharpened concern to production generation boundary: publish preserves build_state and broad report communities are frozen separately. The ADR explicitly limits these claims, so this is a production conversion gate rather than an evaluation blocker.",
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "Yes. ADR15-24 and37 reject a production cutover and preserve the failed adoption gate. Shared graph/extraction/community publication with an actual tiny semantic replacement demonstrates a useful direction, but normalized tables and J are not selected winners. Immutable generation-addressed snapshots retaining GraphQueryIndex remain a competing unmeasured representation."
+        },
+        {
+          "question": 2,
+          "answer": "Production build_state/global epochs, layer bookkeeping, extraction state, graph rows/artifact, communities, semantic canonical rows/FTS/vectors and serving cache must share an explicit generation protocol. A complete-response probe must commit a writer between component reads and prove the entire response is old or new, including communities. This review independently executed that snapshot invariant at the actual prototype graph-publication boundary only. Production whole-response integration remains unverified."
+        },
+        {
+          "question": 3,
+          "answer": "Yes. Independently recomputed 900 ordered historical query pairs and 300 observations/family, separate six fresh-source rebuilds and twenty delta digests. Historical119543+130-5=source119668 edges; same41490nodes does not establish joined performance. The real tiny semantic replacement and original maintenance failure versus one observation are separately retained. Broad J peak376.8MiB exceeds A313.5MiB; no general H memory claim."
+        }
+      ],
+      "ac_coverage": [
+        {
+          "ac": "AC-1",
+          "priority": "required",
+          "state": "done",
+          "evidence": "Change86 and inventory210-228; fixed protocol48-60 and continuation62-74 preserve original versus revised screens. Source APIs inspected through MCP outlines and targeted reads."
+        },
+        {
+          "ac": "AC-2",
+          "priority": "required",
+          "state": "done",
+          "evidence": "Executed raw arithmetic900pairs/300per family,6rebuilds/20deltas; executed48fixture combinations with independent expected sets and evidence-preservation mutant. All p95 values independently reproduce receipt. Negative report/update/disk/memory outcomes retained."
+        },
+        {
+          "ac": "AC-3",
+          "priority": "required",
+          "state": "done within evaluation",
+          "evidence": "publish237-276 and recovery541-652 explicitly implement and assert actual replacement, rollback/crash77, old/new snapshot, reconstruction and native vector/FTS retrieval. Independently reran actual tiny graph-only publication/rollback/reader transition, with missing-pin mutation detected. Retained raw recovery confirms two actual384-dimensional regenerated vectors replace prior vectors. Production epoch remains unchanged by design."
+        },
+        {
+          "ac": "AC-4",
+          "priority": "required",
+          "state": "intentionally_not_met",
+          "evidence": "Change89 and task98 carry explicit rationale; protocol46 allows evidenced prerequisite stops and continuation66 preserves deferral. Raw retrieval stop_reason QueryDeadline, zero A/B/C observations, successful119+3reranks, CPU runtime and excluded4attempts retain provenance. Deferral legitimate as re-reviewed narrowed evaluation, not fulfilled ranking experiment."
+        },
+        {
+          "ac": "AC-5",
+          "priority": "required",
+          "state": "done assessment",
+          "evidence": "Change196-208 and ADR21-22/66-67 cite dated primary sources, capabilities/licenses/platform inventory and separate non-execution. No extension execution or installation claimed. External source currency not independently re-browsed under this lane authority."
+        },
+        {
+          "ac": "AC-6",
+          "priority": "required",
+          "state": "done",
+          "evidence": "ADR15-24 proposed direction,37 failed adoption,39 maintenance history,41cohorts,43-47prototype boundaries and49-57future conversion gates. No production authority inferred."
+        }
+      ],
+      "raw_arithmetic": {
+        "pairs": 900,
+        "p95": {
+          "report_default": {
+            "A": 560.6254579033703,
+            "J": 887.2765409760177
+          },
+          "report_filtered": {
+            "A": 570.3677090350538,
+            "J": 894.5369580760598
+          },
+          "risk_scopes": {
+            "A": 34.972250228747725,
+            "J": 353.1585829332471
+          }
+        },
+        "raw_deltas": 20,
+        "raw_rebuilds": 6,
+        "nine_blobs_match": true
+      },
+      "provenance_and_limits": [
+        "Raw three runs per A/J each name backend_accessor_calls330, no qualified errors. Recomputed p95 default560.625/887.277, filtered570.368/894.537, scoped risk34.972/353.159ms. Report screens fail; scoped risk passes500ms.",
+        "Six actual source graph-only rebuild records yield A141687.7669ms/C142140.9877ms medians. Twenty deltas are ten states per variant, paired graph/community digests equal; medians A7255.1171ms/C10334.0303ms. No rebuild tail or whole semantic rebuild claim.",
+        "Source metadata census2114selected/810persisted-source hashes, one disclosed semantic metadata mismatch. Mapping retains27008overlaps,21609mapped,18545unmapped,5034symbols with multiple chunks and694chunks with multiple symbols; no one-to-one or full coverage inference.",
+        "Current and historical harness/runtime hashes are retained per raw run; source rebuilds predate monitor repair; interrupted delta observations excluded and twenty qualified observations rerun. No relabeling earlier timed code as final revision.",
+        "Original combined freed/reuse/no-growth failure lacks saved counts; unknown failed subcondition cannot prove page growth. Repeat observed before68404pages/free101, freed11561, after68404/free101:11460pages reused. Observation does not resolve original failure or prove long-run maintenance.",
+        "Existing green production/framework suite was not rerun; no shipped production change. No fresh full benchmarks, embeddings, crash subprocess, platform execution, maintenance repetition, migration, external research or complete production MCP response concurrency executed by this lane.",
+        "Initial system-python import probe failed because apsw was unavailable; all selected executable checks subsequently ran using the existing tool venv with no install and zero skips. This setup failure was not counted as approval evidence."
+      ],
+      "highest_risk_independent_reference": {
+        "reference": "Independently read AC3 and requirement8: all affected state publishes atomically, plus snapshot metamorphic invariant that one pinned read sees the same graph generation across a writer commit. Expected outcomes were authored by this reviewer, not generated by either backend.",
+        "property": "Rollback preserves all graph publication participants; pinned reader remains entirely old before/after writer commit; after reader commit a new read sees all changed participants. Removing read pin must break that guarantee.",
+        "common_mode_limits": "Uses actual publish/IndexStateStore but empty semantic schema7 and tiny graph; all five asserted participants are graph generation/nodes/edges/extraction/community. Semantic participants and production epoch intentionally remain unchanged. It does not independently regenerate embedding, prove full semantic freshness or exercise registered whole-response MCP epoch policy."
+      },
+      "evidence": [
+        {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "claim_id": "approval:qa-reviewer",
+          "claim_kind": "approval",
+          "required_for_approval": true,
+          "phase": "delivery",
+          "execution_status": "executed",
+          "fresh_context": true,
+          "independent": true,
+          "proposition": "The scoped evaluation demonstrates faithful graph state replacement and a snapshot-bound publication; negative controls detect stale targets and unpinned reads.",
+          "counterexample_or_failure_condition": "A renamed/removed provider leaves an unchanged caller targeting its former declaration, rollback changes publication, or a pinned reader observes mixed graph generations.",
+          "public_path": "graph_lifecycle_eval.producer\u2192actual graph_indexer.update_graph_index and graph_cluster.update_graph_clusters; graph_lifecycle_eval.publish\u2192actual IndexStateStore transaction boundary; closest faithful isolated prototype boundary, not registered production MCP response",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/graph-1xny3-qa-probe.py ; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/graph-1xny3-qa-publication-probe.py",
+          "expected": "Four source states revoke/rebind unchanged caller exactly; rollback preserves all five graph participants; reader remains old twice and sees all new after commit; mutants fail assertions.",
+          "observed": "bound\u2192renamed\u2192removed\u2192bound ran full then incremental merges; old-target mutant detected. rollback unchanged; before_commit and after_commit old pinned view; all five new participants changed after reader commit; removing pin triggered expected assertion failure; zero skips.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-qa-probe-result.json; /tmp/graph-1xny3-qa-publication-result.json",
+          "adjacent_controls": [
+            "Legitimate rebound after removal",
+            "Rollback",
+            "Pinned old reader and fresh new reader"
+          ],
+          "known_bad_detection_method": "focused-mutation",
+          "integrity_method": "Executed actual producer and publish boundaries in freshly owned scratch; explicit assertion counts and result logs, no fallback/skip; actual Python source fixtures and schema7 store; opposite controls cause selected assertions to fail."
+        }
+      ],
+      "mutation_table": [
+        {
+          "mechanism": "Cross-file declaration invalidation",
+          "mutation": "Inject old resolved edge after provider rename",
+          "test": "qa-probe.py target assertion",
+          "result": "CAUGHT"
+        },
+        {
+          "mechanism": "Snapshot publication across component reads",
+          "mutation": "Omit reader BEGIN while writer changes generation",
+          "test": "qa-publication-probe.py view==old assertion",
+          "result": "CAUGHT"
+        },
+        {
+          "mechanism": "Independent stored parallel-edge evidence",
+          "mutation": "Delete second evidence row without changing public triple reachability",
+          "test": "qa-query-probe.py stored edge count assertion",
+          "result": "CAUGHT"
+        },
+        {
+          "mechanism": "Graph query public semantics",
+          "mutation": "Parallel evidence deletion as above;48differential cases plus hand-expected cycle/diamond/external/weighted/bounds controls",
+          "test": "graph_eval.oracles and qa-query-probe.py",
+          "result": "CAUGHT for evidence loss; no per-algorithm additional mutant"
+        },
+        {
+          "mechanism": "Normalizer scope",
+          "mutation": "Existing degraded present=False and nested semantic-attribute controls",
+          "test": "graph_lifecycle_eval.normalization_controls executed",
+          "result": "CAUGHT by existing selected controls"
+        },
+        {
+          "mechanism": "OS ownership/RSS/cancellation guard and cache invalidation refinements",
+          "mutation": "No fresh mutants in this bounded review; retained final_guard_cache_probes and monitor_repair_controls inspected as implementer evidence",
+          "test": "NOT RUN independently this lane",
+          "result": "UNEXECUTED; no claim of fresh independent guard mutation sweep"
+        },
+        {
+          "mechanism": "Real embedding replacement/crash/restart and long-run maintenance",
+          "mutation": "No fresh embedding/crash/maintenance mutant in this lane",
+          "test": "Retained raw full_corpus_recovery plus source inspection; independent graph-only rollback/snapshot above",
+          "result": "Limited retained execution evidence; production and long-run claims unverified"
+        }
+      ],
+      "finite_probe_budget": {
+        "states": [
+          "bound",
+          "renamed",
+          "removed",
+          "rebound"
+        ],
+        "interleavings": [
+          "rollback",
+          "pinned reader before writer commit",
+          "pinned reader after writer commit",
+          "new reader",
+          "one unpinned negative control"
+        ],
+        "sweep_rule": "targeted tests per mutant; whole-file runs only for survivors",
+        "whole_file_survivor_runs": 0,
+        "explanation": "All selected mutants detected by targeted assertions; no survivors warranted whole-file runs."
+      },
+      "findings": [],
+      "null_finding_declaration": "No new actionable or blocking finding within this finalized evaluation scope. Disclosed failed adoption screens and deferred production qualification remain actual limits, not suppressed defects or production approval.",
+      "final_policy_statement": "Current finalized change is suitable for readiness rebind and scoped evaluation delivery under policy_input_digest3ca5cb6f3152e64fe602d63c800c5003fba2d35d97034454962b64d4ba8784fa; no new implementation planned.",
+      "final_nine_git_blobs_recheck": {
+        "all_match": true,
+        "files": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+          }
+        ]
+      }
+    },
+    "qa-alternative": {
+      "role": "qa-reviewer",
+      "context_id": "/root/graph_qa_alternative",
+      "fresh_context": true,
+      "review_kind": "focused fixed-seat rotating-alternative reconciliation; not repeat delivery review",
+      "authority_and_execution": "Independent fresh QA judgment on supplied alternative. Prior QA report and ADR inspected as evidence. No prior QA probe is claimed as this context execution; only nine git blob identities were freshly checked. No benchmarks, repository writes, ledger mutations or other-seat simulation.",
+      "policy_input_digest": "3ca5cb6f3152e64fe602d63c800c5003fba2d35d97034454962b64d4ba8784fa",
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "alternative": "Retain separate graph persistence and resident GraphQueryIndex; publish immutable semantic/graph generations through one atomic active-generation manifest, pin the manifest generation for a whole response and defer reclamation until readers release it.",
+      "comparison": [
+        {
+          "dimension": "Query and write cost",
+          "separate_generations": "Retains known resident-query baseline and avoids placing graph publication under the semantic database writer lock. Avoids requiring a full normalized graph-row rewrite, though immutable generation construction/copy cost still needs measurement.",
+          "shared_sqlite": "Can retain resident GraphQueryIndex too, so fast resident queries do not uniquely favor separate stores. Current normalized prototype rewrites every graph row and has a substantial shared writer lock; neither is necessary to every shared-store representation."
+        },
+        {
+          "dimension": "Atomicity and recovery",
+          "separate_generations": "Atomic manifest publication can select a coherent pair only after both immutable generations are durably complete and validated. Readers must resolve the manifest once and pin all semantic, graph, community and cache participants. Recovery must handle crash before/after each store completion and manifest replacement, abandoned staged generations, and reclamation racing a reader. Merely renaming a pointer is insufficient proof.",
+          "shared_sqlite": "Actual scoped prototype publication provides a simpler single-transaction recovery authority, but production epochs, caches and whole-response pins are still outside the demonstrated guarantee."
+        },
+        {
+          "dimension": "Evidence strength",
+          "separate_generations": "Plausible competing direction, unimplemented and unmeasured in this evaluation; no claimed superiority on disk, restart, update latency or maintenance.",
+          "shared_sqlite": "Has executed scoped graph/semantic recovery evidence, while report latency, broad memory, update cost and maintenance results prevent production adoption."
+        }
+      ],
+      "choice_rationale": "Affirm shared SQLite as a provisional next evaluation direction because the demonstrated transaction boundary reduces the number of durable authorities requiring coordinated recovery. Retain the separate immutable-generation design as an explicit conversion-wave comparator: if shared-writer occupancy or change-sized persistence cannot qualify, its isolation benefit may outweigh cross-store recovery complexity. The current evidence establishes no production winner and does not justify selecting normalized tables or J.",
+      "verdict": "Affirm original scoped delivery/readiness evaluation verdict, including explicit AC4 deferral. No production cutover, retrieval-quality, maintenance, normalized-representation or J-adoption approval. Alternative consideration changes neither AC completion evidence nor the failed adoption gate.",
+      "missing_production_gates": [
+        "Production semantic-plus-graph lifecycle with build-layer bookkeeping/global epochs, extraction, communities and cache generation agreement.",
+        "Whole-response old-or-new assertions with a writer commit between component reads; independent negative controls for unpinned communities and cache generation mismatch.",
+        "For separate generations: crash/restart across every durable staging/publication transition, corrupt/incomplete-generation rejection, reader pin versus reclamation race, resumable orphan cleanup and platform-specific manifest durability.",
+        "For shared SQLite: bounded writer occupancy under competing semantic writes; stable identities and measured change-sized writes or qualified snapshot representation.",
+        "Both alternatives: full report/risk/community parity, independent edge evidence and zero/one/many chunk mapping, inclusive memory/disk/startup/update measurements, migration rollback/fresh-process recovery and native platform execution.",
+        "Explain original maintenance failure with retained counts and repeated checkpoint/reuse/compaction observations before claiming maintenance suitability."
+      ],
+      "prior_independent_executed_evidence": [
+        {
+          "source": "/tmp/graph-1xny3-qa-review.json",
+          "artifacts": [
+            "/tmp/graph-1xny3-qa-probe-result.json",
+            "/tmp/graph-1xny3-qa-publication-result.json",
+            "/tmp/graph-1xny3-qa-query-result.json"
+          ],
+          "attribution": "Executed by prior independent /root/graph_qa_check context, not this reconciliation context. Report records cross-file rename/remove/rebind producer checks, graph-only rollback and pinned reader transition with missing-pin mutant caught, and public graph semantics/evidence checks. Tiny graph-only publication does not qualify production semantic/graph whole responses."
+        },
+        {
+          "source": "/tmp/graph-1xny3-qa-review.json#raw_arithmetic",
+          "attribution": "Prior independent recomputation reports 900 exact paired historical responses, 300 per family, six source rebuild observations and twenty paired deltas; this pass does not rerun that arithmetic. Report latency and broad memory regressions, AC4 stop and mixed maintenance evidence remain limiting."
+        },
+        {
+          "source": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+          "attribution": "Current inspected ADR keeps proposed status, failed adoption screen and explicit future conversion gates; actual tiny semantic replacement recovery is retained evaluation evidence, not new execution here."
+        }
+      ],
+      "findings": [],
+      "null_finding_declaration": "No new blocker to the bounded evaluation verdict. The separate-store generation protocol needs explicit comparison before conversion selection; it is a future qualification obligation, not evidence that current production storage must change.",
+      "nine_blob_check": {
+        "freshly_executed": true,
+        "all_match": true,
+        "files": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "actual_git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "actual_git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "actual_git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "actual_git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "actual_git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "actual_git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "actual_git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "actual_git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "match": true
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "actual_git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "match": true
+          }
+        ]
+      }
+    },
+    "reality-review": {
+      "role": "reality-checker",
+      "context_id": "/root/graph_reality_check",
+      "fresh_context": true,
+      "independent": true,
+      "pre_primer_concern": "The apparent atomic-publication benefit may cover prepared graph/extraction/community/semantic rows while omitting production epoch and response-cache coherence. Check transaction participants and whether a mixed generation is detected.",
+      "primer_engagement": {
+        "effect": "Reinforced the need to distinguish persisted participants from production response generation; added explicit evaluation of the resident-cache alternative. The concern was formed and sent before reading the primer. No other seat reports were read.",
+        "answers": [
+          "ADR 15-24 permits a subsequent design/conversion evaluation and retains deployed graph behavior; normalized tables and J are not endorsed for adoption. The measured benefit is one isolated transaction for actual prepared persistent participants, not lower memory/capacity or faster updates.",
+          "Production build_state/global epoch, layer bookkeeping, graph cache and community reader generation must join a complete-response boundary. Pin an old complete response while committing a generation with changed graph, community and semantic results; a subsequent new response must contain only the new generation. Current broad-worker communities remain frozen, so this probe is future qualification.",
+          "Raw receipt recheck finds 900 exact ordered pairs across three A/J runs, separate six source rebuilds and twenty deltas with graph/community parity. Small real semantic replacement and observation-only maintenance repeat remain bounded. Initial failure with unavailable counts is retained; broad memory is not generalized from H."
+        ]
+      },
+      "final_scope_readiness_rebind_verdict": "approve current final evaluation scope for readiness rebind; no production implementation authority",
+      "scoped_delivery_verdict": "approve reality-checker seat for the frozen evaluation and explicitly limited proposed ADR; required lane/council synthesis remains coordinator-owned",
+      "production_adoption_verdict": "not approved; original adoption screen unmet",
+      "findings": [],
+      "null_finding": {
+        "explicit": true,
+        "rationale": "No new actionable defect found within the evaluation scope. The most important counterexample\u2014production epoch changes are outside participant_view\u2014is already stated by publish, recovery receipt and ADR conversion gates."
+      },
+      "assumptions": [
+        {
+          "assumption": "Persisted participants are observably coupled",
+          "status": "tested within bounded SQL observation control and supported by existing executed recovery receipts",
+          "disposition": "accept scoped evidence"
+        },
+        {
+          "assumption": "Same evidence proves production whole-response atomicity",
+          "status": "refuted as a scope overclaim; not made by final ADR",
+          "disposition": "not_issue"
+        },
+        {
+          "assumption": "Memory or capacity benefit generalizes",
+          "status": "refuted by broad-worker and persistence regressions, disclosed",
+          "disposition": "not_issue"
+        },
+        {
+          "assumption": "Failure-free maintenance is established",
+          "status": "unknown and explicitly not claimed; original failure retained",
+          "disposition": "not_issue"
+        }
+      ],
+      "execution_status": "executed",
+      "proposition": "The current evaluation detects changed real persisted community/vector participants, while explicitly excluding production epoch integration; recorded source/query parity is reproducible from raw observations.",
+      "counterexample_or_failure_condition": "Mutation of community or removal of a real semantic vector leaves participant_view unchanged; raw paired graph/query digests diverge; or frozen input hashes differ.",
+      "public_path": "Closest faithful bounded boundary: current graph_lifecycle_eval.participant_view executing its actual SQL through SQLite against copied real participant rows; current publish/recovery and graph_eval.broad_worker inspected through MCP. No new full lifecycle or public MCP benchmark execution.",
+      "command_or_fixture": "python3 -B /tmp/graph-1xny3-reality-probe.py",
+      "expected": "Baseline has real nonempty records/nodes/edges/chunks/vectors and FTS hit; stale community or deleted vector is detected; rollback restores baseline; epoch-only mutation is outside observer scope; raw parity and hashes agree.",
+      "observed": {
+        "actual_copied_fixture_counts": {
+          "publication": 1,
+          "records": 3,
+          "nodes": 5,
+          "edges": 5,
+          "chunks": 2,
+          "vectors": 2,
+          "fts": 1,
+          "fts_renamed": 0
+        },
+        "mutation_table": [
+          {
+            "mutant": "mixed_community",
+            "targeted_check": "participant_view equality against actual copied participant rows",
+            "expected": "mismatch",
+            "observed": "mismatch; rollback restores equality",
+            "killed": true
+          },
+          {
+            "mutant": "missing_semantic_vector",
+            "targeted_check": "participant_view equality against actual copied participant rows",
+            "expected": "mismatch",
+            "observed": "mismatch; rollback restores equality",
+            "killed": true
+          }
+        ],
+        "epoch_perturbation_invisible_to_participant_view": true,
+        "ordered_pairs": 900,
+        "source_rebuilds": 6,
+        "source_deltas": 20,
+        "raw_graph_and_community_parity": true,
+        "runtime_source_hashes_match_receipt": {
+          "graph_cluster.py": true,
+          "graph_indexer.py": true,
+          "index_state_store.py": true,
+          "indexer.py": true,
+          "sqlite_vector_store.py": true
+        },
+        "end_nine_blobs_match": true,
+        "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e"
+      },
+      "artifact_or_test_id": [
+        "/tmp/graph-1xny3-reality-probe.py",
+        "/tmp/graph-1xny3-reality-probe-result.json",
+        "graph_lifecycle_eval.participant_view",
+        "graph_lifecycle_eval.publish",
+        "graph_lifecycle_eval.recovery",
+        "graph_eval.broad_worker",
+        "benchmark-results.json:continuation_round2.lifecycle.full_corpus_recovery"
+      ],
+      "source_anchors": [
+        "graph_lifecycle_eval.publish: BEGIN IMMEDIATE, semantic.apply(store), unchanged build_state assertion",
+        "graph_lifecycle_eval.participant_view: actual participant SQL",
+        "graph_lifecycle_eval.recovery: old/new reader comparisons, real vector retrieval, production_epoch_advanced=False",
+        "graph_eval.broad_worker: frozen separate community_input and public response producer calls",
+        "ADR 1xny4 lines 15-24 and 37-57 (prose)",
+        "benchmark-results.json: continuation_round2.raw_qualified_query_runs, lifecycle.raw_six_source_rebuilds, lifecycle.raw_twenty_deltas, lifecycle.maintenance_failure"
+      ],
+      "mutation_table": [
+        {
+          "mutant": "mixed_community",
+          "targeted_check": "participant_view equality against actual copied participant rows",
+          "expected": "mismatch",
+          "observed": "mismatch; rollback restores equality",
+          "killed": true
+        },
+        {
+          "mutant": "missing_semantic_vector",
+          "targeted_check": "participant_view equality against actual copied participant rows",
+          "expected": "mismatch",
+          "observed": "mismatch; rollback restores equality",
+          "killed": true
+        }
+      ],
+      "adjacent_controls": [
+        "Real row baseline: one publication, three extraction records, five nodes, five edges, two chunks and vectors, one FTS hit; renamed-token hits zero.",
+        "Each mutation rollback restores exact baseline equality.",
+        "Increment production epoch only: observer equality persists, establishing an explicit limit."
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: actual copied persisted community bytes changed and one real semantic vector removed in memory; exact current SQL observation rejected both; real SQLite parser/storage boundary reached"
+      },
+      "limits": [
+        "Targeted observer/SQL boundary controls, not a rerun of publish transaction or crash/restart recovery. Earlier crash77, replacement and native-vector retrieval are reviewed receipt evidence.",
+        "AST-extracted current participant_view ran unchanged; fixture tables used actual selected persisted rows and actual schemas, but public MCP transport and full response concurrency were not rerun.",
+        "No full benchmarks, semantic full rebuild, installs, network or production/source mutation.",
+        "Production epoch/layer bookkeeping, integrated whole-response communities/cache, long-running maintenance and other platforms remain unqualified.",
+        "Probe artifacts are temporary; coordinator should preserve load-bearing executable record in existing typed evidence."
+      ],
+      "safety_and_authorization": "Authorized bounded local review: source database opened read-only; copied actual participant rows into in-memory SQLite; mutations rolled back there. Only /tmp review artifacts written. No repository/ledger/raw receipt edits.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "production_integrity": {
+        "tracked_framework_diff_empty": true,
+        "method": "git diff --name-only -- .wavefoundry/framework returned empty; five current runtime source SHA256 values match execution receipt. This does not assert arbitrary untracked filesystem census."
+      },
+      "end_nine_blob_check": {
+        "match": true,
+        "fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "method": "git hash-object on all nine packet paths before/after probe; sha256(json.dumps(files,sort_keys=True))"
+      },
+      "sweep_rule": "targeted checks per mutant; no surviving in-scope mutant required a whole-file run; epoch perturbation is deliberately outside asserted observer contract",
+      "rotating_alternative_reconciliation": {
+        "candidate": "Retain separate graph persistence and resident GraphQueryIndex; if consistency risk warrants, publish immutable semantic/graph generations through one atomic active-generation manifest, pin each complete response to its generation, and defer reclamation.",
+        "comparison": "This is a credible competing design, not a demonstrated winner. It could preserve current graph-serving behavior and avoid normalized full graph rewrites and shared writer contention. It retains multiple persistence authorities: recovery must distinguish prepared versus active generations, guarantee durable ordering before pointer activation, handle failed or incomplete generations, and reclaim only generations with no pinned readers. The manifest publication boundary and its crash behavior have not been measured here. Shared SQLite has a demonstrated isolated transaction for actual graph/extraction/community and real semantic replacement participants; that benefit does not demonstrate complete production epoch/cache coherence, efficient incremental writes, or superiority over a manifest design.",
+        "effect_on_preferred_direction": "Keep shared SQLite as a provisional direction justified by the scoped transaction result, while retaining the manifest candidate as a legitimate alternative for the subsequent design comparison. Permanent separate persistence cannot be rejected from these benchmarks. Conversely, its projected avoidance of contention and rewrite costs is unmeasured; do not count those as delivered benefits. Persistence representation, generation publication, and resident serving cache should be compared separately.",
+        "verdict": "Affirm final-scope readiness rebind and scoped evaluation delivery; no new finding or production adoption approval. The ADR is proposed, retains current production behavior, states complete production integration gates, and does not establish normalized tables as uniquely required.",
+        "evidence_class": "Design comparison/inference only. No new execution or performance claim; no benchmark or frozen repository edits.",
+        "qualification_for_next_design": "Compare crash-safe durable manifest activation, mixed-generation rejection over complete responses, pinned-reader reclamation, interrupted recovery, storage overlap and write latency against integrated shared SQLite before selecting a production boundary."
+      }
+    },
+    "docs-review": {
+      "pre_primer_concern": "The proposed shared-persistence direction could be read as passing production adoption despite greater disk/delta cost, broad-report regression and no demonstrated broad memory improvement. Verify that report, ADR and AC treatment consistently retain the failed gate and distinguish cohort-specific parity from production readiness.",
+      "recorded_at": 1789061988.231626,
+      "role": "docs-contract-reviewer; rotating fifth council seat",
+      "context_id": "/root/graph_docs_review",
+      "wave": "1xny3",
+      "verdict": "approve scoped evaluation readiness rebind and delivery docs contract; no production adoption approval",
+      "approval_phases": [
+        "readiness",
+        "delivery"
+      ],
+      "pending_policy_receipt_id": "review-policy-03aa9b2945691d73e22c",
+      "phase_boundary": "Finalized evaluation plan and report review. Readiness rebind is current-tree confirmation only; no retroactive implementation authority or new benchmark/source work.",
+      "findings": [],
+      "no_findings_scope": "No mismatches in selected ADR/report numeric rows, adoption boundary, cohort distinction, maintenance-failure treatment, AC4 intentional deferral or evaluation cross-links. This is a bounded document-contract review, not an exhaustive harness, security or production qualification.",
+      "primer_effect": "The primer reinforced my pre-existing risk that preferred persistence could be misread as adoption. Direct source reads independently confirmed the specific gaps: publish preserves build_state; broad_worker reads frozen separate communities. The ADR already discloses these. No verdict was imported from the primer.",
+      "primer_answers": [
+        "Yes. ADR Decision and change Decision and remaining gates retain deployed A and label this a proposed direction; the original production-adoption gate remains unmet. Scoped prepared shared publication/recovery demonstrates a reason to investigate one authority. Neither J nor normalized rows is endorsed for production, and no measured broad-memory/disk/delta improvement justifies declaring that representation the winner.",
+        "Build_state/global epoch, build-layer bookkeeping, extraction state, semantic chunks/vectors/FTS, resolved graph, graph serving cache and communities must participate in a coherent generation boundary. A whole-response test should pause a response after its first graph read, publish a changed graph plus communities/semantic data/epoch, resume it, and assert the complete old response; a fresh request must return the complete new response. Repeat at the community/cache callback boundary. This is a proposed future test, not executed here.",
+        "Yes within the selected summaries: 900 historical ordered pairs and separate fresh-source parity are named; real small semantic replacement is bounded; initial maintenance failure survives and its repeat is observation-only; broad worker memory contradicts generalizing H. AC4 is explicitly [~] and no ranking-quality gain is claimed."
+      ],
+      "strongest_genuinely_different_alternative": {
+        "proposal": "Retain separate graph persistence and the resident GraphQueryIndex permanently. If consistency warrants additional work, prepare immutable semantic and graph generations separately and atomically publish one active-generation manifest; pin that generation for the complete response and reclaim old generations after readers finish.",
+        "advantage": "Preserves observed serving speed and avoids graph writes contending with the semantic SQLite writer or forcing normalized full-table replacement.",
+        "cost": "Replaces single SQLite transaction simplicity with explicit cross-store crash recovery, reader pinning, cleanup and write amplification. Additional generations can increase disk and overlapping cache memory.",
+        "status": "Unmeasured competing design; no winner claim. Evaluate against shared persistence only in a separately admitted design/conversion scope."
+      },
+      "validated_anchors": [
+        "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md: Decision; Evidence and consequences; Gates for a subsequent conversion",
+        "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md: Continued evaluation; Acceptance Criteria; Decision and remaining gates",
+        "graph_eval.py::broad_worker (MCP outline followed by complete symbol read): timed per-request J materialization, public producer injection, separate frozen community input, full response encoding",
+        "graph_lifecycle_eval.py::publish (MCP outline followed by complete symbol read): prepared rows/community/semantic delta inside BEGIN IMMEDIATE, build_state preserved explicitly",
+        "benchmark-results.json::continuation_round2.raw_qualified_query_runs; query_summary; qualified_query_parity; lifecycle.source_rebuild_ms; lifecycle.delta_ms; lifecycle.maintenance_failure"
+      ],
+      "execution_status": "executed",
+      "proposition": "Selected published numeric conclusions and explicit qualification boundaries agree with retained machine-readable evaluation evidence.",
+      "counterexample_or_failure_condition": "A changed raw ordered hash, false screen pass, altered pooled percentile, inflated match count, qualified maintenance repeat, or false adoption statement is accepted as consistent.",
+      "public_path": "Closest faithful delivery boundary: real committed benchmark-results.json parser and ADR report consumption, including actual raw sample/hash arrays and resolved evaluation links. No production MCP runtime behavior is claimed executed.",
+      "command_or_fixture": "python3 -B /tmp/graph-1xny3-docs-contract-probe.py",
+      "expected": "Current report validates; six known-bad report/prose copies fail specific assertions; all nine packet blobs match.",
+      "observed": "Current report validates six pooled p95 values, four lifecycle medians, 900 ordered pairs and cohort arithmetic. All six targeted mutants failed their intended assertion. Four evaluation links resolve; nine Git blobs match.",
+      "artifact_or_test_id": [
+        "/tmp/graph-1xny3-docs-contract-probe.py",
+        "/tmp/graph-1xny3-docs-probe-output.json"
+      ],
+      "adjacent_controls": [
+        "Unmodified real report and ADR pass the identical checker before each independently mutated in-memory report is checked."
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation of real report data/prose at its parser/consumer boundary; six distinct controls rejected"
+      },
+      "integrity_interpretation": "Seed209 defines five booleans plus nonempty method (six entries), not six booleans. public_path_reached refers only to the explicitly named report/parser boundary, not an unexecuted MCP graph request. Phrase checks establish disclosure presence, not agent compliance.",
+      "mutation_table": [
+        {
+          "mutant": "inflated-parity",
+          "detected": true,
+          "observed": "900 pairs"
+        },
+        {
+          "mutant": "false-report-pass",
+          "detected": true,
+          "observed": "screen outcome"
+        },
+        {
+          "mutant": "corrupt-p95",
+          "detected": true,
+          "observed": "raw pooled p95"
+        },
+        {
+          "mutant": "response-mismatch",
+          "detected": true,
+          "observed": "ordered response parity"
+        },
+        {
+          "mutant": "qualified-maintenance-repeat",
+          "detected": true,
+          "observed": "repeat not qualification"
+        },
+        {
+          "mutant": "adoption-approved-prose",
+          "detected": true,
+          "observed": "failed adoption gate disclosure"
+        }
+      ],
+      "raw_recomputed_results": {
+        "query_p95": {
+          "risk_scopes": {
+            "A": 34.972250228747725,
+            "J": 353.1585829332471
+          },
+          "report_default": {
+            "A": 560.6254579033703,
+            "J": 887.2765409760177
+          },
+          "report_filtered": {
+            "A": 570.3677090350538,
+            "J": 894.5369580760598
+          },
+          "source_rebuild_ms": {
+            "A": 141687.76691681705,
+            "C": 142140.98770916462
+          },
+          "delta_ms": {
+            "A": 7255.117062479258,
+            "C": 10334.030312951654
+          }
+        },
+        "ordered_pairs": 900,
+        "cohort_edges": [
+          119543,
+          119668
+        ]
+      },
+      "git_blob_verification": [
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+          "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+          "actual": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+          "match": true
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+          "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+          "actual": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+          "match": true
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+          "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+          "actual": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+          "match": true
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+          "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+          "actual": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+          "match": true
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+          "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+          "actual": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+          "match": true
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+          "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+          "actual": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+          "match": true
+        },
+        {
+          "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+          "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+          "actual": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+          "match": true
+        },
+        {
+          "path": "docs/architecture/decisions/README.md",
+          "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+          "actual": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+          "match": true
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+          "actual": "54052b28829a6a4a38155bb576de78c56d7ade80",
+          "match": true
+        }
+      ],
+      "computed_tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "fingerprint_recipe": "sha256(json.dumps(packet['files'], sort_keys=True).encode()).hexdigest(); preserve file-list order; first verify each git hash-object against working-tree bytes",
+      "fingerprint_matches": true,
+      "safety_and_authorization": "Read-only repository inspection; transient probe/report files under /tmp; mutations are in-memory copies. No network, installs, live index mutation, benchmark worker, ledger write, closure or repository edits.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "verification_context": {
+        "actor": "docs-contract-reviewer",
+        "context_id": "/root/graph_docs_review",
+        "fresh_context": true,
+        "independent": true
+      },
+      "limitations": [
+        "No new benchmark, extraction, embedding, crash/recovery, runtime report or full suite was executed; numeric validation re-computes existing raw evidence.",
+        "No production epoch/cache/community integration, full semantic-plus-graph rebuild, long-running maintenance or additional platform qualification.",
+        "Dated external Cypher/package references were not re-fetched under no-network scope; no current external maturity assertion is made by this review.",
+        "Embedded historical review metadata is present in the evidence artifact. It was not accepted as proof or used to derive this verdict; no peer lane reports were requested/read.",
+        "/tmp probe and output are transient; coordinator should preserve necessary evidence in typed review evidence without inventing execution claims."
+      ],
+      "finished_at": 1789062147.404907
+    },
+    "code-review": {
+      "role": "code-reviewer",
+      "actor": "graph_code_review",
+      "fresh_context": true,
+      "independent": true,
+      "verdict": "approve scoped evaluation delivery and final-scope readiness rebind; no production adoption approval",
+      "findings": [],
+      "scope": "Exact frozen nine-path evaluation packet; finalized AC4 deferral and continued 500ms evaluation preserve earlier failed screens. No repo or ledger edits.",
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "files": [
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+          "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+          "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+          "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+          "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+          "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+          "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+        },
+        {
+          "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+          "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+        },
+        {
+          "path": "docs/architecture/decisions/README.md",
+          "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+        }
+      ],
+      "reference": {
+        "source": "Independently read change Evaluation Protocol Isolation and resource envelope; ADR proposed-design and preserved-public-contract boundaries",
+        "property": "Unowned scratch must be rejected before first filesystem mutation; process monitoring and termination apply to invocation-owned child processes. Evaluation conclusions must retain unqualified stops and maintenance failures.",
+        "common_mode_limitations": "Native child runtime measured on macOS only. Probe imports the real harness and calls its CLI main; independent assertion observes filesystem side effects, not its helper return value. Publication rollback examined in source only in this lane."
+      },
+      "evidence": {
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/graph-1xny3-code-probe.py",
+        "expected": "CLI prepare rejects unmarked disposable root before lock creation; removing root guard violates same first-write invariant. Actual allocated child has measurable resident pages and is reaped after stop_owned_children.",
+        "observed": "Good exits 1 with scratch ownership required and no .benchmark.lock. In-memory known-bad guard deletion creates .benchmark.lock before missing snapshot error: independent first-write invariant detects mutation, despite equal exit codes. Actual child RSS 30,998,528 bytes exceeds allocated 16MiB and child poll confirms termination. Nine final git blobs and combined SHA256 match frozen packet.",
+        "artifact_or_test_id": "/tmp/graph-1xny3-code-probe-results.json",
+        "limitations": "No full benchmark, network, dependency install, live-index mutation, platform qualification, fresh full raw arithmetic recomputation, or production integration execution. Original failed maintenance subcondition stays unknown. Source review of prepared publish rollback does not replace other lane transaction probes.",
+        "safety_and_authorization": "Only newly allocated temporary roots and invocation-owned subprocess; module mutation in memory; no checked-in edits."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      },
+      "mutation_table": [
+        {
+          "mechanism": "CLI scratch ownership guard",
+          "mutation": "Delete marker/repository exclusion conditional in memory",
+          "failing_test": "Independent assertion: unowned scratch has no .benchmark.lock after CLI prepare",
+          "outcome": "CAUGHT; good no lock, mutant lock created"
+        },
+        {
+          "mechanism": "Owned child memory accounting and group reap",
+          "mutation": "Not mutated in this bounded lane",
+          "failing_test": "Actual child allocation >16MiB observed and poll terminal after stop",
+          "outcome": "POSITIVE EXECUTION; mutation NOT RUN"
+        },
+        {
+          "mechanism": "Child RSS bounded retry/fail-closed monitor; guarded exit diagnostic failure; query and whole-worker deadlines; disk/RSS caps; symlink exclusion; prepared transaction rollback",
+          "mutation": "Not executed in this bounded lane",
+          "failing_test": "Source inspected for selected highest-risk boundaries; no new mutation coverage claimed",
+          "outcome": "NOT RUN; finite 180s review selection"
+        }
+      ],
+      "source_validation": [
+        "graph_eval.py:25-55 child tracking, bounded native RSS retry, process-group stop",
+        "graph_eval.py:70-76 resolved scratch ownership and descendant check",
+        "graph_eval.py:110-129 watchdog fail-closed exception path",
+        "graph_lifecycle_eval.py:202-276 prepared state and BEGIN IMMEDIATE transaction with rollback on BaseException",
+        "retrieval_eval.py:292-346 row appended only after full qualified query; bounded stop retains attempts and zero/null summaries",
+        "ADR lines 15-46 and finalized change explicitly retain complete-report regression, stopped ranking evaluation and unknown maintenance failure"
+      ]
+    },
+    "performance-review": {
+      "reviewer": "performance-reviewer",
+      "verdict": "Approved with notes",
+      "scope": "Final readiness rebind and delivery of evaluation only; no production conversion approval.",
+      "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+      "verified_files": [
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+          "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+          "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+          "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+          "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+          "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+        },
+        {
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+          "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+        },
+        {
+          "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+          "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+        },
+        {
+          "path": "docs/architecture/decisions/README.md",
+          "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+        },
+        {
+          "path": "docs/ARCHITECTURE.md",
+          "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+        }
+      ],
+      "query_recomputation": {
+        "risk_scopes": {
+          "A": {
+            "p50_ms": 31.541500007733703,
+            "p95_ms": 34.972250228747725,
+            "p99_ms": 37.953624967485666
+          },
+          "J": {
+            "p50_ms": 274.08287511207163,
+            "p95_ms": 353.1585829332471,
+            "p99_ms": 370.5995830241591
+          },
+          "screen_limit_ms": 500,
+          "passes": true
+        },
+        "report_default": {
+          "A": {
+            "p50_ms": 531.86354204081,
+            "p95_ms": 560.6254579033703,
+            "p99_ms": 584.1846249531955
+          },
+          "J": {
+            "p50_ms": 820.9834578447044,
+            "p95_ms": 887.2765409760177,
+            "p99_ms": 963.7276669964194
+          },
+          "screen_limit_ms": 616.6880036937073,
+          "passes": false
+        },
+        "report_filtered": {
+          "A": {
+            "p50_ms": 536.1205830704421,
+            "p95_ms": 570.3677090350538,
+            "p99_ms": 583.940708078444
+          },
+          "J": {
+            "p50_ms": 823.9045001100749,
+            "p95_ms": 894.5369580760598,
+            "p99_ms": 912.8113340120763
+          },
+          "screen_limit_ms": 627.4044799385592,
+          "passes": false
+        }
+      },
+      "paired_response_matches": 900,
+      "rebuild_recomputation": {
+        "A": {
+          "n": 3,
+          "median_ms": 141687.76691681705,
+          "max_ms": 142068.06712481193
+        },
+        "C": {
+          "n": 3,
+          "median_ms": 142140.98770916462,
+          "max_ms": 143013.22220801376
+        },
+        "C_change_percent": 0.3198729164908487
+      },
+      "delta_recomputation": {
+        "A": {
+          "n": 10,
+          "median_ms": 7255.117062479258,
+          "max_ms": 12285.275041125715
+        },
+        "C": {
+          "n": 10,
+          "median_ms": 10334.030312951654,
+          "max_ms": 10740.77312508598
+        },
+        "C_change_percent": 42.437816288249586
+      },
+      "C_delta_phase_medians_ms": {
+        "prepare_sql_ms": 1379.5823119580746,
+        "stage_restore_ms": 759.3626669840887,
+        "writer_lock_ms": 918.8683750107884
+      },
+      "resources_recomputation": {
+        "A": {
+          "peak_worker_mib": 313.484375,
+          "median_end_resident_mib": 195.90625
+        },
+        "J": {
+          "peak_worker_mib": 376.765625,
+          "median_end_resident_mib": 372.109375
+        },
+        "lifecycle": {
+          "persistent_bytes_A": 223.0780849456787,
+          "persistent_bytes_C": 266.83203125,
+          "qualified_peak_owned_scratch_bytes": 3630.0098085403442,
+          "qualified_peak_rss_bytes": 1821.4375,
+          "stage_bytes_A": 50.55397701263428,
+          "stage_bytes_C": 120.15944766998291
+        }
+      },
+      "mutation_table": [
+        {
+          "mutation": "pair",
+          "expected": "reject",
+          "observed": "paired response mismatch",
+          "detected": true
+        },
+        {
+          "mutation": "sample",
+          "expected": "reject",
+          "observed": "sample count",
+          "detected": true
+        },
+        {
+          "mutation": "budget",
+          "expected": "reject",
+          "observed": "budget verdict",
+          "detected": true
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Three in-memory mutations of actual frozen receipt: altered paired hash, removed raw sample, false passing report budget claim; independent aggregate rejects each."
+      },
+      "verification_context": {
+        "actor": "performance-reviewer",
+        "context_id": "graph-1xny3-performance-independent-final-20260910",
+        "fresh_context": true,
+        "independent": true
+      },
+      "execution_status": "executed",
+      "public_path": "Frozen benchmark-results.json evaluation evidence boundary, independently aggregated with Python standard library; not runtime MCP or benchmark execution.",
+      "command_or_fixture": "python3 -B /tmp/graph-1xny3-performance-aggregate.py",
+      "expected": "Exact raw cohort/summary agreement, retained policy rejects full report regressions, three known-bad claims rejected.",
+      "observed": "900 paired response hashes agree; six rebuild and twenty delta values reproduce claims; all three mutations rejected.",
+      "artifact_or_test_id": "/tmp/graph-1xny3-performance-review.json",
+      "notes": [
+        "Report p95 fails retained baseline-relative allowance; scoped-risk passes 500ms despite 10.10x baseline latency.",
+        "Rebuild median rises 0.32%; delta median rises 42.44%; per-edit stage reconstruction is a conservative prototype cost.",
+        "SQL prepare/stage/whole-graph publication costs and approximately 919ms median writer hold are explicitly disclosed; no efficient incremental-production claim.",
+        "Broad-worker memory increases; historical bounded H memory savings cannot establish total MCP RSS benefit.",
+        "Initial reuse/no-growth failure has unknown failed subcondition; single repeat cannot establish sustained maintenance behavior."
+      ],
+      "findings": [],
+      "limitations": [
+        "No new benchmark, live store, production MCP, cross-platform or full semantic rebuild execution. Raw receipt math validates recorded observations, not instrument calibration or original execution authenticity.",
+        "Graph floor-order query percentiles preserved; n=3 rebuild medians and n=10 delta maxima are descriptive, not population-tail guarantees.",
+        "Worker RSS excludes total MCP process; persistent footprint includes observed sidecars and excludes source copies; staging and peak scratch reported separately.",
+        "Required startup orientation exposes status/history; other review-seat reports were not used to form this verdict.",
+        "No structural complexity proof for all code paths; this seat is intentionally bounded to evaluation receipt and stated publication cost."
+      ],
+      "safety_and_authorization": "Authorized read-only review; mutation copies stay in process memory; only reviewer artifacts written in /tmp.",
+      "universal_claim": false
+    },
+    "council-final": {
+      "role": "wave-council",
+      "context_id": "/root/graph_final_moderator",
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "/root/graph_final_moderator",
+        "fresh_context": true,
+        "independent": true
+      },
+      "wave_id": "1xny3",
+      "phase": "readiness and delivery, separate verdicts",
+      "final_scope_readiness_rebind": {
+        "verdict": "approve",
+        "pending_policy_receipt": "review-policy-03aa9b2945691d73e22c",
+        "policy_input_digest": "3ca5cb6f3152e64fe602d63c800c5003fba2d35d97034454962b64d4ba8784fa",
+        "scope": "Finalized evaluation text binding only; original readiness authorized preceding work. This is not retroactive implementation authority or production conversion."
+      },
+      "scoped_delivery": {
+        "verdict": "approve",
+        "scope": "Completed isolated evaluation with negative adoption results and explicit AC4 intentional deferral. No required-lane finding is waived."
+      },
+      "production_adoption": "not approved",
+      "primer": {
+        "depth": "full",
+        "report": "/tmp/graph-1xny3-primer.json",
+        "response": "Confirmed and extended: real isolated transaction benefit does not qualify production epoch/cache/community consistency or prefer normalized tables/J. Broad memory/report/delta negatives, historical/source cohorts and mixed maintenance evidence constrain every conclusion."
+      },
+      "first_synthesis": {
+        "method": "Randomized labelled summaries weighed before final attributed synthesis; required-lane blockers would retain identity (none reported).",
+        "random_seed": 18371,
+        "summaries": [
+          {
+            "seat": "Seat 1",
+            "summary": "Recorded response/count evidence and small source/publication controls support evaluation; production and guard sweep remain limited.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 2",
+            "summary": "Recorded arithmetic and budget controls preserve negative report, memory, storage and delta outcomes; no runtime benchmark rerun.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 3",
+            "summary": "Actual participant observer detects community/vector changes but intentionally does not detect production epoch changes.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 4",
+            "summary": "Published prose and raw evidence agree; separate immutable generations with manifest deserve future comparison.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 5",
+            "summary": "Owned scratch, guard, offline-failure and small rollback controls support safety only at selected boundaries.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 6",
+            "summary": "Current proposed ADR disallows cutover, recognizes full-response boundary and does not require normalized persistence; fresh document control only.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          },
+          {
+            "seat": "Seat 7",
+            "summary": "Actual CLI first-write ownership guard and owned-child observations support bounded harness integrity.",
+            "merit": "Supports bounded evaluation only; no new actionable proposition"
+          }
+        ],
+        "reattachment": [
+          {
+            "seat": "Seat 1",
+            "report": "qa-review"
+          },
+          {
+            "seat": "Seat 2",
+            "report": "performance-review"
+          },
+          {
+            "seat": "Seat 3",
+            "report": "reality-review"
+          },
+          {
+            "seat": "Seat 4",
+            "report": "docs-review"
+          },
+          {
+            "seat": "Seat 5",
+            "report": "security-review"
+          },
+          {
+            "seat": "Seat 6",
+            "report": "architecture-final"
+          },
+          {
+            "seat": "Seat 7",
+            "report": "code-review"
+          }
+        ],
+        "limitation": "Not a fully blind experiment: source report paths, context IDs and role-related evidence could identify origins during report extraction. Masking reduces emphasis on authority; it cannot establish statistical independence."
+      },
+      "seat_roster": [
+        {
+          "report": "/tmp/graph-1xny3-qa-review.json",
+          "role": "qa-reviewer",
+          "context_id": "/root/graph_qa_check",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-performance-review.json",
+          "role": "performance-reviewer",
+          "context_id": "graph-1xny3-performance-independent-final-20260910",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-reality-review.json",
+          "role": "reality-checker",
+          "context_id": "/root/graph_reality_check",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-docs-review.json",
+          "role": "docs-contract-reviewer; rotating fifth council seat",
+          "context_id": "/root/graph_docs_review",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-security-review.json",
+          "role": "security-reviewer",
+          "context_id": "/root/graph_security_check",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-architecture-final.json",
+          "role": "architecture-reviewer",
+          "context_id": "/root/graph_architecture_final",
+          "findings": []
+        },
+        {
+          "report": "/tmp/graph-1xny3-code-review.json",
+          "role": "code-reviewer",
+          "context_id": "graph_code_review",
+          "findings": []
+        }
+      ],
+      "fixed_seats": [
+        "architecture-reviewer",
+        "security-reviewer",
+        "qa-reviewer",
+        "reality-checker"
+      ],
+      "rotating_fifth_seat": "docs-contract-reviewer",
+      "supplemental_lanes": [
+        "code-reviewer",
+        "performance-reviewer"
+      ],
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none",
+        "interpretation": "All five final council seats report aligned scoped verdicts after own assessments; this is reported verdict alignment, not independent experimental convergence."
+      },
+      "correlation_check": "Shared primer and frozen receipt create correlated concerns and repeated arithmetic. Treat agreement about production exclusions, broad regressions and maintenance uncertainty as one shared signal; distinct execution boundaries supply bounded additional evidence, not a universal guarantee.",
+      "pre_primer_quality": "Final architecture, QA, security and reality priors differ in emphasis (generation/cache boundary; parity/source transitions; scratch/failure containment; observer coverage). Topical overlap is expected and not proof of contamination. Original architecture lacked a documented pre-primer prior; replaced by fresh architecture-final, with original runtime probes attributed separately.",
+      "strongest_alternative": {
+        "proposal": "Keep separate graph persistence and resident GraphQueryIndex; construct immutable semantic/graph/community generations, activate one durable atomic manifest, pin each complete response, reclaim only after readers release.",
+        "better_because": "Could avoid coupling graph publication to semantic writer occupancy and avoid requiring full normalized row replacement while retaining serving behavior. These are projected advantages, not measured wins.",
+        "cost": "Cross-store durable completion/activation ordering, crash recovery, orphan cleanup, missing generation handling, reader pinning and retention must be proved; overlapping generations can increase disk and memory.",
+        "competing_shared_design": "Compact immutable graph/community snapshot in shared SQLite loaded into resident GraphQueryIndex; also unmeasured. Both can retain existing serving algorithms.",
+        "decision": "Keep shared SQLite a provisional direction because actual prepared participants have an observed single transaction authority. No evidence establishes either alternative, normalized tables or J as production winner."
+      },
+      "fixed_seat_alternative_reconciliation": {
+        "architecture": "architecture-final: shared compact snapshot and separate manifest both credible; neither measured.",
+        "security": "security-alternative: manifest authority depends on durable publication, owned cleanup and reader lifetime; no new boundary in current evaluation.",
+        "qa": "qa-alternative: run production whole-response, crash/reclamation and writer occupancy controls before selecting either.",
+        "reality": "reality-review supplement: scoped participant transaction is real; manifest cannot be rejected by current evidence, projected savings remain unmeasured."
+      },
+      "conflicts_and_dispositions": [],
+      "findings": [],
+      "finding_synthesis": {
+        "sealed_candidate_ids": [],
+        "rows": [],
+        "review_runs": [
+          {
+            "run_kind": "readiness",
+            "candidate_ids": []
+          },
+          {
+            "run_kind": "initial_delivery",
+            "candidate_ids": []
+          }
+        ],
+        "reconciliation": "All originating reports and closing red-team have empty candidate sets. No candidate downgraded, suppressed, waived or converted into a mandatory future finding. Typed ledger authoring remains coordinator responsibility."
+      },
+      "challenge_round": {
+        "triggered": false,
+        "reason": "No split verdict or disputed high/critical blocker."
+      },
+      "improvements_recommended": [
+        {
+          "action": "Preserve the separate immutable generation/manifest comparison in the durable council synthesis and next admitted design brief.",
+          "classification": "Non-blocking design improvement; this report supplies the comparison, no frozen ADR edit needed."
+        },
+        {
+          "action": "In any later conversion decision compare shared compact snapshots and separate generations with complete-response pins, crash/reclamation cases and inclusive resource/writer measurements.",
+          "classification": "Future decision qualification, not unfinished work or new finding in this evaluation."
+        }
+      ],
+      "red_team_closing_reconciliation": {
+        "context_id": "/root/graph_closing_redteam",
+        "report": "/tmp/graph-1xny3-closing-redteam.json",
+        "verdict": "Approve candidate reconciliation for finalized evaluation scope/readiness rebind and separately scoped evaluation delivery; no production adoption approval.",
+        "result": "Held both candidate verdicts and empty findings. Preserved all supplied boundaries and reconciled alternatives.",
+        "limitation": "Closing reviewer assessed the explicit candidate proposition and source artifacts before final moderator JSON existed; no final-JSON readback claimed. This is a distinct red-team context, not a simulated moderator seat."
+      },
+      "falsification_check": {
+        "heading": "### Falsification Check",
+        "working_verdict": "Approve finalized evaluation readiness rebind and evaluation delivery only.",
+        "strongest_argument_against": "The preferred shared direction may privilege an unqualified production boundary despite failed reports, broad memory, storage and delta screens, and a credible unmeasured separate-generation design.",
+        "resolution": "ADR explicitly retains deployed graph, records unmet adoption gate and future full-response/lifecycle requirements, and treats normalized persistence as nonunique. Council preserves both unmeasured alternatives and scoped transaction evidence. Thus the objection constrains production selection but does not invalidate this completed evaluation."
+      },
+      "evidence": [
+        {
+          "record_type": "executable_evidence",
+          "evidence_record_id": "1xny3-final-moderator-readiness",
+          "claim_id": "approval:wave-council-readiness",
+          "claim_kind": "approval",
+          "required_for_approval": true,
+          "phase": "readiness",
+          "proposition": "Finalized evaluation remains admissible at the refreshed policy binding without expanding implementation scope or budget.",
+          "counterexample_or_failure_condition": "A frozen blob differs, selected adopted-production or maintenance-qualified overclaim is accepted, or paired raw hash/sample corruption is accepted.",
+          "execution_status": "executed",
+          "public_path": "Actual frozen benchmark-results.json parser and proposed ADR document consumer boundary; no production graph MCP execution claimed.",
+          "command_or_fixture": "python3 -B /tmp/graph-1xny3-moderator-probe.py",
+          "expected": "Nine blobs match, 900 ordered pairs agree, four known-bad contract mutations fail.",
+          "observed": "Nine blobs and combined SHA256 match; 900 pairs accepted; false-adoption, erase-failure, ordered-pair-corruption and sample-loss rejected at named assertions.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-moderator-probe-result.json",
+          "adjacent_controls": [
+            "Unmodified actual report and ADR accepted",
+            "Exactly three runs and 100 observations for each of three families in each variant"
+          ],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "focused-mutation: four in-memory actual ADR/JSON contract mutations rejected: false adoption, erased maintenance failure, corrupt ordered response hash, missing sample"
+          },
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: four in-memory actual ADR/JSON contract mutations rejected: false adoption, erased maintenance failure, corrupt ordered response hash, missing sample",
+          "limitations": "Own execution is report-contract and fingerprint validation only. Prior seat runtime probes remain attributed; text assertions do not constitute general semantic prose classification or production qualification.",
+          "safety_and_authorization": "Authorized local read-only review with temporary probe files and in-memory mutations only.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safe_boundary": false,
+          "unexecuted_remainder_prohibited": false,
+          "universal_claim": false,
+          "verification_context": {
+            "actor": "wave-council",
+            "context_id": "/root/graph_final_moderator",
+            "fresh_context": true,
+            "independent": true
+          }
+        },
+        {
+          "record_type": "executable_evidence",
+          "evidence_record_id": "1xny3-final-moderator-delivery",
+          "claim_id": "approval:wave-council-delivery",
+          "claim_kind": "approval",
+          "required_for_approval": true,
+          "phase": "delivery",
+          "proposition": "The frozen evaluation report preserves its failed adoption and incomplete production boundaries and records 900 exact ordered query pairs.",
+          "counterexample_or_failure_condition": "A frozen blob differs, selected adopted-production or maintenance-qualified overclaim is accepted, or paired raw hash/sample corruption is accepted.",
+          "execution_status": "executed",
+          "public_path": "Actual frozen benchmark-results.json parser and proposed ADR document consumer boundary; no production graph MCP execution claimed.",
+          "command_or_fixture": "python3 -B /tmp/graph-1xny3-moderator-probe.py",
+          "expected": "Nine blobs match, 900 ordered pairs agree, four known-bad contract mutations fail.",
+          "observed": "Nine blobs and combined SHA256 match; 900 pairs accepted; false-adoption, erase-failure, ordered-pair-corruption and sample-loss rejected at named assertions.",
+          "artifact_or_test_id": "/tmp/graph-1xny3-moderator-probe-result.json",
+          "adjacent_controls": [
+            "Unmodified actual report and ADR accepted",
+            "Exactly three runs and 100 observations for each of three families in each variant"
+          ],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "focused-mutation: four in-memory actual ADR/JSON contract mutations rejected: false adoption, erased maintenance failure, corrupt ordered response hash, missing sample"
+          },
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: four in-memory actual ADR/JSON contract mutations rejected: false adoption, erased maintenance failure, corrupt ordered response hash, missing sample",
+          "limitations": "Own execution is report-contract and fingerprint validation only. Prior seat runtime probes remain attributed; text assertions do not constitute general semantic prose classification or production qualification.",
+          "safety_and_authorization": "Authorized local read-only review with temporary probe files and in-memory mutations only.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safe_boundary": false,
+          "unexecuted_remainder_prohibited": false,
+          "universal_claim": false,
+          "verification_context": {
+            "actor": "wave-council",
+            "context_id": "/root/graph_final_moderator",
+            "fresh_context": true,
+            "independent": true
+          }
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: four in-memory actual ADR/JSON contract mutations rejected: false adoption, erased maintenance failure, corrupt ordered response hash, missing sample"
+      },
+      "mutation_table": [
+        {
+          "mutant": "false-adoption",
+          "targeted_check": "current report/ADR consumer contract",
+          "detected": true,
+          "observed": "production adoption disclaimer",
+          "whole_file_run": false
+        },
+        {
+          "mutant": "erase-failure",
+          "targeted_check": "current report/ADR consumer contract",
+          "detected": true,
+          "observed": "original maintenance failure",
+          "whole_file_run": false
+        },
+        {
+          "mutant": "ordered-pair-corruption",
+          "targeted_check": "current report/ADR consumer contract",
+          "detected": true,
+          "observed": "ordered parity",
+          "whole_file_run": false
+        },
+        {
+          "mutant": "sample-loss",
+          "targeted_check": "current report/ADR consumer contract",
+          "detected": true,
+          "observed": "paired sample count",
+          "whole_file_run": false
+        }
+      ],
+      "nine_blob_fingerprint_check": {
+        "positive_ordered_pairs": 900,
+        "mutation_table": [
+          {
+            "mutant": "false-adoption",
+            "targeted_check": "current report/ADR consumer contract",
+            "detected": true,
+            "observed": "production adoption disclaimer",
+            "whole_file_run": false
+          },
+          {
+            "mutant": "erase-failure",
+            "targeted_check": "current report/ADR consumer contract",
+            "detected": true,
+            "observed": "original maintenance failure",
+            "whole_file_run": false
+          },
+          {
+            "mutant": "ordered-pair-corruption",
+            "targeted_check": "current report/ADR consumer contract",
+            "detected": true,
+            "observed": "ordered parity",
+            "whole_file_run": false
+          },
+          {
+            "mutant": "sample-loss",
+            "targeted_check": "current report/ADR consumer contract",
+            "detected": true,
+            "observed": "paired sample count",
+            "whole_file_run": false
+          }
+        ],
+        "nine_blobs_match": true,
+        "files": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426"
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4"
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf"
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05"
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80"
+          }
+        ],
+        "tree_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "execution_scope": "Actual frozen JSON parser and ADR consumer boundary; in-memory mutations only; no live graph/runtime benchmark"
+      },
+      "process_limitations": [
+        "Moderator did not implement or repair artifacts. Own assessment came from current ADR and independent report consumer control; prior verdicts were treated as assertions to synthesize, not substitute execution.",
+        "Original architecture prior absent; fresh replacement supplies own prior and bounded document control, while prior runtime probes remain separately attributed.",
+        "Shared primer, shared receipt, sequential/replacement contexts and partly identifiable report extraction preclude claiming fully blinded independent convergence.",
+        "No source, ledger, commit, close, benchmark, network, install, production mutation or whole-file test run by moderator.",
+        "No full semantic-plus-graph production lifecycle, whole-response epoch/cache/community integration, native platform coverage or long-run maintenance qualification.",
+        "Only temporary report artifacts written; coordinator must preserve load-bearing evidence when recording typed reviews."
+      ],
+      "finite_probe_budget": "180 seconds targeted review; no full benchmarks; targeted checks per mutant; no survivors requiring whole-file runs"
+    },
+    "closing-redteam": {
+      "role": "closing-redteam",
+      "context_id": "/root/graph_closing_redteam",
+      "wave_id": "1xny3",
+      "verdict": "Approve candidate reconciliation for finalized evaluation scope/readiness rebind and separately scoped evaluation delivery; no production adoption approval.",
+      "readiness_rebind": {
+        "verdict": "approve",
+        "pending_policy_suffix": "03aa9b2945691d73e22c",
+        "scope": "Current finalized evaluation only; no retroactive implementation authority or expanded budget."
+      },
+      "scoped_delivery": {
+        "verdict": "approve",
+        "scope": "Completed evaluation, preserved failed adoption gate, explicit AC4 intentional stop."
+      },
+      "production_adoption": "not_approved",
+      "findings": [],
+      "reconciliation": {
+        "sealed_findings": [],
+        "required_and_council_report_findings": {
+          "architecture-final": [],
+          "security-review": [],
+          "security-alternative": [],
+          "qa-review": [],
+          "qa-alternative": [],
+          "reality-review": [],
+          "docs-review": [],
+          "code-review": [],
+          "performance-review": []
+        },
+        "result": "Empty sets reconcile exactly. No finding was silently resolved, dismissed, or converted into a future mandatory task. Review limitations remain limitations."
+      },
+      "alternative_reconciliation": "Shared compact immutable snapshot plus resident GraphQueryIndex and separate immutable semantic/graph/community generations plus atomic active manifest are credible unmeasured alternatives. Shared SQLite demonstrates scoped participant transaction publication in the isolated prototype. Manifest design would require durable prepared-generation activation, whole-response pinning, recovery and deferred reclamation; shared compact snapshots also need integrated epoch/cache/community publication, retention and resource measurements. Neither is selected as a production winner. The candidate can retain a proposed shared direction without treating normalized rows or J as approved.",
+      "preserved_boundaries": [
+        "Original production-adoption gate unmet; report latency, broad memory, footprint and delta negatives retained.",
+        "Initial maintenance assertion failure retained; successful repeat is observation only.",
+        "AC4 and matching task remain intentionally deferred following clean baseline five-second stop; zero paired quality observations.",
+        "Historical 119543-edge query cohort distinct from fresh 119668-edge source cohort; +130/-5 document-code relations disclosed.",
+        "Publication prototype preserves production epoch; complete build-layer/global-epoch and response-wide cache/community integration remain unqualified."
+      ],
+      "falsification": {
+        "execution_status": "executed",
+        "public_path": "Actual frozen ADR and consolidated evaluation document parser/consumer boundary; no runtime path claim.",
+        "positive": "All nine explicit disclosure clauses and AC4 [~]/zero-pair clauses accepted.",
+        "negative_controls": [
+          {
+            "mutation": "remove not an approved production cutover",
+            "rejected": true,
+            "assertion": "not an approved production cutover"
+          },
+          {
+            "mutation": "remove original production-adoption gate remains unmet",
+            "rejected": true,
+            "assertion": "original production-adoption gate remains unmet"
+          },
+          {
+            "mutation": "remove does not explain or erase that failure",
+            "rejected": true,
+            "assertion": "does not explain or erase that failure"
+          }
+        ],
+        "interpretation": "Exact disclosure contract detects deletion of selected load-bearing clauses; it is not a semantic prose classifier or a production correctness test.",
+        "known_bad_detected": true
+      },
+      "nine_blob_check": {
+        "files_checked": 9,
+        "blobs": [
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md",
+            "git_blob": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "actual": "b465ce5aac27a8eb393e4a849de4e7278620b557",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py",
+            "git_blob": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "actual": "8093eafbe87d721bbf0049c71c56c1be341df99c",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+            "git_blob": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "actual": "810da4ddb893abefc9b0a31a4effa8611638f87a",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py",
+            "git_blob": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "actual": "67c56ca66d18dc3d5903d3663a3f0e917c8fea83",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json",
+            "git_blob": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "actual": "ae9ad798f1b5bdda8f8332ddfaabf1dc927a1426",
+            "match": true
+          },
+          {
+            "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+            "git_blob": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "actual": "454c6ad470c528fed35485f7b2c17be56d843cb4",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md",
+            "git_blob": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "actual": "942358adb8392fbdc38e4bcf6dd4423a31ea9daf",
+            "match": true
+          },
+          {
+            "path": "docs/architecture/decisions/README.md",
+            "git_blob": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "actual": "fb552ada9701a09d9e05e3b3c3442cce9941de05",
+            "match": true
+          },
+          {
+            "path": "docs/ARCHITECTURE.md",
+            "git_blob": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "actual": "54052b28829a6a4a38155bb576de78c56d7ade80",
+            "match": true
+          }
+        ],
+        "all_match": true,
+        "expected_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "actual_fingerprint": "b33bd36dd5654e0ec2c6f36dbcd25c271d4cd16fd94f06c124f4fdac262a5a1e",
+        "fingerprint_match": true
+      },
+      "limits": [
+        "Candidate supplied as moderator proposition, not a persisted final moderator JSON at execution time. Verdict applies only if final moderator preserves the stated separations and boundaries.",
+        "Fresh work is bounded document-contract/negative-control and nine-blob verification. Prior lane runtime controls inspected as attributed evidence, not rerun or claimed as own.",
+        "No runtime benchmark, full source/semantic rebuild, transaction/crash execution, platform qualification, long-running maintenance, production epoch/cache integration or repository/ledger edits.",
+        "No finding or universal defect-absence claim follows from unmeasured alternatives."
+      ],
+      "finished_at": 1789062549.647546
+    }
+  },
+  "recording_note": "Consolidated unchanged reviewer reports after frozen review. This bookkeeping artifact is not part of the code under review; individual source checks and execution limitations remain attributed to their original contexts."
+}

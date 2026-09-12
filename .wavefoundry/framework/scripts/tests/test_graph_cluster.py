@@ -1087,8 +1087,11 @@ class BuildTimeBetweennessTests(unittest.TestCase):
         self.assertIn("betweenness pass", stderr.getvalue())
         # AC-7: artifact-shape change carries the cluster builder version bump.
         self.assertEqual(result["cluster_builder_version"], self.mod.CLUSTER_BUILDER_VERSION)
-        # Round-trip: the persisted artifact serves the section via the sniffing reader.
-        reread = self.mod.read_cluster_payload(root, "project")
+        # Round-trip through the legacy file mode this call used (no store
+        # connection). Wave 1xny6 moved the PUBLIC `read_cluster_payload` onto
+        # the published community rows; the row round-trip for this same
+        # section is asserted in `PublishedClusterReadTests`.
+        reread = self.mod._legacy_file_cluster_payload(root, "project")
         self.assertEqual(reread["betweenness"]["ranking"], section["ranking"])
 
 

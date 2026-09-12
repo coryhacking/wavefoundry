@@ -1,0 +1,500 @@
+{
+  "wave": "1xq4f dashboard-lifecycle-integrity",
+  "status": "implementation_complete",
+  "independent": false,
+  "qualification": "Local implementation evidence; native Windows/Linux/Intel macOS package execution not claimed.",
+  "symlink_fixture": {
+    "suite": "test_sqlite_storage_migration.py",
+    "result": "ok",
+    "tests": 108,
+    "skipped": 1,
+    "seconds": 16.59,
+    "mutation": {
+      "mutant": "unconditional_symlink_fixture_creation",
+      "regression": "SchemaEightKindTests.test_inventory_symlink_denial_skips_only_link_cases",
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "killed": true,
+      "output": "test_inventory_symlink_denial_skips_only_link_cases (symlink_mutant.SchemaEightKindTests.test_inventory_symlink_denial_skips_only_link_cases) ... FAIL\n\n======================================================================\nFAIL: test_inventory_symlink_denial_skips_only_link_cases (symlink_mutant.SchemaEightKindTests.test_inventory_symlink_denial_skips_only_link_cases)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py\", line 2069, in test_inventory_symlink_denial_skips_only_link_cases\nAssertionError: Lists differ: [(<unittest.case._SubTest testMethod=runTe[4036 chars]\\n')] != []\n\nFirst list contains 2 additional elements.\nFirst extra element 0:\n(<unittest.case._SubTest testMethod=runTest>, 'Traceback (most recent call last):\\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py\", line 2044, in test_the_inventory_preserves_the_whole_folder_for_every_unowned_shape\\n    try:\\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py\", line 2037, in <lambda>\\n    lambda q: q.symlink_to(self.root / \"src\" / \"m.py\")),\\n              ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\\n    return self._mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\\n    return self._execute_mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\\n    raise effect\\nPermissionError: [Errno 13] A required privilege is not held by the client\\n')\n\nDiff is 4690 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.006s\n\nFAILED (failures=1)\n",
+      "scope": "in-memory compiled test fixture; repository source unchanged"
+    }
+  },
+  "dashboard": {
+    "change": "1xpo1",
+    "status": "implementation-complete",
+    "owned_files": [
+      ".wavefoundry/framework/scripts/dashboard_server.py",
+      ".wavefoundry/framework/scripts/dashboard_lib.py",
+      ".wavefoundry/framework/scripts/server_impl.py",
+      ".wavefoundry/framework/scripts/tests/test_dashboard_server.py",
+      ".wavefoundry/framework/scripts/tests/test_server_tools.py"
+    ],
+    "ac": {
+      "1": "passed",
+      "2": "passed",
+      "3": "passed",
+      "4": "passed",
+      "5": "passed",
+      "6": "passed"
+    },
+    "implementation": [
+      "CLI detached argv strips split/equal root arguments and appends exactly one absolute resolved root last; MCP start does the same.",
+      "Scanner accepts complete trailing POSIX spaced roots; rejects duplicates, malformed quoted suffixes, lookalikes and option-like ambiguous suffixes; retains native Windows quote parsing.",
+      "Restart only enters start after stopped or already_stopped, preserves diagnostics, and derives restarted from started outcome.",
+      "Start requires serving own child, adopts actual competitor PID/URL, polls/waits/reaps exited child, and retains a still-live pending child without killing.",
+      "Existing 1rswx stop authority remains unchanged; explicit scan-unavailable fallback stop test added."
+    ],
+    "tests": [
+      {
+        "command": "python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_server_tools.py",
+        "result": "pass",
+        "count": 343,
+        "seconds": 89.171,
+        "log": "/tmp/server-tests-final.log"
+      },
+      {
+        "command": "python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_dashboard_server.py",
+        "result": "pass",
+        "count": 207,
+        "skipped": 1,
+        "seconds": 22.612,
+        "log": "/tmp/dash-tests-final2.log",
+        "note": "Ran before final small quoted-suffix parser hardening; subsequent focused suite covers that change."
+      },
+      {
+        "command": "python -B -m unittest test_dashboard_server.DashboardManagedIdentityTests test_dashboard_server.DashboardProcessControlTests test_dashboard_server.DashboardChildReapTests test_server_tools.WaveDashboardLifecycleHonestyTests",
+        "result": "pass",
+        "count": 37,
+        "seconds": 6.744,
+        "log": "/tmp/dashboard-final-focused.log",
+        "note": "Final source including quoted-suffix hardening, native ps enabled."
+      }
+    ],
+    "mutants": [
+      {
+        "mutant": "duplicate_roots",
+        "tests": [
+          "test_dashboard_server.DashboardManagedIdentityTests.test_ambiguous_root_never_authorizes_signal"
+        ],
+        "run": 1,
+        "failures": 8,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "quoted_suffix",
+        "tests": [
+          "test_dashboard_server.DashboardManagedIdentityTests.test_ambiguous_root_never_authorizes_signal"
+        ],
+        "run": 1,
+        "failures": 2,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "readiness_removed",
+        "tests": [
+          "test_server_tools.WaveDashboardLifecycleHonestyTests.test_immediately_exited_child_is_failed_and_reaped",
+          "test_server_tools.WaveDashboardLifecycleHonestyTests.test_live_timeout_is_pending_and_not_killed"
+        ],
+        "run": 2,
+        "failures": 2,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "restart_stop_gate",
+        "tests": [
+          "test_server_tools.WaveDashboardLifecycleHonestyTests.test_restart_outcome_matrix"
+        ],
+        "run": 1,
+        "failures": 4,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "restart_unconditional",
+        "tests": [
+          "test_server_tools.WaveDashboardLifecycleHonestyTests.test_restart_outcome_matrix"
+        ],
+        "run": 1,
+        "failures": 6,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "root_injection",
+        "tests": [
+          "test_dashboard_server.DashboardManagedIdentityTests.test_cli_daemon_identity_and_stop_native_root_forms",
+          "test_dashboard_server.DashboardManagedIdentityTests.test_cli_daemon_stop_independently_requires_root_identity",
+          "test_dashboard_server.DashboardManagedIdentityTests.test_daemon_normalizes_exactly_one_root_last"
+        ],
+        "run": 3,
+        "failures": 12,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "root_parser",
+        "tests": [
+          "test_dashboard_server.DashboardManagedIdentityTests.test_cli_daemon_identity_and_stop_native_root_forms"
+        ],
+        "run": 1,
+        "failures": 6,
+        "errors": 0,
+        "killed": true
+      },
+      {
+        "mutant": "unsafe_signal",
+        "tests": [
+          "test_dashboard_server.DashboardChildReapTests.test_stop_unverified_alive_pid_reports_honestly",
+          "test_dashboard_server.DashboardManagedIdentityTests.test_ambiguous_root_never_authorizes_signal"
+        ],
+        "run": 2,
+        "failures": 10,
+        "errors": 0,
+        "killed": true
+      }
+    ],
+    "mutation_harness": "/tmp/dashboard_mutants.py",
+    "mutation_method": "Runtime function compilation with named replacements in test process; no production source rewritten for mutation. Each test fixture reload applies mutation afresh. Failures are assertions, zero mutation errors.",
+    "real_process_evidence": [
+      "Native macOS ps identified six actual CLI daemon children across discovered, absolute, split relative, equal absolute and equal relative roots in spaced temporary repositories. Each stopped and metadata cleared.",
+      "Independent CLI stop test fails when root injection removed, before any scanner assertion.",
+      "Real MCP spawn confirmed HTTP serving and native identity then stopped.",
+      "Immediate exit uses real Python child, lets it exit without polling, then injects its actual Popen handle into start and verifies returncode, no started/PID claim, registry removal and waitpid ChildProcessError.",
+      "Live timeout uses real sleeping Python child, verifies it remains live/pending and registered, then kills/waits only in test teardown."
+    ],
+    "limits": [
+      "Native execution is macOS only; existing native Windows quote/fallback mocks retained, not native Windows qualification.",
+      "Sandbox disallows ps; native tests used approved escalation.",
+      "Daemon intentionally detaches and its short-lived Popen local emits ResourceWarning in tests; all test children are explicitly terminated/reaped.",
+      "Full framework runner is coordinator-owned after remaining wave edits.",
+      "One intermediate dashboard module run overlapped GraphSnapshot diagnostic API edits and failed; fresh process rerun passed after paired graph changes landed."
+    ],
+    "gapfill": "MCP outlines/targeted reads oriented production and tests; local targeted reads/diffs used to edit fixtures and inspect test failures."
+  },
+  "graph_diagnostics": {
+    "wave": "1xq4f",
+    "change": "1xoye",
+    "AC": "AC-3",
+    "role": "implementer",
+    "context": "/root/ready_qa_security",
+    "status": "complete",
+    "independent": false,
+    "summary": "Graph snapshots retain serializable diagnostic/state for runtime, storage and migration failures; query indexes, six MCP unavailable branches, community/report/resource responses and dashboard retain the cause and recovery. Persistent failures do not trigger absent-graph refresh. Missing and in-flight recovery remain distinct.",
+    "files": [
+      ".wavefoundry/framework/scripts/graph_snapshot.py",
+      ".wavefoundry/framework/scripts/graph_query.py",
+      ".wavefoundry/framework/scripts/dashboard_lib.py",
+      ".wavefoundry/framework/scripts/dashboard_server.py",
+      ".wavefoundry/framework/scripts/server_impl.py",
+      ".wavefoundry/framework/scripts/tests/test_graph_snapshot_readers.py"
+    ],
+    "scope_notes": [
+      "Preserved concurrent dashboard lifecycle edits.",
+      "graph_cluster.py and storage ownership modules unchanged; community MCP/resources inspect the pinned snapshot before the existing cluster adapter.",
+      "Plain diagnostic dictionaries retain no exception tracebacks. Owned snapshot readers close on read/preflight failure.",
+      "Read-only migration gate uses existing require_ready; no migration write/rebuild is invoked by failure handling."
+    ],
+    "recovery": {
+      "storage_runtime_unavailable": "index_health() investigation; terminal wf setup --root . repairs native runtime, then restart host.",
+      "storage_recovery_required": "index_health(); preserve index and resolve storage/filesystem refusal.",
+      "migration": "wf_upgrade_status(); preserve receipt and resume Upgrade Wavefoundry.",
+      "in_flight": "index_build_status(), no automatic refresh.",
+      "missing": "Existing graph build guidance remains."
+    },
+    "tests": [
+      {
+        "suite": "test_graph_snapshot_readers.py",
+        "tests": 50,
+        "skips": 0,
+        "result": "PASS",
+        "log": "/tmp/graph-tests.log"
+      },
+      {
+        "suite": "test_graph_query.py",
+        "tests": 92,
+        "skips": 0,
+        "result": "PASS",
+        "log": "/tmp/graph-query-tests.log"
+      },
+      {
+        "suite": "test_server_tools_retrieval.py",
+        "tests": 1034,
+        "skips": 9,
+        "result": "PASS",
+        "log": "/tmp/graph-retrieval-tests.log"
+      },
+      {
+        "suite": "GraphFailureRecoveryTests final focused run",
+        "tests": 5,
+        "skips": 0,
+        "result": "PASS",
+        "log": "/tmp/graph-final-focus.log"
+      }
+    ],
+    "mutation_evidence": "/tmp/graph-mutations.json",
+    "mutation_runner": "/tmp/graph_mutation_checks.py",
+    "known_bad": [
+      {
+        "mutation": "swallow_snapshot_failure",
+        "test": "test_storage_faults_survive_public_consumers_with_both_caches_and_recover",
+        "failures": 6,
+        "errors": 0,
+        "skips": 0
+      },
+      {
+        "mutation": "drop_query_diagnostic",
+        "test": "test_storage_faults_survive_public_consumers_with_both_caches_and_recover",
+        "failures": 6,
+        "errors": 0,
+        "skips": 0
+      },
+      {
+        "mutation": "restore_mcp_absence_translation",
+        "test": "test_storage_faults_survive_public_consumers_with_both_caches_and_recover",
+        "failures": 36,
+        "errors": 0,
+        "skips": 0
+      },
+      {
+        "mutation": "drop_dashboard_diagnostic",
+        "test": "test_storage_faults_survive_public_consumers_with_both_caches_and_recover",
+        "failures": 6,
+        "errors": 0,
+        "skips": 0
+      }
+    ],
+    "evidence_limits": [
+      "Initial system-Python attempt could not initialize APSW fixtures; all reported green runs used /Users/coryhacking/.wavefoundry/venv/bin/python -B.",
+      "No native Windows/Linux/Intel package qualification claimed.",
+      "Fault injection is bounded against an actual published SQLite graph; public response and registered resource adapters execute, with both snapshot/query cache settings and post-fault recovery.",
+      "9 skips occurred in the broad retrieval suite; new focused AC3 tests execute without skips.",
+      "This context previously reviewed readiness, then became implementer; it cannot provide independent delivery approval for its own change."
+    ],
+    "compatibility_repair": {
+      "trigger": "Canonical suite test_gen_codebase_map.FailSafeTests.test_generate_safe_swallows_corrupt_graph failed because new FAILED state bypassed legacy NOT_READY refusal.",
+      "fix": "Keep established NOT_READY for unreadable/error snapshots; typed diagnostic distinguishes persistent failure and in-flight. ABSENT still means genuine absence. Removed new FAILED enum. No gen_codebase_map source changes.",
+      "new_regression": "GraphFailureRecoveryTests.test_read_failure_preserves_existing_map_and_receipt",
+      "suites": [
+        {
+          "name": "test_gen_codebase_map.py",
+          "tests": 69,
+          "skips": 0,
+          "result": "PASS",
+          "log": "/tmp/graph-genmap-repair.log"
+        },
+        {
+          "name": "test_graph_snapshot_readers.py",
+          "tests": 51,
+          "skips": 0,
+          "result": "PASS",
+          "log": "/tmp/graph-snapshot-repair.log"
+        },
+        {
+          "name": "test_graph_query.py",
+          "tests": 92,
+          "skips": 0,
+          "result": "PASS",
+          "log": "/tmp/graph-query-repair.log"
+        }
+      ],
+      "known_bad_controls": "/tmp/graph-mutations-repair.json",
+      "new_known_bad_control": {
+        "mutation": "return unknown failed enum instead of legacy NOT_READY",
+        "test": "GraphFailureRecoveryTests.test_read_failure_preserves_existing_map_and_receipt",
+        "caught": true,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "output": "F\n======================================================================\nFAIL: test_read_failure_preserves_existing_map_and_receipt (test_graph_snapshot_readers.GraphFailureRecoveryTests.test_read_failure_preserves_existing_map_and_receipt)\nLegacy not-ready consumers must not certify an empty replacement.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_snapshot_readers.py\", line 1150, in test_read_failure_preserves_existing_map_and_receipt\n    self.assertEqual(output.read_bytes(), before)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b\"# Codebase Map\\n\\nOwner: Engineering\\nSt[935 chars]).\\n\" != b'# Codebase Map\\n\\nOwner: Engineering\\nSt[1867 chars]e.\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 0.412s\n\nFAILED (failures=1)\n"
+      }
+    },
+    "final_sha256": {
+      ".wavefoundry/framework/scripts/graph_snapshot.py": "31e6d61c861aedec11635974ed39ba3207a3262489d58feada3fb009ecd87ad3",
+      ".wavefoundry/framework/scripts/graph_query.py": "a3ce5f870eb349f135c05cecb2694fe00a31300d963e58bfae5c4e88f90d088f",
+      ".wavefoundry/framework/scripts/dashboard_lib.py": "22f11920574b3b67f6c2dfa049b906c405378499010a369ea6d17a0368df951d",
+      ".wavefoundry/framework/scripts/dashboard_server.py": "209506dfdaf257a691b6b84e8fef6b3c48c833f360f7904822065e403a921a02",
+      ".wavefoundry/framework/scripts/server_impl.py": "97696d97d44dc2718fda7f1164f1348ddbe5477eeb31e631cf7e26f1d2a2f265",
+      ".wavefoundry/framework/scripts/tests/test_graph_snapshot_readers.py": "265b2633f7607f4989952d1c2f7d89feefb907ff7bc0512bc0cb7e80dfddaefd"
+    },
+    "production_released": true
+  },
+  "storage_and_targeted": {
+    "role": "implementer",
+    "wave": "1xq4f",
+    "scope": [
+      "1xoye AC-1/AC-2 C1",
+      "1x81v AC-1/AC-2/AC-3 T1/T2"
+    ],
+    "status": "implemented; frozen; coordinator canonical suite and delivery review pending",
+    "files": {
+      ".wavefoundry/framework/scripts/indexer.py": "793e8d315860d25fa1c2e20c791d10ddbe817668a44d77c8c2e5a66dbc0fed51",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "7bd82d93b5d053730fcf476bb7b8cdeef866eeb8d4eea71b461d0ea677771149",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "b8c6ab91d6e6aec1083f450a0e4506feae25d0302d58b701b98467abbc6b2ed3",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "68dcb887b4aaeeaa1dea52946638401cf96ccf9497684360298b7d968834c026"
+    },
+    "changes": [
+      "Published graph helper begins one SQLite read transaction before payload and source receipt reads and deterministically closes its reader.",
+      "Both changed/full and idle owned writer lifetimes have finally cleanup spanning graph preparation, orphan/reap reconciliation and atomic publication; cleanup preserves an active original error.",
+      "Explicit selection includes named missing paths. Metadata and canonical/layer memberships retain unselected state without stat filtering. Semantic stale sets and graph extraction remain selected; graph membership independently retains cached unselected paths.",
+      "Explicit full, semantic model/precision/fingerprint/chunker/walker, graph builder/schema/store schema, corpus policy, unavailable existing schema/provenance and pending storage rebuild are refused before initialization/reset, with complete-walk guidance. A truly fresh missing database can still be initially seeded with files= and full=False.",
+      "Corpus policy receipt includes build options, workflow configuration, .gitignore, .aiignore, .gitattributes and .git/info/exclude. Complete-walk policy-only recovery publishes receipt in the idle transaction.",
+      "Targeted requests defer optional global secrets scan and freshness/drift computation to ordinary walks. Selected deletion still retires relevant auxiliary rows; unselected cache/freshness rows remain byte-identical.",
+      "Targeted rechunk is constrained to selected paths. Two exclusion fixtures now seed files= with full=False. Fresh-process kill fixture adds scripts import path, needed by index_state_store dependencies."
+    ],
+    "tests": [
+      {
+        "command": "python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_indexer.py -k TargetedPublicationContractTests",
+        "result": "PASS 8 tests, 6.422s on final frozen source",
+        "log": "/tmp/targeted-tests-frozen.log"
+      },
+      {
+        "command": "python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_server_tools_retrieval.py -k interleaved_new_source",
+        "result": "PASS 1 test, 0.891s",
+        "log": "/tmp/consumer-tests.log"
+      },
+      {
+        "command": "python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_indexer.py",
+        "result": "365 tests, one pre-final storage-schema refusal failure; repaired and passed final focused run. All other 364 passed. Full canonical final validation belongs to coordinator.",
+        "log": "/tmp/storage-tests-final.log"
+      },
+      {
+        "command": "git diff --check -- <four owned files>",
+        "result": "PASS"
+      }
+    ],
+    "assertions": [
+      "Two real dual-output Python files populate canonical docs/code, vector rows, FTS docs/code, graph nodes/edges/extraction/merge state, build metadata, per-layer hashes, freshness and secret cache. Editing one preserves all other path rows even when unselected source is absent; publication generation increments exactly once.",
+      "Empty selection preserves existing membership even after disk deletion; explicit missing selection removes only that path; complete walk removes remaining real deletions; next ordinary walk does not reembed unchanged retained sources.",
+      "Full, two models, chunker, walker, graph builder, two graph schemas, storage schema and policy cases refuse with untouched prior state/generation and no ensure_current call; separate pending storage receipt refusal test.",
+      "Real second connection updates nodes and source receipts between reads: helper remains on original snapshot and closes on success/failure; actual exact-definition consumer rejects old node/new source combination.",
+      "Manual catch retains full exception tracebacks (unittest.assertRaises clears frames and was explicitly avoided). Publication KeyboardInterrupt and changed/idle OSError reconciliation leave owned connections closed, build lock reacquirable, and semantic/graph/FTS/bookkeeping participants unchanged.",
+      "Optional scanner cache is excluded only from rollback assertions because preexisting scanner is a separate optional resident; cache equality IS included in unselected-preservation assertions."
+    ],
+    "mutants": [
+      {
+        "mutant": "cleanup_removed",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_owned_build_handles_close_with_retained_failure_tracebacks (test_indexer.TargetedPublicationContractTests.test_owned_build_handles_close_with_retained_failure_tracebacks) (fault='publication_cancel')",
+          "test_owned_build_handles_close_with_retained_failure_tracebacks (test_indexer.TargetedPublicationContractTests.test_owned_build_handles_close_with_retained_failure_tracebacks) (fault='changed_reconcile')",
+          "test_owned_build_handles_close_with_retained_failure_tracebacks (test_indexer.TargetedPublicationContractTests.test_owned_build_handles_close_with_retained_failure_tracebacks) (fault='idle_reconcile')"
+        ]
+      },
+      {
+        "mutant": "consumer_begin_removed",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_exact_definition_consumer_rejects_interleaved_new_source_receipt (test_server_tools_retrieval.RerankerTests.test_exact_definition_consumer_rejects_interleaved_new_source_receipt)"
+        ]
+      },
+      {
+        "mutant": "currency_permitted",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='full')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='walker')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='docs_model')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='code_model')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='chunker')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='graph_builder')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='graph_schema')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='graph_store_schema')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='storage_schema')",
+          "test_targeted_currency_refusal_precedes_store_mutation (test_indexer.TargetedPublicationContractTests.test_targeted_currency_refusal_precedes_store_mutation) (name='policy')"
+        ]
+      },
+      {
+        "mutant": "graph_membership_removed",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_targeted_update_preserves_all_unselected_participants (test_indexer.TargetedPublicationContractTests.test_targeted_update_preserves_all_unselected_participants)"
+        ]
+      },
+      {
+        "mutant": "selection_removed",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_targeted_update_preserves_all_unselected_participants (test_indexer.TargetedPublicationContractTests.test_targeted_update_preserves_all_unselected_participants)"
+        ]
+      },
+      {
+        "mutant": "snapshot_begin_removed",
+        "detected": true,
+        "errors": 0,
+        "failures": [
+          "test_published_graph_snapshot_pins_source_receipts_and_closes (test_indexer.TargetedPublicationContractTests.test_published_graph_snapshot_pins_source_receipts_and_closes)"
+        ]
+      }
+    ],
+    "mutation_method": "In-memory compilation of the actual production function source with one named mechanism removed; fixtures use real native SQLite and fake embeddings. No mutant source written to repository. /tmp/storage_mutants.py reproduces controls.",
+    "optional_scanner_basis": "indexer._build_secrets_artifacts catches scanner errors and returns error diagnostics; scanner runs concurrently with semantic preparation and its findings are not consumed by embedding eligibility. Thus it is optional reporting, not privacy filtering or an enforced build gate.",
+    "retrieval": "MCP-first code_outline/code_keyword/code_read used for production and test mechanisms. AST filesystem census used for concrete full=True/files= call expressions outside owned tests; found none.",
+    "limitations": [
+      "macOS ARM native execution only; no Windows/Linux/Intel qualification",
+      "Full canonical suite and delivery review pending coordinator",
+      "Whole-corpus optional maintenance deferred on explicit selection",
+      "No commit, close, release or deployment performed"
+    ]
+  },
+  "frozen_framework_inputs_hash": "2142f0e39046892ade84bbd1861d4b6c4efd69e0a869667f777da04c4d0f63c3",
+  "changed_framework_files_since_admission": {
+    ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "011f2b79cabf97e2d220fff76448e7c07fa091c8c81e41c821450f4e72493468",
+    ".wavefoundry/framework/scripts/tests/test_dashboard_server.py": "ec50872efb84cdc237b632fc30f1e004ccb777e9f615a00ec044d3f8a0f71885",
+    ".wavefoundry/framework/scripts/server_impl.py": "97696d97d44dc2718fda7f1164f1348ddbe5477eeb31e631cf7e26f1d2a2f265",
+    ".wavefoundry/framework/scripts/graph_snapshot.py": "31e6d61c861aedec11635974ed39ba3207a3262489d58feada3fb009ecd87ad3",
+    ".wavefoundry/framework/scripts/graph_query.py": "a3ce5f870eb349f135c05cecb2694fe00a31300d963e58bfae5c4e88f90d088f",
+    ".wavefoundry/framework/scripts/tests/test_graph_snapshot_readers.py": "265b2633f7607f4989952d1c2f7d89feefb907ff7bc0512bc0cb7e80dfddaefd",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "b8c6ab91d6e6aec1083f450a0e4506feae25d0302d58b701b98467abbc6b2ed3",
+    ".wavefoundry/framework/scripts/indexer.py": "793e8d315860d25fa1c2e20c791d10ddbe817668a44d77c8c2e5a66dbc0fed51",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "68dcb887b4aaeeaa1dea52946638401cf96ccf9497684360298b7d968834c026",
+    ".wavefoundry/framework/scripts/dashboard_lib.py": "22f11920574b3b67f6c2dfa049b906c405378499010a369ea6d17a0368df951d",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "7bd82d93b5d053730fcf476bb7b8cdeef866eeb8d4eea71b461d0ea677771149",
+    ".wavefoundry/framework/scripts/tests/test_server_tools.py": "291ab26c5f8d7fc62d84d1e83145ce2c94f9e3f0fe65296f443cb3b1df5ccc20",
+    ".wavefoundry/framework/scripts/dashboard_server.py": "209506dfdaf257a691b6b84e8fef6b3c48c833f360f7904822065e403a921a02"
+  },
+  "canonical_attempts": [
+    {
+      "status": "failed",
+      "tests": 8897,
+      "files": 86,
+      "skipped": 12,
+      "elapsed_seconds": 266.098,
+      "failed_tests": [
+        "test_gen_codebase_map.FailSafeTests.test_generate_safe_swallows_corrupt_graph"
+      ],
+      "output": "run_tests: waiting for the running project index build to finish (holder pid 76009) \u2026\nRunning 86 test files across 6 workers \u2026\n  [1/86] test_check_version.py \u2014 18 tests ok (0.1s)\n  [2/86] test_cli_stdio.py \u2014 11 tests ok (0.1s)\n  [3/86] test_ann_reference_eval.py \u2014 28 tests ok (0.2s)\n  [4/86] test_accel_embedder.py \u2014 76 tests ok (0.8s)\n  [5/86] test_agent_surface_integrity.py \u2014 6 tests ok (1.0s)\n  [6/86] test_design_system_backfill.py \u2014 10 tests ok (0.1s)\n  [7/86] test_context_efficiency.py \u2014 55 tests ok (0.9s)\n  [8/86] test_design_system_governance_validators.py \u2014 44 tests ok (0.2s)\n  [9/86] test_design_system_surface_validators.py \u2014 39 tests ok (0.2s)\n  [10/86] test_design_system_validators.py \u2014 45 tests ok (0.5s)\n  [11/86] test_design_token_build.py \u2014 12 tests ok (0.4s)\n  [12/86] test_commit_provenance.py \u2014 23 tests ok (4.1s)\n  [13/86] test_docs_gardener.py \u2014 17 tests ok (0.3s)\n  [14/86] test_docs_constants_lint.py \u2014 26 tests ok (2.8s)\n  [15/86] test_events_only_residue_census.py \u2014 24 tests ok (0.7s)\n  [16/86] test_fts_lexical_layer.py \u2014 57 tests ok (3.5s)\n  [17/86] test_build_pack.py \u2014 115 tests ok (9.8s)\n  [18/86] test_gen_codebase_map.py \u2014 69 tests FAIL (3.4s)\n  [19/86] test_fts_query_honesty.py \u2014 42 tests ok (4.8s)\n  [20/86] test_graph_cluster.py \u2014 83 tests ok (0.8s)\n  [21/86] test_graph_incremental_merge.py \u2014 58 tests ok (12.1s)\n  [22/86] test_doc_drift.py \u2014 102 tests ok (24.3s)\n  [23/86] test_graph_quality_eval.py \u2014 101 tests ok (1.4s)\n  [24/86] test_dashboard_server.py \u2014 207 tests ok (28.0s)\n  [25/86] test_graph_query.py \u2014 92 tests ok (4.1s)\n  [26/86] test_chunker.py \u2014 579 tests ok (32.9s)\n  [27/86] test_indexer_secrets_scope.py \u2014 9 tests ok (3.1s)\n  [28/86] test_install_log_lib.py \u2014 53 tests ok (0.5s)\n  [29/86] test_lexical_ranking_eval.py \u2014 19 tests ok (0.6s)\n  [30/86] test_index_state_store.py \u2014 100 tests ok (8.7s)\n  [31/86] test_lifecycle_id.py \u2014 82 tests ok (0.6s)\n  [32/86] test_lifecycle_mutation_lock.py \u2014 17 tests ok (1.1s)\n  [33/86] test_graph_snapshot_readers.py \u2014 50 tests ok (11.8s)\n  [34/86] test_memory_backfill.py \u2014 46 tests ok (3.7s)\n  [35/86] test_memory_eval.py \u2014 14 tests ok (3.0s)\n  [36/86] test_model_bundle.py \u2014 25 tests ok (0.9s)\n  [37/86] test_perf_budget_policy.py \u2014 5 tests ok (0.0s)\n  [38/86] test_prune_framework.py \u2014 17 tests ok (0.1s)\n  [39/86] test_per_area_agents_context.py \u2014 9 tests ok (0.9s)\n  [40/86] test_reconcile_scan.py \u2014 61 tests ok (1.6s)\n  [41/86] test_python_parse_diagnostics.py \u2014 8 tests ok (2.5s)\n  [42/86] test_render_agent_surfaces.py \u2014 120 tests ok (2.5s)\n  [43/86] test_memory_records.py \u2014 204 tests ok (8.5s)\n  [44/86] test_render_platform_surfaces.py \u2014 96 tests ok (2.8s)\n  [45/86] test_review_evidence.py \u2014 156 tests ok (1.3s)\n  [46/86] test_retrieval_eval.py \u2014 146 tests ok (2.1s)\n  [47/86] test_run_tests_cache.py \u2014 97 tests ok (0.6s)\n  [48/86] test_run_tests_lock.py \u2014 15 tests ok (1.0s)\n  [49/86] test_retrieval_candidate_generation.py \u2014 38 tests ok (4.4s)\n  [50/86] test_runtime_lock.py \u2014 10 tests ok (0.2s)\n  [51/86] test_scan_secrets.py \u2014 22 tests ok (0.1s)\n  [52/86] test_scanner_skips.py \u2014 12 tests ok (0.1s)\n  [53/86] test_review_policy.py \u2014 103 tests ok (3.8s)\n  [54/86] test_secret_scan_cache.py \u2014 24 tests ok (2.5s)\n  [55/86] test_server_context_efficiency.py \u2014 95 tests ok (3.5s)\n  [56/86] test_server_startup_guards.py \u2014 6 tests ok (0.3s)\n  [57/86] test_server_stdout_isolation.py \u2014 3 tests ok (0.1s)\n  [58/86] test_secrets_validators.py \u2014 157 tests ok (6.0s)\n  [59/86] test_graph_indexer.py \u2014 549 tests ok (64.8s)\n  [60/86] test_docs_lint.py \u2014 1096 tests ok (142.4s)\n  [61/86] test_server_tools.py \u2014 343 tests ok (112.0s)\n  [62/86] test_setup_wavefoundry.py \u2014 35 tests ok (2.0s)\n  [63/86] test_shipped_reference_docs.py \u2014 26 tests ok (0.7s)\n  [64/86] test_sqlite_event_eval.py \u2014 3 tests ok (0.2s)\n  [65/86] test_sqlite_publication.py \u2014 14 tests ok (1.0s)\n  [66/86] test_sqlite_publication_optimization.py \u2014 4 tests ok (0.7s)\n  [67/86] test_server_tools_retrieval.py \u2014 1034 tests ok (99.8s)\n  [68/86] test_sqlite_serving.py \u2014 33 tests ok (5.6s)\n  [69/86] test_server_tools_lifecycle.py \u2014 541 tests ok (138.4s)\n  [70/86] test_subprocess_util.py \u2014 24 tests ok (0.4s)\n  [71/86] test_setup_index.py \u2014 163 tests ok (54.4s)\n  [72/86] test_tree_sitter_cache.py \u2014 9 tests ok (0.1s)\n  [73/86] test_upgrade_protocol.py \u2014 29 tests ok (9.6s)\n  [74/86] test_techdocs_audit_lib.py \u2014 86 tests ok (15.4s)\n  [75/86] test_vector_backend_eval.py \u2014 7 tests ok (0.3s)\n  [76/86] test_vector_public_compare.py \u2014 7 tests ok (0.1s)\n  [77/86] test_vector_public_eval.py \u2014 2 tests ok (0.1s)\n  [78/86] test_vector_public_filter_smoke.py \u2014 2 tests ok (0.1s)\n  [79/86] test_secrets_prefix_collapse.py \u2014 17 tests ok (163.0s)\n  [80/86] test_wave_gate.py \u2014 14 tests ok (0.1s)\n  [81/86] test_venv_bootstrap.py \u2014 33 tests ok (2.0s)\n  [82/86] test_wf_cli.py \u2014 51 tests ok (2.0s)\n  [83/86] test_storage_upgrade_resume.py \u2014 11 tests ok (50.0s)\n  [84/86] test_indexer.py \u2014 366 tests ok (201.5s)\n  [85/86] test_upgrade_wavefoundry.py \u2014 532 tests ok (22.2s)\n  [86/86] test_sqlite_storage_migration.py \u2014 108 tests ok (87.4s)\n\n======================================================================\nFAILED: test_gen_codebase_map.py\n======================================================================\ncodebase map written \u2192 /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpagp68xwx/docs/references/codebase-map.md\ntest_nested_path_is_intact_prose_with_no_markdown_destination (test_gen_codebase_map.AreaContextPathPortabilityTests.test_nested_path_is_intact_prose_with_no_markdown_destination) ... ok\ntest_deterministic_repeat (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_deterministic_repeat) ... ok\ntest_exact_rep_path_still_resolves (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_exact_rep_path_still_resolves) ... ok\ntest_nearest_ancestor_wins (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_nearest_ancestor_wins) ... ok\ntest_none_when_no_ancestor_has_one (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_none_when_no_ancestor_has_one) ... ok\ntest_render_names_ancestor_file_as_prose (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_render_names_ancestor_file_as_prose) ... ok\ntest_repo_root_excluded_for_non_root_area (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_repo_root_excluded_for_non_root_area) ... ok\ntest_resolves_to_ancestor_when_not_at_rep_path (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_resolves_to_ancestor_when_not_at_rep_path) ... ok\ntest_root_area_renders_repo_root_path_as_prose (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_root_area_renders_repo_root_path_as_prose) ... ok\ntest_root_area_resolves_repo_root_agents (test_gen_codebase_map.AreaContextWalkUpResolverTests.test_root_area_resolves_repo_root_agents) ... ok\ntest_cli_writes_map (test_gen_codebase_map.CliTests.test_cli_writes_map) ... ok\ntest_drilldown_handles_present_per_area (test_gen_codebase_map.ComputeAreasLargeTests.test_drilldown_handles_present_per_area) ... ok\ntest_render_shows_overflow_handoff (test_gen_codebase_map.ComputeAreasLargeTests.test_render_shows_overflow_handoff) ... ok\ntest_top_tier_is_bounded (test_gen_codebase_map.ComputeAreasLargeTests.test_top_tier_is_bounded) ... ok\ntest_entry_point_symbols_ranked_and_filtered (test_gen_codebase_map.ComputeAreasSmallTests.test_entry_point_symbols_ranked_and_filtered) ... ok\ntest_hub_is_stable_node_id_not_community_id (test_gen_codebase_map.ComputeAreasSmallTests.test_hub_is_stable_node_id_not_community_id) ... ok\ntest_key_files_present_and_in_scope (test_gen_codebase_map.ComputeAreasSmallTests.test_key_files_present_and_in_scope) ... ok\ntest_near_flat_small_map (test_gen_codebase_map.ComputeAreasSmallTests.test_near_flat_small_map) ... ok\ntest_render_is_docs_lint_clean (test_gen_codebase_map.ComputeAreasSmallTests.test_render_is_docs_lint_clean) ... ok\ntest_config_area_demoted_below_code (test_gen_codebase_map.ConfigAreaTests.test_config_area_demoted_below_code) ... ok\ntest_config_area_flagged_no_entry_points (test_gen_codebase_map.ConfigAreaTests.test_config_area_flagged_no_entry_points) ... ok\ntest_render_omits_config_entry_points_and_json_keys (test_gen_codebase_map.ConfigAreaTests.test_render_omits_config_entry_points_and_json_keys) ... ok\ntest_deterministic_for_fixed_artifact (test_gen_codebase_map.DeterminismTests.test_deterministic_for_fixed_artifact) ... ok\ntest_cross_file_fanin_beats_raw_degree (test_gen_codebase_map.EntryPointRankingTests.test_cross_file_fanin_beats_raw_degree) ... ok\ntest_private_helper_with_cross_file_fanin_is_kept (test_gen_codebase_map.EntryPointRankingTests.test_private_helper_with_cross_file_fanin_is_kept) ... ok\ntest_empty_graph (test_gen_codebase_map.FailSafeTests.test_empty_graph) ... ok\ntest_generate_safe_never_raises_and_writes_degraded_map (test_gen_codebase_map.FailSafeTests.test_generate_safe_never_raises_and_writes_degraded_map) ... ok\ntest_generate_safe_swallows_corrupt_graph (test_gen_codebase_map.FailSafeTests.test_generate_safe_swallows_corrupt_graph) ... FAIL\ntest_missing_graph (test_gen_codebase_map.FailSafeTests.test_missing_graph) ... ok\ntest_partial_missing_cluster_falls_back_to_directories (test_gen_codebase_map.FailSafeTests.test_partial_missing_cluster_falls_back_to_directories) ... ok\ntest_hub_is_member_of_area_and_in_key_files (test_gen_codebase_map.FieldDefectTests.test_hub_is_member_of_area_and_in_key_files) ... ok\ntest_kind_tag_helper_omits_unknown (test_gen_codebase_map.FieldDefectTests.test_kind_tag_helper_omits_unknown) ... ok\ntest_kind_tags_accurate_or_omitted (test_gen_codebase_map.FieldDefectTests.test_kind_tags_accurate_or_omitted) ... ok\ntest_non_code_excluded_from_areas (test_gen_codebase_map.FieldDefectTests.test_non_code_excluded_from_areas) ... ok\ntest_same_package_communities_collapse (test_gen_codebase_map.FieldDefectTests.test_same_package_communities_collapse) ... ok\ntest_area_keyfiles_hub_restricted_to_own_module (test_gen_codebase_map.GeneratorAreaSelectionTests.test_area_keyfiles_hub_restricted_to_own_module) ... ok\ntest_area_name_disambiguation_and_ordinal_strip (test_gen_codebase_map.GeneratorAreaSelectionTests.test_area_name_disambiguation_and_ordinal_strip) ... ok\ntest_buried_dir_below_floor_not_fragmented (test_gen_codebase_map.GeneratorAreaSelectionTests.test_buried_dir_below_floor_not_fragmented) ... ok\ntest_buried_module_surfaced_as_area (test_gen_codebase_map.GeneratorAreaSelectionTests.test_buried_module_surfaced_as_area) ... ok\ntest_config_area_name_not_doc_prose (test_gen_codebase_map.GeneratorAreaSelectionTests.test_config_area_name_not_doc_prose) ... ok\ntest_config_area_responsibility_is_not_scraped_instruction (test_gen_codebase_map.GeneratorAreaSelectionTests.test_config_area_responsibility_is_not_scraped_instruction) ... ok\ntest_generated_dominated_community_excluded (test_gen_codebase_map.GeneratorAreaSelectionTests.test_generated_dominated_community_excluded) ... ok\ntest_gitattributes_linguist_vendored_excludes_community (test_gen_codebase_map.GeneratorAreaSelectionTests.test_gitattributes_linguist_vendored_excludes_community) ... ok\ntest_hub_is_never_a_non_code_data_node (test_gen_codebase_map.GeneratorAreaSelectionTests.test_hub_is_never_a_non_code_data_node) ... ok\ntest_per_module_floor_guarantees_each_module (test_gen_codebase_map.GeneratorAreaSelectionTests.test_per_module_floor_guarantees_each_module) ... ok\ntest_qualify_structural_name (test_gen_codebase_map.GeneratorAreaSelectionTests.test_qualify_structural_name) ... ok\ntest_same_path_collision_gets_third_distinguisher (test_gen_codebase_map.GeneratorAreaSelectionTests.test_same_path_collision_gets_third_distinguisher) ... ok\ntest_type_only_communities_collapse_to_one_types_area (test_gen_codebase_map.GeneratorAreaSelectionTests.test_type_only_communities_collapse_to_one_types_area) ... ok\ntest_vendored_axis_no_config_is_safe_noop (test_gen_codebase_map.GeneratorAreaSelectionTests.test_vendored_axis_no_config_is_safe_noop) ... ok\ntest_vendored_generated_excluded_from_key_files_symbols_hub (test_gen_codebase_map.GeneratorAreaSelectionTests.test_vendored_generated_excluded_from_key_files_symbols_hub) ... ok\ntest_vendored_paths_glob_excludes_community (test_gen_codebase_map.GeneratorAreaSelectionTests.test_vendored_paths_glob_excludes_community) ... ok\ntest_back_to_back_generate_is_byte_identical_and_no_write (test_gen_codebase_map.IdempotenceTests.test_back_to_back_generate_is_byte_identical_and_no_write) ... ok\ntest_date_preserved_when_content_unchanged (test_gen_codebase_map.IdempotenceTests.test_date_preserved_when_content_unchanged) ... ok\ntest_input_change_triggers_rewrite (test_gen_codebase_map.IdempotenceTests.test_input_change_triggers_rewrite) ... ok\ntest_no_area_context_when_agents_md_absent (test_gen_codebase_map.MapAreaContextPathTests.test_no_area_context_when_agents_md_absent) ... ok\ntest_repo_relative_prose_path_present_when_file_exists (test_gen_codebase_map.MapAreaContextPathTests.test_repo_relative_prose_path_present_when_file_exists) ... ok\ntest_agents_md_first_line_remains_authoritative_responsibility (test_gen_codebase_map.NameResponsibilityConsistencyTests.test_agents_md_first_line_remains_authoritative_responsibility) ... ok\ntest_directory_name_does_not_pair_with_unrelated_cluster_label (test_gen_codebase_map.NameResponsibilityConsistencyTests.test_directory_name_does_not_pair_with_unrelated_cluster_label) ... ok\ntest_oversized_bucket_subdivides (test_gen_codebase_map.OversizedSubdivisionTests.test_oversized_bucket_subdivides) ... ok\ntest_small_bucket_not_subdivided (test_gen_codebase_map.OversizedSubdivisionTests.test_small_bucket_not_subdivided) ... ok\ntest_subdivision_stays_within_cap (test_gen_codebase_map.OversizedSubdivisionTests.test_subdivision_stays_within_cap) ... ok\ntest_feed_fills_marker_block_and_preserves_narrative (test_gen_codebase_map.RepoIndexFeedTests.test_feed_fills_marker_block_and_preserves_narrative) ... ok\ntest_feed_is_idempotent (test_gen_codebase_map.RepoIndexFeedTests.test_feed_is_idempotent) ... ok\ntest_feed_migrates_legacy_marker_pair_in_place (test_gen_codebase_map.RepoIndexFeedTests.test_feed_migrates_legacy_marker_pair_in_place) ... ok\ntest_feed_missing_file_is_safe_noop (test_gen_codebase_map.RepoIndexFeedTests.test_feed_missing_file_is_safe_noop) ... ok\ntest_feed_no_markers_is_safe_noop (test_gen_codebase_map.RepoIndexFeedTests.test_feed_no_markers_is_safe_noop) ... ok\ntest_agents_md_title_overrides_label (test_gen_codebase_map.TieredLabelTests.test_agents_md_title_overrides_label) ... ok\ntest_carry_forward_survives_regeneration (test_gen_codebase_map.TieredLabelTests.test_carry_forward_survives_regeneration) ... ok\ntest_no_doc_spec_config_label (test_gen_codebase_map.TieredLabelTests.test_no_doc_spec_config_label) ... ok\n\n======================================================================\nFAIL: test_generate_safe_swallows_corrupt_graph (test_gen_codebase_map.FailSafeTests.test_generate_safe_swallows_corrupt_graph)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_gen_codebase_map.py\", line 756, in test_generate_safe_swallows_corrupt_graph\n    self.assertFalse(ok)\n    ~~~~~~~~~~~~~~~~^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 69 tests in 3.185s\n\nFAILED (failures=1)\n\n----------------------------------------------------------------------\nSlowest files (top 10 of 86):\n  test_indexer.py                                201.513s  (366 tests)\n  test_secrets_prefix_collapse.py                163.009s  (17 tests)\n  test_docs_lint.py                              142.423s  (1096 tests)\n  test_server_tools_lifecycle.py                 138.414s  (541 tests)\n  test_server_tools.py                           112.032s  (343 tests)\n  test_server_tools_retrieval.py                  99.803s  (1034 tests)\n  test_sqlite_storage_migration.py                87.449s  (108 tests)\n  test_graph_indexer.py                           64.844s  (549 tests)\n  test_setup_index.py                             54.396s  (163 tests)\n  test_storage_upgrade_resume.py                  50.001s  (11 tests)\nWorker service time: 1392.775s across 86 files; skipped 12 tests\nFAILED (test_gen_codebase_map.py)\nRan 8897 tests across 86 files in 266.098s\n",
+      "note": "Repair in progress: preserve existing graph not-ready consumer contract while retaining typed failure diagnostics."
+    }
+  ],
+  "intermediate_coordinator_digest": {
+    "value": "218fd6c88e312f0be4d9e9981db27cb004739fa463eb73f57c0df28c3817318d",
+    "limitation": "Sampled while canonical tests were active; differs from the authoritative runner pre-run digest. All thirteen admitted source-file hashes remain unchanged. The runner pre-run digest matches fresh post-run recomputation."
+  },
+  "canonical_validation": {
+    "status": "ok",
+    "tests": 8898,
+    "files": 86,
+    "skipped": 12,
+    "elapsed_seconds": 265.87,
+    "ran_at": "2026-09-12T00:14:50.333160+00:00",
+    "inputs_hash": "2142f0e39046892ade84bbd1861d4b6c4efd69e0a869667f777da04c4d0f63c3",
+    "receipt_matches_current_framework": true,
+    "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B .wavefoundry/framework/scripts/run_tests.py",
+    "output": "Running 86 test files across 6 workers \u2026\n  [1/86] test_check_version.py \u2014 18 tests ok (0.1s)\n  [2/86] test_cli_stdio.py \u2014 11 tests ok (0.1s)\n  [3/86] test_ann_reference_eval.py \u2014 28 tests ok (0.2s)\n  [4/86] test_accel_embedder.py \u2014 76 tests ok (0.8s)\n  [5/86] test_agent_surface_integrity.py \u2014 6 tests ok (0.9s)\n  [6/86] test_design_system_backfill.py \u2014 10 tests ok (0.1s)\n  [7/86] test_context_efficiency.py \u2014 55 tests ok (0.9s)\n  [8/86] test_design_system_governance_validators.py \u2014 44 tests ok (0.2s)\n  [9/86] test_design_system_surface_validators.py \u2014 39 tests ok (0.2s)\n  [10/86] test_design_system_validators.py \u2014 45 tests ok (0.4s)\n  [11/86] test_design_token_build.py \u2014 12 tests ok (0.4s)\n  [12/86] test_commit_provenance.py \u2014 23 tests ok (3.9s)\n  [13/86] test_docs_gardener.py \u2014 17 tests ok (0.3s)\n  [14/86] test_docs_constants_lint.py \u2014 26 tests ok (2.8s)\n  [15/86] test_events_only_residue_census.py \u2014 24 tests ok (0.7s)\n  [16/86] test_fts_lexical_layer.py \u2014 57 tests ok (3.5s)\n  [17/86] test_build_pack.py \u2014 115 tests ok (9.7s)\n  [18/86] test_gen_codebase_map.py \u2014 69 tests ok (3.6s)\n  [19/86] test_fts_query_honesty.py \u2014 42 tests ok (4.9s)\n  [20/86] test_graph_cluster.py \u2014 83 tests ok (0.8s)\n  [21/86] test_graph_incremental_merge.py \u2014 58 tests ok (12.6s)\n  [22/86] test_doc_drift.py \u2014 102 tests ok (25.3s)\n  [23/86] test_graph_quality_eval.py \u2014 101 tests ok (1.4s)\n  [24/86] test_dashboard_server.py \u2014 207 tests ok (28.8s)\n  [25/86] test_graph_query.py \u2014 92 tests ok (4.0s)\n  [26/86] test_chunker.py \u2014 579 tests ok (32.9s)\n  [27/86] test_indexer_secrets_scope.py \u2014 9 tests ok (3.1s)\n  [28/86] test_install_log_lib.py \u2014 53 tests ok (0.5s)\n  [29/86] test_lexical_ranking_eval.py \u2014 19 tests ok (0.6s)\n  [30/86] test_lifecycle_id.py \u2014 82 tests ok (0.6s)\n  [31/86] test_index_state_store.py \u2014 100 tests ok (8.5s)\n  [32/86] test_lifecycle_mutation_lock.py \u2014 17 tests ok (1.1s)\n  [33/86] test_graph_snapshot_readers.py \u2014 51 tests ok (11.6s)\n  [34/86] test_memory_eval.py \u2014 14 tests ok (3.0s)\n  [35/86] test_memory_backfill.py \u2014 46 tests ok (3.7s)\n  [36/86] test_model_bundle.py \u2014 25 tests ok (0.9s)\n  [37/86] test_perf_budget_policy.py \u2014 5 tests ok (0.0s)\n  [38/86] test_prune_framework.py \u2014 17 tests ok (0.1s)\n  [39/86] test_per_area_agents_context.py \u2014 9 tests ok (0.9s)\n  [40/86] test_reconcile_scan.py \u2014 61 tests ok (1.6s)\n  [41/86] test_python_parse_diagnostics.py \u2014 8 tests ok (2.5s)\n  [42/86] test_render_agent_surfaces.py \u2014 120 tests ok (2.5s)\n  [43/86] test_memory_records.py \u2014 204 tests ok (8.4s)\n  [44/86] test_render_platform_surfaces.py \u2014 96 tests ok (2.7s)\n  [45/86] test_review_evidence.py \u2014 156 tests ok (1.3s)\n  [46/86] test_retrieval_eval.py \u2014 146 tests ok (2.0s)\n  [47/86] test_run_tests_cache.py \u2014 97 tests ok (0.6s)\n  [48/86] test_run_tests_lock.py \u2014 15 tests ok (1.0s)\n  [49/86] test_retrieval_candidate_generation.py \u2014 38 tests ok (4.3s)\n  [50/86] test_scan_secrets.py \u2014 22 tests ok (0.1s)\n  [51/86] test_runtime_lock.py \u2014 10 tests ok (0.2s)\n  [52/86] test_scanner_skips.py \u2014 12 tests ok (0.1s)\n  [53/86] test_review_policy.py \u2014 103 tests ok (3.8s)\n  [54/86] test_secret_scan_cache.py \u2014 24 tests ok (2.6s)\n  [55/86] test_server_context_efficiency.py \u2014 95 tests ok (3.6s)\n  [56/86] test_server_startup_guards.py \u2014 6 tests ok (0.3s)\n  [57/86] test_server_stdout_isolation.py \u2014 3 tests ok (0.1s)\n  [58/86] test_secrets_validators.py \u2014 157 tests ok (6.0s)\n  [59/86] test_graph_indexer.py \u2014 549 tests ok (65.1s)\n  [60/86] test_docs_lint.py \u2014 1096 tests ok (143.4s)\n  [61/86] test_server_tools.py \u2014 343 tests ok (110.8s)\n  [62/86] test_setup_wavefoundry.py \u2014 35 tests ok (2.0s)\n  [63/86] test_shipped_reference_docs.py \u2014 26 tests ok (0.6s)\n  [64/86] test_sqlite_event_eval.py \u2014 3 tests ok (0.2s)\n  [65/86] test_sqlite_publication.py \u2014 14 tests ok (0.8s)\n  [66/86] test_sqlite_publication_optimization.py \u2014 4 tests ok (0.6s)\n  [67/86] test_sqlite_serving.py \u2014 33 tests ok (4.5s)\n  [68/86] test_server_tools_retrieval.py \u2014 1034 tests ok (99.5s)\n  [69/86] test_server_tools_lifecycle.py \u2014 541 tests ok (141.0s)\n  [70/86] test_subprocess_util.py \u2014 24 tests ok (0.3s)\n  [71/86] test_setup_index.py \u2014 163 tests ok (55.1s)\n  [72/86] test_tree_sitter_cache.py \u2014 9 tests ok (0.1s)\n  [73/86] test_upgrade_protocol.py \u2014 29 tests ok (9.0s)\n  [74/86] test_techdocs_audit_lib.py \u2014 86 tests ok (13.4s)\n  [75/86] test_vector_backend_eval.py \u2014 7 tests ok (0.1s)\n  [76/86] test_vector_public_compare.py \u2014 7 tests ok (0.1s)\n  [77/86] test_vector_public_eval.py \u2014 2 tests ok (0.1s)\n  [78/86] test_vector_public_filter_smoke.py \u2014 2 tests ok (0.1s)\n  [79/86] test_secrets_prefix_collapse.py \u2014 17 tests ok (164.3s)\n  [80/86] test_wave_gate.py \u2014 14 tests ok (0.1s)\n  [81/86] test_venv_bootstrap.py \u2014 33 tests ok (2.0s)\n  [82/86] test_wf_cli.py \u2014 51 tests ok (2.0s)\n  [83/86] test_storage_upgrade_resume.py \u2014 11 tests ok (50.4s)\n  [84/86] test_indexer.py \u2014 366 tests ok (201.5s)\n  [85/86] test_upgrade_wavefoundry.py \u2014 532 tests ok (21.8s)\n  [86/86] test_sqlite_storage_migration.py \u2014 108 tests ok (88.6s)\n\n----------------------------------------------------------------------\nSlowest files (top 10 of 86):\n  test_indexer.py                                201.492s  (366 tests)\n  test_secrets_prefix_collapse.py                164.339s  (17 tests)\n  test_docs_lint.py                              143.437s  (1096 tests)\n  test_server_tools_lifecycle.py                 140.973s  (541 tests)\n  test_server_tools.py                           110.762s  (343 tests)\n  test_server_tools_retrieval.py                  99.491s  (1034 tests)\n  test_sqlite_storage_migration.py                88.603s  (108 tests)\n  test_graph_indexer.py                           65.098s  (549 tests)\n  test_setup_index.py                             55.143s  (163 tests)\n  test_storage_upgrade_resume.py                  50.360s  (11 tests)\nWorker service time: 1395.169s across 86 files; skipped 12 tests\nRan 8898 tests across 86 files in 265.870s\nOK\n"
+  },
+  "mutation_control_count": 20,
+  "remaining_gates": [
+    "Required delivery review lanes and council",
+    "Operator-owned closure",
+    "Native Windows/Linux/Intel macOS package qualification remains release follow-through"
+  ]
+}

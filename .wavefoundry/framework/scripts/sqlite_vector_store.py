@@ -12,15 +12,20 @@ import math
 import re
 import struct
 import shutil
+import sys
 import tempfile
 import threading
 from pathlib import Path
 
+import index_paths
 import sqlite_runtime as runtime
 
 DIMENSIONS = 384
-FILENAME = "index-state.sqlite"
-SCHEMA_VERSION = "7"
+# One definition, owned by index_paths (wave 1xny6). Never re-spell it here.
+FILENAME = index_paths.RUNTIME_DATABASE_FILENAME
+# Moves in lockstep with index_state_store.STATE_STORE_SCHEMA_VERSION and
+# sqlite_storage_migration.SCHEMA_VERSION — one resident schema, three pins.
+SCHEMA_VERSION = "8"
 LAYERS = ("docs", "code")
 FTS_COLUMNS = "chunk_id,path,kind,language,tags,start_line,end_line,text"
 # Local native qualification, not an architectural maximum or a promise for
@@ -279,30 +284,85 @@ def storage_space(index_dir: Path) -> dict[str, int]:
 
 
 class PreparedUpdates:
-    """Bounded, disposable embedding spool; never a serving or recovery authority.
+    """Bounded RAM preparation with lazy disk overflow; never a serving authority.
 
 Workers prepare independently of the shared index writer. Only publication
 opens its write transaction. A failed process leaves no published half-delta.
 """
 
+    MEMORY_LIMIT_BYTES = 64 * 1024 * 1024
+    _INSERT = "INSERT INTO operations(layer,action,payload,vector) VALUES(?,?,?,?)"
+
     def __init__(self, index_dir: Path):
         self.index_dir = Path(index_dir)
-        self.index_dir.mkdir(parents=True, exist_ok=True)
-        self._require_space(0)
-        self._directory = tempfile.TemporaryDirectory(
-            prefix="wavefoundry-sqlite-prepared-", dir=self.index_dir)
-        self.path = Path(self._directory.name) / "prepared.sqlite"
+        self.path = None
+        self._directory = None
         self._mutex = threading.Lock()
+        self._pending = []
+        self.retained_bytes = sys.getsizeof(self._pending)
+        self.peak_retained_bytes = self.retained_bytes
+        self.largest_operation_bytes = 0
+        self._growth_bytes = 0
+        self._unusable = False
+        self._closed = False
+
+    @staticmethod
+    def _operation_bytes(operation):
+        # Count shared strings/None conservatively for every tuple. Eight pointer
+        # slots per item also cover list overallocation, including its first
+        # small allocation. Reserve a possible later UTF-8 cache for non-ASCII
+        # strings (native SQLite can create it on a shared str object). No
+        # traversal of the retained queue on append.
+        return (sys.getsizeof(operation) + sum(sys.getsizeof(v) for v in operation)
+                + sum(4 * len(v) + 1 for v in operation if isinstance(v, str) and not v.isascii())
+                + 8 * struct.calcsize("P"))
+
+    def _check_usable(self):
+        if self._closed or self._unusable:
+            raise RuntimeError("Prepared updates are closed or uncertain; retry indexing")
+
+    def _write_spool(self, conn, operations, growth=0):
+        pending = iter(operations)
+        while batch := list(itertools.islice(pending, 250)):
+            growth += sum(4096 + len((payload or '').encode('utf-8'))
+                          + len(vector or b'') for _, _, payload, vector in batch)
+            self._require_space(growth)
+            conn.executemany(self._INSERT, batch)
+        return growth
+
+    def _spill(self, successful_count):
+        """Adopt a spool only after both prefixes transfer; leave current add open."""
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self._require_space(self.retained_bytes)
+        directory = tempfile.TemporaryDirectory(
+            prefix="wavefoundry-sqlite-prepared-", dir=self.index_dir)
+        path = Path(directory.name) / "prepared.sqlite"
+        conn = None
         try:
-            conn = runtime.connect(self.path)
-            try:
-                conn.execute("CREATE TABLE operations(seq INTEGER PRIMARY KEY,layer TEXT,"
-                             "action TEXT,payload TEXT,vector BLOB)")
-            finally:
-                conn.close()
+            conn = runtime.connect(path)
+            conn.execute("CREATE TABLE operations(seq INTEGER PRIMARY KEY,layer TEXT,"
+                         "action TEXT,payload TEXT,vector BLOB)")
+            with conn:
+                self._write_spool(conn, itertools.islice(self._pending, successful_count))
+            conn.execute("BEGIN")
+            growth = self._write_spool(
+                conn, itertools.islice(self._pending, successful_count, None))
         except BaseException:
-            self._directory.cleanup()
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                try:
+                    directory.cleanup()
+                except BaseException:
+                    self._directory = directory
+                    self._unusable = True
+                    raise
             raise
+        self._directory, self.path = directory, path
+        self._pending.clear()
+        self.retained_bytes = sys.getsizeof(self._pending)
+        return conn, growth
 
     def _require_space(self, growth_bytes):
         # A conservative headroom estimate, not a quota reservation. Keep room
@@ -320,7 +380,12 @@ opens its write transaction. A failed process leaves no published half-delta.
         return self
 
     def __exit__(self, *_args):
-        self._directory.cleanup()
+        with self._mutex:
+            self._closed = True
+            self._pending.clear()
+            self.retained_bytes = sys.getsizeof(self._pending)
+            if self._directory is not None:
+                self._directory.cleanup()
 
     def add(self, layer, *, rows=(), ids=(), paths=(), replace=False):
         _layer(layer)
@@ -338,60 +403,113 @@ opens its write transaction. A failed process leaves no published half-delta.
                     separators=(',', ':')), pack_vector(row['vector']))
 
         with self._mutex:
-            conn = runtime.connect(self.path)
+            self._check_usable()
+            start = len(self._pending)
+            prior_bytes = self.retained_bytes
+            prior_growth = self._growth_bytes
+            conn = None
+            committing = False
             try:
-                with conn:
-                    pending = iter(operations())
-                    growth = 0
-                    while batch := list(itertools.islice(pending, 250)):
-                        # Include a page per operation for SQLite overhead. The
-                        # accumulator also covers dirty pages not yet flushed.
-                        growth += sum(4096 + len((payload or '').encode('utf-8'))
-                                      + len(vector or b'') for _, _, payload, vector in batch)
-                        self._require_space(growth)
-                        conn.executemany(
-                            "INSERT INTO operations(layer,action,payload,vector) VALUES(?,?,?,?)",
-                            batch)
+                pending = iter(operations())
+                if self.path is not None:
+                    conn = runtime.connect(self.path)
+                    conn.execute("BEGIN")
+                for operation in pending:
+                    size = self._operation_bytes(operation)
+                    self.largest_operation_bytes = max(self.largest_operation_bytes, size)
+                    if conn is None and self.retained_bytes + size <= self.MEMORY_LIMIT_BYTES:
+                        self._pending.append(operation)
+                        self.retained_bytes += size
+                        self.peak_retained_bytes = max(self.peak_retained_bytes, self.retained_bytes)
+                        self._growth_bytes += 4096 + len((operation[2] or '').encode('utf-8')) + len(operation[3] or b'')
+                    else:
+                        growth = 0
+                        if conn is None:
+                            conn, growth = self._spill(start)
+                        # Stream the rest: one encoded oversized row may be
+                        # transient, never an unbounded rollback copy.
+                        def remainder():
+                            yield operation
+                            for value in pending:
+                                self.largest_operation_bytes = max(
+                                    self.largest_operation_bytes, self._operation_bytes(value))
+                                yield value
+                        self._write_spool(conn, remainder(), growth)
+                        break
+                if conn is not None:
+                    committing = True
+                    conn.execute("COMMIT")
+            except BaseException:
+                if conn is None:
+                    del self._pending[start:]
+                    self.retained_bytes = prior_bytes
+                    self._growth_bytes = prior_growth
+                else:
+                    # A COMMIT error may have occurred after committing. Never
+                    # certify an uncertain prefix, even if rollback then works.
+                    self._unusable |= committing
+                    try:
+                        if conn.get_autocommit():
+                            self._unusable = True
+                        else:
+                            conn.execute("ROLLBACK")
+                    except BaseException:
+                        self._unusable = True
+                        raise
+                raise
             finally:
-                conn.close()
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except BaseException:
+                        self._unusable = True
+                        raise
 
     def apply(self, store, *, batch_size=250):
         """Drain into the caller's BEGIN IMMEDIATE; all resident updates share it."""
         import index_state_store as iss
         if store._conn.get_autocommit():
             raise RuntimeError("Prepared publication requires a writer transaction")
-        # The spool remains present while canonical rows and their WAL grow.
-        self._require_space(sum(p.stat().st_size for p in self.path.parent.iterdir()
-                                if p.is_file()))
-        conn = runtime.connect(self.path, read_only=True)
-        try:
-            cursor = iter(conn.execute("SELECT layer,action,payload,vector FROM operations ORDER BY seq"))
-            if batch_size < 1:
-                raise ValueError("Publication batch_size must be positive")
-            while batch := list(itertools.islice(cursor, batch_size)):
-                # Preserve operation order, including add-then-delete and later
-                # replaces. Only adjacent operations of the same type coalesce.
-                for (layer, action), operations in itertools.groupby(
-                        batch, key=lambda operation: operation[:2]):
-                    rows, ids, paths = [], [], []
-                    for target, action, payload, vector in operations:
-                        if action == 'replace':
-                            store._conn.execute(f"DELETE FROM chunks_{layer}")
-                            # Explicit full replacement also retires corrupt
-                            # orphan vectors that no canonical row can own.
-                            store._conn.execute(f"DELETE FROM vectors_{layer}")
-                            store._conn.execute("DELETE FROM chunk_registry WHERE table_name=?", (layer,))
-                            iss._write_fts_digest_meta(store._conn, layer, 0)
-                        elif action == 'row':
-                            row = json.loads(payload)
-                            row['vector'] = vector
-                            rows.append(row)
-                        elif action == 'id':
-                            ids.append(payload)
-                        elif action == 'path':
-                            paths.append(payload)
-                    if rows or ids or paths:
-                        iss._apply_chunk_deltas_locked(store, layer, delete_ids=ids,
-                                                      delete_paths=paths, add_rows=rows)
-        finally:
-            conn.close()
+        if batch_size < 1:
+            raise ValueError("Publication batch_size must be positive")
+        with self._mutex:
+            self._check_usable()
+            conn = None
+            try:
+                if self.path is None:
+                    cursor = iter(self._pending)
+                    if self._pending:
+                        self._require_space(self._growth_bytes)
+                else:
+                    self._require_space(sum(p.stat().st_size for p in self.path.parent.iterdir()
+                                            if p.is_file()))
+                    conn = runtime.connect(self.path, read_only=True)
+                    cursor = iter(conn.execute("SELECT layer,action,payload,vector FROM operations ORDER BY seq"))
+                while batch := list(itertools.islice(cursor, batch_size)):
+                    # Preserve operation order, including add-then-delete and later
+                    # replaces. Only adjacent operations of the same type coalesce.
+                    for (layer, action), operations in itertools.groupby(
+                            batch, key=lambda operation: operation[:2]):
+                        rows, ids, paths = [], [], []
+                        for target, action, payload, vector in operations:
+                            if action == 'replace':
+                                store._conn.execute(f"DELETE FROM chunks_{layer}")
+                                # Explicit full replacement also retires corrupt
+                                # orphan vectors that no canonical row can own.
+                                store._conn.execute(f"DELETE FROM vectors_{layer}")
+                                store._conn.execute("DELETE FROM chunk_registry WHERE table_name=?", (layer,))
+                                iss._write_fts_digest_meta(store._conn, layer, 0)
+                            elif action == 'row':
+                                row = json.loads(payload)
+                                row['vector'] = vector
+                                rows.append(row)
+                            elif action == 'id':
+                                ids.append(payload)
+                            elif action == 'path':
+                                paths.append(payload)
+                        if rows or ids or paths:
+                            iss._apply_chunk_deltas_locked(store, layer, delete_ids=ids,
+                                                          delete_paths=paths, add_rows=rows)
+            finally:
+                if conn is not None:
+                    conn.close()

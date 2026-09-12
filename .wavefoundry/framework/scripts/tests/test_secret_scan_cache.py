@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 def _load(name):
@@ -197,7 +198,7 @@ class NonGitMachineAuthorityTests(_CacheCase):
                     changed=set(), removed=set(), full=True,
                 )
                 self.assertEqual(summary["failures"], 0)
-                with closing(sqlite3.connect(self.index_dir / "index-state.sqlite")) as conn:
+                with closing(sqlite3.connect(index_paths.runtime_database_path(self.index_dir))) as conn:
                     paths = [row[0] for row in conn.execute("SELECT path FROM secret_scan_cache")]
                 self.assertFalse(any(p.startswith(".wavefoundry/index/") for p in paths), paths)
                 self.assertEqual(set(paths), expected)
@@ -471,7 +472,7 @@ class RunSecretsScanGuardHistoryTests(_CacheCase):
         return json.loads(out.getvalue().strip().splitlines()[-1])
 
     def _cached(self):
-        db = self.index_dir / "index-state.sqlite"
+        db = index_paths.runtime_database_path(self.index_dir)
         if not db.exists():
             return set()
         with closing(sqlite3.connect(db)) as conn:

@@ -279,25 +279,30 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /wavefoundry-*.zip
 ```
-- **Wavefoundry runtime files (never commit)** — the framework writes per-machine runtime files on every dashboard start and during upgrade. They are regenerated on each run (same class as the semantic indexes) and must be gitignored so they do not appear dirty or get committed accidentally. **This block (plus the `/wavefoundry-*.zip` pack-drop rule above) is written programmatically and idempotently by `render_gitignore_block` (in `render_platform_surfaces.py`), which `render_platform_surfaces.main()` runs on every `wf setup` / `wf render-surfaces` / upgrade — so it is enforced and self-heals existing repos (it is the authoritative writer; do not rely on hand-editing, which silently failed when a repo was not a git repo at install time).** The agent's job is to verify the marker-delimited `# >>> wavefoundry runtime …` block is present (run `wf render-surfaces` if not) and to add any project-specific rules only OUTSIDE that managed region. The canonical entries (source of truth for `render_gitignore_block`):
+- **Wavefoundry runtime files (never commit)** — the framework writes per-machine runtime files on every dashboard start and during upgrade. They are regenerated on each run (same class as the semantic indexes) and must be gitignored so they do not appear dirty or get committed accidentally. **This block (which ends with the same `/wavefoundry-*.zip` pack-drop rule shown above) is written programmatically and idempotently by `render_gitignore_block` (in `render_platform_surfaces.py`), which `render_platform_surfaces.main()` runs on every `wf setup` / `wf render-surfaces` / upgrade — so it is enforced and self-heals existing repos (it is the authoritative writer; do not rely on hand-editing, which silently failed when a repo was not a git repo at install time).** The agent's job is to verify the marker-delimited `# >>> wavefoundry runtime …` block is present (run `wf render-surfaces` if not) and to add any project-specific rules only OUTSIDE that managed region. The canonical entries, reproduced verbatim from `render_platform_surfaces._GITIGNORE_BLOCK` and bound to it by a framework parity test so the two cannot drift:
 ```gitignore
 # Wavefoundry runtime state files (host-local — never commit)
 .wavefoundry/dashboard-server.json
 .wavefoundry/upgrade-in-progress.json
+.wavefoundry/guard-overrides.json
 
 # Wavefoundry runtime lock files (host-local process/test locks — never commit)
 .wavefoundry/**/*.lock
+.wavefoundry/locks/
 
-# Wavefoundry runtime logs — all logs consolidated here (upgrade, index build, dashboard)
+# Wavefoundry runtime logs (upgrade, index build, dashboard)
 .wavefoundry/logs/
 
-# Wavefoundry semantic index (binary + per-machine, never commit)
+# Wavefoundry semantic index (binary + per-machine — never commit)
 .wavefoundry/index/
 .wavefoundry/framework/index/
 
-# Wavefoundry upgrade recovery assets (generated locally, never commit)
+# Wavefoundry upgrade recovery assets (generated locally — never commit)
 .wavefoundry/upgrade-assets/
 .wavefoundry/framework.rollback-*/
+
+# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
+/wavefoundry-*.zip
 ```
 If any of these files are already tracked (e.g. `dashboard-server.json` committed before this rule existed), untrack them without deleting them: `git rm --cached .wavefoundry/dashboard-server.json` (repeat for each tracked file). A gitignored file that remains tracked continues to appear dirty in `git status` and will churn live pid/port/url into history on every dashboard restart until it is removed from the index.
 - **Operator-owned `git commit` (policy, not hooks)** — document in `AGENTS.md` and `docs/contributing/build-and-verification.md` that **agents must not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after review; default is to hand off a suggested message and diff for the operator to commit locally. The policy must also say that agents do **not** infer commit approval from broad phrases like "go ahead", "ship it", or "commit the changes": before any commit, the agent must present or confirm the exact commit scope and receive a clear finalization instruction for that reviewed scope. Do not rely on shell hooks or env-var bypasses for this — keep it as explicit workflow policy.

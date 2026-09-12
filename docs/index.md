@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-09-11
 
 Wavefoundry is an agent harness: the Wave Framework seed pack, the framework scripts that do the mechanical lifecycle work, a local MCP server that AI coding agents talk to over stdio, and an optional loopback-only dashboard. Installed into a target repository, it wraps AI coding agents with feedforward guidance (seed prompts), feedback sensors (computational checks and reviewer lanes), and structural lifecycle enforcement, and it keeps that state in plain files that survive context loss ([Project overview](references/project-overview.md), What Wavefoundry Is). Wavefoundry is a framework and tooling repository, not a product application; it ships no networked service ([Architecture](ARCHITECTURE.md), Scope). The MCP server is one Python process, `server.py`, that builds a FastMCP app and runs it over stdio (`server.build_server`, `server.py` lines 486-563; `server.main`, lines 582-624).
 
@@ -34,7 +34,7 @@ Every code change moves through the same lifecycle. The bold phrases are shortcu
 
 ## Search and navigation
 
-Wavefoundry builds exactly one semantic index per project at `.wavefoundry/index/` (gitignored, derived, rebuildable): docs and code Lance tables plus a graph store, with `index-state.sqlite` as the sole index-state authority ([Chunking and indexing pipeline](architecture/chunking-and-indexing-pipeline.md), lines 51-68; [Cross-cutting concerns](architecture/cross-cutting-concerns.md), line 30; `indexer.INDEX_DIR_NAME`, line 46). Framework seeds fold into that same docs table at setup and upgrade, so no separate framework index ships ([ADR index](architecture/decisions/README.md), Index row `1p4xx-adr`), and only the MCP server reads it ([Domain map](architecture/domain-map.md), Dependency Direction Rules item 6). `index_health` reports whether each layer is ready (`index_health`, `server_impl.py`).
+Wavefoundry builds exactly one semantic index per project at `.wavefoundry/index/` (gitignored, derived, rebuildable): docs and code chunk, vector and FTS tables plus the code graph and its communities, with `index.sqlite` as the sole index authority ([Chunking and indexing pipeline](architecture/chunking-and-indexing-pipeline.md), lines 51-68; [Cross-cutting concerns](architecture/cross-cutting-concerns.md), line 30; `indexer.INDEX_DIR_NAME`, line 46). Framework seeds fold into that same docs table at setup and upgrade, so no separate framework index ships ([ADR index](architecture/decisions/README.md), Index row `1p4xx-adr`), and only the MCP server reads it ([Domain map](architecture/domain-map.md), Dependency Direction Rules item 6). `index_health` reports whether each layer is ready (`index_health`, `server_impl.py`).
 
 Agents reach the index and the repository through MCP tool families; every tool below is registered in `server_impl.register_mcp_surface`:
 

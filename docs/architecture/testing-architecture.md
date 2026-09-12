@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## Test Tiers
 
@@ -45,13 +45,42 @@ Last verified: 2026-09-09
 Native `test_sqlite_publication.py`, `test_sqlite_serving.py` and
 `test_sqlite_storage_migration.py` cover shared transaction rollback, stable
 reader snapshots, external-content FTS, vector coverage, schema refusal and
-receipt-bound upgrade recovery. Existing indexing, FTS, serving and setup suites
+receipt-bound upgrade recovery. Wave `1xny6` extended that tier to the graph
+participants of the same transaction: `test_graph_snapshot_readers.py` pins the
+generation-bound snapshot, the one-generation-per-response pin and cache reuse;
+`test_storage_upgrade_resume.py` pins the versioned receipt, the restart pause
+and resumable cutover; `test_graph_incremental_merge.py` and
+`test_graph_indexer.py` pin bounded row writes on a small delta and the
+equivalence invariant against a from-scratch build; and the paired parity
+fixture at `tests/fixtures/graph_parity_baseline_golden_corpus.json`, captured
+from the PRE-change builder over the golden corpus, makes same-source graph
+parity a repeatable test rather than a one-shot qualification. Existing indexing, FTS, serving and setup suites
 exercise the SQLite adapters rather than an Arrow compatibility layer.
 `sqlite_conversion_eval.py` freezes the corrected Lance baseline source hashes,
 migrates a disposable corpus copy and compares the actual public query adapters.
 It is a development-only driver, excluded with other tests from destination
 packages. Its receipts distinguish executed local results from pending native
 platform tests; the conversion change's G2–G6 gates remain the delivery authority.
+
+### Lifecycle and shared-store failure controls (wave 1xq4f)
+
+Dashboard regressions exercise real daemon identity and stop behavior in temporary
+repositories, plus refused stop, exited child, pending startup and competing
+server outcomes. Successful process discovery must still exclude unverified live
+PIDs from signal targets. Native process inspection needs a host that permits it.
+
+Shared-store tests commit from a second connection between graph reads, retain
+exception tracebacks after failed builds, and compare every participant after a
+targeted update. These detect mixed-generation citations, leaked connections and
+loss of unselected content. Graph consumer tests distinguish missing content,
+in-flight publication and typed runtime/storage/migration failure.
+
+Migration inventory tests skip only real symlink creation cases when the host
+lacks that capability. An injected Windows privilege error proves that ordinary
+file/directory assertions still execute; simulated reparse/ownership controls
+remain active. Named mutants remove the individual repairs and must fail their
+corresponding regressions. These local controls do not qualify native Windows,
+Linux or Intel macOS package execution.
 
 ### Canonical Runner, Measured Scheduling, and the Server-Tools Shard Family (wave 1tmtx)
 
@@ -272,12 +301,14 @@ acceptance criteria; the feedforward half is seed `170-plan-feature.prompt.md`
 
 **Production identity now binds the cluster carrier (wave `1wpaj`).**
 `graph_cluster.py` joined the production retrieval modules and
-`CLUSTER_BUILDER_VERSION` joined the production version constants, so a cluster
-artifact change moves the production digest. This is recorded as **provenance
+`CLUSTER_BUILDER_VERSION` joined the production version constants, so a change in
+cluster output moves the production digest. (Since wave `1xny6` that output is
+community ROWS in the shared database rather than a cluster artifact file; the
+identity binding is unchanged.) This is recorded as **provenance
 honesty, not as a detector**: across the tool set the evaluator actually
-measures, the cluster artifact reaches query time only through memory-advisory
+measures, the cluster output reaches query time only through memory-advisory
 ranking, so binding it does not give the gate a new way to catch a citation
-regression. The graph tools do read the artifact by other paths, which is why
+regression. The graph tools do read it by other paths, which is why
 the claim is scoped to the measured set rather than stated generally.
 
 **Eleven tuning variables are identity, recorded as values (wave `1wpaj`).**

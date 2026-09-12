@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified semantic SQLite store at .wavefoundry/index/index-state.sqlite.
+"""Unified semantic and graph SQLite store at .wavefoundry/index/index.sqlite.
 
 Schema 7 owns canonical chunk payloads and FP32 vectors alongside external
 FTS5, chunk registry, freshness, memory, secret-scan and build-epoch state.
@@ -24,6 +24,8 @@ import os
 import re
 import secrets
 import sqlite3
+import graph_store
+import index_paths
 import sqlite_runtime
 import sqlite_vector_store
 from sqlite_storage_migration import LEGACY_SCHEMA_VERSIONS
@@ -46,7 +48,10 @@ if _scripts_dir not in sys.path:
 from gardener_metadata import is_gardener_date_line, normalize_gardener_date  # noqa: E402
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
 
-STATE_STORE_FILENAME = "index-state.sqlite"
+# One definition, owned by index_paths (wave 1xny6). Never re-spell the
+# literal here: the schema-8 rename to index.sqlite is activated by a single
+# edit to index_paths.RUNTIME_DATABASE_FILENAME.
+STATE_STORE_FILENAME = index_paths.RUNTIME_DATABASE_FILENAME
 
 # Store schema version. Mismatches require explicit migration/recovery;
 # historical versions below used whole-store invalidation before schema 7.
@@ -63,8 +68,23 @@ STATE_STORE_FILENAME = "index-state.sqlite"
 # bumped to "6" (build_state epoch row — the SQLite-only authority contract:
 # attempt-ID fenced builds, completed-generation reader tokens; the reset
 # doubles as legacy convergence since an uninitialized epoch fails readers
-# closed until the first completed build).
-STATE_STORE_SCHEMA_VERSION = "7"
+# closed until the first completed build); 1xny6 bumped to "8" (graph nodes,
+# independent edge evidence, per-file extraction/merge state, communities,
+# derived analysis, symbol/chunk links, the codebase-map receipt and
+# per-layer build state join the semantic tables in ONE database — see
+# graph_store.py). The 7 -> 8 arm is additive: unlike every bump before it,
+# it preserves the FTS tables, their digests and the lexical statistics.
+STATE_STORE_SCHEMA_VERSION = "8"
+
+# Which legacy arm each migratable schema takes in ``_migrate_resident_schema``.
+# Schemas 4/5/6 predate the canonical-chunk FTS contract, so their FTS tables
+# and the digests describing them must go; schema 7 already carries the
+# current FTS contract, so a 7 -> 8 upgrade must NOT touch them. Their union
+# is asserted to equal LEGACY_SCHEMA_VERSIONS, so a version added there
+# without a classification fails loudly instead of silently taking the
+# destructive arm.
+LEGACY_SCHEMA_FTS_RESET_VERSIONS = frozenset({"4", "5", "6"})
+LEGACY_SCHEMA_ADDITIVE_VERSIONS = frozenset({"7"})
 
 # Freshness extraction tuning (1ro43 Req 1: "commit count touching the file
 # over a trailing window, normalized"; window + normalization are named
@@ -206,11 +226,18 @@ STORE_OPEN_TIMEOUT_SECONDS = 10.0
 STORE_LOG_FILENAME = "index-state.log"
 STORE_LOG_MAX_BYTES = 512 * 1024
 
-# Path of the graph state store relative to the index dir. Duplicated from
-# graph_indexer's GRAPH_DIRNAME/GRAPH_STORE_FILENAMES rather than imported —
-# importing graph_indexer pulls its tree-sitter machinery into every store
-# consumer. A wiring test asserts this stays in sync with graph_indexer.
-GRAPH_STATE_STORE_RELPATH = "graph/project-graph-state.sqlite"
+# The RETIRED standalone graph state store's name is no longer a constant here
+# (wave 1xny6 lane L6b, closing AC-8's last open clause). Graph extraction state
+# folded into this database, maintenance never touched the retired file, and its
+# last reader -- the storage-component bloat reporter in ``server_impl`` -- is
+# gone. The only code that still needs to NAME the file is the upgrade's
+# pre-deletion inventory, which owns the list in
+# ``sqlite_storage_migration._retired_graph_allowlist``.
+
+# The graph extraction manifest inside THIS database (graph_store.py owns the
+# DDL). Named here rather than imported so the zero-change hot path never
+# loads the graph module just to plan a reconciliation.
+GRAPH_EXTRACTION_MANIFEST_TABLE = "graph_file_state"
 
 _VERSION_KEYS = ("store_schema_version",)
 
@@ -376,17 +403,7 @@ class IndexStateStore:
                             f"Index schema {version!r} requires explicit migration/rebuild; "
                             f"preserving {self.path}. Run the standard wf upgrade/setup recovery path.")
                     # Explicit migration is restricted to an unpublished staging copy.
-                    with conn:
-                        for table in FTS_TABLES.values():
-                            conn.execute(f"DROP TABLE IF EXISTS {table}")
-                        # These digests describe the removed legacy FTS
-                        # tables. Carrying them into initially empty canonical
-                        # tables would XOR the legacy digest into every import.
-                        conn.executemany("DELETE FROM meta WHERE key=?",
-                            [(META_FTS_PAYLOAD_DIGEST_PREFIX + layer,) for layer in FTS_TABLES]
-                            + [(META_LEXICAL_STATISTICS,)])
-                        conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'",
-                                     (STATE_STORE_SCHEMA_VERSION,))
+                    self._migrate_resident_schema(conn, str(version[0]))
             elif conn.execute("SELECT 1 FROM sqlite_schema WHERE type='table' LIMIT 1").fetchone():
                 raise sqlite_runtime.StorageRecoveryRequired("Unrecognized index schema; file preserved.")
             self._create_tables(conn)
@@ -394,6 +411,41 @@ class IndexStateStore:
             conn.close()
             raise
         return conn
+
+    def _migrate_resident_schema(self, conn, from_version: str) -> None:
+        """Version-keyed resident migration on an unpublished staging copy.
+
+        Each legacy version declares which arm it takes; there is no "all
+        legacy versions behave alike" fallthrough, because the arms disagree
+        about the one thing that matters:
+
+        * 4/5/6 -> current: the historical behavior, retained verbatim. Those
+          stores predate the canonical-chunk FTS contract, so their FTS tables
+          are dropped and the payload digests + lexical statistics describing
+          them are deleted (carrying a legacy digest into initially empty
+          canonical tables would XOR it into every import).
+        * 7 -> 8: ADDITIVE. Schema 7 already carries the current FTS contract,
+          so its FTS tables, payload digests and lexical statistics are
+          preserved untouched; the new tables come from ``_create_tables``
+          immediately after, and this arm only bumps the recorded version.
+
+        An unclassified legacy version is a wiring fault, not a store fault:
+        it refuses rather than defaulting into the destructive arm.
+        """
+        if from_version not in (LEGACY_SCHEMA_FTS_RESET_VERSIONS | LEGACY_SCHEMA_ADDITIVE_VERSIONS):
+            raise sqlite_runtime.StorageRecoveryRequired(
+                f"Index schema {from_version!r} is listed as migratable but has no "
+                f"migration arm; preserving {self.path}.")
+        with conn:
+            if from_version in LEGACY_SCHEMA_FTS_RESET_VERSIONS:
+                for table in FTS_TABLES.values():
+                    conn.execute(f"DROP TABLE IF EXISTS {table}")
+                # These digests describe the removed legacy FTS tables.
+                conn.executemany("DELETE FROM meta WHERE key=?",
+                    [(META_FTS_PAYLOAD_DIGEST_PREFIX + layer,) for layer in FTS_TABLES]
+                    + [(META_LEXICAL_STATISTICS,)])
+            conn.execute("UPDATE meta SET value=? WHERE key='store_schema_version'",
+                         (STATE_STORE_SCHEMA_VERSION,))
 
     def _create_tables(self, conn: "sqlite3.Connection") -> None:
         with conn:
@@ -495,6 +547,12 @@ class IndexStateStore:
                 # the next reconciliation rebuilds BOTH from canonical chunks.
                 conn.execute("DELETE FROM chunk_registry")
             sqlite_vector_store.create_schema(conn)
+            # Schema 8 (wave 1xny6): graph, community, derived-analysis,
+            # symbol/chunk-link, map-receipt and per-layer build tables join
+            # the semantic tables in this one database. Created at the same
+            # seam as the vector schema so a fresh store and the 7 -> 8
+            # migration arm both get them from one call.
+            graph_store.create_schema(conn)
             for layer in FTS_TABLES:
                 if not conn.execute(f"SELECT 1 FROM chunks_{layer} LIMIT 1").fetchone():
                     conn.execute("INSERT OR IGNORE INTO meta(key,value) VALUES (?,?)",
@@ -1124,7 +1182,7 @@ def freshness_for_paths(
 # The advisory cache's cross-process coherence cannot rest on in-process
 # eviction: if the durable write that other processes read fails, a second MCP
 # process keeps serving a stale advisory. So invalidation is a DURABLE SEQLOCK
-# in a dedicated store (never the canonical index-state.sqlite, so a memory
+# in a dedicated store (never the canonical index.sqlite, so a memory
 # write can't reset freshness/FTS/epoch):
 #   - ``epoch``      — a random nonce minted ONCE at store creation. Defeats the
 #                      delete/recreate ABA: a rebuilt store gets a new epoch, so
@@ -1956,12 +2014,22 @@ def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
 
     Returns the current path sets of the stores that lacked store-minus-
     authority reconciliation on incremental builds: the ``file_freshness``
-    and ``secret_scan_cache`` sidecars, plus the graph state store's
-    ``files`` manifest (read directly at ``GRAPH_STATE_STORE_RELPATH``; the
-    same two-column peek as ``GraphStateStore.paths_with_hashes``, kept here
-    so the zero-change hot path never loads the graph module just to plan).
-    Absent or unreadable stores read as empty sets: the reconcile then has
-    no candidates and does nothing, which is the safe direction.
+    and ``secret_scan_cache`` sidecars, plus the graph extraction manifest.
+
+    Wave 1xny6 moved the graph manifest into THIS database, so all three now
+    come off ONE ``open_read_only`` connection. The second stdlib ``sqlite3``
+    open this function used to make against the graph state file is gone --
+    that was one of the three stdlib accessors the single-binding rule
+    dispositions, and the shared file may not be opened by a second SQLite
+    library in one process.
+
+    Absent or unreadable stores read as empty sets: the reconcile then has no
+    candidates and does nothing, which is the safe direction. The caller's
+    per-store eligibility rules are unchanged and remain distinct --
+    ``file_freshness`` and ``graph`` rows exist only for corpus paths and
+    retire on scope departure as well as deletion, while ``secret_scan_cache``
+    legitimately caches tracked-but-unindexed files and retires only
+    disk-absent rows.
     """
     result: dict[str, set[str]] = {
         "file_freshness": set(),
@@ -1971,9 +2039,13 @@ def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
     conn = open_read_only(index_dir)
     if conn is not None:
         try:
-            for table in ("file_freshness", "secret_scan_cache"):
+            for store_name, table in (
+                ("file_freshness", "file_freshness"),
+                ("secret_scan_cache", "secret_scan_cache"),
+                ("graph", GRAPH_EXTRACTION_MANIFEST_TABLE),
+            ):
                 rows = conn.execute(f"SELECT path FROM {table}").fetchall()
-                result[table] = {str(r[0]) for r in rows}
+                result[store_name] = {str(r[0]) for r in rows}
         except _SQL_ERRORS:
             pass
         finally:
@@ -1981,23 +2053,6 @@ def orphan_store_paths(index_dir: Path) -> dict[str, set[str]]:
                 conn.close()
             except _SQL_ERRORS:
                 pass
-    graph_path = index_dir / GRAPH_STATE_STORE_RELPATH
-    if graph_path.exists():
-        try:
-            gconn = sqlite3.connect(
-                f"file:{graph_path.as_posix()}?mode=ro", uri=True, timeout=10.0
-            )
-            try:
-                gconn.execute("PRAGMA busy_timeout=10000")
-                rows = gconn.execute("SELECT path FROM files").fetchall()
-                result["graph"] = {str(r[0]) for r in rows}
-            finally:
-                try:
-                    gconn.close()
-                except _SQL_ERRORS:
-                    pass
-        except _SQL_ERRORS:
-            pass
     return result
 
 
@@ -3305,6 +3360,69 @@ def finalize_staged_build_epoch(
             str(receipt["attempt_id"]),
         )
     return finalized
+
+
+
+# --- Per-layer publication state (wave 1xny6) ------------------------------
+# ``build_state.generation`` remains THE reader token: one scalar, advanced
+# only by ``finalize_build_epoch``. ``build_layer_state`` is the per-layer
+# record BESIDE it -- which generation and attempt each layer was last
+# published under -- so a graph-only or semantic-only build can publish
+# without advertising freshness for the layer it did not touch. Rows written
+# inside the publication transaction name the generation the pending finalize
+# will produce (current + 1); until that CAS lands, a row ahead of the scalar
+# is by construction "prepared, not published".
+
+LAYER_STATE_PUBLISHED = "published"
+LAYER_STATE_STALE = "stale"
+
+
+def write_build_layer_state_locked(conn, layers: Mapping[str, str], *,
+                                   attempt_id: str) -> None:
+    """Upsert per-layer publication rows inside the CALLER's transaction.
+
+    Only the layers this build actually published (or must mark stale) appear
+    in ``layers``; every other layer's row is left exactly as it was, which is
+    how a layer keeps the generation it was really published under.
+    """
+    if not layers:
+        return
+    row = conn.execute("SELECT generation FROM build_state WHERE id = 1").fetchone()
+    generation = int(row[0]) + 1 if row else 1
+    now = time.time()
+    for layer, status in sorted(layers.items()):
+        conn.execute(
+            "INSERT INTO build_layer_state (layer, generation, attempt_id, status, updated_at) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(layer) DO UPDATE SET "
+            "generation=excluded.generation, attempt_id=excluded.attempt_id, "
+            "status=excluded.status, updated_at=excluded.updated_at",
+            (str(layer), generation, str(attempt_id), str(status), now),
+        )
+
+
+def read_build_layer_state(index_dir: Path) -> dict[str, dict[str, Any]]:
+    """Per-layer publication rows; ``{}`` when the store is absent/unreadable."""
+    conn = open_read_only(index_dir)
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT layer, generation, attempt_id, status, updated_at FROM build_layer_state"
+        ).fetchall()
+    except _SQL_ERRORS:
+        return {}
+    finally:
+        try:
+            conn.close()
+        except _SQL_ERRORS:
+            pass
+    return {
+        str(r[0]): {
+            "generation": int(r[1]), "attempt_id": str(r[2]),
+            "status": str(r[3]), "updated_at": r[4],
+        }
+        for r in rows
+    }
 
 
 def read_build_state(index_dir: Path) -> Optional[dict[str, Any]]:
@@ -5191,17 +5309,53 @@ def _passive_checkpoint(conn) -> dict[str, Any]:
             "complete": not busy and log_frames == checkpointed_frames}
 
 
+def _page_accounting(conn) -> dict[str, Any]:
+    """Page counts for one open connection. Never raises.
+
+    Wave 1xny6 AC-8: wave 1xny3's full-corpus maintenance assertion failed on a
+    three-way conjunction (freed capacity, capacity consumed, no page growth)
+    and its counts were never persisted, so the failing subcondition is still
+    unknown. Maintenance therefore records the counts it judged BEFORE it can
+    fail, and keeps them in the result on the failure path, so the next failure
+    is explicable from the result alone.
+    """
+    counts: dict[str, Any] = {"page_count": None, "freelist_count": None,
+                              "page_size_bytes": None}
+    for name in ("page_count", "freelist_count", "page_size"):
+        try:
+            row = conn.execute(f"PRAGMA {name}").fetchone()
+        except Exception:  # noqa: BLE001 - diagnostics must never mask the real failure
+            continue
+        if row:
+            counts["page_size_bytes" if name == "page_size" else name] = int(row[0])
+    return counts
+
+
+def _wal_bytes(path: Path) -> int:
+    """Size of the store's write-ahead log, 0 when it is absent."""
+    try:
+        return Path(f"{path}-wal").stat().st_size
+    except OSError:
+        return 0
+
+
 def sqlite_store_maintenance(
     path: Path, *, full_vacuum: bool = False, deep_integrity: bool = False,
-    migrate_graph_vacuum: bool = False,
 ) -> dict[str, Any]:
     """Generic SQLite-store maintenance: checkpoint, reclaim, optimize, verify.
 
-    Used by the unified ``index_optimize`` path for every reachable
-    SQLite store (the index-state store AND the graph state store). The
-    explicit graph-store arm may convert legacy NONE auto-vacuum once;
-    ordinary maintenance remains incremental. On-demand only; the caller
-    holds the index-build lock. Busy/I/O failures leave the store intact.
+    Used by the unified ``index_optimize`` path for the one shared index
+    database. Reclamation stays incremental and bounded by
+    ``INCREMENTAL_VACUUM_PAGES``; routine maintenance never rewrites the whole
+    database. On-demand only; the caller holds the index-build lock. Busy/I/O
+    failures leave the store intact.
+
+    Wave 1xny6 retired the graph-only auto-vacuum migration arm. It existed to
+    convert a legacy standalone graph database from ``auto_vacuum=NONE``, which
+    needs a full ``VACUUM`` to build the pointer map. The shared database is
+    created with ``auto_vacuum=INCREMENTAL`` by ``sqlite_runtime.connect``, so
+    the arm has nothing to convert here, and keeping it would put a
+    whole-database rewrite one predicate away from routine maintenance.
     """
     path = Path(path)
     result: dict[str, Any] = {
@@ -5216,18 +5370,25 @@ def sqlite_store_maintenance(
         "maintenance_complete": False,
         "auto_vacuum_before": None,
         "auto_vacuum_after": None,
-        "auto_vacuum_migrated": False,
         "vacuum_mode": None,
+        "counts_before": None,
+        "counts_after": None,
+        "wal_bytes_before": 0,
+        "wal_bytes_after": 0,
     }
     if not path.exists():
         return result
     result["size_before_bytes"] = _store_size_bytes(path)
+    result["wal_bytes_before"] = _wal_bytes(path)
     stage = "open"
     try:
         conn = (sqlite_runtime.connect(path) if path.name == STATE_STORE_FILENAME
                 else sqlite3.connect(str(path), timeout=10.0))
         try:
             conn.execute("PRAGMA busy_timeout=10000")
+            # Recorded before the first statement that can fail, so a failure
+            # at ANY later stage still reports what the pass was looking at.
+            result["counts_before"] = _page_accounting(conn)
             stage = "integrity_check"
             pragma = "integrity_check" if deep_integrity else "quick_check"
             verdicts = [str(r[0]) for r in conn.execute(f"PRAGMA {pragma}").fetchall()]
@@ -5253,38 +5414,28 @@ def sqlite_store_maintenance(
             vacuum_before = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
             result["auto_vacuum_before"] = vacuum_before
             result["auto_vacuum_after"] = vacuum_before
-            # Only the known graph entry opts into a format conversion. Never
-            # turn a generic SQLite maintenance call into an implicit VACUUM.
-            graph_path = Path(GRAPH_STATE_STORE_RELPATH)
-            migrate_graph = (migrate_graph_vacuum and path.name == graph_path.name
-                             and path.parent.name == graph_path.parent.name
-                             and vacuum_before != 2)
-            if migrate_graph:
-                stage = "graph_vacuum_migration"
-                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-                if vacuum_before == 0:
-                    # NONE lacks the pointer map. VACUUM builds it atomically;
-                    # failure retains the original database for a later retry.
-                    conn.execute("VACUUM")
-                    result["vacuum_mode"] = "graph_migration"
-                result["auto_vacuum_after"] = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
-                if result["auto_vacuum_after"] != 2:
-                    raise sqlite3.DatabaseError("Graph incremental auto-vacuum conversion did not persist")
-                result["auto_vacuum_migrated"] = True
+            # No format-conversion arm. The one shared database is created with
+            # auto_vacuum=INCREMENTAL (sqlite_runtime.connect), so a full
+            # VACUUM here would only ever be a whole-database rewrite on the
+            # routine path. `full_vacuum` stays an explicit caller opt-in and
+            # every production caller passes False.
             stage = "vacuum"
-            if full_vacuum and result["vacuum_mode"] != "graph_migration":
+            if full_vacuum:
                 conn.execute("VACUUM")
                 result["vacuum_mode"] = "full"
-            elif result["vacuum_mode"] != "graph_migration":
+            else:
                 # APSW yields one row per reclaimed page. Discarding its
                 # cursor after execute() reclaims only the first page.
                 for _ in conn.execute(f"PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES})"):
                     pass
-                result["vacuum_mode"] = "incremental" if result["auto_vacuum_after"] == 2 else "none"
+                result["vacuum_mode"] = "incremental" if vacuum_before == 2 else "none"
             stage = "planner_optimize"
             conn.execute("PRAGMA optimize")
             result["maintenance_complete"] = True
         finally:
+            # In the finally so a failed pass keeps its post-failure counts
+            # next to its pre-pass counts instead of reporting neither.
+            result["counts_after"] = _page_accounting(conn)
             conn.close()
     except _SQL_ERRORS as exc:
         result["error"] = str(exc)
@@ -5296,6 +5447,7 @@ def sqlite_store_maintenance(
                 or _is_missing_object_error(exc)):
             result["integrity"] = "structural-fail"
     result["size_after_bytes"] = _store_size_bytes(path)
+    result["wal_bytes_after"] = _wal_bytes(path)
     result["reclaimed_bytes"] = max(
         0, result["size_before_bytes"] - result["size_after_bytes"]
     )
@@ -5309,19 +5461,27 @@ def optimize_state_stores(
 
     The on-demand arm of the unified maintenance verb (1rq4h Req 10): called
     by ``index_optimize`` and at the end of setup/upgrade, under the
-    index-build lock (caller-held). Covers the index-state store and the
-    graph state store; stores that don't exist are reported absent, never an
-    error.
+    index-build lock (caller-held). An absent store is reported absent, never
+    an error.
+
+    ONE physical database, ONE pass, ONE storage/reclamation entry (1xny6
+    AC-8). Semantic and graph state now live in the same file, so scheduling a
+    second pass would checkpoint, reclaim and re-verify the same bytes twice
+    and double-count the reclamation in every consumer that sums this mapping.
+
+    A retired ``graph/project-graph-state.sqlite`` left on disk before the
+    upgrade's cleanup deletes it is IGNORED here, not maintained and not
+    reported: it is no longer an authority, nothing reads it, and spending a
+    maintenance pass on bytes already scheduled for deletion would also let a
+    dead file appear in operator output as live index storage. Ignoring is not
+    deleting — maintenance leaves the file exactly as it found it, so the
+    upgrade's cleanup arm remains the only thing that removes it.
     """
     index_dir = Path(index_dir)
-    stores = {
-        "index-state": state_store_path(index_dir),
-        "graph-state": index_dir / GRAPH_STATE_STORE_RELPATH,
-    }
+    stores = {"index-state": state_store_path(index_dir)}
     return {
         name: sqlite_store_maintenance(
             path, full_vacuum=full_vacuum, deep_integrity=deep_integrity,
-            migrate_graph_vacuum=name == "graph-state",
         )
         for name, path in stores.items()
     }

@@ -247,7 +247,7 @@ DOCS_SEARCH_KINDS = frozenset({"doc", "seed", "architecture", "prompt", "doc-sum
 VECTOR_TOP_K = 30  # candidates fetched per index before reranking (navigational/instructional/default)
 VECTOR_TOP_K_EXPLANATORY = 50  # candidates per index for explanatory/flow questions (dynamic-vector-top-k)
 
-# Docs and code share index-state.sqlite with separate vector and FTS populations.
+# Docs and code share index.sqlite with separate vector and FTS populations.
 
 # Bounded candidate-window refill (wave 1wpif, 1wpah). Exact predicates (kind, tags, an
 # allowlisted language or category) are pushed into the vector SQL / FTS5 `WHERE` BEFORE the
@@ -1764,10 +1764,16 @@ class WaveIndex:
         try:
             gq = _load_graph_query()
             graph_indexer = gq._get_graph_indexer()
-            payload = graph_indexer.read_graph_payload(self.root, "project")
-            if not payload.get("present"):
+            # Wave 1xny6 lane L6b: the published ROWS, read in ONE read-only
+            # snapshot that also carries the extraction manifest, replace the
+            # retired `project-graph.json` file plus its stat binding. Payload
+            # and source receipt therefore come from one generation by
+            # construction, so the old double-read identity re-check is gone.
+            snapshot = graph_indexer.read_published_graph_snapshot(self.root, "project")
+            if not snapshot:
                 return None
-            if str(payload.get("builder_version") or "") != str(
+            payload = snapshot["payload"]
+            if str(snapshot.get("builder_version") or "") != str(
                 graph_indexer.GRAPH_BUILDER_VERSION
             ):
                 return None
@@ -1797,35 +1803,15 @@ class WaveIndex:
         # Count exact graph identities before any path/line deduplication.  Two
         # exact nodes are ambiguous even when a malformed payload gives them the
         # same source location.
-        initial_matches = exact_nodes(payload)
-        if len(initial_matches) != 1:
+        matches = exact_nodes(payload)
+        if len(matches) != 1:
             return None
-        initial_node = initial_matches[0]
-        source_file = initial_node.get("source_file")
+        node = matches[0]
+        source_file = node.get("source_file")
         if not isinstance(source_file, str) or not source_file:
             return None
-        try:
-            bound = graph_indexer.read_bound_graph_payload_source_hash(
-                self.root,
-                source_file,
-                "project",
-            )
-        except Exception:
-            return None
-        if not isinstance(bound, dict):
-            return None
-        bound_payload = bound.get("payload")
-        expected_source_hash = str(bound.get("source_hash") or "")
-        if not isinstance(bound_payload, dict) or not expected_source_hash:
-            return None
-        bound_matches = exact_nodes(bound_payload)
-        if len(bound_matches) != 1:
-            return None
-        node = bound_matches[0]
-        identity_keys = ("id", "label", "kind", "source_file", "source_location")
-        if tuple(initial_node.get(key) for key in identity_keys) != tuple(
-            node.get(key) for key in identity_keys
-        ):
+        expected_source_hash = str(snapshot["source_hash"].get(source_file) or "")
+        if not expected_source_hash:
             return None
         try:
             # One read supplies both the receipt hash and the rendered citation;
@@ -3974,6 +3960,23 @@ def _diagnostic(
     return payload
 
 
+
+def _graph_unavailable_fields(gq, layer: str, index) -> dict[str, Any]:
+    diag = gq.graph_not_ready_diagnostic(layer, index)
+    return {"diagnostics": [diag],
+            "next_tools": diag.get("recovery_tools", ["index_build"]),
+            "usage": diag.get("recovery_usage", "index_build(content='graph', mode='create')")}
+
+
+def _graph_snapshot_failure_fields(root: Path) -> dict[str, Any] | None:
+    diagnostic = _graph_snapshot_module().acquire(root, "project").diagnostic
+    if not diagnostic:
+        return None
+    return {"diagnostics": [diagnostic],
+            "next_tools": diagnostic.get("recovery_tools", []),
+            "usage": diagnostic.get("recovery_usage", "")}
+
+
 def _graph_auto_rebuild_diagnostic(index: Any) -> list[dict[str, Any]]:
     """Wave 131bt (131e2): surface the GraphQueryIndex auto-rebuild diagnostic.
 
@@ -5185,7 +5188,7 @@ def _index_build_stats_path(root: Path, layer: str = "project") -> Path:
 
 
 def _graph_health_summary(root: Path) -> dict[str, Any]:
-    """Wave 13129 (1316n): summary of graph artifact presence + last-built per layer.
+    """Wave 13129 (1316n): summary of graph presence + last-built per layer.
 
     Operators reading index_health get this alongside semantic-layer
     readiness so the "did my rebuild touch graph?" question is answerable
@@ -5194,40 +5197,46 @@ def _graph_health_summary(root: Path) -> dict[str, Any]:
     Returns dict with shape:
         {
             "project": {"present": bool, "last_built_at": str | None,
-                        "node_count": int | None, "edge_count": int | None},
+                        "node_count": int | None, "edge_count": int | None,
+                        "generation": int, "component": str},
         }
 
     Wave 1p4ww: single project graph — the framework layer is folded in.
+    Wave 1xny6: served from the generation-bound snapshot. ``last_built_at``
+    is the payload's own ``generated_at`` rather than an artifact mtime, and
+    ``component`` names the database component instead of a deleted filename —
+    a read-only health call opens nothing under the retired graph folder.
     """
-    import datetime as _dt
+    gs = _graph_snapshot_module()
     summary: dict[str, Any] = {}
-    for layer, fname in (("project", "project-graph.json"),):
-        graph_path = root / ".wavefoundry" / "index" / "graph" / fname
-        if not graph_path.exists():
+    for layer in ("project",):
+        try:
+            snapshot = gs.acquire(root, layer)
+        except Exception:
+            snapshot = None
+        component = gs.component_path(gs.GRAPH_COMPONENT)
+        if snapshot is None or not snapshot.present:
             summary[layer] = {
                 "present": False, "last_built_at": None,
                 "node_count": None, "edge_count": None,
+                "generation": 0 if snapshot is None else snapshot.generation,
+                "state": "failed" if snapshot is None else snapshot.state,
+                "diagnostic": None if snapshot is None else snapshot.diagnostic,
+                "component": component,
             }
             continue
-        try:
-            mtime = graph_path.stat().st_mtime
-            last_built = _dt.datetime.fromtimestamp(mtime, tz=_dt.timezone.utc).isoformat()
-        except OSError:
-            last_built = None
-        node_count = edge_count = None
-        try:
-            # Wave 1p9q3 (1p9py): graph artifacts are gzip-compressed compact
-            # JSON — read through the sniffing reader (legacy plain-JSON safe).
-            payload = _load_script("graph_cluster").read_json_artifact(graph_path, {})
-            nodes = payload.get("nodes") or []
-            edges = payload.get("edges") or []
-            node_count = len(nodes) if isinstance(nodes, list) else None
-            edge_count = len(edges) if isinstance(edges, list) else None
-        except Exception:
-            pass
+        payload = snapshot.graph or {}
+        nodes = payload.get("nodes") or []
+        edges = payload.get("edges") or []
+        counts = payload.get("counts") or {}
         summary[layer] = {
-            "present": True, "last_built_at": last_built,
-            "node_count": node_count, "edge_count": edge_count,
+            "present": True,
+            "last_built_at": str(payload.get("generated_at") or "") or None,
+            "node_count": len(nodes) if isinstance(nodes, list) else counts.get("nodes"),
+            "edge_count": len(edges) if isinstance(edges, list) else counts.get("edges"),
+            "generation": snapshot.generation,
+            "graph_generation": snapshot.graph_content_generation,
+            "component": component,
         }
     return summary
 
@@ -9674,7 +9683,7 @@ def _path_size_bytes(p: Path) -> int:
 def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
     """Wave 1p9a9: total + top-level component on-disk size of the index dir. Read-only, best-effort;
     a missing dir or any stat error yields ``None`` (never raises). The per-component breakdown
-    (``index-state.sqlite`` / ``graph`` / …) makes storage growth diagnosable."""
+    (``index.sqlite`` / ``memory-state.sqlite`` / …) makes storage growth diagnosable."""
     try:
         if not index_dir.exists():
             return None
@@ -9709,7 +9718,14 @@ def _close_optimize_enabled(root: Path) -> bool:
 
 
 def _index_table_bloat_ratios(root: Path) -> dict[str, float]:
-    """Page bloat in the shared semantic file and separate graph; no payload scans."""
+    """Page bloat in the one shared database; no payload scans.
+
+    Wave 1xny6 lane L6b retired the separate ``graph`` entry with the
+    standalone graph state store it measured. Graph rows live in the shared
+    database now, so the docs/code ratios already describe their pages, and
+    procedure step 6 deletes the retired folder that file lived in -- a second
+    arm here could only ever report on a file the upgrade removes.
+    """
     ratios: dict[str, float] = {}
     index_dir = root / ".wavefoundry" / "index"
     try:
@@ -9720,21 +9736,6 @@ def _index_table_bloat_ratios(root: Path) -> dict[str, float]:
             ratio = pages / max(1, pages - free)
             ratios.update({layer: ratio for layer in ("docs", "code")
                            if vectors.layer_available(index_dir, layer)})
-    except Exception:
-        pass
-    try:
-        import sqlite3
-        iss = _load_script("index_state_store")
-        path = index_dir / iss.GRAPH_STATE_STORE_RELPATH
-        if path.is_file():
-            conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.1)
-            try:
-                pages = int(conn.execute("PRAGMA page_count").fetchone()[0])
-                free = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
-                if pages > 0 and free > 0:
-                    ratios["graph"] = pages / max(1, pages - free)
-            finally:
-                conn.close()
     except Exception:
         pass
     return ratios
@@ -9843,7 +9844,7 @@ def index_health_response(
     update_usage = "index_build(content='all', mode='update')"
     rebuild_usage = "index_build(content='all', mode='rebuild')"
     preserve_usage = (
-        "Preserve index-state.sqlite, its WAL/SHM files, and any migration receipt. "
+        "Preserve index.sqlite, its WAL/SHM files, and any migration receipt. "
         "Diagnose the storage failure and use explicit recovery before retrying; "
         "do not delete or rebuild the only copy."
     )
@@ -10271,29 +10272,31 @@ def _memory_records_cached(root: Path, statuses: Optional[Iterable[str]]) -> lis
 
 
 def _memory_betweenness_by_file(root: Path) -> dict[str, float]:
-    """Max persisted betweenness per file from the cluster artifact (top-200).
+    """Max persisted betweenness per file from the published communities (top-200).
 
-    Cached on the artifact's (mtime_ns, size) so the gzip decompress runs once
-    per graph build, not per advisory call. Graceful absence: {} when the
-    artifact is missing/unreadable — ranking falls back to decayed confidence
-    alone (AC-12 degrade path).
+    Wave 1xny6: read from the community rows through the generation-bound
+    snapshot. The per-call cache key is the snapshot's community content
+    fingerprint, which replaces the retired artifact's ``(mtime_ns, size)`` —
+    the same invalidation intent, keyed on content that actually identifies the
+    ranking rather than on a file that no longer exists. Graceful absence: {}
+    when no communities are published — ranking falls back to decayed
+    confidence alone (AC-12 degrade path).
     """
-    path = root / ".wavefoundry" / "index" / "graph" / "project-graph-clusters.json"
     try:
-        st = path.stat()
-        art_sig = (int(st.st_mtime_ns), int(st.st_size))
-    except OSError:
+        gs = _graph_snapshot_module()
+        snapshot = gs.acquire(root, "project")
+    except Exception:
         return {}
+    if not snapshot.clusters_present:
+        return {}
+    art_sig = (snapshot.community_fingerprint, snapshot.community_content_generation)
     key = str(root)
     cached = _MEMORY_BETWEENNESS_CACHE.get(key)
     if cached and cached[0] == art_sig:
         return cached[1]
     try:
-        import gzip
-        with gzip.open(path, "rt", encoding="utf-8") as fh:
-            data = json.load(fh)
         scores: dict[str, float] = {}
-        for entry in (data.get("betweenness") or {}).get("ranking") or []:
+        for entry in ((snapshot.clusters or {}).get("betweenness") or {}).get("ranking") or []:
             node_id = str(entry.get("node_id") or "")
             file_part = node_id.split("::", 1)[0]
             score = float(entry.get("score") or 0.0)
@@ -13213,8 +13216,8 @@ def _index_optimize_response(
             diagnostics=[_diagnostic(
                 "invalid_arguments",
                 f"index_optimize's content selects the vector layers — it must be 'docs', 'code', or "
-                f"'all' (got {content!r}). The SQLite stores (index-state + graph state) are always "
-                f"maintained alongside whichever vector selection runs.",
+                f"'all' (got {content!r}). The shared SQLite index is maintained once "
+                f"alongside whichever vector selection runs.",
             )],
             next_tools=["index_health"],
             usage="index_optimize(content='all')",
@@ -13273,7 +13276,7 @@ def _index_optimize_response(
                 store_diagnostics.append(_diagnostic(
                     "state_store_structural_fail",
                     (f"SQLite store '{name}' failed its integrity check. "
-                     "Preserve index-state.sqlite and any -wal/-shm companions before explicit "
+                     "Preserve index.sqlite and any -wal/-shm companions before explicit "
                      "recovery; a pending migration must follow its retained receipt. "
                      "The shared semantic store is not automatically discarded."
                      if name == "index-state" else
@@ -13991,22 +13994,6 @@ def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str
             usage="wf_open_dashboard()",
         )
 
-    def server_lock_held() -> bool:
-        """Best-effort flock-try on the lifetime lock: busy => the child holds it."""
-        try:
-            probe = dashboard_lib.dashboard_server_lock(root)
-            probe.__enter__()
-        except dashboard_lib.DashboardLockBusy:
-            return True
-        except Exception:
-            return False
-        # We acquired it ourselves => the child does NOT hold it; release immediately.
-        try:
-            probe.__exit__(None, None, None)
-        except Exception:
-            pass
-        return False
-
     try:
         meta = running_meta()
         if meta is not None:
@@ -14038,11 +14025,12 @@ def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str
             ))
 
         scripts_dir = Path(__file__).resolve().parent
-        cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py"), "--root", str(root)]
+        cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py")]
         if port is not None:
             cmd.extend(["--port", str(port)])
         if dashboard_lib.dashboard_browser_open_enabled():
             cmd.append("--open")
+        cmd.extend(["--root", str(root.resolve())])
         spawn_kwargs: dict[str, Any] = {
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
@@ -14070,63 +14058,40 @@ def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str
         # a bare os.kill liveness check would misread as a live kill target.
         _register_dashboard_child_pid(proc.pid)
 
-        # Poll up to 5s for a SERVING dashboard (host, port, URL). Wave 1p8pf: accept a serving
-        # dashboard by URL-reachability and/or a live dashboard PID for this root — NOT by matching the
-        # just-spawned proc.pid. The old PID-exact check (`meta.pid == proc.pid`) false-reported
-        # url_not_ready whenever a prior spawn had already written metadata under a different PID, then
-        # spawned a duplicate that climbed ports. The bounded deadline still makes a genuinely-failed
-        # start (no URL, no reachable server) report failure.
-        url = ""
+        # A child PID/metadata write alone does not prove a serving dashboard.
+        # Keep pending children registered; reap exited children before returning.
         deadline = _time.monotonic() + DASHBOARD_START_WAIT_SECONDS
-        while _time.monotonic() < deadline:
+        while True:
+            exited = proc.poll() is not None
+            serving = _dashboard_already_serving(root, meta_path)
+            if serving and _dashboard_url_reachable(serving["url"]):
+                if exited:
+                    proc.wait()
+                    _DASHBOARD_CHILD_PIDS.discard(proc.pid)
+                if serving["pid"] != proc.pid:
+                    return already_running(serving)
+                if not exited:
+                    return _response(
+                        "ok", {"started": True, **serving},
+                        diagnostics=orphan_diags or None, usage=serving["url"],
+                    )
+            if exited:
+                proc.wait()
+                _DASHBOARD_CHILD_PIDS.discard(proc.pid)
+                return _response(
+                    "error", {"started": False, "starting": False, "pid": None, "url": None},
+                    diagnostics=[*orphan_diags, _diagnostic(
+                        "dashboard_child_exited", "Dashboard child exited before serving.",
+                    )],
+                )
+            if _time.monotonic() >= deadline:
+                return _response(
+                    "ok", {"started": False, "starting": True, "pid": proc.pid, "url": None},
+                    diagnostics=[*orphan_diags, _diagnostic(
+                        "url_not_ready", "Dashboard child is still starting; serving is not confirmed.",
+                    )],
+                )
             _time.sleep(0.25)
-            if not meta_path.exists():
-                continue
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            meta_url = meta.get("url") or ""
-            if not meta_url:
-                continue
-            meta_pid = meta.get("pid")
-            # The just-spawned process owns the metadata → the spawn wrote its own URL: success
-            # (unchanged from the original PID-exact accept, so the spawn path is fully backward
-            # compatible). This is the common case.
-            if meta_pid == proc.pid:
-                url = meta_url
-                break
-            # The metadata PID does NOT match proc.pid (the field race: a prior spawn wrote it). Accept
-            # the serving dashboard by liveness + reachability, NOT by our own PID — this is the bug fix.
-            # A live dashboard PID for this root, OR an HTTP-reachable URL, proves it is serving.
-            if isinstance(meta_pid, int) and _dashboard_pid_is_live(meta_pid, root):
-                url = meta_url
-                break
-            if _dashboard_url_reachable(meta_url):
-                url = meta_url
-                break
-
-        if not url:
-            return _response(
-                "ok",
-                {"started": True, "pid": proc.pid, "url": None},
-                diagnostics=[*orphan_diags, _diagnostic(
-                    "url_not_ready",
-                    "Dashboard spawned but URL not yet available — it may still be binding.",
-                )],
-            )
-
-        # Confirm the child holds the lifetime lock before declaring success.
-        # Releasing the persistent launch-mutex OS lock is then safe because
-        # dashboard-server.lock already gates concurrent starts; the carrier
-        # itself deliberately remains under .wavefoundry/locks/.
-        server_lock_held()
-        return _response(
-            "ok",
-            {"started": True, "pid": proc.pid, "url": url},
-            diagnostics=orphan_diags or None,
-            usage=url,
-        )
     finally:
         start_lock.__exit__(None, None, None)
 
@@ -14430,16 +14395,17 @@ def wf_restart_dashboard_response(root: Path) -> dict[str, Any]:
         pass
 
     stop_env = wf_stop_dashboard_response(root)
-    if stop_env.get("status") != "ok":
-        return stop_env
+    stop_data = stop_env.get("data", {})
+    if stop_env.get("status") != "ok" or not (
+        stop_data.get("stopped") is True or stop_data.get("already_stopped") is True
+    ):
+        return {**stop_env, "data": {**stop_data, "restarted": False}}
     start_env = wf_start_dashboard_response(root, port=restart_port)
-    if start_env.get("status") != "ok":
-        return start_env
     data = dict(stop_env.get("data", {}))
     data.update(start_env.get("data", {}))
-    data["restarted"] = True
+    data["restarted"] = start_env.get("status") == "ok" and data.get("started") is True
     return _response(
-        "ok",
+        start_env.get("status", "error"),
         data,
         diagnostics=list(stop_env.get("diagnostics", [])) + list(start_env.get("diagnostics", [])),
         next_tools=list(start_env.get("next_tools", [])),
@@ -23943,9 +23909,7 @@ def code_callhierarchy_response(
     if not index.present:
         return _response(
             "error", {"symbol": symbol},
-            diagnostics=[gq.graph_not_ready_diagnostic("project")],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, "project", index),
         )
 
     # Resolve symbol — prefer file-qualified node when file is given
@@ -24700,6 +24664,21 @@ def _load_graph_query():
     return _load_script("graph_query")
 
 
+def _graph_snapshot_module():
+    """The ONE ``graph_snapshot`` module object in this process.
+
+    Deliberately a plain import rather than ``_load_script``: that loader
+    registers under a private ``_wavefoundry_<name>`` key, which would give
+    this module a SECOND instance with its own cache and, fatally, its own
+    ``ContextVar``. ``graph_query``/``graph_cluster``/``dashboard_lib`` import
+    it by its public name, so a pin taken here would be invisible to every read
+    it is supposed to bind.
+    """
+    import graph_snapshot
+
+    return graph_snapshot
+
+
 # Wave 1p2q3 (1p2q9 B): per-language attribution-confidence diagnostic.
 # `attribution_counts_by_language` surfaces how many edges in a response carry
 # each confidence tier, grouped by the source language. Operators can flag a
@@ -25310,11 +25289,16 @@ def _graph_refresh_then_recheck(
     except Exception as exc:
         _wf_log(f"[wavefoundry] graph refresh failed during recheck: {exc!r}")
         return None
-    # Wave 1p9q3 (1p9pz): the refresh may have rewritten the graph payload —
-    # explicitly drop the cached constructed index so the recheck reloads even
-    # if the rewrite landed with identical (mtime_ns, size).
+    # Wave 1xny6: the refresh may have published a new generation. Drop the
+    # cached snapshot AND rebind any pin held by the calling response — the
+    # response asked for the newer generation, so serving it the pre-build one
+    # would report its own successful refresh as "still missing".
     try:
         _load_graph_query().invalidate_query_index_cache(root)
+    except Exception:
+        pass
+    try:
+        _graph_snapshot_module().repin(root, "project")
     except Exception:
         pass
     try:
@@ -25428,9 +25412,7 @@ def _code_impact_graph_response(
         return _response(
             "error",
             {"symbol": symbol, "method": "graph", "layer": layer_value},
-            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, layer_value, index),
         )
     impact = index.graph_impact(symbol, max_hops=max(1, max_hops), relations=relations)
     if not impact.get("resolved"):
@@ -25651,9 +25633,7 @@ def code_risk_score_response(
         return _response(
             "error",
             {"scope": scope, "layer": layer_value},
-            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, layer_value, index),
         )
     result = index.risk_score(
         scope.strip(),
@@ -25721,9 +25701,7 @@ def code_callgraph_response(
         return _response(
             "error",
             {"symbol": symbol, "layer": layer_value},
-            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, layer_value, index),
         )
     result = index.callgraph(symbol, depth=max(1, depth), direction=direction_value)  # type: ignore[arg-type]
     if not result.get("resolved"):
@@ -25848,6 +25826,32 @@ def wf_graph_report_response(
     collapse_class_module_pairs: bool = False,
     collapse_package_to_directory: bool = False,
 ) -> dict[str, Any]:
+    # Wave 1xny6: this response reads the graph, the communities and the
+    # persisted betweenness — three reads that must describe ONE build. The pin
+    # binds them to a single generation for the whole response; a publication
+    # landing mid-report rebinds the NEXT call, not this one.
+    with _graph_snapshot_module().pinned(root, "project"):
+        return _wf_graph_report_response_pinned(
+            root, layer=layer, limit=limit, sections=sections,
+            exclude_generated=exclude_generated, exclude_external=exclude_external,
+            collapse_generated_files=collapse_generated_files,
+            collapse_class_module_pairs=collapse_class_module_pairs,
+            collapse_package_to_directory=collapse_package_to_directory,
+        )
+
+
+def _wf_graph_report_response_pinned(
+    root: Path,
+    *,
+    layer: str = "project",
+    limit: int = 20,
+    sections: Optional[list[str]] = None,
+    exclude_generated: bool = False,
+    exclude_external: bool = False,
+    collapse_generated_files: bool = False,
+    collapse_class_module_pairs: bool = False,
+    collapse_package_to_directory: bool = False,
+) -> dict[str, Any]:
     gq = _load_graph_query()
     try:
         layer_value = _graph_layer_value(layer)
@@ -25860,7 +25864,8 @@ def wf_graph_report_response(
             usage="wf_graph_report(layer='project')",
         )
     index = gq.get_query_index(root, layer=layer_value)
-    if not index.present:
+    if not index.present and not isinstance(getattr(index, "diagnostic", None), dict):
+        # Only true absence may trigger a rebuild; failures require their own recovery.
         # Wave 1304x / 1304r: refresh-then-recheck on absent graph
         def _recheck_present():
             new_index = gq.get_query_index(root, layer=layer_value)
@@ -25872,9 +25877,7 @@ def wf_graph_report_response(
         return _response(
             "error",
             {"layer": layer_value},
-            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, layer_value, index),
         )
     # Wave 130rj (130su): collapse_generated_files aggregates each generated
     # file into a single file-node before running the report. Drops internal
@@ -26704,9 +26707,7 @@ def code_graph_path_response(
         return _response(
             "error",
             {"from_symbol": from_symbol, "to_symbol": to_symbol, "direction": direction_value, "found": False, "path_nodes": [], "path_edges": [], "hop_count": 0, "suggestions": []},
-            diagnostics=[gq.graph_not_ready_diagnostic(layer_value)],
-            next_tools=["index_build"],
-            usage="index_build(content='graph', mode='create')",
+            **_graph_unavailable_fields(gq, layer_value, index),
         )
     suggestions: list[dict[str, Any]] = []
     from_id = index.resolve_symbol(from_symbol)
@@ -26818,7 +26819,31 @@ def code_graph_community_response(
     offset: int = 0,
     exclude_generated: bool = False,
 ) -> dict[str, Any]:
-    """Return member nodes of a community from the cluster artifact.
+    """Return member nodes of a community, bound to one published generation.
+
+    Wave 1xny6: the pin is what makes the answer coherent. This response reads
+    the community membership and then the graph's per-node degree; unpinned,
+    a publication between those two reads would report members that the
+    degree source no longer contains.
+    """
+    with _graph_snapshot_module().pinned(root, "project"):
+        return _code_graph_community_response_pinned(
+            root, community_id, hub_node_id=hub_node_id, layer=layer,
+            limit=limit, offset=offset, exclude_generated=exclude_generated,
+        )
+
+
+def _code_graph_community_response_pinned(
+    root: Path,
+    community_id: str = "",
+    *,
+    hub_node_id: str = "",
+    layer: str = "project",
+    limit: int = 50,
+    offset: int = 0,
+    exclude_generated: bool = False,
+) -> dict[str, Any]:
+    """Return member nodes of a community from the published community rows.
 
     Prefer when: drilling into a specific community identified from wf_graph_report
     or the cluster dashboard. Returns members sorted by degree descending so the
@@ -26881,6 +26906,9 @@ def code_graph_community_response(
             next_tools=["index_build"],
             usage="index_build(content='graph', mode='create')",
         )
+    failure = _graph_snapshot_failure_fields(root)
+    if failure:
+        return _response("error", {"community_id": community_id}, **failure)
     payload = gc.read_cluster_payload(root, layer_value)
     if not payload.get("present"):
         return _response(
@@ -32934,8 +32962,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         signals when planning a refresh.
 
         Index size (wave 1p9a9): the response carries a ``size`` object — ``total_bytes``,
-        ``total_human``, and a per-component ``components`` map (``index-state.sqlite`` /
-        ``graph`` / …) for the on-disk index — so storage growth is visible without ``du``.
+        ``total_human``, and a per-component ``components`` map (``index.sqlite`` /
+        ``memory-state.sqlite`` / …) for the on-disk index — so storage growth is visible without ``du``.
 
         ``background_monitors`` reports the MCP-owned index refresh and Context
         Efficiency projection monitors: configured/alive state plus each
@@ -33081,11 +33109,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Runs under the index-build lock, preserves reusable space, checkpoints
         passively and reclaims free pages in bounded batches. Reports reclaimed
-        bytes and integrity results. Graph storage remains independently maintained.
+        bytes and integrity results for the shared semantic and graph store.
 
         Args:
             content: docs, code, or all; the shared SQLite file is maintained once.
-            rebuild_if_needed: permit recovery rebuild when the index is unreadable.
+            rebuild_if_needed: retained for compatibility; maintenance never rebuilds an unreadable index.
         """
         bad = _ensure_no_extra_args("index_optimize", kwargs)
         if bad is not None:
@@ -34884,7 +34912,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             if graph_path_str:
                 lines.append(f"**Artifact:** `{graph_path_str}`\n")
         else:
-            lines.append("Run `index_build(content='graph', mode='rebuild')` to build.\n")
+            diag = graph_payload.get("diagnostic")
+            if diag:
+                lines.append(f"**{diag['code']}:** {diag['message']}\n")
+            else:
+                lines.append("Run `index_build(content='graph', mode='rebuild')` to build.\n")
         return "".join(lines)
 
     @mcp.resource(
@@ -34898,11 +34930,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         _root = get_handler().root
         payload = _load_graph_query().load_graph(_root, layer="project")
         if not payload.get("present"):
-            graph_path_str = payload.get("graph_path") or ".wavefoundry/index/graph/project-graph.json"
+            diag = payload.get("diagnostic")
+            if diag:
+                return f"# Graph Index Status\n\n**{diag['code']}:** {diag['message']}\n"
+            gs = _graph_snapshot_module()
+            graph_path_str = payload.get("graph_path") or gs.component_path(gs.GRAPH_COMPONENT)
             return (
                 "# Graph Index Status\n\n"
                 "**Present:** no\n\n"
-                f"Graph artifact not found at `{graph_path_str}`. "
+                f"No graph published in `{graph_path_str}`. "
                 "Run `index_build(content='graph', mode='rebuild')` to build.\n"
             )
         counts = payload.get("counts") or {}
@@ -34934,6 +34970,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def resource_graph_communities() -> str:
         """Return a markdown catalog of all graph communities with top-degree members."""
         _root = get_handler().root
+        # Wave 1xny6: communities and the degree source they are rendered with
+        # must be ONE generation — the evidence-share classification is
+        # computed per member against the graph's node flags.
+        with _graph_snapshot_module().pinned(_root, "project"):
+            return _render_graph_communities_resource(_root)
+
+    def _render_graph_communities_resource(_root) -> str:
+        failure = _graph_snapshot_failure_fields(_root)
+        if failure:
+            diag = failure["diagnostics"][0]
+            return f"# Graph Communities\n\n**{diag['code']}:** {diag['message']}\n"
         try:
             gc = _load_script("graph_cluster")
             payload = gc.read_cluster_payload(_root, "project")

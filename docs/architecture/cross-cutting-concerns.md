@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## Configuration
 
@@ -25,12 +25,14 @@ Only `render_platform_surfaces.py` writes to platform config files.
 - MCP server: structured JSON responses (MCP protocol).
 - Dashboard server: browser assets plus JSON snapshot responses over loopback HTTP; prints the final bound URL on startup.
 
-## Semantic-Index State Liveness and Integrity (wave 1sed7)
+## Index State Liveness and Integrity (waves 1sed7, 1xny6)
 
-- **Single authority:** `.wavefoundry/index/index-state.sqlite` is the only semantic-index state surface (no `meta.json`). SQLite runs WAL + `synchronous=NORMAL`, except the two safety-critical build-boundary commits (the pre-mutation `building` fence and the attempt-ID compare-and-set completion), which use a dedicated `synchronous=FULL` connection so a power failure cannot lose the fence.
+- **Single authority:** `.wavefoundry/index/index.sqlite` is the only index state surface for semantic AND graph content (no `meta.json`). SQLite runs WAL + `synchronous=NORMAL`, except the two safety-critical build-boundary commits (the pre-mutation `building` fence and the attempt-ID compare-and-set completion), which use a dedicated `synchronous=FULL` connection so a power failure cannot lose the fence.
+- **One publication transaction (wave 1xny6):** semantic rows and graph, extraction, community, merge and per-layer bookkeeping rows commit together inside one `BEGIN IMMEDIATE`. The named control transactions that stay outside it are the durable build-start fence, the secret-scan cache write, the post-commit derived-FTS verify and repair, the freshness/drift/reap residents, and the completion compare-and-set.
+- **Generation-bound reads (wave 1xny6):** graph and community readers take a snapshot — open read-only, read every row from one SQLite snapshot, roll back and close — and a context-bound pin gives one generation per whole response, so a response can never span two generations. The dashboard reads the published generation through a per-call read-only open rather than a file mtime, so it observes a committed change before WAL checkpointing.
 - **Generation invalidation:** the `build_state` row's `(attempt_id, generation)` token is the cross-process cache-invalidation signal — the MCP server's `WaveIndex` reload signature and every reader's pre/post seqlock check key on it. Only the completion CAS advances the generation; a true no-op build changes nothing.
 - **Fail-closed liveness:** an absent, uninitialized, `building`, or unreadable store means "not servable" — readers return structured `index_not_ready` rather than guessing. An interrupted build (fence committed, builder died) is derived from `building` + a free build lock, never stored, and heals when the next build supersedes the dead attempt.
-- **Integrity:** structural corruption and unsupported schema versions refuse service while preserving the shared database, WAL/SHM sidecars and migration receipt. Follow the explicit retained-state recovery path; routine `index_optimize` does not discard or reset the semantic store. Known historical schemas convert only through the standard upgrade migration.
+- **Integrity:** structural corruption and unsupported schema versions refuse service while preserving the shared database, WAL/SHM sidecars and migration receipt. Follow the explicit retained-state recovery path; routine `index_optimize` does not discard or reset the store, and since wave 1xny6 the one physical database receives exactly one maintenance pass and one storage/reclamation entry. Storage recovery is FORWARD-ONLY: a failed or refused schema-8 cutover is recovered by re-running the standard upgrade from the retained source and the recorded recovery identities, never by rolling back to the previous runner. Known historical schemas convert only through the standard upgrade migration.
 
 ## Locking Inventory (wave 1seax)
 

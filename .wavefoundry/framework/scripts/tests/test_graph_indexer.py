@@ -14,6 +14,10 @@ from unittest.mock import patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+TESTS_ROOT = Path(__file__).resolve().parent
+for _p in (str(SCRIPTS_ROOT), str(TESTS_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 GRAPH_INDEXER_PATH = SCRIPTS_ROOT / "graph_indexer.py"
 
 
@@ -34,143 +38,123 @@ def load_graph_di_signals():
     return mod
 
 
-class GraphVacuumPolicyTests(unittest.TestCase):
-    def test_fresh_graph_uses_incremental_vacuum_but_existing_none_waits_for_maintenance(self):
-        mod = load_graph_indexer()
-        with tempfile.TemporaryDirectory() as tmp:
-            for existing in (False, True):
-                with self.subTest(existing=existing):
-                    path = Path(tmp) / f"graph-{existing}.sqlite"
-                    if existing:
-                        with closing(sqlite3.connect(path)) as conn:
-                            conn.execute("CREATE TABLE preserved(value TEXT)")
-                            conn.execute("INSERT INTO preserved VALUES('keep')")
-                            conn.commit()
-                    store = mod.GraphStateStore(path, layer="project", walker_version="1",
-                                                chunker_version="1")
-                    try:
-                        self.assertEqual(store._conn.execute("PRAGMA auto_vacuum").fetchone()[0],
-                                         0 if existing else 2)
-                        if existing:
-                            self.assertEqual(store._conn.execute("SELECT * FROM preserved").fetchall(),
-                                             [("keep",)])
-                    finally:
-                        store.close()
+
+def open_graph_state(mod, index_dir: Path, **kwargs):
+    """Read graph state the way a caller does: on the shared index connection.
+
+    Wave 1xny6 moved graph extraction state into the shared index database, so
+    a reader opens ``IndexStateStore`` and hands its connection over. Returns
+    ``(state_store, graph_state_store)``; close the state store when done.
+    """
+    import index_state_store
+
+    defaults = {"layer": "project", "walker_version": "1", "chunker_version": "1"}
+    defaults.update(kwargs)
+    state = index_state_store.IndexStateStore(index_dir)
+    return state, mod.GraphStateStore(state._conn, **defaults)
 
 
-class BoundGraphReceiptTests(unittest.TestCase):
-    """Wave 1v08w: read-only graph payload/source receipt authority."""
+class PublishedGraphSnapshotTests(unittest.TestCase):
+    """Wave 1v08w receipt authority, re-expressed on ROWS (wave 1xny6 L6b).
+
+    The derived ``project-graph.json`` file and its stat binding are retired,
+    so ``read_published_graph_snapshot`` reads the payload header, the nodes,
+    the edges and the extraction manifest from the published rows in ONE
+    read-only snapshot. The fail-closed matrix is what survives: no published
+    generation, an unreadable or corrupt store, an unsupported layer and a
+    missing source receipt all still return "no exact answer".
+    """
 
     def setUp(self):
         self.mod = load_graph_indexer()
+        import index_state_store
 
-    def _fixture(self):
+        self.iss = index_state_store
+
+    def _fixture(self, *, source_hash: str = "source-hash", publish: bool = True):
+        import graph_fixture_support as gfs
+
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        graph_dir = root / ".wavefoundry" / "index" / self.mod.GRAPH_DIRNAME
-        graph_dir.mkdir(parents=True)
-        graph_path = graph_dir / self.mod.GRAPH_FILENAMES["project"]
-        store_path = graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]
-        payload = {
-            "schema_version": self.mod.GRAPH_SCHEMA_VERSION,
-            "builder_version": self.mod.GRAPH_BUILDER_VERSION,
-            "layer": "project",
-            "input_fingerprint": "fp-current",
-            "nodes": [],
-            "edges": [],
-        }
-        self.mod._write_json(graph_path, payload)
-        stat = graph_path.stat()
-        conn = sqlite3.connect(store_path)
-        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        conn.execute(
-            "CREATE TABLE files (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, record BLOB NOT NULL)"
-        )
-        conn.executemany(
-            "INSERT INTO meta(key, value) VALUES (?, ?)",
-            [
-                ("builder_version", self.mod.GRAPH_BUILDER_VERSION),
-                ("payload_fingerprint", "fp-current"),
-                ("payload_size", str(stat.st_size)),
-                ("payload_mtime_ns", str(stat.st_mtime_ns)),
-                ("payload_stat_state", "bound"),
-            ],
-        )
-        conn.execute(
-            "INSERT INTO files(path, source_hash, record) VALUES (?, ?, ?)",
-            ("src/defs.py", "source-hash", b"record"),
-        )
-        conn.commit()
-        conn.close()
-        return root, graph_path, store_path, payload
+        index_dir = root / ".wavefoundry" / "index"
+        index_dir.mkdir(parents=True)
+        node = {"id": "src/defs.py::defined", "label": "defined", "kind": "function",
+                "source_file": "src/defs.py", "source_location": "1:0", "layer": "project"}
+        if publish:
+            gfs.publish_graph(root, nodes=[node], edges=[], communities=[])
+        store = self.iss.IndexStateStore(index_dir)
+        try:
+            with store._conn:
+                store._conn.execute(
+                    "INSERT INTO graph_file_state(path, layer, source_hash, record, extracted_at) "
+                    "VALUES (?,?,?,?,?)",
+                    ("src/defs.py", "project", source_hash, b"record", 0.0),
+                )
+        finally:
+            store.close()
+        return root, index_dir, node
 
-    def test_bound_payload_returns_exact_source_hash_without_state_store(self):
-        root, _, _, payload = self._fixture()
+    def test_published_snapshot_returns_payload_and_source_hash_without_state_store(self):
+        root, _, node = self._fixture()
         with patch.object(
             self.mod,
             "GraphStateStore",
             side_effect=AssertionError("mutable store must not be constructed"),
         ) as mutable_store:
-            result = self.mod.read_bound_graph_payload_source_hash(
-                root, "src/defs.py"
-            )
+            result = self.mod.read_published_graph_snapshot(root, "project")
         self.assertIsNotNone(result)
-        self.assertEqual(result["source_hash"], "source-hash")
-        self.assertEqual(result["payload"]["input_fingerprint"], payload["input_fingerprint"])
+        self.assertEqual(result["source_hash"]["src/defs.py"], "source-hash")
+        self.assertEqual(result["builder_version"], self.mod.GRAPH_BUILDER_VERSION)
+        self.assertEqual([n["id"] for n in result["payload"]["nodes"]], [node["id"]])
         mutable_store.assert_not_called()
 
-    def test_bound_payload_fails_closed_for_receipt_matrix(self):
-        cases = (
-            ("pending", "payload_stat_state", "pending"),
-            ("fingerprint", "payload_fingerprint", "wrong"),
-            ("size", "payload_size", "1"),
-            ("mtime", "payload_mtime_ns", "1"),
-            ("builder", "builder_version", "44"),
-        )
-        for label, key, value in cases:
-            with self.subTest(case=label):
-                root, _, store_path, _ = self._fixture()
-                conn = sqlite3.connect(store_path)
-                conn.execute("UPDATE meta SET value = ? WHERE key = ?", (value, key))
-                conn.commit()
-                conn.close()
-                self.assertIsNone(
-                    self.mod.read_bound_graph_payload_source_hash(root, "src/defs.py")
-                )
+    def test_no_published_generation_reads_as_absent(self):
+        root, index_dir, _ = self._fixture(publish=False)
+        self.assertIsNone(self.mod.read_published_graph_snapshot(root, "project"))
 
-    def test_bound_payload_fails_closed_for_missing_corrupt_and_unowned_source(self):
-        for label in ("missing", "corrupt", "unowned-source"):
+    def test_unpublished_rows_state_reads_as_absent(self):
+        """The rows' own proof: anything but ``published`` is no generation."""
+        root, index_dir, _ = self._fixture()
+        store = self.iss.IndexStateStore(index_dir)
+        try:
+            with store._conn:
+                store._conn.execute(
+                    "UPDATE meta SET value='pending' WHERE key=?",
+                    (self.mod.GRAPH_META_PREFIX + "graph_rows_state",),
+                )
+        finally:
+            store.close()
+        self.assertIsNone(self.mod.read_published_graph_snapshot(root, "project"))
+
+    def test_unsupported_layer_reads_as_absent(self):
+        root, _, _ = self._fixture()
+        self.assertIsNone(self.mod.read_published_graph_snapshot(root, "framework"))
+
+    def test_missing_and_corrupt_stores_read_as_absent(self):
+        for label in ("missing", "corrupt"):
             with self.subTest(case=label):
-                root, _, store_path, _ = self._fixture()
+                root, index_dir, _ = self._fixture()
+                store_path = self.iss.state_store_path(index_dir)
+                for suffix in ("-wal", "-shm"):
+                    Path(str(store_path) + suffix).unlink(missing_ok=True)
                 if label == "missing":
-                    store_path.unlink()
-                elif label == "corrupt":
-                    store_path.write_bytes(b"not sqlite")
+                    store_path.unlink(missing_ok=True)
                 else:
-                    conn = sqlite3.connect(store_path)
-                    conn.execute("DELETE FROM files")
-                    conn.commit()
-                    conn.close()
-                self.assertIsNone(
-                    self.mod.read_bound_graph_payload_source_hash(root, "src/defs.py")
-                )
+                    store_path.write_bytes(b"not sqlite")
+                self.assertIsNone(self.mod.read_published_graph_snapshot(root, "project"))
 
-    def test_bound_payload_rejects_path_replacement_during_state_read(self):
-        root, graph_path, _, payload = self._fixture()
-        replacement = graph_path.with_name("replacement.json")
-        self.mod._write_json(replacement, payload)
-        real_connect = self.mod.sqlite3.connect
-
-        def replacing_connect(*args, **kwargs):
-            os.replace(replacement, graph_path)
-            return real_connect(*args, **kwargs)
-
-        with patch.object(self.mod.sqlite3, "connect", side_effect=replacing_connect):
-            result = self.mod.read_bound_graph_payload_source_hash(
-                root, "src/defs.py"
-            )
-        self.assertIsNone(result)
+    def test_absent_source_receipt_leaves_the_hash_out_rather_than_inventing_one(self):
+        root, index_dir, _ = self._fixture()
+        store = self.iss.IndexStateStore(index_dir)
+        try:
+            with store._conn:
+                store._conn.execute("DELETE FROM graph_file_state")
+        finally:
+            store.close()
+        result = self.mod.read_published_graph_snapshot(root, "project")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["source_hash"], {})
 
 
 class RemainingCodeProfileDeclarationTests(unittest.TestCase):
@@ -378,7 +362,11 @@ class GraphIndexerTests(unittest.TestCase):
             "Call `process` from the guide.\n",
         )
         self.assertEqual(payload["layer"], "project")
-        self.assertTrue((self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json").exists())
+        # Wave 1xny6 lane L6b: the standalone publication commits ROWS and
+        # writes no derived artifact, so the retired folder must not appear.
+        self.assertFalse((self.root / ".wavefoundry" / "index" / "graph").exists())
+        self.assertIsNotNone(
+            self.mod.read_published_graph_snapshot(self.root, "project"))
         self.assertGreaterEqual(payload["counts"]["nodes"], 3)
         relations = {edge["relation"] for edge in payload["edges"]}
         self.assertIn("defines", relations)
@@ -394,6 +382,9 @@ class GraphIndexerTests(unittest.TestCase):
             "Call `process` from the guide.\n",
         )
         state_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
+        # The retired folder no longer exists after a build (lane L6b), so the
+        # legacy-state fixture creates the directory it seeds into.
+        state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(
             json.dumps(
                 {
@@ -2992,16 +2983,12 @@ class GraphIndexerTests(unittest.TestCase):
         self.assertIn("docs/workflow-config.json", node_ids)
         self.assertIn("docs/workflow-config.json::factor_review_policy", node_ids)
         # Wave 1p9q2: per-file records live in the SQLite state store.
-        store = self.mod.GraphStateStore(
-            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
-            layer="project",
-            walker_version="1",
-            chunker_version="1",
-        )
+        state, store = open_graph_state(
+            self.mod, self.root / ".wavefoundry" / "index")
         try:
             record = store.get_record("docs/workflow-config.json")
         finally:
-            store.close()
+            state.close()
         self.assertEqual(record["artifact"]["kind"], "code")
 
     def test_doc_references_workflow_config_key_by_full_name(self):
@@ -11557,12 +11544,10 @@ class ExternalSqlNamespaceInvariantTests(_EmbeddedSqlTestBase):
                 "}\n"
             ),
         })
-        store = self.mod.GraphStateStore(
-            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
-            layer="project", walker_version="1", chunker_version="1",
-        )
+        state, store = open_graph_state(
+            self.mod, self.root / ".wavefoundry" / "index")
         try:
-            merge_state = store.get_blob("merge_state") or {}
+            merge_state = store.read_merge_state() or {}
             files = merge_state.get("files") or {}
             self.assertIn("src/Dao.java", files)
             entry = files["src/Dao.java"]
@@ -11580,7 +11565,7 @@ class ExternalSqlNamespaceInvariantTests(_EmbeddedSqlTestBase):
                     if edge.get("relation") in ("reads", "writes", "maps_to"):
                         self.assertNotEqual(edge.get("confidence"), "LITERAL_DERIVED", edge)
         finally:
-            store.close()
+            state.close()
 
 
 class EmbeddedSqlConsumerParityTests(_EmbeddedSqlTestBase):
@@ -12138,12 +12123,10 @@ class OrmEntityMappingSeamAndFragmentTests(_OrmEntityMappingTestBase):
                 "public class Ghost { }\n"
             ),
         })
-        store = self.mod.GraphStateStore(
-            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite",
-            layer="project", walker_version="1", chunker_version="1",
-        )
+        state, store = open_graph_state(
+            self.mod, self.root / ".wavefoundry" / "index")
         try:
-            merge_state = store.get_blob("merge_state") or {}
+            merge_state = store.read_merge_state() or {}
             files = merge_state.get("files") or {}
             self.assertIn("src/User.java", files)
             # The mapping candidates ride the fragment…
@@ -12160,7 +12143,7 @@ class OrmEntityMappingSeamAndFragmentTests(_OrmEntityMappingTestBase):
                         f"fragment edge in {rel} carries a bind-pass target: {edge}",
                     )
         finally:
-            store.close()
+            state.close()
 
 
 class MemoryGraphExtractionTests(unittest.TestCase):

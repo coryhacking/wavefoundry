@@ -15,6 +15,14 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import graph_fixture_support as gfs  # noqa: E402
+import graph_snapshot  # noqa: E402
+
 DASHBOARD_LIB_PATH = SCRIPTS_ROOT / "dashboard_lib.py"
 DASHBOARD_SERVER_PATH = SCRIPTS_ROOT / "dashboard_server.py"
 SERVER_PATH = SCRIPTS_ROOT / "server.py"
@@ -641,21 +649,15 @@ Wave: `12x test-wave`
 
     def test_collect_dashboard_snapshot_includes_graph_health(self):
         # 1p4ww: single project index — only the project graph is surfaced in health.
-        project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        _write(
-            project_graph,
-            json.dumps(
-                {
-                    "schema_version": "1",
-                    "builder_version": "1",
-                    "layer": "project",
-                    "present": True,
-                    "counts": {"files": 2, "nodes": 3, "edges": 4},
-                    "nodes": [
-                        {"id": "src/app.py::run", "label": "run", "kind": "function", "source_file": "src/app.py", "source_location": "1:0", "layer": "project"}
-                    ],
-                    "edges": [],
-                }
+        # Wave 1xny6: published as rows, read back through the snapshot.
+        gfs.publish_graph(
+            self.root,
+            graph=gfs.graph_payload(
+                [{"id": "src/app.py::run", "label": "run", "kind": "function",
+                  "source_file": "src/app.py", "source_location": "1:0",
+                  "layer": "project"}],
+                [],
+                counts={"files": 2, "nodes": 3, "edges": 4},
             ),
         )
 
@@ -1614,53 +1616,25 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
 
     def test_api_graph_serves_project_graph_payload(self):
         # Wave 1p4ww: single project graph — framework/union layers removed.
-        project_graph = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        _write(
-            project_graph,
-            json.dumps(
-                {
-                    "schema_version": "1",
-                    "builder_version": "1",
-                    "layer": "project",
-                    "present": True,
-                    "counts": {"files": 1, "nodes": 1, "edges": 1},
-                    "graph_mtime": 111,
-                    "nodes": [
-                        {"id": "src/app.py::run", "label": "run", "kind": "function", "source_file": "src/app.py", "source_location": "1:0", "layer": "project"}
-                    ],
-                    "edges": [
-                        {"source": "src/app.py", "target": "src/app.py::run", "relation": "defines", "confidence": "EXTRACTED"}
-                    ],
-                }
-            ),
-        )
-        _write(
-            self.root / ".wavefoundry" / "index" / "graph" / "project-graph-clusters.json",
-            json.dumps(
-                {
-                    "cluster_schema_version": "1",
-                    "cluster_builder_version": "1",
-                    "layer": "project",
-                    "graph_schema_version": "1",
-                    "graph_builder_version": "1",
-                    "graph_path": ".wavefoundry/index/graph/project-graph.json",
-                    "graph_mtime": 111,
-                    "cluster_mtime": 222,
-                    "projection": "derived-undirected",
-                    "community_count": 1,
-                    "communities": [
-                        {
-                            "community_id": "project:c0",
-                            "label": "core",
-                            "seed_node_id": "src/app.py::run",
-                            "node_ids": ["src/app.py::run"],
-                            "node_count": 1,
-                            "edge_count": 0,
-                            "boundary_node_count": 0,
-                        }
-                    ],
-                }
-            ),
+        # Wave 1xny6: one published generation carries graph AND communities,
+        # so the payload the dashboard serves cannot mix two builds.
+        gfs.publish_graph(
+            self.root,
+            nodes=[{"id": "src/app.py::run", "label": "run", "kind": "function",
+                    "source_file": "src/app.py", "source_location": "1:0",
+                    "layer": "project"}],
+            edges=[{"source": "src/app.py", "target": "src/app.py::run",
+                    "relation": "defines", "confidence": "EXTRACTED",
+                    "source_file": "src/app.py"}],
+            communities=[{
+                "community_id": "project:c0",
+                "label": "core",
+                "seed_node_id": "src/app.py::run",
+                "node_ids": ["src/app.py::run"],
+                "node_count": 1,
+                "edge_count": 0,
+                "boundary_node_count": 0,
+            }],
         )
         project_handler = self._make_handler("/api/graph?layer=project")
         project_handler.do_GET()
@@ -1669,7 +1643,17 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(project_payload["layer"], "project")
         self.assertTrue(project_payload["present"])
         self.assertEqual(project_payload["counts"]["nodes"], 1)
-        self.assertEqual(project_payload["graph_version"], max(project_payload["graph_mtime"], project_payload["cluster_mtime"]))
+        # Wave 1xny6: the browser's re-render signal is the published
+        # generation, not max(graph_mtime, cluster_mtime) over two retired
+        # files. The mtime keys are gone; naming a deleted file's mtime as a
+        # live artifact property is exactly what this replaces.
+        self.assertNotIn("graph_mtime", project_payload)
+        self.assertNotIn("cluster_mtime", project_payload)
+        self.assertEqual(project_payload["graph_version"], project_payload["generation"])
+        self.assertEqual(project_payload["graph_version"],
+                         project_payload["clusters"]["generation"])
+        self.assertTrue(project_payload["graph_path"].endswith("#graph"))
+        self.assertTrue(project_payload["clusters"]["cluster_path"].endswith("#communities"))
         self.assertEqual(project_payload["clusters"]["community_count"], 1)
         self.assertEqual(project_payload["clusters"]["communities"][0]["label"], "core")
         self.assertEqual(project_payload["nodes"][0]["degree"], 1)
@@ -1688,26 +1672,18 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn("Unsupported graph layer", payload.get("error", ""))
 
     def test_api_graph_neighbors_returns_focus_neighborhood(self):
-        graph_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        graph_path.parent.mkdir(parents=True, exist_ok=True)
-        graph_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": "1",
-                    "builder_version": "1",
-                    "layer": "project",
-                    "counts": {"files": 2, "nodes": 3, "edges": 1},
-                    "nodes": [
-                        {"id": "src/a.py::caller", "label": "caller", "kind": "function", "source_file": "src/a.py", "layer": "project"},
-                        {"id": "src/b.py::callee", "label": "callee", "kind": "function", "source_file": "src/b.py", "layer": "project"},
-                        {"id": "src/b.py", "label": "b", "kind": "module", "source_file": "src/b.py", "layer": "project"},
-                    ],
-                    "edges": [
-                        {"source": "src/a.py::caller", "target": "src/b.py::callee", "relation": "calls", "confidence": "EXTRACTED"},
-                    ],
-                }
-            ),
-            encoding="utf-8",
+        gfs.publish_graph(
+            self.root,
+            nodes=[
+                {"id": "src/a.py::caller", "label": "caller", "kind": "function", "source_file": "src/a.py", "layer": "project"},
+                {"id": "src/b.py::callee", "label": "callee", "kind": "function", "source_file": "src/b.py", "layer": "project"},
+                {"id": "src/b.py", "label": "b", "kind": "module", "source_file": "src/b.py", "layer": "project"},
+            ],
+            edges=[
+                {"source": "src/a.py::caller", "target": "src/b.py::callee",
+                 "relation": "calls", "confidence": "EXTRACTED",
+                 "source_file": "src/a.py"},
+            ],
         )
         handler = self._make_handler("/api/graph/neighbors?layer=project&symbol=src/b.py::callee")
         handler.do_GET()
@@ -2240,9 +2216,13 @@ class DashboardProcessControlTests(unittest.TestCase):
         class _FakeProc:
             pid = 8888
 
+            def poll(self):
+                return None
+
         with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[7777]), \
              patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
+             patch.object(self.server, "DASHBOARD_START_WAIT_SECONDS", 0), \
              patch("subprocess.Popen", return_value=_FakeProc()):
             env = self.server.wf_start_dashboard_response(self.root)
         term.assert_any_call(7777)
@@ -2513,11 +2493,15 @@ class DashboardChildReapTests(unittest.TestCase):
         class _FakeProc:
             pid = 8888
 
+            def poll(self):
+                return None
+
         with patch.object(self.server.os, "name", "posix"), \
              patch.object(self.server, "_reap_dashboard_child_pids"), \
              patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
              patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
              patch.object(self.server, "_terminate_dashboard_pid", return_value=True), \
+             patch.object(self.server, "DASHBOARD_START_WAIT_SECONDS", 0), \
              patch("subprocess.Popen", return_value=_FakeProc()):
             self.server.wf_start_dashboard_response(self.root)
         self.assertIn(8888, self.server._DASHBOARD_CHILD_PIDS)
@@ -4748,3 +4732,111 @@ import threading  # noqa: E402 (already imported above, but needed in test scope
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DashboardManagedIdentityTests(unittest.TestCase):
+    """1xpo1: exercise actual daemon argv and native process output."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.impl = sys.modules['server_impl']
+        self.tmp = tempfile.TemporaryDirectory(prefix='dashboard identity ')
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve() / 'selected repo'
+        self.root.mkdir()
+        _make_repo(self.root)
+
+    def _launch(self, root_args):
+        import re
+        import time
+        previous = Path.cwd()
+        try:
+            os.chdir(self.root)
+            with patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}), \
+                 patch('sys.stdout', new=io.StringIO()) as output:
+                os.environ.pop(self.srv._DAEMON_ENV_MARKER, None)
+                self.assertEqual(self.srv.main(['--daemon', '--port', '0', *root_args]), 0)
+            pid = int(re.search(r'pid (\d+)', output.getvalue()).group(1))
+        finally:
+            os.chdir(previous)
+        self.addCleanup(self.impl._terminate_dashboard_pid, pid)
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            meta = self.lib.read_dashboard_metadata(self.root)
+            if meta.get('pid') == pid:
+                break
+            time.sleep(.1)
+        self.assertEqual(meta.get('pid'), pid)
+        return pid
+
+    def test_cli_daemon_identity_and_stop_native_root_forms(self):
+        forms = [[], ['--root', str(self.root)], ['--root', '.'],
+                 ['--root', '../selected repo'], ['--root='+str(self.root)], ['--root=.']]
+        for args in forms:
+            with self.subTest(args=args):
+                pid = self._launch(args)
+                try:
+                    # No ps/CIM mock: this includes native flattened spaced paths.
+                    self.assertIn(pid, self.lib.dashboard_cmdline_pids(self.root))
+                    self.assertNotIn(pid, self.lib.dashboard_cmdline_pids(self.root.parent))
+                    result = self.impl.wf_stop_dashboard_response(self.root)
+                    self.assertTrue(result['data'].get('stopped'), result)
+                    self.assertFalse(self.impl._pid_is_running(pid))
+                    self.assertFalse(self.lib.dashboard_metadata_path(self.root).exists())
+                finally:
+                    self.impl._terminate_dashboard_pid(pid)
+
+    def test_daemon_normalizes_exactly_one_root_last(self):
+        for args in [[], ['--root', '.'], ['--root=.'],
+                     ['--root', 'old', '--root=new'], ['--root', str(self.root)]]:
+            with self.subTest(args=args), patch.object(self.srv.subprocess_util, 'isolated_popen') as spawn:
+                self.srv._daemonize(self.root, ['--daemon', *args, '--open'])
+                cmd = spawn.call_args.args[0]
+                self.assertEqual(cmd[-2:], ['--root', str(self.root.resolve())])
+                self.assertEqual(sum(a == '--root' or a.startswith('--root=') for a in cmd), 1)
+                self.assertNotIn('--daemon', cmd)
+
+    def test_ambiguous_root_never_authorizes_signal(self):
+        root = str(self.root)
+        bad = [f'--root {root} --root /elsewhere', f'--root /elsewhere --root {root}',
+               f'--root {root} --open', f'--root {root}suffix', f'--root {root}/nested',
+               f'--root "{root}', f'--root {root} --root={root}',
+               f'--root "{root}"suffix', f'--root "{root}" --root']
+        self.lib.write_dashboard_metadata(self.root, {'pid': 424242, 'url': 'http://127.0.0.1:1/'})
+        for args in bad:
+            with self.subTest(args=args), \
+                 patch.object(self.lib.subprocess_util, 'isolated_run', return_value=SimpleNamespace(stdout=f'424242 python dashboard_server.py {args}')), \
+                 patch.object(self.impl, '_pid_is_running', return_value=True), \
+                 patch.object(self.impl, '_terminate_dashboard_pid') as terminate:
+                result = self.impl.wf_stop_dashboard_response(self.root)
+                terminate.assert_not_called()
+                self.assertFalse(result['data'].get('stopped'))
+                self.assertIn('dashboard_pid_unverified', [d['code'] for d in result['diagnostics']])
+
+    def test_cli_daemon_stop_independently_requires_root_identity(self):
+        pid = self._launch([])
+        result = self.impl.wf_stop_dashboard_response(self.root)
+        self.assertTrue(result['data'].get('stopped'), result)
+        self.assertFalse(self.impl._pid_is_running(pid))
+        self.assertFalse(self.lib.dashboard_metadata_path(self.root).exists())
+
+    def test_mcp_start_confirms_serving_own_child(self):
+        with patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}):
+            result = self.impl.wf_start_dashboard_response(self.root)
+        pid = result['data'].get('pid')
+        if pid:
+            self.addCleanup(self.impl._terminate_dashboard_pid, pid)
+        self.assertTrue(result['data'].get('started'), result)
+        self.assertIn(pid, self.lib.dashboard_cmdline_pids(self.root))
+        self.assertTrue(self.impl._dashboard_url_reachable(result['data']['url']))
+        stopped = self.impl.wf_stop_dashboard_response(self.root)
+        self.assertTrue(stopped['data'].get('stopped'), stopped)
+
+    def test_scan_unavailable_preserves_stop_fallback(self):
+        self.lib.write_dashboard_metadata(self.root, {'pid': 424242})
+        with patch.object(self.impl, '_dashboard_cmdline_pids', return_value=None), \
+             patch.object(self.impl, '_pid_is_running', return_value=True), \
+             patch.object(self.impl, '_terminate_dashboard_pid', return_value=True) as terminate:
+            result = self.impl.wf_stop_dashboard_response(self.root)
+        terminate.assert_called_once_with(424242)
+        self.assertTrue(result['data']['stopped'])

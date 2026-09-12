@@ -23,6 +23,9 @@ from unittest.mock import MagicMock, call, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 INDEXER_PATH = SCRIPTS_ROOT / "indexer.py"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 def _rmtree_git(path: Path) -> None:
@@ -84,6 +87,17 @@ def _read_meta_store(index_dir: Path) -> dict:
 def _seed_meta_store(index_dir: Path, meta: dict) -> None:
     """1sed6: seed prior-build state the way production records it."""
     _store_mod().write_build_bookkeeping(index_dir, meta)
+
+
+def _published_graph_payload(bi, root: Path) -> dict:
+    """The PUBLISHED graph payload, from the rows.
+
+    Wave 1xny6 lane L6b retired the derived ``project-graph.json`` artifact, so
+    a test that used to decode that file reads the rows the build committed.
+    """
+    snapshot = bi._get_graph_indexer().read_published_graph_snapshot(root, "project")
+    assert snapshot is not None, "no published graph generation"
+    return snapshot["payload"]
 
 
 def _make_repo(tmp: Path, files: dict[str, str]) -> None:
@@ -1209,11 +1223,11 @@ class IncrementalBuildTests(unittest.TestCase):
         # 1sed6: SQLite is the only state authority — no meta.json is written.
         self.assertFalse((index_dir / "meta.json").exists())
         self.assertTrue(_read_meta_store(index_dir).get("file_meta"))
-        has_index = (index_dir / "index-state.sqlite").is_file()
+        has_index = (index_paths.runtime_database_path(index_dir)).is_file()
         self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
 
-    def test_explicit_full_build_excludes_ledger_but_indexes_projection_and_same_name(self):
+    def test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name(self):
         """The caller-supplied files= seam cannot bypass the canonical-ledger boundary."""
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
         projection = "docs/waves/1slep external-ledger/wave.md"
@@ -1234,7 +1248,7 @@ class IncrementalBuildTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             self.bi.build_index(
                 self.root,
-                full=True,
+                full=False,
                 content="docs",
                 files=[
                     self.root / canonical,
@@ -1255,7 +1269,7 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(unrelated, meta_paths)
         self.assertIn(unrelated_wave_note, meta_paths)
 
-    def test_explicit_full_build_excludes_archive_bodies_and_legacy_pointers(self):
+    def test_explicit_initial_build_excludes_archive_bodies_and_legacy_pointers(self):
         """Caller-supplied files cannot bypass either memory-history boundary."""
         archive = "docs/agents/memory/archive/mem-old.md"
         legacy_pointer = "docs/agents/memory/pointers/mem-old.md"
@@ -1270,7 +1284,7 @@ class IncrementalBuildTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", return_value=docs_mock):
             self.bi.build_index(
                 self.root,
-                full=True,
+                full=False,
                 content="docs",
                 files=[
                     self.root / archive,
@@ -1367,10 +1381,16 @@ class IncrementalBuildTests(unittest.TestCase):
 
         index_dir = self.root / ".wavefoundry" / "index"
         before_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
-        import sqlite3
-        graph_db = index_dir / "graph" / "project-graph-state.sqlite"
-        with sqlite3.connect(str(graph_db)) as conn:
-            before_graph_paths = {str(row[0]) for row in conn.execute("SELECT path FROM files")}
+        import index_state_store
+
+        def _graph_paths():
+            conn = index_state_store.open_read_only(index_dir)
+            try:
+                return {str(row[0]) for row in conn.execute("SELECT path FROM graph_file_state")}
+            finally:
+                conn.close()
+
+        before_graph_paths = _graph_paths()
         self.assertIn(graphify_output, before_meta, "fixture must seed an old indexed Graphify file")
         self.assertIn(graphify_output, before_graph_paths, "fixture must seed an old graph file")
 
@@ -1378,8 +1398,7 @@ class IncrementalBuildTests(unittest.TestCase):
 
         after_meta = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
         doc_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
-        with sqlite3.connect(str(graph_db)) as conn:
-            after_graph_paths = {str(row[0]) for row in conn.execute("SELECT path FROM files")}
+        after_graph_paths = _graph_paths()
         self.assertFalse(result["up_to_date"])
         self.assertNotIn(graphify_output, after_meta)
         self.assertNotIn(graphify_output, doc_paths)
@@ -1887,8 +1906,8 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         code_chunks = _read_index_chunks(index_dir, "code")
         docs_chunks = _read_index_chunks(index_dir, "docs")
-        self.assertTrue((index_dir / "index-state.sqlite").is_file())
-        self.assertTrue((index_dir / "index-state.sqlite").is_file())
+        self.assertTrue((index_paths.runtime_database_path(index_dir)).is_file())
+        self.assertTrue((index_paths.runtime_database_path(index_dir)).is_file())
         self.assertGreater(len(code_chunks), 0)
         self.assertGreater(len(docs_chunks), 0)
 
@@ -2164,11 +2183,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 content="docs",
                 verbose=False,
             )
-        graph_path = self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-        self.assertTrue(graph_path.exists())
-        # 1p9py: graph artifacts are gzip-compressed compact JSON — sniffing read.
-        import gzip as _gzip
-        graph = json.loads(_gzip.decompress(graph_path.read_bytes()).decode("utf-8"))
+        graph = _published_graph_payload(self.bi, self.root)
         node_ids = {n["id"] for n in graph.get("nodes", [])}
         self.assertIn(".wavefoundry/framework/scripts/tools.py::helper", node_ids)
 
@@ -3463,7 +3478,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         # Simulate real drift: rows vanish for an eligible docs file.
         import sqlite_runtime
-        conn = sqlite_runtime.connect(index_dir / "index-state.sqlite")
+        conn = sqlite_runtime.connect(index_paths.runtime_database_path(index_dir))
         try:
             conn.execute("DELETE FROM vectors_docs WHERE chunk_id IN (SELECT id FROM chunks_docs WHERE path=?)", ("docs/guide.md",))
         finally:
@@ -4335,7 +4350,7 @@ class ContentScopeFreshnessTests(unittest.TestCase):
         _seed_meta_store(self.index_dir, meta)
         # Wipe layer state (what a schema-bump reset / pre-1sek8 store looks like).
         import sqlite3 as _sq
-        con = _sq.connect(self.index_dir / "index-state.sqlite")
+        con = _sq.connect(index_paths.runtime_database_path(self.index_dir))
         with con:
             con.execute("DELETE FROM layer_path_state")
         con.close()
@@ -4791,7 +4806,7 @@ class LegacyConvergenceTests(_EpochBuildCase):
         self.assertTrue(snapshot.get("file_meta"))
         (self.index_dir / "meta.json").write_text(json.dumps(snapshot), encoding="utf-8")
         for suffix in ("", "-wal", "-shm"):
-            p = self.index_dir / f"index-state.sqlite{suffix}"
+            p = Path(str(index_paths.runtime_database_path(self.index_dir)) + suffix)
             if p.exists():
                 p.unlink()
         # An ordinary incremental build must treat the empty store — not the
@@ -4833,7 +4848,7 @@ class DryRunIdleMaintenanceTests(_EpochBuildCase):
 
     def _sql(self, statement, params=()):
         import sqlite3
-        conn = sqlite3.connect(str(self.index_dir / "index-state.sqlite"))
+        conn = sqlite3.connect(str(index_paths.runtime_database_path(self.index_dir)))
         try:
             with conn:
                 conn.execute(statement, params)
@@ -4961,8 +4976,7 @@ class IdleDocLinkRecoveryTests(_EpochBuildCase):
     _snapshot = DryRunIdleMaintenanceTests._snapshot
 
     def _payload(self):
-        return self.bi._get_graph_indexer().read_json_artifact(
-            self.index_dir / "graph" / "project-graph.json", None)
+        return _published_graph_payload(self.bi, self.root)
 
     def _assert_link(self, target, present):
         payload = self._payload()
@@ -5101,67 +5115,649 @@ class IdleDocLinkRecoveryTests(_EpochBuildCase):
         self.assertIn(("docs/linker.md", target, "doc_references_doc", "EXTRACTED"), {
             (e["source"], e["target"], e["relation"], e.get("confidence")) for e in payload["edges"]
         })
-        conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
-        try:
-            self.assertEqual(dict(conn.execute("SELECT key, value FROM meta"))["payload_stat_state"], "bound")
-        finally:
-            conn.close()
+        self.assertEqual(self._graph_meta()["graph_rows_state"], "published")
         self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
         generation = self._generation()
         with patch.object(self.bi, "_build_graph_artifacts", side_effect=AssertionError("repaired binding re-dispatched")):
             self.assertTrue(self._run_build()["up_to_date"])
         self.assertEqual(self._generation(), generation)
 
-    def test_failed_payload_publication_recovers_on_unchanged_public_retry(self):
-        target = "src/later.py"
-        self._defer_link(target)
+    def _graph_meta(self) -> dict:
         gi = self.bi._get_graph_indexer()
-        real_write = gi._write_json
-
-        def interrupted(path, *args, **kwargs):
-            if Path(path).name == "project-graph.json":
-                raise OSError("injected payload publication interruption")
-            return real_write(path, *args, **kwargs)
-
-        with patch.object(gi, "_write_json", side_effect=interrupted):
-            self.assertTrue(self._run_build()["failed"])
-        self._assert_link(target, False)
-        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "building")
-        conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
+        conn = self.iss.open_read_only(self.index_dir)
         try:
-            summary = gi._decode_state_record(conn.execute("SELECT value FROM blobs WHERE key='merge_state'").fetchone()[0])
-            self.assertFalse(summary["files"]["docs/linker.md"].get("unresolved_doc_targets"))
-            self.assertEqual(dict(conn.execute("SELECT key, value FROM meta"))["payload_stat_state"], "pending")
+            cut = len(gi.GRAPH_META_PREFIX)
+            return {
+                str(k)[cut:]: str(v)
+                for k, v in conn.execute(
+                    "SELECT key, value FROM meta WHERE key LIKE ?",
+                    (gi.GRAPH_META_PREFIX + "%",),
+                )
+            }
         finally:
             conn.close()
-        self._assert_publication_recovery(target)
 
-    def test_unproven_payload_bindings_request_readonly_then_real_recovery(self):
+    def _merge_state(self) -> dict:
+        gi = self.bi._get_graph_indexer()
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            return gi._read_merge_state_rows(conn, self._graph_meta()) or {}
+        finally:
+            conn.close()
+
+    def test_a_missing_retired_graph_folder_is_not_a_graph_fault(self):
+        """Wave 1xny6 lane L6b retired the derived payload FILE entirely, so
+        there is no artifact whose absence, size or mtime could request a
+        rebuild. Its folder must not even exist after an ordinary build. What
+        remains a real graph fault is merge state that is GONE, and it still
+        routes to the real locked recovery."""
         target = "src/later.py"
         self._defer_link(target)
         self._run_build()
-        gi = self.bi._get_graph_indexer()
-        graph_path = self.index_dir / "graph" / "project-graph.json"
-        for fault in ("missing", "size", "mtime", "summary_fingerprint"):
-            with self.subTest(fault=fault):
-                if fault == "missing":
-                    graph_path.unlink()
-                elif fault == "size":
-                    graph_path.write_bytes(graph_path.read_bytes() + b" ")
-                elif fault == "mtime":
-                    st = graph_path.stat()
-                    os.utime(graph_path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
-                else:
-                    conn = sqlite3.connect(self.index_dir / "graph" / gi.GRAPH_STORE_FILENAMES["project"])
-                    try:
-                        summary = gi._decode_state_record(conn.execute("SELECT value FROM blobs WHERE key='merge_state'").fetchone()[0])
-                        summary["payload_fingerprint"] = "mismatched-summary"
-                        conn.execute("UPDATE blobs SET value=? WHERE key='merge_state'", (gi._encode_state_record(summary),))
-                        conn.commit()
-                    finally:
-                        conn.close()
-                self._assert_publication_recovery(target)
+        self._exercise_recovery_seeded = True
+        self.assertFalse((self.index_dir / "graph").exists(),
+                         "an ordinary build recreated the retired graph folder")
+        with patch.object(self.bi, "_build_graph_artifacts",
+                          side_effect=AssertionError("preview mutated graph")), \
+                patch.object(self.bi, "_index_build_lock",
+                             side_effect=AssertionError("preview took lock")), \
+                redirect_stderr(io.StringIO()):
+            preview = self.bi.build_index(self.root, content="all", dry_run=True)
+        self.assertFalse(
+            preview["pending_maintenance"]["graph_recovery"],
+            "an absent derived artifact must not request a graph rebuild",
+        )
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            with store._conn:
+                store._conn.execute("DELETE FROM graph_merge_state")
+        finally:
+            store.close()
+        self._assert_publication_recovery(target)
 
+
+class UnifiedPublicationParticipantTests(_EpochBuildCase):
+    """Wave 1xny6 (1xny5-ref): one publication transaction, explicit participants.
+
+    Everything asserted here is observed through a REAL build: the graph rows,
+    the extraction manifest, the community rows, the per-layer bookkeeping and
+    the final generation either all appear together or none of them do.
+    """
+
+    def _conn(self):
+        return self.iss.open_read_only(self.index_dir)
+
+    def _census(self) -> dict:
+        conn = self._conn()
+        if conn is None:
+            return {}
+        try:
+            import graph_store
+
+            tables = (
+                "chunks_docs", "chunks_code", "graph_nodes", "graph_edges",
+                "graph_file_state", "graph_merge_state", "graph_communities",
+                "graph_community_members", "graph_analysis", "build_layer_state",
+            )
+            out = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tables}
+            assert set(graph_store.GRAPH_TABLES) <= set(tables) | {"graph_symbol_chunks"}
+            return out
+        finally:
+            conn.close()
+
+    def _graph_meta(self) -> dict:
+        gi = self.bi._get_graph_indexer()
+        conn = self._conn()
+        try:
+            cut = len(gi.GRAPH_META_PREFIX)
+            return {str(k)[cut:]: str(v) for k, v in conn.execute(
+                "SELECT key, value FROM meta WHERE key LIKE ?",
+                (gi.GRAPH_META_PREFIX + "%",))}
+        finally:
+            conn.close()
+
+    def _seed(self):
+        # Same directory so the import resolves to a PROJECT node: the
+        # cross-file `calls` edge is the relationship these tests are about.
+        _make_repo(self.root, {
+            "pkg_a/lib.py": "def helper(value):\n    return value + 1\n",
+            "pkg_a/caller.py": "def dispatch():\n    return helper(2)\n",
+            "docs/guide.md": "# Guide\n\nSee `pkg_a/lib.py` and `helper`.\n",
+        })
+
+    def test_all_content_publication_commits_every_participant_together(self):
+        self._seed()
+        self.assertEqual(self._census(), {})
+        result = self._run_build(full=True)
+        self.assertNotIn("failed", result)
+
+        census = self._census()
+        for table, count in census.items():
+            self.assertGreater(count, 0, f"{table} must be published by an all-content build")
+        # FTS is derived from the canonical chunks committed above.
+        conn = self._conn()
+        try:
+            fts = conn.execute("SELECT COUNT(*) FROM fts_code").fetchone()[0]
+            vectors = conn.execute("SELECT COUNT(*) FROM vectors_code").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertGreater(fts, 0)
+        self.assertGreater(vectors, 0)
+
+        state = self.iss.read_build_state(self.index_dir)
+        self.assertEqual(state["status"], "complete")
+        layers = self.iss.read_build_layer_state(self.index_dir)
+        self.assertEqual(sorted(layers), ["code", "docs", "graph"])
+        for layer, row in layers.items():
+            self.assertEqual(row["status"], "published", layer)
+            self.assertEqual(row["generation"], state["generation"], layer)
+            self.assertEqual(row["attempt_id"], state["attempt_id"], layer)
+        self.assertEqual(self._graph_meta()["graph_rows_state"], "published")
+
+        # Wave 1xny6 lane L6b: the derived artifact is retired. The PUBLISHED
+        # payload is the one rebuilt from the rows and their header, and it
+        # must carry neither the prepared SQL (not serialisable at all) nor the
+        # per-build instrumentation. No file, and no retired folder either.
+        gi = self.bi._get_graph_indexer()
+        published = gi.read_published_graph_snapshot(self.root, "project")
+        self.assertIsInstance(published, dict)
+        self.assertNotIn("_publication", published["payload"])
+        self.assertNotIn("merge_stats", published["payload"])
+        self.assertEqual({n["id"] for n in published["payload"]["nodes"]}, self._node_ids())
+        self.assertFalse((self.index_dir / "graph").exists())
+
+    def test_small_full_incremental_noop_and_graph_builds_create_no_preparation_files(self):
+        import sqlite_vector_store as vectors
+        import sqlite_runtime
+
+        self._seed()
+        real_directory = vectors.tempfile.TemporaryDirectory
+        real_connect = sqlite_runtime.connect
+        preparation_attempts = []
+
+        def directory(*args, **kwargs):
+            if kwargs.get("prefix", "").startswith("wavefoundry-sqlite-prepared-"):
+                preparation_attempts.append("directory")
+                raise AssertionError("small build attempted a disk preparation directory")
+            return real_directory(*args, **kwargs)
+
+        def connect(path, *args, **kwargs):
+            if Path(path).name == "prepared.sqlite":
+                preparation_attempts.append("database")
+                raise AssertionError("small build attempted a preparation database")
+            return real_connect(path, *args, **kwargs)
+
+        with patch.object(vectors.tempfile, "TemporaryDirectory", directory), patch.object(
+                sqlite_runtime, "connect", connect):
+            full = self._run_build(full=True)
+            self.assertNotIn("failed", full)
+            self.assertGreater(self._census()["chunks_code"], 0)
+            idle = self._run_build()
+            self.assertTrue(idle["up_to_date"])
+            target = self.root / "pkg_a" / "lib.py"
+            target.write_text("def helper(value):\n    return value + 2\n")
+            graph = self._run_build(content="graph")
+            self.assertNotIn("failed", graph)
+            delta = self._run_build()
+            self.assertNotIn("failed", delta)
+            self.assertGreater(self._census()["graph_nodes"], 0)
+        self.assertEqual(preparation_attempts, [])
+
+    def test_publication_timer_excludes_acquisition_and_includes_commit(self):
+        import sqlite_runtime
+        from types import SimpleNamespace
+
+        self._seed()
+        clock = [0.0]
+        real_connect = sqlite_runtime.connect
+        boundaries = []
+
+        class TimedConnection:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def __enter__(self):
+                self.conn.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.conn.__exit__(*args)
+
+            def execute(self, sql, *args, **kwargs):
+                head = sql.strip().upper()
+                if head == "COMMIT":
+                    clock[0] += 0.1
+                result = self.conn.execute(sql, *args, **kwargs)
+                if head == "BEGIN IMMEDIATE":
+                    # Deterministic elapsed acquisition time, ending at the
+                    # actual native BEGIN return. SQL remains fully real.
+                    clock[0] += 0.3
+                if head in ("BEGIN IMMEDIATE", "COMMIT"):
+                    boundaries.append(head)
+                return result
+
+            def __getattr__(self, name):
+                return getattr(self.conn, name)
+
+        with patch.object(sqlite_runtime, "connect", side_effect=lambda *a, **kw:
+                          TimedConnection(real_connect(*a, **kw))), patch.object(
+                              self.bi, "time", SimpleNamespace(**{
+                                  **vars(self.bi.time), "monotonic": lambda: clock[0]})):
+            result = self._run_build(full=True)
+        self.assertNotIn("failed", result)
+        self.assertIn("BEGIN IMMEDIATE", boundaries)
+        self.assertIn("COMMIT", boundaries)
+        self.assertAlmostEqual(result["publication_held_ms"], 100.0, places=2)
+        self.assertGreater(self._census()["graph_nodes"], 0)
+
+    def test_source_read_failure_preserves_published_graph_and_retry_recovers(self):
+        self._seed()
+        self.assertNotIn("failed", self._run_build(full=True))
+        before, generation = self._census(), self._generation()
+        target = self.root / "pkg_a" / "lib.py"
+        target.write_text("def helper(value):\n    return value + 2\n\ndef extra():\n    return 0\n")
+        gi = self.bi._get_graph_indexer()
+        real_read = Path.read_text
+        for threshold in (1, 100000):
+            with self.subTest(read_threads=threshold == 1):
+                seen = []
+                def denied(path, *args, **kwargs):
+                    if path == target:
+                        seen.append(path)
+                        raise PermissionError("injected graph source denial")
+                    return real_read(path, *args, **kwargs)
+                with patch.object(Path, "read_text", denied), patch.object(
+                        gi, "_PARALLEL_EXTRACTION_THRESHOLD", threshold):
+                    with self.assertRaisesRegex(OSError, "graph extraction could not read pkg_a/lib.py"):
+                        self._run_build(full=True, content="graph")
+                self.assertTrue(seen, "the eligible source must reach the actual read")
+                self.assertEqual(self._census(), before)
+                self.assertEqual(self._generation(), generation)
+        self.assertNotIn("failed", self._run_build(full=True, content="graph"))
+        self.assertIn("pkg_a/lib.py::extra", self._node_ids())
+
+    def test_injected_rollback_publishes_nothing_and_leaves_a_recoverable_state(self):
+        self._seed()
+        self._run_build(full=True)
+        before, gen = self._census(), self._generation()
+        (self.root / "pkg_a" / "lib.py").write_text(
+            "def helper(value):\n    return value + 2\n\n\ndef extra():\n    return 0\n")
+
+        gi = self.bi._get_graph_indexer()
+        original = gi.GraphPublication.apply
+
+        def _boom(pub_self, conn):
+            original(pub_self, conn)
+            raise RuntimeError("injected participant fault")
+
+        with patch.object(gi.GraphPublication, "apply", _boom):
+            result = self._run_build()
+        self.assertTrue(result.get("failed"))
+        self.assertEqual(self._census(), before, "a failed attempt must publish nothing")
+        self.assertEqual(self._generation(), gen, "the generation never advanced")
+
+        recovered = self._run_build()
+        self.assertNotIn("failed", recovered)
+        self.assertGreater(self._generation(), gen)
+        self.assertIn("pkg_a/lib.py::extra", self._node_ids())
+
+    def test_process_interruption_before_commit_leaves_the_old_state(self):
+        """A hard interruption (BaseException, as a signal delivers) inside the
+        transaction is the same one window: rollback, old state, recoverable."""
+        self._seed()
+        self._run_build(full=True)
+        before, gen = self._census(), self._generation()
+        (self.root / "pkg_a" / "lib.py").write_text("def helper(v):\n    return v + 9\n")
+
+        gi = self.bi._get_graph_indexer()
+
+        def _interrupt(pub_self, conn):
+            raise KeyboardInterrupt("injected process interruption")
+
+        with patch.object(gi.GraphPublication, "apply", _interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run_build()
+        self.assertEqual(self._census(), before)
+        self.assertEqual(self._generation(), gen)
+        self.assertNotIn("failed", self._run_build())
+
+    def test_stale_attempt_cannot_publish(self):
+        self._seed()
+        self._run_build(full=True)
+        before, gen = self._census(), self._generation()
+        (self.root / "pkg_a" / "lib.py").write_text("def helper(v):\n    return v + 3\n")
+
+        # A newer attempt opens the epoch while this one holds prepared rows.
+        # Recorded BEFORE the publication transaction opens, so the fence at
+        # the top of that transaction is what refuses -- not the finalize CAS
+        # after a commit that already landed.
+        superseded = self._supersede_after_graph_preparation("rival-build")
+        with superseded["patch"]:
+            result = self._run_build()
+        self.assertEqual(superseded["fired"], 1, "precondition: the rival attempt was recorded")
+        self.assertTrue(result.get("failed"))
+        self.assertIn("no longer current", result.get("failure", ""), result)
+        self.assertEqual(self._census(), before, "a superseded attempt must publish nothing")
+        self.assertEqual(self._generation(), gen)
+
+    def _supersede_after_graph_preparation(self, attempt_id: str):
+        """Record a rival attempt id between graph PREPARATION and publication.
+
+        Both publication paths prepare the graph rows before opening their
+        transaction, so this lands the rival in the exact window the
+        in-transaction fence exists to cover.
+        """
+        state = {"fired": 0}
+        real = self.bi._build_graph_artifacts
+
+        def _wrapped(*args, **kwargs):
+            out = real(*args, **kwargs)
+            if state["fired"] == 0:
+                state["fired"] += 1
+                other = self.iss._full_durable_connection(self.index_dir)
+                try:
+                    with other:
+                        other.execute(
+                            "UPDATE build_state SET attempt_id=?, status='building' "
+                            "WHERE id=1", (attempt_id,))
+                finally:
+                    other.close()
+            return out
+
+        state["patch"] = patch.object(self.bi, "_build_graph_artifacts", _wrapped)
+        return state
+
+    def _node_ids(self) -> set:
+        conn = self._conn()
+        try:
+            return {str(r[0]) for r in conn.execute("SELECT node_id FROM graph_nodes")}
+        finally:
+            conn.close()
+
+    def _edges(self) -> set:
+        conn = self._conn()
+        try:
+            return {(str(r[0]), str(r[1]), str(r[2])) for r in conn.execute(
+                "SELECT source_id, target_id, relation FROM graph_edges")}
+        finally:
+            conn.close()
+
+    def test_graph_only_build_preserves_semantic_rows_and_their_generation(self):
+        self._seed()
+        self._run_build(full=True)
+        conn = self._conn()
+        try:
+            docs_before = conn.execute("SELECT COUNT(*) FROM chunks_docs").fetchone()[0]
+            code_before = conn.execute("SELECT COUNT(*) FROM chunks_code").fetchone()[0]
+        finally:
+            conn.close()
+        semantic_layers = {k: v for k, v in self.iss.read_build_layer_state(self.index_dir).items()
+                           if k in ("docs", "code")}
+        gen = self._generation()
+
+        (self.root / "pkg_a" / "lib.py").write_text(
+            "def helper(value):\n    return value + 4\n\n\ndef only_graph():\n    return 1\n")
+        # `content="graph"` is the graph-only rebuild verb (the MCP surface
+        # spells it `index_build(content='graph', mode='rebuild')`).
+        result = self._run_build(full=True, content="graph")
+        self.assertNotIn("failed", result)
+
+        conn = self._conn()
+        try:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chunks_docs").fetchone()[0], docs_before)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chunks_code").fetchone()[0], code_before)
+        finally:
+            conn.close()
+        self.assertIn("pkg_a/lib.py::only_graph", self._node_ids())
+
+        layers = self.iss.read_build_layer_state(self.index_dir)
+        self.assertEqual(layers["graph"]["generation"], self._generation())
+        self.assertEqual(layers["graph"]["status"], "published")
+        self.assertGreater(self._generation(), gen)
+        for layer, row in semantic_layers.items():
+            self.assertEqual(
+                layers[layer], row,
+                f"a graph-only build must not advertise {layer} freshness it did not establish",
+            )
+
+    def test_semantic_only_publication_marks_the_graph_stale(self):
+        """The decision is one function, so it reads the same in both build
+        paths: a build that publishes semantic rows while the graph's SOURCE
+        inputs changed and the graph itself was not published marks the graph
+        stale rather than leaving it readable as current."""
+        state = self.bi._layer_publication_state(
+            build_docs=True, build_code=True,
+            graph_published=False, graph_sources_changed=True)
+        self.assertEqual(state, {"docs": self.bi.LAYER_PUBLISHED,
+                                 "code": self.bi.LAYER_PUBLISHED,
+                                 "graph": self.bi.LAYER_STALE})
+        # Unchanged graph sources leave the graph row alone entirely.
+        self.assertEqual(
+            self.bi._layer_publication_state(
+                build_docs=True, build_code=False,
+                graph_published=False, graph_sources_changed=False),
+            {"docs": self.bi.LAYER_PUBLISHED},
+        )
+        # A graph-only build claims only the graph.
+        self.assertEqual(
+            self.bi._layer_publication_state(
+                build_docs=False, build_code=False,
+                graph_published=True, graph_sources_changed=True),
+            {"graph": self.bi.LAYER_PUBLISHED},
+        )
+
+        # And the stale marker really lands through a build.
+        self._seed()
+        self._run_build(full=True)
+        (self.root / "pkg_a" / "lib.py").write_text("def helper(v):\n    return v + 7\n")
+        with patch.object(self.bi, "_build_graph_artifacts", return_value={
+            "graph_payload": None, "cluster_payload": None,
+            "publication": None, "cluster_recomputed": False,
+        }):
+            result = self._run_build()
+        self.assertNotIn("failed", result)
+        layers = self.iss.read_build_layer_state(self.index_dir)
+        self.assertEqual(layers["graph"]["status"], self.bi.LAYER_STALE)
+        self.assertEqual(layers["docs"]["status"], self.bi.LAYER_PUBLISHED)
+        self.assertEqual(layers["docs"]["generation"], self._generation())
+
+    def test_rename_removal_and_restoration_keep_cross_file_relationships(self):
+        """The doc is the UNCHANGED caller: it references the module by path
+        across a rename, a removal and a restoration, and its cross-file edge
+        must follow the real corpus each time -- present, invalidated, present
+        -- while the per-file row ownership moves with the file."""
+        self._seed()
+        self._run_build(full=True)
+        doc_edge = ("docs/guide.md", "pkg_a/lib.py", "doc_references_code")
+        self.assertIn(doc_edge, self._edges())
+        self.assertIn("pkg_a/lib.py::helper", self._node_ids())
+
+        def manifest():
+            conn = self._conn()
+            try:
+                return {str(r[0]) for r in conn.execute("SELECT path FROM graph_file_state")}
+            finally:
+                conn.close()
+
+        def owners():
+            conn = self._conn()
+            try:
+                return {str(r[0]) for r in conn.execute(
+                    "SELECT DISTINCT source_file FROM graph_nodes")}
+            finally:
+                conn.close()
+
+        self.assertIn("pkg_a/lib.py", manifest())
+
+        # RENAME: rows, extraction state and the doc's edge all move off the
+        # old path. The doc itself is never re-authored.
+        (self.root / "pkg_a" / "lib.py").rename(self.root / "pkg_a" / "lib2.py")
+        self._run_build()
+        ids = self._node_ids()
+        self.assertNotIn("pkg_a/lib.py::helper", ids)
+        self.assertIn("pkg_a/lib2.py::helper", ids)
+        self.assertNotIn("pkg_a/lib.py", manifest(), "the renamed-away file's state is retired")
+        self.assertIn("pkg_a/lib2.py", manifest())
+        self.assertNotIn("pkg_a/lib.py", owners(), "no row may keep the retired owner")
+        self.assertNotIn(doc_edge, self._edges(),
+                         "the unchanged doc's reference into the old path is invalidated")
+
+        # REMOVAL: every row the file owned goes with it.
+        (self.root / "pkg_a" / "lib2.py").unlink()
+        self._run_build()
+        self.assertNotIn("pkg_a/lib2.py::helper", self._node_ids())
+        self.assertNotIn("pkg_a/lib2.py", manifest())
+        self.assertNotIn("pkg_a/lib2.py", owners())
+
+        # RESTORATION: the original path comes back and so does the edge the
+        # unchanged doc always claimed.
+        (self.root / "pkg_a" / "lib.py").write_text("def helper(value):\n    return value + 1\n")
+        self._run_build()
+        self.assertIn("pkg_a/lib.py::helper", self._node_ids())
+        self.assertIn("pkg_a/lib.py", manifest())
+        self.assertIn(doc_edge, self._edges(),
+                      "restoring the target must restore the unchanged doc's edge")
+
+    def test_reused_clusters_publish_no_artifact_and_no_retired_folder(self):
+        """The fingerprint gate reuses the previous generation's communities.
+
+        Wave 1xny6 lane L6b retired the derived cluster artifact this used to
+        watch for an mtime move: there is no file to rewrite, and a reused
+        generation must not conjure the retired folder back into existence.
+        """
+        self._seed()
+        self._run_build(full=True)
+        retired = self.index_dir / "graph"
+        self.assertFalse(retired.exists())
+        # A body-only edit: the node/edge SET (and therefore the graph
+        # fingerprint) is unchanged, so the clusters are reused.
+        (self.root / "pkg_a" / "lib.py").write_text(
+            "def helper(value):\n    return value + 99\n")
+        result = self._run_build()
+        self.assertNotIn("failed", result)
+        self.assertFalse(retired.exists(),
+                         "a reused-cluster build recreated the retired graph folder")
+
+    def _strand_graph_path(self, rel: str) -> None:
+        """Leave a graph row whose file AND bookkeeping entry are gone.
+
+        The walk then sees no change, so the build takes the ZERO-CHANGE seam
+        and the orphan reconcile is the only thing with work to do -- which is
+        the idle publication path.
+        """
+        meta = _read_meta_store(self.index_dir)
+        fm = meta.get("file_meta") or {}
+        fm.pop(rel, None)
+        (self.root / rel).unlink()
+        meta["file_meta"] = fm
+        _seed_meta_store(self.index_dir, meta)
+
+    def test_idle_publication_refuses_a_superseded_attempt(self):
+        """The idle pass carries the same in-transaction fence as the build
+        path: a rival attempt recorded before the commit stops the graph
+        retirement from publishing."""
+        self._seed()
+        (self.root / "pkg_a" / "orphan.py").write_text("def orphaned_symbol():\n    return 1\n")
+        self._run_build(full=True)
+        self.assertIn("pkg_a/orphan.py::orphaned_symbol", self._node_ids())
+        self._strand_graph_path("pkg_a/orphan.py")
+        # Only the GRAPH participants: the canonical semantic reap is a
+        # separate, already-committed step of the idle pass, so its rows move
+        # regardless of whether the graph publication lands.
+        def graph_census():
+            return {k: v for k, v in self._census().items() if k.startswith("graph_")}
+
+        before, gen = graph_census(), self._generation()
+
+        # The idle pass prepares its retirement inside
+        # `_execute_orphan_store_reconcile`, so the rival lands right after
+        # that and before the idle transaction opens.
+        state = {"fired": 0}
+        real = self.bi._execute_orphan_store_reconcile
+
+        def _wrapped(*args, **kwargs):
+            out = real(*args, **kwargs)
+            state["fired"] += 1
+            other = self.iss._full_durable_connection(self.index_dir)
+            try:
+                with other:
+                    other.execute(
+                        "UPDATE build_state SET attempt_id='rival-idle', "
+                        "status='building' WHERE id=1")
+            finally:
+                other.close()
+            return out
+
+        with patch.object(self.bi, "_execute_orphan_store_reconcile", _wrapped), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build()
+        self.assertEqual(state["fired"], 1, "precondition: the idle pass prepared a retirement")
+        self.assertTrue(result.get("failed"), result)
+        self.assertIn("no longer current", result.get("failure", ""), result)
+        self.assertEqual(graph_census(), before,
+                         "a superseded idle attempt must publish no graph rows")
+        self.assertEqual(self._generation(), gen)
+        self.assertIn("pkg_a/orphan.py::orphaned_symbol", self._node_ids(),
+                      "the previous generation's rows are untouched")
+
+    def test_build_path_orphan_seam_never_runs_a_second_graph_merge(self):
+        """On the build path the graph merge has already retired every
+        known-minus-current path in its PREPARED (uncommitted) plan. Running
+        the orphan seam's retirement merge as well would prepare a rival plan
+        from pre-publication state and overwrite this build's edits."""
+        self._seed()
+        (self.root / "pkg_a" / "orphan.py").write_text("def orphaned_symbol():\n    return 1\n")
+        self._run_build(full=True)
+        self._strand_graph_path("pkg_a/orphan.py")
+        # A REAL edit in the same build, so the build path (not the idle seam) runs.
+        (self.root / "pkg_a" / "lib.py").write_text(
+            "def helper(value):\n    return value + 5\n\n\ndef fresh_symbol():\n    return 7\n")
+
+        gi = self.bi._get_graph_indexer()
+        with patch.object(gi, "retire_orphaned_graph_paths",
+                          side_effect=AssertionError("second graph merge at the build seam")), \
+                redirect_stderr(io.StringIO()):
+            result = self._run_build()
+        self.assertNotIn("failed", result)
+        ids = self._node_ids()
+        self.assertIn("pkg_a/lib.py::fresh_symbol", ids, "this build's edit must publish")
+        self.assertNotIn("pkg_a/orphan.py::orphaned_symbol", ids,
+                         "the stranded path is retired by the merge that published")
+        self.assertEqual((result.get("orphan_rows_reconciled") or {}).get("graph"), 1)
+
+    def test_mtime_only_change_reuses_vectors_and_graph_rows(self):
+        self._seed()
+        self._run_build(full=True)
+        import sqlite_vector_store as vectors
+
+        before_vectors = vectors.payload_rows(self.index_dir, "code", include_vector=True)
+        conn = self._conn()
+        try:
+            before_nodes = sorted(conn.execute(
+                "SELECT node_id, attributes FROM graph_nodes ORDER BY node_id"))
+            before_fragments = sorted(
+                (str(r[0]), str(r[1]), bytes(r[2]))
+                for r in conn.execute("SELECT path, name, fragment FROM graph_merge_state"))
+        finally:
+            conn.close()
+
+        for rel in ("pkg_a/lib.py", "pkg_a/caller.py", "docs/guide.md"):
+            os.utime(self.root / rel, None)
+        result = self._run_build()
+        self.assertTrue(result.get("up_to_date"), result)
+
+        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True),
+                         before_vectors, "an mtime-only touch must reuse every vector")
+        conn = self._conn()
+        try:
+            self.assertEqual(sorted(conn.execute(
+                "SELECT node_id, attributes FROM graph_nodes ORDER BY node_id")), before_nodes)
+            self.assertEqual(sorted(
+                (str(r[0]), str(r[1]), bytes(r[2]))
+                for r in conn.execute("SELECT path, name, fragment FROM graph_merge_state")),
+                before_fragments, "an mtime-only touch must reuse every graph fragment")
+        finally:
+            conn.close()
 
 class EpochOrderingAndFaultTests(_EpochBuildCase):
     """AC-3/AC-7 core matrix: fence-first ordering, structured no-fallback
@@ -5565,6 +6161,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         gen = self._generation()
         script = (
             "import sys, os\n"
+            f"sys.path.insert(0, {str(SCRIPTS_ROOT)!r})\n"
             "from pathlib import Path\n"
             "import importlib.util\n"
             f"spec = importlib.util.spec_from_file_location('iss', {str(SCRIPTS_ROOT / 'index_state_store.py')!r})\n"
@@ -6051,26 +6648,33 @@ class _OrphanStoreCase(_EpochBuildCase):
         (self.root / "src" / "payload_mod.py").unlink()
 
     def _sqlite_paths(self, db_file: Path, table: str) -> set[str]:
-        import sqlite3
+        # Wave 1xny6: every one of these tables lives in the SHARED index
+        # database, which may only be opened through sqlite_runtime.
+        import index_state_store
+        import sqlite_runtime
+
         if not db_file.exists():
             return set()
-        conn = sqlite3.connect(str(db_file))
+        conn = sqlite_runtime.connect(db_file, read_only=True)
         try:
             return {str(r[0]) for r in conn.execute(f"SELECT DISTINCT path FROM {table}")}
         finally:
             conn.close()
 
     def _state_db(self) -> Path:
-        return self.index_dir / "index-state.sqlite"
+        import index_state_store
+
+        return index_state_store.state_store_path(self.index_dir)
 
     def _graph_db(self) -> Path:
-        return self.index_dir / "graph" / "project-graph-state.sqlite"
+        # The graph extraction manifest is a table in the shared database now.
+        return self._state_db()
 
     def _store_needle_map(self) -> dict[str, set[str]]:
         return {
             "file_freshness": self._sqlite_paths(self._state_db(), "file_freshness"),
             "secret_scan_cache": self._sqlite_paths(self._state_db(), "secret_scan_cache"),
-            "graph_files": self._sqlite_paths(self._graph_db(), "files"),
+            "graph_files": self._sqlite_paths(self._graph_db(), "graph_file_state"),
         }
 
     def _needles_in(self, paths: set[str]) -> list[str]:
@@ -6995,7 +7599,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         # nothing. Pre-repair the graph lost the subtree here for good.
         self._seed()
         before = self._vault_state()
-        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        graph_before = self._sqlite_paths(self._graph_db(), "graph_file_state")
         self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
         (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
         err = io.StringIO()
@@ -7009,7 +7613,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         bookkeeping = set((_read_meta_store(self.index_dir).get("file_meta") or {}).keys())
         self.assertTrue(set(self._VAULT) <= bookkeeping, "the bookkeeping carried the subtree forward")
         self.assertTrue(
-            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"),
+            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"),
             "the graph merge kept the shadowed subtree instead of pruning it on walk parity",
         )
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._state_db(), "file_freshness"))
@@ -7021,7 +7625,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         self.assertFalse(any("vault/" in h for h in hashed), f"recovery re-hashed the subtree: {hashed}")
         self.assertEqual(self._vault_state(), before)
         self.assertTrue(
-            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"),
+            set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"),
             "recovery: the graph still holds the subtree",
         )
 
@@ -7201,14 +7805,14 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         for store in ("file_freshness", "secret_scan_cache", "graph"):
             self.assertFalse(any(p.startswith("vault/") for p in plan[store]), (store, plan[store]))
         self.assertFalse(any("vault/" in c for c in calls), calls)
-        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        graph_before = self._sqlite_paths(self._graph_db(), "graph_file_state")
         self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
         with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
             result = self._run_build(full=False)
         self.assertIs(result.get("up_to_date"), True, result)
         self.assertEqual(result.get("stranded_rows_reaped"), 0)
         self.assertEqual(result.get("orphan_rows_reconciled", {}).get("graph"), 0)
-        self.assertEqual(self._sqlite_paths(self._graph_db(), "files"), graph_before)
+        self.assertEqual(self._sqlite_paths(self._graph_db(), "graph_file_state"), graph_before)
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._state_db(), "file_freshness"))
 
     def test_retirement_seam_keeps_the_shadowed_subtree(self):
@@ -7222,7 +7826,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         files["stale/gone.py"] = "def gone():\n    return 0\n"
         _make_repo(self.root, files)
         self._run_build(full=True)
-        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        graph_before = self._sqlite_paths(self._graph_db(), "graph_file_state")
         self.assertIn("stale/gone.py", graph_before)
         self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
         self._strand_absent(["stale/gone.py"])
@@ -7232,7 +7836,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         self.assertIs(result.get("up_to_date"), True, result)
         retired = (result.get("orphan_rows_reconciled") or {}).get("graph")
         self.assertGreaterEqual(retired or 0, 1, "non-vacuity: the retirement ran")
-        graph_after = self._sqlite_paths(self._graph_db(), "files")
+        graph_after = self._sqlite_paths(self._graph_db(), "graph_file_state")
         self.assertNotIn("stale/gone.py", graph_after, "the residue was retired")
         self.assertTrue(
             set(self._VAULT) <= graph_after,
@@ -7245,14 +7849,14 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
             any("vault" in str(c.args[0]) for c in mock_hash.call_args_list),
             "recovery is a stat-cache hit for the preserved subtree",
         )
-        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
 
     def test_full_rebuild_during_outage_refuses_destructive_publication(self):
         # Unified publication refuses implicit full-rebuild removals whose
         # source is unreadable. Graph preparation may already have run, but
         # the global epoch must stay unavailable until a coherent retry.
         self._seed()
-        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
         chunks_before = set(self._rows("code")) | set(self._rows("docs"))
         with self._denied_scandir("vault"), redirect_stderr(io.StringIO()):
             result = self._run_build(full=True)
@@ -7263,16 +7867,12 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         recovery = self._run_build(full=True)
         self.assertFalse(recovery.get("failed"), recovery)
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
-        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
         chunks_after = set(self._rows("code")) | set(self._rows("docs"))
         self.assertTrue(set(self._VAULT) <= chunks_after, chunks_after)
 
     def _edges_from_guide_into_vault(self) -> set[tuple[str, str]]:
-        import gzip as _gzip
-        raw = (self.index_dir / "graph" / "project-graph.json").read_bytes()
-        if raw[:2] == b"\x1f\x8b":
-            raw = _gzip.decompress(raw)
-        payload = json.loads(raw.decode("utf-8"))
+        payload = _published_graph_payload(self.bi, self.root)
         return {
             (str(e.get("relation")), str(e.get("target")))
             for e in payload.get("edges", [])
@@ -7339,7 +7939,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         _make_repo(self.root, files)
         with redirect_stderr(io.StringIO()):
             self._run_build(full=True)
-        graph_before = self._sqlite_paths(self._graph_db(), "files")
+        graph_before = self._sqlite_paths(self._graph_db(), "graph_file_state")
         self.assertTrue(set(self._VAULT) <= graph_before, graph_before)
         rows_before = self._vault_state()
         (self.root / "src" / "app.py").write_text(
@@ -7351,11 +7951,11 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         self.assertNotIn("error", result, result)
         self.assertIsNot(result.get("up_to_date"), True, "the rename drives the build path")
         self.assertEqual(result.get("stranded_reap_preserved"), {"docs": 1, "code": 2}, result)
-        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
         self.assertEqual(self._vault_state(), rows_before, "the outage build touched nothing under vault")
         recovery = self._run_build(full=False)
         self.assertNotIn("error", recovery, recovery)
-        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "files"))
+        self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
         self.assertEqual(self._vault_state(), rows_before)
 
     # --- Wave 1x6ti (1x551): the reap's deferral / preservation record ---
@@ -7522,6 +8122,235 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
         log_text = self.iss.store_log_path(self.index_dir).read_text(encoding="utf-8")
         self.assertIn("reap state", log_text)
         self.assertIn("injected", log_text, "the store log names the failure")
+
+
+
+
+class TargetedPublicationContractTests(unittest.TestCase):
+    """Native shared SQLite, bounded fake embeddings, no model downloads."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / '.wavefoundry' / 'index'
+        self.calls = []
+        self.addCleanup(patch.stopall)
+        patch.object(self.bi, '_get_embedder', side_effect=lambda *a, **k:
+                     _make_embedder_mock(calls=self.calls)).start()
+        for name in ('one', 'two'):
+            (self.root / f'{name}.py').write_text(
+                f'def {name}():\n    """Documentation for {name}."""\n    return 1\n')
+        self.assertFalse(self.bi.build_index(self.root, full=True, content='all').get('failed'))
+        self.iss = self.bi._get_index_state_store()
+        self.gi = self.bi._get_graph_indexer()
+
+    def _rows(self, rel):
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            result = {}
+            for table, column in (
+                ('chunks_docs', 'path'), ('chunks_code', 'path'),
+                ('graph_nodes', 'source_file'), ('graph_edges', 'source_file'),
+                ('graph_file_state', 'path'), ('graph_merge_state', 'path'),
+                ('build_file_meta', 'path'), ('layer_path_state', 'path'),
+                ('file_freshness', 'path'), ('secret_scan_cache', 'path')):
+                result[table] = conn.execute(f'SELECT * FROM {table} WHERE {column}=?', (rel,)).fetchall()
+            for layer in ('docs', 'code'):
+                result['vectors_' + layer] = conn.execute(
+                    f'SELECT v.* FROM vectors_{layer} v JOIN chunks_{layer} c ON c.id=v.chunk_id WHERE c.path=?', (rel,)).fetchall()
+            # FTS text is a participant, not merely a count of canonical rows.
+            for table, in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('fts_docs','fts_code') "):
+                columns = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}
+                if 'path' in columns:
+                    result[table] = conn.execute(f'SELECT * FROM {table} WHERE path=?', (rel,)).fetchall()
+            return result
+        finally:
+            conn.close()
+
+    def _generation(self):
+        return self.iss.read_build_state(self.index_dir)['generation']
+
+    def _change_one(self):
+        (self.root / 'one.py').write_text('def one():\n    """Changed documentation."""\n    return 12345\n')
+
+    def test_targeted_update_preserves_all_unselected_participants(self):
+        before = self._rows('two.py')
+        for key in ('chunks_docs', 'chunks_code', 'vectors_docs', 'vectors_code',
+                    'fts_docs', 'fts_code', 'graph_nodes', 'graph_file_state', 'build_file_meta', 'layer_path_state'):
+            self.assertTrue(before[key], key)
+        generation = self._generation()
+        (self.root / 'two.py').unlink()  # omission must preserve even an absent source
+        self._change_one()
+        result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all')
+        self.assertFalse(result.get('failed'), result)
+        self.assertEqual(before, self._rows('two.py'))
+        self.assertEqual(generation + 1, self._generation())
+        self.assertEqual(self.bi._sha256(self.root / 'one.py'),
+                         _read_meta_store(self.index_dir)['file_meta']['one.py']['hash'])
+
+    def test_targeted_empty_and_explicit_delete_then_complete_walk(self):
+        before = self._rows('two.py')
+        self._change_one()
+        self.assertFalse(self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all').get('failed'))
+        self.calls.clear()
+        generation = self._generation()
+        self.assertFalse(self.bi.build_index(self.root, content='all').get('failed'))
+        self.assertFalse(self.calls, 'ordinary follow-up must not embed retained unchanged files')
+        before = self._rows('two.py')
+        (self.root / 'one.py').unlink()
+        self.assertFalse(self.bi.build_index(self.root, files=[], content='all').get('failed'))
+        self.assertEqual(generation, self._generation())
+        self.assertTrue(self._rows('one.py')['chunks_code'])
+        self.assertFalse(self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all').get('failed'))
+        self.assertFalse(self._rows('one.py')['chunks_code'])
+        self.assertEqual(before, self._rows('two.py'))
+        (self.root / 'two.py').unlink()
+        self.assertFalse(self.bi.build_index(self.root, content='all').get('failed'))
+        self.assertFalse(self._rows('two.py')['chunks_code'])
+
+    def test_targeted_currency_refusal_precedes_store_mutation(self):
+        cases = [('full', None, None), ('walker', self.bi, 'WALKER_VERSION'),
+                 ('docs_model', self.bi, 'DOCS_MODEL'), ('code_model', self.bi, 'CODE_MODEL'),
+                 ('chunker', self.bi._get_chunker(), 'CHUNKER_VERSION'),
+                 ('graph_builder', self.gi, 'GRAPH_BUILDER_VERSION'),
+                 ('graph_schema', self.gi, 'GRAPH_SCHEMA_VERSION'),
+                 ('graph_store_schema', self.gi, 'GRAPH_STORE_SCHEMA_VERSION'),
+                 ('storage_schema', self.iss, 'STATE_STORE_SCHEMA_VERSION'),
+                 ('policy', None, None)]
+        for name, module, attr in cases:
+            with self.subTest(name=name):
+                before = self._rows('two.py')
+                generation = self._generation()
+                kwargs = {'full': True} if name == 'full' else {}
+                if name == 'policy': kwargs['include_tests'] = True
+                cm = patch.object(module, attr, 'incompatible') if module else contextlib.nullcontext()
+                with cm, patch.object(self.iss.IndexStateStore, 'ensure_current', side_effect=AssertionError('mutation before refusal')) as ensure:
+                    result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all', **kwargs)
+                self.assertTrue(result.get('failed'), result)
+                self.assertIn('complete walk', result['failure'])
+                ensure.assert_not_called()
+                self.assertEqual(before, self._rows('two.py'))
+                self.assertEqual(generation, self._generation())
+
+    def test_targeted_rechunk_preserves_unselected_and_idle_walk_certifies_policy(self):
+        before = self._rows('two.py')
+        result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all', rechunk=True)
+        self.assertFalse(result.get('failed'), result)
+        self.assertEqual(before, self._rows('two.py'))
+        # A policy change with identical membership still needs the complete
+        # walk to record currency; the following targeted call may then run.
+        self.assertFalse(self.bi.build_index(self.root, content='all', include_tests=True).get('failed'))
+        result = self.bi.build_index(self.root, files=[], content='all', include_tests=True)
+        self.assertFalse(result.get('failed'), result)
+
+    def test_targeted_pending_storage_rebuild_refuses_before_mutation(self):
+        import sqlite_storage_migration as migration
+        before = self._rows('two.py')
+        generation = self._generation()
+        with patch.object(migration, 'require_ready'), \
+             patch.object(migration, 'read_receipt', return_value={'state': 'rebuild_pending'}), \
+             patch.object(migration, 'rebuild_requested', return_value=True), \
+             patch.object(self.iss.IndexStateStore, 'ensure_current') as ensure:
+            result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all')
+        self.assertTrue(result.get('failed'))
+        self.assertIn('complete walk', result['failure'])
+        ensure.assert_not_called()
+        self.assertEqual(before, self._rows('two.py'))
+        self.assertEqual(generation, self._generation())
+
+    def test_owned_close_failure_preserves_original_error(self):
+        original = KeyboardInterrupt('original')
+        store = MagicMock()
+        store.close.side_effect = OSError('close failed')
+        try:
+            try:
+                raise original
+            finally:
+                self.bi._close_owned_build_store(store)
+        except BaseException as exc:
+            self.assertIs(exc, original)
+        else:
+            self.fail('original failure was swallowed')
+        store.close.assert_called_once()
+
+    def test_owned_build_handles_close_with_retained_failure_tracebacks(self):
+        for fault in ('publication_cancel', 'changed_reconcile', 'idle_reconcile'):
+            with self.subTest(fault=fault):
+                (self.root / 'one.py').write_text('def one():\n    """Original documentation."""\n    return 1\n')
+                # Repair any dirty attempt left by the previous injected failure.
+                self.assertFalse(self.bi.build_index(self.root, full=True, content='all').get('failed'))
+                before = self._rows('one.py')
+                connections = []
+                original_init = self.iss.IndexStateStore.__init__
+                def capture(store, *args, **kwargs):
+                    original_init(store, *args, **kwargs)
+                    connections.append(store._conn)
+                captured = []
+                if fault != 'idle_reconcile': self._change_one()
+                if fault == 'publication_cancel':
+                    target, symbol = self.gi.GraphPublication, 'apply'
+                    error = KeyboardInterrupt('retained cancellation')
+                else:
+                    target, symbol = self.bi, '_execute_orphan_store_reconcile'
+                    error = OSError('retained reconciliation failure')
+                def fail(*args, **kwargs):
+                    try:
+                        raise error
+                    except BaseException as exc:
+                        captured.append(exc.__traceback__)
+                        raise
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(patch.object(self.iss.IndexStateStore, '__init__', capture))
+                    stack.enter_context(patch.object(target, symbol, side_effect=fail))
+                    if fault != 'publication_cancel':
+                        stack.enter_context(patch.object(self.bi, '_plan_orphan_store_reconcile',
+                            return_value={'graph': set(), 'file_freshness': {'orphan.py'}, 'secret_scan_cache': set()}))
+                    try:
+                        self.bi.build_index(self.root, content='all')
+                    except BaseException as exc:
+                        self.assertIs(exc, error)
+                        captured.append(exc.__traceback__)
+                    else:
+                        self.fail('injected failure did not propagate')
+                self.assertTrue(captured)
+                self.assertTrue(connections)
+                for conn in connections:
+                    with self.assertRaises(Exception): conn.execute('SELECT 1').fetchone()
+                with self.bi._index_build_lock(self.index_dir): pass
+                after = self._rows('one.py')
+                # Secrets cache is an optional pre-publication scanner resident,
+                # not part of the semantic/graph publication transaction.
+                before.pop('secret_scan_cache'); after.pop('secret_scan_cache')
+                self.assertEqual(before, after)
+
+    def test_published_graph_snapshot_pins_source_receipts_and_closes(self):
+        old = self.gi.read_published_graph_snapshot(self.root)
+        self.assertIsNotNone(old)
+        original = self.gi.read_graph_payload_rows
+        retained = []
+        def interleave(conn, layer):
+            retained.append(conn)
+            payload = original(conn, layer)
+            writer = self.iss.IndexStateStore(self.index_dir)
+            try:
+                with writer._conn:
+                    writer._conn.execute("UPDATE graph_file_state SET source_hash='new-receipt' WHERE path='one.py'")
+                    writer._conn.execute("UPDATE graph_nodes SET label='new-label' WHERE source_file='one.py'")
+            finally: writer.close()
+            return payload
+        with patch.object(self.gi, 'read_graph_payload_rows', side_effect=interleave):
+            snapshot = self.gi.read_published_graph_snapshot(self.root)
+        self.assertEqual(old['source_hash'], snapshot['source_hash'])
+        self.assertEqual(old['payload']['nodes'], snapshot['payload']['nodes'])
+        with self.assertRaises(Exception): retained[0].execute('SELECT 1')
+        def fail(conn, layer):
+            retained.append(conn)
+            raise OSError('read failed')
+        with patch.object(self.gi, 'read_graph_payload_rows', side_effect=fail):
+            self.assertIsNone(self.gi.read_published_graph_snapshot(self.root))
+        with self.assertRaises(Exception): retained[-1].execute('SELECT 1')
 
 
 if __name__ == "__main__":

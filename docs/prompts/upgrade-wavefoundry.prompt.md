@@ -2,18 +2,20 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
 ## Local semantic storage conversion (wave 1xjmm)
 
 Continue through standard `wf_upgrade`; no bridge release or externally staged
-replacement runner is required for this storage change. Fresh installs use one
-`.wavefoundry/index/index-state.sqlite` file for docs/code vectors, canonical
-chunk text, FTS and indexing state. Existing graph and memory stores stay separate.
+replacement runner is required for any of these storage changes. Fresh installs
+use one `.wavefoundry/index/index.sqlite` database for docs/code vectors,
+canonical chunk text, FTS, indexing state, the code graph with its extraction
+and merge state, communities and the codebase-map receipt. The memory store
+stays separate.
 
-The first storage conversion of an existing framework may return
+Any storage conversion of an existing framework may return
 `storage_restart_required` after extraction and before any format change. This
 also covers metadata-only installations and an existing framework that has never
 built an index: its old host could still create the previous format. A fresh
@@ -67,6 +69,33 @@ added. Unknown formats remain refused. The legacy migration warning floor is
 1.4.0; the existing protocol-1 package transition still requires at least 1.8.0.
 This storage change does not bypass that protocol boundary.
 
+**Unified index database.** A later conversion renames the shared database to
+`.wavefoundry/index/index.sqlite` and folds the code graph into it, so one file
+holds every semantic and graph row and one transaction publishes them together.
+It is recorded in the same `sqlite-migration.json` receipt as a versioned kind,
+and requires an upgrade coordinator that declares storage migration protocol 2
+or newer; an older coordinator receives the ordinary restart handoff and the
+installed CLI resumes it. No bridge release is required. A framework old enough
+to predate the receipt version refuses to open the repository at all rather
+than creating a second database beside the new one, so stop every
+database-owning host when the upgrade asks.
+
+This conversion preserves existing embeddings -- compatible vectors, canonical
+chunks and FTS transfer without re-embedding -- and rebuilds the graph from the
+current project sources rather than converting old graph files, so a missing,
+stale or corrupt graph does not block it. Expect the rebuild to dominate the
+elapsed time on a large repository. The old `index-state.sqlite`, the retired
+`.wavefoundry/index/graph/` directory and the standalone codebase-map
+fingerprint are removed only after a fresh process verifies the published
+database, and only when a pre-deletion inventory finds nothing unrecognized in
+that directory; anything unexpected preserves the whole folder and reports it.
+
+Recovery from a failed or refused cutover is FORWARD: re-run the standard
+upgrade from the retained source and the recorded recovery identities. There is
+no backward rollback to the previous runner, and the retained rollback copy is
+never read back into service. Never delete the receipt or the retained source
+to force progress.
+
 **Rebuild legacy semantic storage from current sources.** If faithful transfer
 refuses historical duplicate or missing chunk IDs, or legacy vectors cannot be
 read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuation
@@ -81,8 +110,8 @@ legacy vectors. It requires available source files, readable walks, models,
 native storage and sufficient disk/capacity. Original source identities and
 fingerprints, package/target checks, host quiescence and structural SQLite checks
 still apply. Historical duplicate IDs are not silently deduplicated. The current
-chunker regenerates unique IDs; auxiliary SQLite rows and separate graph/memory
-stores are preserved. Both semantic layers must complete a full rebuild with
+chunker regenerates unique IDs; auxiliary SQLite rows, the graph tables in the
+same database and the separate memory store are preserved. Both semantic layers must complete a full rebuild with
 source-derived proof bound to final publication before new-process verification
 can authorize cleanup. Empty consistent tables or successful child exits alone
 are insufficient. Failures retain original stores and rollback data for retry.
@@ -293,7 +322,7 @@ The command must always print the final bound URL, even when it opens the browse
 Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/`, `AGENTS.md`, or hook configs require `framework_edit_allowed` guard approval and a concise file-level plan before execution.
 
 - **Backstage/TechDocs baseline (wave 1vj4e).** The upgrade does **not** generate `catalog-info.yaml`, `mkdocs.yml`, or `docs/index.md` and never rewrites them: nothing about them runs in the pipeline, in `wf render-surfaces`, or in setup. Point operators at **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`; alias **Author TechDocs**; the doc-gated `wf-techdocs` skill), which runs the baseline (`wf_techdocs_baseline` over MCP, the CLI dispatcher `./.wavefoundry/bin/wf techdocs-baseline` as the fallback) missing-only and is safe to rerun: existing files are preserved byte-for-byte, each generated file carries a one-line generated-by stamp (not a review-protocol marker; nothing to repair or re-render), the command runs only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist, and when the trio is mixed (some files generated, some project-owned) it prints one `techdocs-baseline: WARNING` naming the project-owned files (the `--json` envelope carries the same `partial` record) without claiming the mixed result is a validated site. Make **Refresh TechDocs** discoverable in `AGENTS.md`, `docs/prompts/index.md`, and the manifest like **Review memories** above. On the upgrade that first ships seed `178`, backfill `docs/prompts/refresh-techdocs.prompt.md` per `seed-100` and then run `wf render-surfaces` **again**, because the render passes at steps 2 and 4 of the agent procedure below ran before that prompt existed and the doc-gated `wf-techdocs` skill renders only once it does. After an upgrade, `wf_techdocs_audit` (CLI dispatcher `./.wavefoundry/bin/wf techdocs-audit`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-audit`) is the safe read-only check: it reports the publication boundary, the nav targets, links that escape that boundary and the audience invariant, and writes nothing. A new MCP tool appears to a host only after a reconnect, so use the CLI until then (wave 1vqqi).
-- **Storage recovery guidance in existing upgrade prompts (seed 160).** On every upgrade, including same-version retries, compare the existing `docs/prompts/upgrade-wavefoundry.prompt.md` with freshly extracted `160-upgrade-wavefoundry.prompt.md` § Local semantic storage conversion, even when the pre-apply diff reports no seed change. Retain the read-only pre-apply seed diff as context, but check the destination itself for previously missed guidance. During the agent editing pass, reconcile during the same installing run: restart checkpoint and retained CLI continuation; `--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary; package identity and receipt prohibitions; publication/verification gate before cleanup. Preserve project-only additions, metadata and all renderer-owned marker regions; merge only missing or stale storage guidance outside those regions, and never replace the project-owned prompt as a whole. If no prior storage section exists, add a single section at an unambiguous location; already-current guidance remains unchanged. If the old clause or insertion location cannot be identified uniquely, or local wording conflicts with the new contract, stop and present the conflict to the operator rather than guessing or overwriting it. Re-run `wf render-surfaces` and the docs gate after the merge; rendering alone does not reconcile project-authored prose.
+- **Storage recovery guidance in existing upgrade prompts (seed 160).** On every upgrade, including same-version retries, compare the existing `docs/prompts/upgrade-wavefoundry.prompt.md` with freshly extracted `160-upgrade-wavefoundry.prompt.md` § Local semantic storage conversion, even when the pre-apply diff reports no seed change. Retain the read-only pre-apply seed diff as context, but check the destination itself for previously missed guidance. During the agent editing pass, reconcile during the same installing run: restart checkpoint and retained CLI continuation; `--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary; package identity and receipt prohibitions; publication/verification gate before cleanup; and the unified index database contract (one `index.sqlite`, the versioned receipt and its protocol floor, the source graph rebuild, inventory-gated cleanup and forward-only recovery). Preserve project-only additions, metadata and all renderer-owned marker regions; merge only missing or stale storage guidance outside those regions, and never replace the project-owned prompt as a whole. If no prior storage section exists, add a single section at an unambiguous location; already-current guidance remains unchanged. If the old clause or insertion location cannot be identified uniquely, or local wording conflicts with the new contract, stop and present the conflict to the operator rather than guessing or overwriting it. Re-run `wf render-surfaces` and the docs gate after the merge; rendering alone does not reconcile project-authored prose.
 - **Changed Refresh TechDocs instructions (seed 178).** Keep the read-only pre-apply seed diff through the installing run. If it reports `178-refresh-techdocs.prompt.md` changed, merge the changed canonical clauses into the existing `docs/prompts/refresh-techdocs.prompt.md` during the same installing run, after extraction makes the new seed available. Preserve project-only additions and metadata; never replace the project-owned prompt as a whole. If the prior canonical clause cannot be identified uniquely, or local wording conflicts with the new invariant, stop and present the conflict to the operator instead of guessing or overwriting it. After the merge, run `wf render-surfaces` again so doc-gated skills and other generated agent surfaces see the reconciled prompt.
 - **Changed briefing-loop carriers.** Retain the read-only pre-apply change evidence for the seeds and install baseline through the installing run. After extraction, reconcile each changed source into its destination during the same installing run:
    - `170-plan-feature.prompt.md` -> `docs/prompts/plan-feature.prompt.md`: Brief before drafting.

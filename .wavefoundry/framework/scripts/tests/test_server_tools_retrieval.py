@@ -25,6 +25,34 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import graph_fixture_support as gfs
+import graph_snapshot
+
+# The RETIRED standalone graph state store's relative path. Wave 1xny6 lane L6b
+# removed `index_state_store.GRAPH_STATE_STORE_RELPATH` with its last reader;
+# the only code that still NAMES the file is the upgrade's pre-deletion
+# inventory, so tests that stage one pin its name to that owner.
+import sqlite_storage_migration as _ssm_for_retired_name  # noqa: E402
+RETIRED_GRAPH_STATE_RELPATH = (
+    f"{_ssm_for_retired_name.GRAPH_OUTPUT_DIRNAME}/project-graph-state.sqlite")
+
+
+def _require_published_repo_graph(case) -> None:
+    """Skip when THIS repository has no published graph generation.
+
+    Wave 1xny6: a handful of tests deliberately run against the live
+    repository so they assert over a realistic graph. Their input is now the
+    published graph ROWS rather than the standalone artifact, so a working copy
+    whose own index has not yet been migrated to the current resident schema
+    has nothing for them to read. That is a property of the checkout, not of
+    the behavior under test -- skip with a reason rather than fail.
+    """
+    repo = Path(__file__).resolve().parents[3].parent
+    if not graph_snapshot.acquire(repo, "project").present:
+        case.skipTest(
+            "this repository has no published graph generation "
+            "(its index predates the current resident schema); "
+            "run the standard upgrade or a graph build")
 import server_tools_support
 from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     SCRIPTS_ROOT,
@@ -38,6 +66,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_index_layer,
     _write_sqlite_index,
 )
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 
@@ -1604,18 +1633,30 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
         return self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
 
     def _store_path(self):
-        # 1p9q2: the live graph state is the per-file SQLite store.
-        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.sqlite"
+        # Wave 1xny6: the live graph state is a set of tables in the SHARED
+        # index database; the standalone graph store file is retired.
+        import index_state_store
+
+        return index_state_store.state_store_path(
+            self.root / ".wavefoundry" / "index")
 
     def _payload_path(self):
         return self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
 
     def _force_stale_state(self, old_version: str = "0"):
-        """Simulate a pre-upgrade repo: legacy plain-JSON monolithic state with
-        an older builder_version and NO SQLite store — exercising the probe's
-        legacy fallback path — plus a plain-JSON payload (pre-1p9py format)."""
+        """Simulate a repo whose graph was built by an older builder.
+
+        Wave 1xny6: the builder version the probe reads is a row in the shared
+        index database, so staleness is created by poking that row rather than
+        by deleting a standalone store file. The legacy monolithic JSON state
+        is still written, because the one-time discard of that file is part of
+        what the rebuild must do.
+        """
         import json
         import os
+
+        import index_state_store
+
         gi = self.gq._get_graph_indexer()
         store_path = self._store_path()
         self.assertTrue(store_path.exists(), "state store missing — graph build failed")
@@ -1624,11 +1665,19 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
             gi.read_state_builder_version(index_dir),
             "state store unreadable — graph build failed",
         )
-        for suffix in ("", "-wal", "-shm"):
-            try:
-                os.unlink(f"{store_path}{suffix}")
-            except OSError:
-                pass
+        store = index_state_store.IndexStateStore(index_dir)
+        try:
+            with store._conn:
+                store._conn.execute(
+                    "UPDATE meta SET value = ? WHERE key = ?",
+                    (old_version, gi.GRAPH_META_PREFIX + "builder_version"),
+                )
+        finally:
+            store.close()
+        self.assertEqual(gi.read_state_builder_version(index_dir), old_version)
+        # Lane L6b retired the derived writers, so the folder no longer exists
+        # after a build; the legacy-state fixture creates what it seeds into.
+        self._state_path().parent.mkdir(parents=True, exist_ok=True)
         self._state_path().write_text(
             json.dumps({"builder_version": old_version}), encoding="utf-8"
         )
@@ -1654,11 +1703,13 @@ class StaleGraphAutoRebuildTests(unittest.TestCase):
         runtime_version = gi.GRAPH_BUILDER_VERSION
         index_dir = self.root / ".wavefoundry" / "index"
         self.assertEqual(gi.read_state_builder_version(index_dir), runtime_version)
-        # 1p9py AC-6: the rebuild rewrote the pre-change (plain JSON) payload as
-        # gzip-compressed compact JSON, and subsequent queries hit it cleanly.
-        self.assertEqual(self._payload_path().read_bytes()[:2], b"\x1f\x8b")
-        # 1p9q2: the legacy monolithic state was discarded (one-time) and the
-        # per-file SQLite store reseeded in its place.
+        # Wave 1xny6 lane L6b retired the derived payload artifact, so the
+        # rebuild writes no file (and never recreates the retired folder); the
+        # rebuilt graph is the published rows.
+        self.assertFalse(self._payload_path().exists())
+        self.assertIsNotNone(gi.read_published_graph_snapshot(self.root, "project"))
+        # The legacy monolithic state was discarded (one-time); the graph
+        # state itself lives on in the shared index database.
         self.assertFalse(self._state_path().exists())
         self.assertTrue(self._store_path().exists())
         again = self.gq.load_graph(self.root, layer="project")
@@ -2710,7 +2761,8 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
                 # 1sed6: the index-state store (with its completed epoch) IS
                 # the state authority — copy it, not a meta.json.
                 self.srv._load_script("sqlite_runtime").backup(
-                    idx_dir / "index-state.sqlite", project_idx / "index-state.sqlite")
+                    index_paths.runtime_database_path(idx_dir),
+                    index_paths.runtime_database_path(project_idx))
 
                 index = self.srv.WaveIndex(root)
                 with patch.object(index, "_get_reranker", return_value=None):
@@ -5176,6 +5228,7 @@ class EvidencePartitionResponseTests(unittest.TestCase):
 
     def setUp(self):
         self.srv = load_server()
+        _require_published_repo_graph(self)
 
     def _report(self, **kwargs):
         return self.srv.wf_graph_report_response(
@@ -7321,24 +7374,35 @@ class RerankerTests(unittest.TestCase):
         graph_indexer.DECLARATION_NODE_KINDS = frozenset({
             "class", "constant", "function", "property", "type", "variable"
         })
-        graph_indexer.read_graph_payload.return_value = {
+        payload = {
             "present": present,
             "layer": "project",
             "builder_version": builder_version,
             "nodes": nodes,
             "edges": [],
         }
-        def bound_receipt(root, source_path, layer):
-            source_text = (Path(root) / source_path).read_bytes().decode(
-                "utf-8", errors="replace"
-            )
-            return {
-                "payload": graph_indexer.read_graph_payload.return_value,
-                "source_hash": hashlib.sha256(
+        graph_indexer._published_payload = payload
+
+        # Wave 1xny6 lane L6b: one rows snapshot carries the payload AND the
+        # per-file source receipts, so the fixture no longer stages a separate
+        # bound-file read.
+        def published_snapshot(root, layer="project"):
+            if not present:
+                return None
+            hashes = {}
+            for node in nodes:
+                source_path = str(node.get("source_file") or "")
+                if not source_path:
+                    continue
+                source_text = (Path(root) / source_path).read_bytes().decode(
+                    "utf-8", errors="replace"
+                )
+                hashes[source_path] = hashlib.sha256(
                     source_text.encode("utf-8", errors="replace")
-                ).hexdigest(),
-            }
-        graph_indexer.read_bound_graph_payload_source_hash.side_effect = bound_receipt
+                ).hexdigest()
+            return {"payload": payload, "source_hash": hashes,
+                    "builder_version": builder_version}
+        graph_indexer.read_published_graph_snapshot.side_effect = published_snapshot
         graph_query = MagicMock()
         graph_query._get_graph_indexer.return_value = graph_indexer
         return graph_query, graph_indexer
@@ -7464,6 +7528,37 @@ class RerankerTests(unittest.TestCase):
         self.assertEqual(response["data"]["citations"][0]["path"], def_path)
         self.assertEqual(reads, [idx.root / def_path])
 
+    def test_exact_definition_consumer_rejects_interleaved_new_source_receipt(self):
+        from test_indexer import load_build_index, _make_embedder_mock
+        bi = load_build_index()
+        idx = self._make_index_with_docs([self._fake_doc_chunk('context')])
+        source = idx.root / 'defs.py'
+        source.write_text('def target_symbol():\n    return 1\n')
+        with patch.object(bi, '_get_embedder', side_effect=lambda *a, **k: _make_embedder_mock()):
+            self.assertFalse(bi.build_index(idx.root, content='all', full=True).get('failed'))
+        gi = bi._get_graph_indexer()
+        iss = bi._get_index_state_store()
+        gq = MagicMock()
+        gq._get_graph_indexer.return_value = gi
+        original = gi.read_graph_payload_rows
+        def interleave(conn, layer):
+            payload = original(conn, layer)
+            source.write_text('def replacement_symbol():\n    return 222\n')
+            writer = iss.IndexStateStore(idx.root / '.wavefoundry' / 'index')
+            try:
+                with writer._conn:
+                    writer._conn.execute('UPDATE graph_file_state SET source_hash=? WHERE path=?',
+                                         (bi._sha256(source), 'defs.py'))
+                    writer._conn.execute("UPDATE graph_nodes SET label='replacement_symbol' WHERE label='target_symbol'")
+            finally:
+                writer.close()
+            return payload
+        with patch(f'{self.srv.__name__}._load_graph_query', return_value=gq):
+            self.assertIsNotNone(idx._published_exact_definition_candidate('target_symbol'))
+            with patch.object(gi, 'read_graph_payload_rows', side_effect=interleave):
+                self.assertIsNone(idx._published_exact_definition_candidate('target_symbol'),
+                                  'old declaration must not be certified by the new receipt')
+
     def test_code_ask_source_hash_mismatch_keeps_hybrid_fallback(self):
         symbol = "target_symbol"
         def_path = "src/defs.py"
@@ -7477,12 +7572,13 @@ class RerankerTests(unittest.TestCase):
             "id": f"{def_path}::{symbol}", "label": symbol, "kind": "function",
             "source_file": def_path, "source_location": "1:0",
         }])
-        graph_indexer.read_bound_graph_payload_source_hash.side_effect = None
-        graph_indexer.read_bound_graph_payload_source_hash.return_value = {
-            "payload": graph_indexer.read_graph_payload.return_value,
-            "source_hash": hashlib.sha256(
+        graph_indexer.read_published_graph_snapshot.side_effect = None
+        graph_indexer.read_published_graph_snapshot.return_value = {
+            "payload": graph_indexer._published_payload,
+            "builder_version": "45",
+            "source_hash": {def_path: hashlib.sha256(
                 b"def target_symbol():\n    return 1\n"
-            ).hexdigest(),
+            ).hexdigest()},
         }
         embed_query = MagicMock(side_effect=idx._embed_query)
         with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
@@ -7587,8 +7683,8 @@ class RerankerTests(unittest.TestCase):
                     nodes, builder_version=builder, present=present
                 )
                 if not receipt_ok:
-                    graph_indexer.read_bound_graph_payload_source_hash.side_effect = None
-                    graph_indexer.read_bound_graph_payload_source_hash.return_value = None
+                    graph_indexer.read_published_graph_snapshot.side_effect = None
+                    graph_indexer.read_published_graph_snapshot.return_value = None
                 embed_query = MagicMock(side_effect=idx._embed_query)
                 with patch(f"{self.srv.__name__}._load_graph_query", return_value=graph_query), \
                      patch(f"{self.srv.__name__}.code_definition_response") as public_definition, \
@@ -9149,8 +9245,6 @@ class TestCodeGraphTools(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         self._add("src/tools.py", "def process():\n    return 1\n")
         self._add("src/main.py", "from src.tools import process\n\nprocess()\n")
         payload = {
@@ -9169,7 +9263,7 @@ class TestCodeGraphTools(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 4, "edges": 2},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -9233,13 +9327,8 @@ class ExternalSupertypeServerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     def _standard_graph(self):
         self._write_graph(
@@ -9356,13 +9445,8 @@ class TestCodeCallhierarchy(unittest.TestCase):
         return self.srv.code_callhierarchy_response(self.root, symbol, file or None, direction)
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     # Wave 1p2q3 (1p2td post-ship): self_edge_kind propagates from edge to entries.
     def test_self_edge_kind_propagates_to_outgoing_entry(self):
@@ -9646,8 +9730,6 @@ class TestCodeGraphPath(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         self._add("src/a.py", "def foo(): pass\n")
         self._add("src/b.py", "def bar(): foo()\n")
         payload = {
@@ -9664,7 +9746,7 @@ class TestCodeGraphPath(unittest.TestCase):
             "counts": {"files": 2, "nodes": 2, "edges": 1},
         }
         import json
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -9702,8 +9784,9 @@ class TestCodeGraphPath(unittest.TestCase):
         self.assertIsInstance(result["data"]["suggestions"], list)
 
     def test_no_graph_returns_error_with_consistent_shape(self):
-        import shutil
-        shutil.rmtree(self.root / ".wavefoundry" / "index" / "graph", ignore_errors=True)
+        # Wave 1xny6: "no graph" is no PUBLISHED graph generation, not a
+        # deleted folder -- the rows outlive the folder.
+        gfs.unpublish_graph(self.root)
         result = self.srv.code_graph_path_response(self.root, "src/b.py::bar", "src/a.py::foo")
         self.assertEqual(result["status"], "error")
         self.assertIn("found", result["data"])
@@ -9721,8 +9804,6 @@ class TestCodeGraphPathDirection(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Edge: bar → foo (calls); so forward bar→foo finds it; forward foo→bar does not.
         payload = {
@@ -9736,7 +9817,7 @@ class TestCodeGraphPathDirection(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 2, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -9866,8 +9947,6 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Minimal graph that does NOT contain the bogus symbols we'll query
         payload = {
@@ -9878,7 +9957,7 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
             "edges": [],
             "counts": {"files": 1, "nodes": 1, "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
         cluster = {
             "cluster_algorithm": "leiden", "cluster_builder_version": "1", "cluster_schema_version": "1",
             "communities": [
@@ -9886,7 +9965,7 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
             ],
             "community_count": 1,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -9941,9 +10020,8 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
         )
 
     def test_wf_graph_report_refreshes_on_absent_graph(self):
-        # Remove the graph fixture so first index.present check fails
-        import shutil
-        shutil.rmtree(self.root / ".wavefoundry" / "index" / "graph", ignore_errors=True)
+        # Drop the published graph so the first index.present check fails.
+        gfs.unpublish_graph(self.root)
         self._assert_refresh_invoked_once(
             lambda: self.srv.wf_graph_report_response(self.root, layer="project", sections=["fan_in"])
         )
@@ -9974,15 +10052,13 @@ class TestGraphRefreshAndResolve(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         payload = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
             "nodes": nodes, "edges": [],
             "counts": {"files": 1, "nodes": len(nodes), "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def test_returns_index_and_id_when_symbol_in_graph_after_refresh(self):
         """When graph (after refresh) contains the symbol, return (index, node_id)."""
@@ -10030,8 +10106,6 @@ class TestApplyGraphAugmentation(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         # Write a minimal graph fixture so _maybe_append_graph_neighbors can resolve seeds
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         payload = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
@@ -10045,7 +10119,7 @@ class TestApplyGraphAugmentation(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 3, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10143,15 +10217,13 @@ class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         payload = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
             "nodes": nodes, "edges": [],
             "counts": {"files": len({n.get("source_file") for n in nodes if n.get("source_file")}), "nodes": len(nodes), "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def test_no_graph_runs_degraded_mode_with_diagnostic(self):
         """AC-2 (revised): graph absent → existing structural full walk runs, but
@@ -10266,8 +10338,6 @@ class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
     def test_attribution_counts_by_language_present_on_definitive_not_found(self):
         """Wave 1p2q3 (1p2q9 B AC-6/7/8): polyglot graph populates per-language counts."""
         import json as _json
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
             "nodes": [
@@ -10282,7 +10352,7 @@ class TestCodeDefinitionGraphNarrowed(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 4, "edges": 2},
         }
-        (graph_dir / "project-graph.json").write_text(_json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
         result = self.srv.code_definition_response(self.root, "nonexistent_typo_symbol")
         self.assertEqual(result["status"], "ok")
         if result["data"].get("lookup_method") in ("graph_definitive_not_found", "graph_narrowed_after_refresh"):
@@ -10305,8 +10375,6 @@ class TestCodeImpactIncludeTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         self._add("src/utils.py", "def helper(): pass\n")
         self._add("tests/test_utils.py", "from src.utils import helper\ndef test_helper(): helper()\n")
         import json
@@ -10323,7 +10391,7 @@ class TestCodeImpactIncludeTests(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 2, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10377,7 +10445,6 @@ class TestCodeImpactIncludeTests(unittest.TestCase):
         # Rebuild the graph with a NON-test caller only: the symbol is reachable
         # (one caller) but no test-path node exists, the wave-1ve3e state.
         import json
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
         payload = {
             "schema_version": "1",
             "builder_version": "1",
@@ -10391,7 +10458,7 @@ class TestCodeImpactIncludeTests(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 2, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
         result = self.srv.code_impact_response(
             self.root, "", symbol="src/utils.py::helper", max_hops=2, include_tests=True
         )
@@ -10420,8 +10487,6 @@ class TestCodeGraphCommunity(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
@@ -10429,7 +10494,7 @@ class TestCodeGraphCommunity(unittest.TestCase):
             "edges": [],
             "counts": {"files": 1, "nodes": 1, "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -10441,7 +10506,7 @@ class TestCodeGraphCommunity(unittest.TestCase):
             ],
             "community_count": 2,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10521,9 +10586,8 @@ class TestCodeGraphCommunity(unittest.TestCase):
             ],
             "community_count": 1,
         }
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def test_pagination_default_limit_returns_first_50(self):
         self._seed_paginated_community(120)
@@ -10573,8 +10637,6 @@ class TestGraphToolShapeConsistency(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Three-node call chain: caller_a → mid → leaf. Two communities (c1, c2).
         (self.root / "src" / "lib.py").parent.mkdir(parents=True, exist_ok=True)
@@ -10595,7 +10657,7 @@ class TestGraphToolShapeConsistency(unittest.TestCase):
             ],
             "counts": {"files": 1, "nodes": 3, "edges": 2},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -10606,7 +10668,7 @@ class TestGraphToolShapeConsistency(unittest.TestCase):
             ],
             "community_count": 2,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10679,8 +10741,6 @@ class TestGeneratedCodeFilter(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Three handwritten nodes + three generated nodes (simulating ELParser-style).
         nodes = [
@@ -10703,7 +10763,7 @@ class TestGeneratedCodeFilter(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 6, "edges": 5},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -10726,7 +10786,7 @@ class TestGeneratedCodeFilter(unittest.TestCase):
             ],
             "community_count": 2,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10798,8 +10858,6 @@ class TestNameCollisionCount(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Three distinct nodes share the simple name "process"; one unique node "unique_helper".
         # Multiple callers fan into "process" via the shared simple name to surface in fan_in.
@@ -10821,7 +10879,7 @@ class TestNameCollisionCount(unittest.TestCase):
             ],
             "counts": {"files": 6, "nodes": 6, "edges": 3},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10890,8 +10948,6 @@ class TestExternalNameCollisionCount(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Project has ONE writeObject — no project-internal collision. But the
         # JDK ObjectOutputStream.writeObject is in the graph as external.
@@ -10916,7 +10972,7 @@ class TestExternalNameCollisionCount(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": 2, "nodes": 4, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10955,15 +11011,13 @@ class TestExternalNameCollisionAllowlist(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes, edges):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "13", "layer": "project",
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     # AC-4 (field canonical case): `run` triggers without any external::* node.
     def test_runnable_run_triggers_via_allowlist_without_external_node(self):
@@ -11057,15 +11111,13 @@ class TestStdlibAllowlistMultiLanguage(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes, edges):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "14", "layer": "project",
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def _build_fan_in_entry(self, lang_ext, method_name):
         """Helper: graph with one project method + caller. Returns the fan_in entry."""
@@ -11191,8 +11243,6 @@ class TestExcludeExternalFilter(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         nodes = [
             {"id": "src/worker.py::process", "label": "process", "kind": "function", "source_file": "src/worker.py", "source_location": "1:0"},
@@ -11217,7 +11267,7 @@ class TestExcludeExternalFilter(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": 3, "nodes": 5, "edges": 7},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -11278,8 +11328,6 @@ class TestModuleFanOutCountSemantics(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Synthetic graph: one file node (kind=module) with known outgoing edges.
         # File "src/lib.py" has 3 internal symbols (defines), 2 calls out, 1 import.
@@ -11305,7 +11353,7 @@ class TestModuleFanOutCountSemantics(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": 3, "nodes": 6, "edges": 6},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -11353,19 +11401,15 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes, edges):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "12", "layer": "project",
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def _write_clusters(self, betweenness=None):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Wave 1wpaj: stamp the RUNTIME cluster builder version rather than a
         # literal. The serve path now refuses a betweenness section whose
@@ -11381,9 +11425,7 @@ class TestBetweennessServedFromArtifact(unittest.TestCase):
         }
         if betweenness is not None:
             payload["betweenness"] = betweenness
-        (graph_dir / "project-graph-clusters.json").write_text(
-            json.dumps(payload), encoding="utf-8"
-        )
+        gfs.publish_cluster_payload(self.root, payload)
 
     def _small_graph(self):
         nodes = [
@@ -11536,8 +11578,6 @@ class TestStableCommunityIdentifier(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_cluster(self, community_id, member_ids, label="TestCommunity"):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Graph with member nodes + 1 hub-degree-bumping edge so first member is hub.
         nodes = [
@@ -11555,7 +11595,7 @@ class TestStableCommunityIdentifier(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -11569,7 +11609,7 @@ class TestStableCommunityIdentifier(unittest.TestCase):
             }],
             "community_count": 1,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     # AC-2: community_hub_node_id surfaces on the response.
     def test_response_carries_community_hub_node_id(self):
@@ -11644,8 +11684,6 @@ class TestLargeCommunityPagination(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_community(self, member_count):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         nodes = [
             {"id": f"src/f{i}.py::m{i}", "label": f"m{i}", "kind": "function",
@@ -11657,7 +11695,7 @@ class TestLargeCommunityPagination(unittest.TestCase):
             "nodes": nodes, "edges": [],
             "counts": {"files": member_count, "nodes": member_count, "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -11671,7 +11709,7 @@ class TestLargeCommunityPagination(unittest.TestCase):
             }],
             "community_count": 1,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     # AC-4: small community → no pagination_hint, all members returned.
     def test_small_community_returns_all_no_hint(self):
@@ -11747,16 +11785,13 @@ class TestGraphRebuildDiscoverability(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, layer, nodes):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "13", "layer": layer,
             "nodes": nodes, "edges": [],
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": 0},
         }
-        fname = "project-graph.json" if layer == "project" else "framework-graph.json"
-        (graph_dir / fname).write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph, layer=layer)
 
     # AC-1: graph_health_summary populates per-layer presence + last_built_at.
     def test_graph_health_summary_reports_per_layer_presence(self):
@@ -11798,16 +11833,13 @@ class TestEmptySectionDiagnosticFields(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes, edges, layer="project"):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "13", "layer": layer,
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        fname = "project-graph.json" if layer == "project" else "framework-graph.json"
-        (graph_dir / fname).write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph, layer=layer)
 
     # AC-1/AC-5: chokepoints exposes candidates_total and threshold.
     def test_chokepoints_diagnostic_fields_present(self):
@@ -11899,15 +11931,13 @@ class TestModuleSimpleNameExtraction(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_graph(self, nodes, edges):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         graph = {
             "schema_version": "1", "builder_version": "13", "layer": "project",
             "nodes": nodes, "edges": edges,
             "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     # AC-4: distinct Swift module entries report distinct collision counts.
     def test_distinct_swift_modules_have_distinct_collision_counts(self):
@@ -12035,8 +12065,6 @@ class TestFileHubsSectionSplit(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Fixture: one file node (kind=module) with high fan_out + one function
         # node (kind=function) with high fan_out. Both should appear above
@@ -12056,7 +12084,7 @@ class TestFileHubsSectionSplit(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": 26, "nodes": len(nodes), "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -12115,8 +12143,6 @@ class TestLargeCommunityAdvisory(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_community(self, member_count):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         nodes = [
             {"id": f"src/f{i}.py::m{i}", "label": f"m{i}", "kind": "function",
@@ -12132,7 +12158,7 @@ class TestLargeCommunityAdvisory(unittest.TestCase):
             "nodes": nodes, "edges": edges,
             "counts": {"files": member_count, "nodes": member_count, "edges": len(edges)},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         cluster = {
             "cluster_algorithm": "leiden",
             "cluster_builder_version": "1",
@@ -12146,7 +12172,7 @@ class TestLargeCommunityAdvisory(unittest.TestCase):
             }],
             "community_count": 1,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     # AC-2: small community → community_size_class: "small", no advisory.
     def test_small_community_size_class(self):
@@ -12447,8 +12473,6 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         # Two handwritten functions + one generated file with three symbol nodes
         # + a handwritten→generated edge + internal generated edges.
@@ -12472,7 +12496,7 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 6, "edges": 5},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, graph)
         # Minimal cluster artifact (not exercised in collapse tests, but report fetches it).
         cluster = {
             "cluster_algorithm": "leiden",
@@ -12481,7 +12505,7 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
             "communities": [],
             "community_count": 0,
         }
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps(cluster), encoding="utf-8")
+        gfs.publish_cluster_payload(self.root, cluster)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -12537,13 +12561,8 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     def test_method_reference_callsite_attaches_line_and_snippet(self):
         """A caller that references the target via `Helper::process` (method reference syntax)
@@ -12639,12 +12658,13 @@ class TestJavaReceiverTypeResolution(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
+        # No builder version: the defense-in-depth receiver filter is active
+        # only for graphs the v13+ indexer did NOT produce, which is what this
+        # class exercises. An absent version reads as 0, i.e. pre-bump.
+        gfs.publish_graph_payload(
+            self.root,
+            {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges},
+            builder_version="",
         )
 
     # AC-6: the field reproducer — JSON.writeObject vs oos.writeObject (ObjectOutputStream).
@@ -12830,6 +12850,16 @@ class TestPreBumpGraphReceiverTypeDefense(unittest.TestCase):
             self.skipTest("tree_sitter_java not available in test env")
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
+        # Wave 1xny6: this class models a graph an operator has NOT rebuilt --
+        # that is the whole premise of a "cached pre-bump graph". The
+        # staleness check now reads the published builder version from the same
+        # store the graph lives in, so leaving it armed would rebuild the
+        # fixture away before the assertion runs. Suppressing it here keeps the
+        # test about the query-time filter, which is what it pins.
+        _gq = self.srv._load_graph_query()
+        _patch = patch.object(_gq, "_ensure_graph_builder_current", return_value=None)
+        _patch.start()
+        self.addCleanup(_patch.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -12850,34 +12880,24 @@ class TestPreBumpGraphReceiverTypeDefense(unittest.TestCase):
         Replicate that shape here so the test verifies the query-time
         defense-in-depth path.
         """
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({
+        # Wave 1xny6: the builder version must be passed explicitly. Fixture
+        # payloads are stamped with the runtime version by default, precisely
+        # so an inert placeholder cannot look like a pre-upgrade graph; this
+        # class WANTS a pre-upgrade graph, so it says so.
+        gfs.publish_graph_payload(self.root, {
                 "schema_version": "1",
-                "builder_version": "12",  # pre-bump
                 "layer": "project",
                 "nodes": nodes,
                 "edges": edges,
-            }),
-            encoding="utf-8",
-        )
+            }, builder_version="12")  # pre-bump
 
     def _write_graph_with_version(self, builder_version, nodes, edges):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({
-                "schema_version": "1",
-                "builder_version": builder_version,
-                "layer": "project",
-                "nodes": nodes,
-                "edges": edges,
-            }),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {
+            "schema_version": "1",
+            "layer": "project",
+            "nodes": nodes,
+            "edges": edges,
+        }, builder_version=builder_version)
 
     def test_post_bump_graph_skips_redundant_filter(self):
         """v13+ graph: indexer already cleaned phantoms; filter short-circuits.
@@ -13026,13 +13046,8 @@ class TestAopAdviceEmptyIncomingDetection(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     # AC-3: empty incoming + advice annotation → caller_pattern: "advice".
     def test_advice_method_with_no_callers_emits_caller_pattern(self):
@@ -13372,13 +13387,8 @@ class TestCsharpAdviceEmptyIncomingDetection(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     def test_csharp_method_boundary_attribute_fires_advice_pattern(self):
         self._add("src/Probe.cs", "public class Probe {}\n")
@@ -13437,13 +13447,8 @@ class TestKotlinReferenceResolution(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges}),
-            encoding="utf-8",
-        )
+        gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     def test_kotlin_callable_reference_attributes_line_and_snippet(self):
         self._add("src/Helper.kt", "class Helper {\n    fun process(n: Int): Int = n + 1\n}\n")
@@ -13939,8 +13944,6 @@ class TestSuggestNearSymbolsTokenization(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         import json
         payload = {
             "schema_version": "1", "builder_version": "1", "layer": "project",
@@ -13952,7 +13955,7 @@ class TestSuggestNearSymbolsTokenization(unittest.TestCase):
             "edges": [],
             "counts": {"files": 1, "nodes": 3, "edges": 0},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -13991,8 +13994,6 @@ class TestCodeCallgraphIncludeTests(unittest.TestCase):
         self.srv = type(self).srv
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         self._add("src/utils.py", "def helper(): pass\n")
         self._add("tests/test_utils.py", "from src.utils import helper\ndef test_helper(): helper()\n")
         import json
@@ -14007,7 +14008,7 @@ class TestCodeCallgraphIncludeTests(unittest.TestCase):
             ],
             "counts": {"files": 2, "nodes": 2, "edges": 1},
         }
-        (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+        gfs.publish_graph_payload(self.root, payload)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -15946,7 +15947,17 @@ class CloseTimeOptimizeTests(unittest.TestCase):
                 self.assertNotIn("finalize", result["data"]["tables"])
                 rebuild.assert_not_called()
 
-    def test_graph_only_bloat_triggers_close_maintenance_without_vector_scan(self):
+    def test_retired_graph_database_draws_no_bloat_entry_and_is_preserved(self):
+        """AC-8 inversion (wave 1xny6 lane L6b).
+
+        The pre-change form asserted a ``graph`` bloat ratio read from the
+        standalone ``graph/project-graph-state.sqlite``. Graph rows live in the
+        shared database now, so the docs/code ratios already describe their
+        pages and a second arm could only ever report on a file procedure step
+        6 deletes. A heavily bloated retired file therefore draws NO entry and
+        triggers no close maintenance -- and ignoring is not deleting, so its
+        bytes survive untouched for the upgrade's cleanup arm.
+        """
         import sqlite3
         iss = self.srv._load_script("index_state_store")
         with tempfile.TemporaryDirectory() as tmp:
@@ -15954,7 +15965,7 @@ class CloseTimeOptimizeTests(unittest.TestCase):
             index_dir = root / ".wavefoundry" / "index"
             store = iss.IndexStateStore(index_dir)
             store.close()
-            graph = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+            graph = index_dir / RETIRED_GRAPH_STATE_RELPATH
             graph.parent.mkdir(parents=True)
             conn = sqlite3.connect(str(graph))
             conn.execute("CREATE TABLE payload(data BLOB)")
@@ -15963,25 +15974,29 @@ class CloseTimeOptimizeTests(unittest.TestCase):
             conn.execute("DELETE FROM payload")
             conn.commit()
             conn.close()
+            before = graph.read_bytes()
             ratios = self.srv._index_table_bloat_ratios(root)
-            self.assertIn("graph", ratios)
-            self.assertGreater(ratios["graph"], self.srv.CLOSE_OPTIMIZE_BLOAT_RATIO)
-            fake, calls = self._fake_indexer({"stores": {"graph-state": {"reclaimed_bytes": 4096}}})
-            loader = self.srv._load_script
-            with patch.object(self.srv, "_load_script", side_effect=lambda n: fake if n == "indexer" else loader(n)):
-                result = self.srv._maybe_optimize_index_on_close(root)
-            self.assertTrue(result["ran"])
-            self.assertEqual(result["bloated_tables"], ["graph"])
-            self.assertEqual(calls["tables"], ())
-            self.assertEqual(result["stores"]["graph-state"]["reclaimed_bytes"], 4096)
+            self.assertNotIn("graph", ratios)
+            # Nothing is bloated, so close maintenance never starts at all.
+            self.assertIsNone(self.srv._maybe_optimize_index_on_close(root))
+            self.assertEqual(graph.read_bytes(), before)
 
-    def test_graph_without_shared_epoch_reports_skip_and_preserves_database(self):
+    def test_a_retired_graph_database_alone_starts_no_close_maintenance(self):
+        """AC-8 inversion (wave 1xny6 lane L6b).
+
+        The pre-change form let a bloated standalone graph database ALONE
+        carry close maintenance as far as an ``index_not_ready`` skip. With the
+        graph bloat arm retired, a retired file is not an input at all: nothing
+        is bloated, maintenance never starts, the retired database is preserved
+        byte-for-byte for the upgrade's cleanup arm, and no shared store is
+        conjured into existence.
+        """
         import sqlite3
         iss = self.srv._load_script("index_state_store")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             index_dir = root / ".wavefoundry" / "index"
-            graph = index_dir / iss.GRAPH_STATE_STORE_RELPATH
+            graph = index_dir / RETIRED_GRAPH_STATE_RELPATH
             graph.parent.mkdir(parents=True)
             conn = sqlite3.connect(str(graph))
             conn.execute("CREATE TABLE payload(data BLOB)")
@@ -15991,11 +16006,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
             conn.commit()
             conn.close()
             before = graph.read_bytes()
-            result = self.srv._maybe_optimize_index_on_close(root)
-            self.assertIsNotNone(result)
-            self.assertFalse(result["ran"])
-            self.assertEqual(result["skipped"], "index_not_ready")
-            self.assertEqual(result["recovery_usage"], "index_health()")
+            self.assertEqual(self.srv._index_table_bloat_ratios(root), {})
+            self.assertIsNone(self.srv._maybe_optimize_index_on_close(root))
             self.assertEqual(graph.read_bytes(), before)
             self.assertFalse(iss.state_store_path(index_dir).exists())
 
@@ -16854,19 +16866,14 @@ class _GraphReport1wpajMixin:
         self.tmp.cleanup()
 
     def _write_graph(self, nodes: list, edges: list, *, builder_version: str = "12") -> None:
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({
+        gfs.publish_graph_payload(self.root, {
                 "schema_version": "1",
                 "builder_version": builder_version,
                 "layer": "project",
                 "nodes": nodes,
                 "edges": edges,
                 "counts": {"files": len(nodes), "nodes": len(nodes), "edges": len(edges)},
-            }),
-            encoding="utf-8",
-        )
+            })
 
     def _report(self, **kwargs) -> dict:
         result = self.srv.wf_graph_report_response(self.root, layer="project", **kwargs)
@@ -17204,8 +17211,6 @@ class _BetweennessArtifact1wpajMixin(_GraphReport1wpajMixin):
 
     def _write_clusters(self, betweenness, *, cluster_builder_version=None) -> None:
         gc = self.srv._load_script("graph_cluster")
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "cluster_schema_version": "1",
             "cluster_builder_version": (
@@ -17219,9 +17224,7 @@ class _BetweennessArtifact1wpajMixin(_GraphReport1wpajMixin):
         }
         if betweenness is not None:
             payload["betweenness"] = betweenness
-        (graph_dir / "project-graph-clusters.json").write_text(
-            json.dumps(payload), encoding="utf-8",
-        )
+        gfs.publish_cluster_payload(self.root, payload)
 
 
 class TestBetweennessUnsupportedForCollapsedView(_BetweennessArtifact1wpajMixin, unittest.TestCase):
@@ -17283,7 +17286,10 @@ class TestBetweennessUnsupportedForCollapsedView(_BetweennessArtifact1wpajMixin,
         # artifact regardless of collapse. The defect must return, or these
         # tests prove nothing about the guard.
         self._write_clusters(self._section())
-        original = self.srv.wf_graph_report_response
+        # Wave 1xny6 split the public entry (which pins one generation for the
+        # whole response) from the implementation; the guard lives in the
+        # implementation, so that is what this scan must read.
+        original = self.srv._wf_graph_report_response_pinned
         source = inspect.getsource(original)
         self.assertIn(
             "_collapse_active", source,
@@ -17312,14 +17318,12 @@ class TestCommunitiesFilterBeforeTruncation(_GraphReport1wpajMixin, unittest.Tes
 
     def _write_communities(self, communities):
         gc = self.srv._load_script("graph_cluster")
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        (graph_dir / "project-graph-clusters.json").write_text(json.dumps({
+        gfs.publish_cluster_payload(self.root, {
             "cluster_schema_version": "1",
             "cluster_builder_version": gc.CLUSTER_BUILDER_VERSION,
             "cluster_algorithm": "leiden", "layer": "project",
             "communities": communities, "community_count": len(communities),
-        }), encoding="utf-8")
+        })
 
     def _ladder(self):
         # Unfavourable insertion order: the two largest are generated-dominated,
@@ -17634,17 +17638,14 @@ class EvidenceNodesStayQueryableTests(unittest.TestCase):
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[3].parent
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        import gzip, json as _json
         import graph_query
-        # Read the persisted artifact directly. `from_root` can fire a
+        # Read the PUBLISHED rows directly (wave 1xny6 lane L6b retired the
+        # persisted artifact this used to decode). `from_root` can fire a
         # synchronous full rebuild on a builder-version change, which would
         # turn this class into a multi-minute suite stall.
-        path = (cls.root / ".wavefoundry" / "index" / "graph"
-                / "project-graph.json")
-        raw = path.read_bytes() if path.exists() else b""
-        if raw[:2] == b"\x1f\x8b":
-            raw = gzip.decompress(raw)
-        payload = _json.loads(raw) if raw else {}
+        snapshot = graph_query._get_graph_indexer().read_published_graph_snapshot(
+            cls.root, "project")
+        payload = (snapshot or {}).get("payload") or {}
         cls.payload_present = bool(payload.get("nodes"))
         cls.index = graph_query.GraphQueryIndex(dict(payload, present=True))
 
@@ -17860,6 +17861,7 @@ class EvidencePairDocumentationTests(unittest.TestCase):
     def test_the_pair_list_matches_what_the_report_actually_emits(self):
         # Binds the prose to behaviour: documenting a sixth pair, or dropping
         # one, fails here rather than drifting silently.
+        _require_published_repo_graph(self)
         srv = load_server()
         data = srv.wf_graph_report_response(self.REPO, limit=1)["data"]
         emitted = {k[len("evidence_"):] for k in data if k.startswith("evidence_")}

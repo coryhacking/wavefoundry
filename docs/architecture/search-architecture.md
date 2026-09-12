@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 ## The Problem
 
@@ -63,9 +63,10 @@ The fallback is intentional rather than accidental: a useful-but-lower-quality a
 ### Decision 3: Unified local SQLite storage
 
 The semantic backend uses `apsw==3.53.4.0` (SQLite 3.53.4) with
-`sqlite-vec==0.1.9`. Docs and code share
-`.wavefoundry/index/index-state.sqlite` with existing indexing state. Graph and
-memory retain their separate stores. No server or hosted database is required.
+`sqlite-vec==0.1.9`. Docs, code and — since wave `1xny6` — the code graph all
+share `.wavefoundry/index/index.sqlite` with the indexing state, so ONE
+transaction publishes every layer and ONE generation is what readers see. Only
+the memory store remains separate. No server or hosted database is required.
 
 Each layer has canonical `chunks_*` rows, keyed float32 `vectors_*` BLOBs and an
 external-content `fts_*` index. An internal integer key joins them; public chunk
@@ -83,9 +84,10 @@ the responsibility of the existing retrieval pipeline.
 The indexer prepares embeddings outside the writer transaction, then commits
 canonical chunks, vectors, FTS postings, registry/digests and related file/layer
 bookkeeping together with `BEGIN IMMEDIATE`. Triggers keep FTS synchronized.
-Readers still require a completed generation and validate it after retrieval;
-the global publication fence also covers work in the separate graph store.
-This fence does not imply a SQL transaction across separate database files.
+Readers still require a completed generation and validate it after retrieval.
+Since wave `1xny6` the graph is a participant in this same transaction rather
+than separately fenced work, so the guarantee is now an actual SQL transaction
+over one file rather than a fence spanning two databases.
 
 All connections to the shared file use `sqlite_runtime`; the standard-library
 binding remains available for separate stores. Data writes use WAL/NORMAL,
@@ -432,17 +434,22 @@ compound identifiers as whole tokens.
 
 ```text
 .wavefoundry/index/
-  index-state.sqlite    Canonical docs/code chunks, FP32 vectors, external FTS,
+  index.sqlite          Canonical docs/code chunks, FP32 vectors, external FTS,
                         chunk registry/digests, file/layer bookkeeping, build epoch,
-                        freshness/attribution and secret-scan cache (schema 7)
-  index-state.sqlite-wal / -shm   SQLite-managed companions when present
-  sqlite-migration.json          Upgrade progress and recovery receipt
+                        freshness/attribution, secret-scan cache, graph nodes and
+                        edge evidence, per-file extraction/merge state, communities
+                        and analysis, and the codebase-map receipt (schema 8)
+  index.sqlite-wal / -shm         SQLite-managed companions when present
+  memory-state.sqlite             Agent memory — the one store that stays separate
+  sqlite-migration.json           Upgrade progress and recovery receipt
 ```
 
 The shared database is opened through the qualified APSW runtime. Unknown schema versions and
-corrupt canonical data are retained and refused, never dropped automatically. Separate graph and
-memory databases retain their existing authority. Legacy `docs.lance/`, `code.lance/` and
-`__manifest/` remain only until migration, new-process verification and owned cleanup succeed.
+corrupt canonical data are retained and refused, never dropped automatically. The memory database
+retains its existing separate authority. Wave `1xny6` retired the separate graph database, the
+`graph/` directory with its payload files and the standalone codebase-map fingerprint; the
+pre-rename `index-state.sqlite`, legacy `docs.lance/`, `code.lance/` and `__manifest/` remain only
+until migration, new-process verification and owned cleanup succeed.
 
 There is **no `meta.json`** (wave `1sed7`): the store's bookkeeping tables are the only source of per-path build state, and every consumer — indexer change detection, `WaveIndex` loading, MCP health/status, dashboard, upgrade version probes — reads the store (`export_meta_snapshot` provides the same dict shape the JSON used to carry). A store write failure is a structured build failure, never a silent fallback. A legacy `meta.json` left by a pre-`1sed7` install is never read by anything — including the upgrade's version probes (an absent/empty store reads as unknown, which forces convergence) — and is removed after the first successful build.
 
@@ -489,7 +496,7 @@ Retrieval ranks by relevance; temporal currency is surfaced as **annotation firs
 evidence** — raw scores are never blended with age (the rejected alternative is recorded in the change doc's
 Decision Log: score-perturbation buries correct answers about stable code, since old ≠ wrong).
 
-**Build-time substrate** (`index-state.sqlite`, optional residents at the build tail — never fail a build, no
+**Build-time substrate** (`index.sqlite`, optional residents at the build tail — never fail a build, no
 per-query git ever): per-file freshness/churn from one batched `git log` (`file_freshness`/`file_commits`),
 wave→files attribution derived from landing-commit subjects (`wave_landing`/`wave_change_files`), and per-doc
 drift summaries (`doc_drift`). A doc's **drift anchor** is the newer of its last content change in git and its

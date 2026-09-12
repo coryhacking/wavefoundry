@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-11
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -36,7 +36,7 @@ Architecture reference for Wavefoundry's code and documentation graph index: how
 
 ## Overview
 
-The graph index is a persisted directed graph of nodes (files, symbols, and docs) and typed edges (calls, imports, defines, doc references, DI wiring). It is built separately from the semantic embedding index and stored as gzip-compressed compact JSON artifacts on disk (readers sniff the gzip magic bytes and transparently fall back to legacy plain JSON). The graph enables structural queries — call hierarchies, upstream impact analysis, cross-layer traversal, community detection — that semantic similarity search cannot answer.
+The graph index is a persisted directed graph of nodes (files, symbols, and docs) and typed edges (calls, imports, defines, doc references, DI wiring). Its extraction is separate from semantic embedding, but both publish into the shared SQLite database described under Storage. The graph enables structural queries — call hierarchies, upstream impact analysis, cross-layer traversal, community detection — that semantic similarity search cannot answer.
 
 The graph is not itself a semantic embedding index, but its published structural data is also a read-only ranking signal for hybrid `code_ask` retrieval. `code_ask` may use an exact, source-current declaration from the bound published graph snapshot to keep a named symbol's definition ahead of usages while retaining the ordinary semantic and lexical context. Graph-backed MCP tools and `code_references` also consume the graph directly; the latter uses it as a candidate-file restrictor to avoid full repository walks.
 
@@ -260,31 +260,97 @@ Confidence is `"EXTRACTED"` for unique matches of long or underscore-containing 
 
 Markdown links and backtick file paths to known files produce `doc_references_doc` edges (`graph_indexer.py:1729-1735`).
 
-### Disk Artifacts
+### Storage (wave `1xny6`)
 
-Written by `_write_json()` as gzip-compressed compact JSON with sorted keys (wave 1p9q3 / `1p9py`): compact separators, gzip level 6 (`GRAPH_GZIP_LEVEL`), and an atomic same-directory temp file + `os.replace` so concurrent readers never observe a torn artifact. Readers (`_read_json()` / the public `read_json_artifact`) sniff the gzip magic bytes (`0x1f 0x8b`) and transparently read legacy plain-JSON artifacts from pre-upgrade indexes; the next build rewrites them compressed. Filenames keep their `.json` names — content is sniffed, not the extension:
+The graph has **no files of its own**. Every graph row lives in the shared index
+database, `.wavefoundry/index/index.sqlite`, beside the canonical chunks,
+vectors and FTS tables — one file, one schema version (state-store schema `8`),
+one publication transaction. The retired `.wavefoundry/index/graph/` directory,
+its `project-graph.json` and `project-graph-clusters.json` payloads and its
+standalone `project-graph-state.sqlite` merge store are removed by the
+schema-8 upgrade after fresh-process verification, and nothing recreates them.
 
-| Artifact | Path |
+`graph_store.py` owns the DDL, emitted into the CALLER's transaction exactly the
+way `sqlite_vector_store.create_schema` is — it never opens a connection and
+never imports stdlib `sqlite3`, because `sqlite_runtime` forbids a second SQLite
+library on the shared file in one process. Its tables:
+
+| Table | Holds |
 |---|---|
-| Project graph | `.wavefoundry/index/graph/project-graph.json` |
-| Project state store | `.wavefoundry/index/graph/project-graph-state.sqlite` |
+| `graph_nodes` | One row per public symbol id (`node_id`); `row_id` is a private surrogate nothing outside the database may depend on |
+| `graph_edges` | Independent edge evidence, keyed by source ownership plus the full evidence identity plus an occurrence discriminator, so two identical call sites in one file stay two rows; `target_id` is plain text with no foreign key, so external endpoints need no declaration row |
+| `graph_file_state` | Per-file extraction state, keyed by normalized repo-relative path |
+| `graph_merge_state` | Named merge fragments keyed PER FILE — never one whole-corpus blob |
+| `graph_communities` / `graph_community_members` / `graph_analysis` | Community and analysis output, each carrying the `input_fingerprint` it was computed from; membership is diffed by `(node_id, community_id)` so an unchanged member is not rewritten |
+| `graph_symbol_chunks` | Symbol-to-chunk links by overlap or hash evidence. Zero, one and many are all legal (no `UNIQUE` on `node_id`, no foreign key). It stores no chunk text — canonical text stays in `chunks_<layer>`. Its storage contract is tested; **no production producer populates it yet**, matching the pre-wave graph, which carried no symbol-to-chunk mapping either |
 
-**Per-file state store (wave `1p9q2`).** The state is a stdlib-`sqlite3` database (`GraphStateStore`), not a JSON artifact: a `files` table holds one row per source file (`path`, `source_hash`, and a gzip compact-JSON record `{"source_hash":…, "artifact":…}` — the same record shape and byte format the artifacts use), a `meta` table carries the store/schema/builder/walker/chunker/layer versions plus the payload crash-consistency binding, and a `blobs` table carries the `merge_state` sidecar (the persistent merged maps: per-file raw node lists + resolved edge fragments with provenance). `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout` for concurrent hook-spawned builds; all per-build mutations commit in one transaction. A one-file build reads and writes O(changed) rows instead of parsing and rewriting a monolithic state document. The legacy monolithic `project-graph-state.json` is **discarded** one-time when the store first opens (a full re-extract follows, matching the established version-bump upgrade cost); it also remains the pre-upgrade fallback for the version-staleness probe (`read_state_builder_version()`, used by `graph_query`'s auto-rebuild check).
+Two more tables are created alongside them but are NOT graph content, so a graph
+reset never touches them: `codebase_map_receipt` (the codebase map's rendered-input
+receipt, which replaced the standalone `graph/.codebase-map.fingerprint` marker)
+and `build_layer_state` (per-layer publication bookkeeping; the scalar build
+`generation` remains the reader token).
 
-**Free-space maintenance (wave `1xjmm`).** New graph stores enable incremental
-auto-vacuum before creating tables. Controlled `index_optimize` maintenance
-(also run by ordinary setup/upgrade) checks integrity before converting an older
-graph store once to incremental auto-vacuum; a store with auto-vacuum disabled
-needs one full `VACUUM` for that conversion. It then uses bounded incremental
-reclamation of at most 5,000 pages. This one-time conversion preserves graph
-rows and does not re-extract source or regenerate embeddings. Failed maintenance
-retains the store and reports recovery guidance. Routine passes thereafter use
-passive checkpointing and bounded reclamation, retaining reusable free pages.
+**Per-file state (wave `1p9q2`, relocated in `1xny6`).** The shape is unchanged —
+one row per source file with its source hash and extraction record, named merge
+fragments beside it — but the rows now live in the shared database and a graph
+session reads and writes through the CALLER's connection. `GraphStateStore` keeps
+a standalone-store fallback for tests and the retirement API; a session handed a
+connection never opens or closes one. A one-file build still reads and writes
+O(changed) rows.
 
-Close-time maintenance is opportunistic: at least 40% free pages in either the
-semantic or graph database triggers maintenance of both. An older graph store's
-auto-vacuum setting alone does not force work during close; setup/upgrade or an
-explicit `index_optimize` call handles that conversion without waiting for bloat.
+**Publication.** `update_graph_index()` and `update_graph_clusters()` PREPARE
+rather than write: they return a publication the coordinator applies on the same
+connection inside the single `BEGIN IMMEDIATE` that also carries the semantic
+rows, so graph, extraction, community, merge and layer bookkeeping commit with
+chunks, vectors and FTS or not at all. The version-mismatch reset became scoped
+`DELETE`s inside that transaction, so the previous generation stays queryable
+until the rebuilt rows commit, and the old delete-on-error reset is gone: lock
+and busy errors propagate and structural damage returns the typed recovery
+response instead of discarding data.
+
+**Reads (`graph_snapshot.py`, wave `1xny6`).** Readers never hold a handle. A
+snapshot opens read-only, begins, reads build state, graph meta, graph rows and
+community rows from ONE SQLite snapshot, then rolls back and closes before
+returning immutable content. A context-bound pin gives one generation per whole
+response, with a single explicit rebind used only after a rebuild the response
+itself requested; an acquisition lock bounds concurrent hydration to one;
+unchanged fingerprints reuse both the cached payload and its derived
+`GraphQueryIndex` under the new generation, with provenance recorded. Retry is
+one settle pass then serve committed rows — never a loop, never an empty
+substitution.
+
+The direct `read_published_graph_snapshot` helper also reads metadata, graph
+rows and source hashes in one explicit read transaction. This prevents an exact
+definition lookup from validating an old declaration against a newer source
+receipt. The transaction and connection end before the helper returns.
+
+Graph readers retain typed runtime, storage and migration failures through MCP
+and dashboard responses. A missing graph may need a build; an in-flight
+publication may need a retry. An unavailable binding points to runtime setup
+and restart, while filesystem and migration refusals preserve their own recovery
+guidance. These failures must not become an empty graph or trigger a rebuild of
+the only stored copy.
+
+**Maintenance (wave `1xny6`).** One physical database means ONE maintenance pass
+and ONE storage/reclamation entry. `optimize_state_stores` reports a single
+`index.sqlite` entry; the old graph-only auto-vacuum conversion arm is gone with
+its parameter, stage and result key, and routine passes stay opt-out of full
+`VACUUM`. A retired `graph/project-graph-state.sqlite` still on disk before the
+upgrade's cleanup deletes it is IGNORED — not maintained, not reported — so a
+dead file never appears as live index storage; ignoring is not deleting, and
+cleanup remains its only remover. Maintenance reports page, freelist and WAL
+counts before and after, retained on the failure path. Bounded incremental
+reclamation converges at exactly its configured per-pass bound, so draining a
+large freelist takes freelist-over-bound passes.
+
+### Reading the payload
+
+`read_graph_payload_rows(conn, layer)` rebuilds the payload from the PUBLISHED
+rows: `layer`, `schema_version`, `nodes`, `edges`, `counts`, `present`. Rows and
+header commit in one transaction, so a read cannot observe a torn state; `None`
+means no published generation. Node and edge order matches what `finalize`
+persists (node id; then source/target/relation), so a reconstructed payload is
+byte-comparable with a freshly merged one.
 
 ### Determinism and the input fingerprint (wave 1p66e)
 
@@ -450,13 +516,15 @@ Four passes run after the algorithm (`graph_cluster.py:504-758`):
 3. **Merge small** (`_merge_small_communities()`): Iteratively absorbs non-fixed communities below `MIN_COMMUNITY_SIZE = 12` into their most-connected neighbor.
 4. **Disambiguate** (`_disambiguate_labels()`): Qualifies duplicate labels with parent directory, then adds numeric suffixes.
 
-### Cluster Artifacts
+### Cluster Output
 
-The cluster artifact shares the graph artifact persistence contract (gzip-compressed compact JSON, atomic write, sniffing reader with legacy plain-JSON fallback — `graph_cluster.py` mirrors the `graph_indexer.py` helpers):
-
-| Artifact | Path |
-|---|---|
-| Project clusters | `.wavefoundry/index/graph/project-graph-clusters.json` |
+Communities are rows in the shared database (`graph_communities`,
+`graph_community_members`, `graph_analysis`), prepared by
+`update_graph_clusters()` and applied inside the same publication transaction as
+the graph rows. The previous generation's fingerprint gate and community-id
+stability are both read from those ROWS, so the retired
+`project-graph-clusters.json` artifact is gone rather than merely unread. Passing
+no connection keeps the historical file-backed behavior for tests only.
 
 Each community record contains: `community_id`, `label`, `seed_node_id`, `node_ids`, `node_count`, `edge_count`, `boundary_node_count`, and optionally `kind: "fixed"`.
 
@@ -540,7 +608,7 @@ The `direction` parameter (added in wave `12xr3`) controls which adjacency lists
 
 ### `code_graph_community_response()`
 
-Loads the cluster artifact via `_load_cluster_lookup()` / `graph_cluster.read_cluster_payload()`. Validates `community_id` is non-empty (returns `invalid_arguments` otherwise — closes the empty-string-matches-null-id edge case). Looks up the requested `community_id`; returns `{community_id, label, node_count, nodes}` where `nodes` are sorted by degree descending. On not-found, returns `suggestions: [{community_id, label, node_count}, …]` ranked by id/label substring match then node count — up to 5 entries — via `_suggest_near_communities()`. For ambient catalog discovery without a tool call, prefer the `wavefoundry://graph/communities` resource.
+Loads the published communities via `_load_cluster_lookup()` / `graph_cluster.read_cluster_payload()`, which serves the community ROWS through the generation-bound snapshot (`cluster_path` / `graph_path` now name a logical component of the shared database, and `cluster_mtime` is replaced by `community_generation`). Validates `community_id` is non-empty (returns `invalid_arguments` otherwise — closes the empty-string-matches-null-id edge case). Looks up the requested `community_id`; returns `{community_id, label, node_count, nodes}` where `nodes` are sorted by degree descending. On not-found, returns `suggestions: [{community_id, label, node_count}, …]` ranked by id/label substring match then node count — up to 5 entries — via `_suggest_near_communities()`. For ambient catalog discovery without a tool call, prefer the `wavefoundry://graph/communities` resource.
 
 ### `wf_graph_report_response()`
 
@@ -571,21 +639,22 @@ Called from `code_callhierarchy_response()` (outgoing direction, `server_impl.py
 index_build(content='graph')
   → setup_index.py --graph-only
     → indexer._build_graph_artifacts()
-      → graph_indexer.update_graph_index()   → project-graph.json + state
-      → graph_cluster.update_graph_clusters() → project-graph-clusters.json
+      → graph_indexer.update_graph_index()    → prepared graph + extraction rows
+      → graph_cluster.update_graph_clusters() → prepared community rows
+    → coordinator applies both inside the single publication transaction
 ```
 
-Semantic embedding and vector writes are skipped in graph-only mode; the graph retains its separate state store.
+Semantic embedding and vector writes are skipped in graph-only mode, but the graph rows still publish through the same transaction and the same generation contract as an all-content build.
 
 ### Incremental vs. Full Rebuild
 
 The graph build is **incremental at extraction AND at merge** (wave `1p9q2`). `update_graph_index()` receives `changed` and `removed` file sets and only calls `session.record_file()` for files in `changed`; unchanged files reuse their cached artifact rows in the per-file state store. `session.finalize()` then runs one unified merge pipeline in one of three modes:
 
-- **Zero-change fast path** — nothing pending, nothing removed, and the store's payload binding matches the on-disk payload: the existing payload is returned with no merge work and no artifact rewrite.
+- **Zero-change fast path** — nothing pending, nothing removed, and the store's committed graph-rows state matches: the payload is returned from the published rows with no merge work and nothing published. Since wave `1xny6` the old on-disk payload stat binding is gone with the file, so a deleted or unwritten artifact can no longer force a full re-merge of an intact graph.
 - **Incremental delta merge** — the persistent `merge_state` sidecar (per-file raw node lists + resolved edge fragments) is loaded; changed/removed files' fragments are retracted and changed files' fragments recomputed from their fresh artifacts. **Symbol-scoped cross-file invalidation** then re-runs resolution for exactly (a) all edges of changed files and (b) any untouched file's edges whose resolution consults a candidate-index key in the *symbol delta* — the keys contributed by the old+new nodes of changed/removed files (plus the DI-synthesized-node delta). Fragment edges carry provenance (`_x` original external name, `_c` original confidence, `_d` dropped-read tombstone) so their raw form is recoverable without reading any unchanged row — promotion (external → bound) AND demotion (bound → external) both propagate into untouched files. State I/O per build is O(changed) rows plus the sidecar. Candidate indexes are rebuilt from the assembled node map each build (measured ~43 ms at 11k nodes — cheaper than incrementally persisting them).
 - **Full re-merge** — a missing/inconsistent sidecar (crash window, pre-upgrade store) loads every stored row and recomputes all fragments through the same code path, loudly (stderr). This is also the differential oracle: the **equivalence invariant** — an incremental build produces the same node set, edge-key set, and `input_fingerprint` as a from-scratch build of the same tree — is enforced by a randomized differential harness in `test_graph_incremental_merge.py`. A second, assembly-time invariant (wave `1x6ti` / `1x5pc`): every served edge's endpoints are a node, an `external::` id, a current path of the build, or, under a directory the walk reported unreadable this build, an endpoint whose edge the last published payload served (the shadowed subtree is served as of the last readable build, so an edge that build dropped stays absent and one it served survives until the directory is readable again and the from-scratch resolver decides; the last published payload is read once per merge, only during an outage). Stored fragments keep their edges until their file is re-scanned, so a fragment linking into a doc deleted on an earlier build, or a walk-shadowed doc mentioning a symbol renamed during the outage, re-emits an edge with no target node on every later merge; the filter drops those edges before the zero-edge doc prune and reports the count as `edges_dropped_dangling` on the merge line. Node-less current-path endpoints (a doc link to a `.gitignore`, to a scan-excluded doc, a memory target into `docs/waves/`) are evidence a from-scratch build carries too and are exempt; the readiness census found six such edges on this repository's graph.
 
-Crash consistency: the store commits rows + sidecar + a `payload_stat_state='pending'` binding in one transaction, then the payload is written atomically, then the binding stat is committed. A crash in any window leaves a detectable mismatch and the next build degrades to a loud full re-merge — never a silently inconsistent graph. Downstream, `update_graph_clusters()` skips the clusters/betweenness recompute AND artifact rewrite when the merged `input_fingerprint` (recorded in the clusters artifact) is unchanged under the same cluster/graph builder versions.
+Crash consistency (wave `1xny6`): rows, merge fragments and the small `payload_header` / `graph_rows_state` meta rows that describe them commit in the SAME transaction as the semantic rows, so there is no second window to crash in and no cross-artifact binding to go stale — a crash leaves the previous committed rows physically intact. Reader availability still follows the build epoch: an interrupted or failed epoch can leave retained rows unavailable until coherent recovery. The pre-wave scheme (a pending stat binding, then an atomic payload write, then the binding commit) and its loud full re-merge on mismatch are retired with the payload file. Downstream, `update_graph_clusters()` still skips the clusters/betweenness recompute when the merged `input_fingerprint`, now read from the community rows, is unchanged under the same cluster/graph builder versions.
 
 A full re-extraction is forced when:
 1. The state store is absent or empty (first build, or post-legacy-discard).
@@ -602,9 +671,9 @@ The merge-state blob is loaded once and reused for eligibility and merge work; i
 
 `_index_is_up_to_date()` always returns `False` for `content="graph"` (`server_impl.py:2194-2196`). The staleness gate is bypassed so the build always enters the incremental extraction logic — but this does not mean every file is re-extracted. Within that logic, only files in the `changed_set` are re-extracted; unchanged files reuse their cached state artifacts. Bypassing the gate means the caller never short-circuits before entering the logic, not that the logic discards incremental state.
 
-### Separation from Semantic Index
+### Graph-only Build Scope
 
-Graph artifacts and their state remain separate from the shared semantic SQLite database. `content="graph"` normally performs graph work without embedding; missing semantic provenance or incompatible model identity can escalate a scoped request to all-layer convergence. The default `content="all"` setup path prepares graph and semantic work together, then publishes behind the shared build epoch. Graph preparation is outside the semantic transaction, so a failed semantic publication keeps readers unavailable until recovery.
+Graph rows and their state share `index.sqlite` with semantic content; graph extraction remains separate from embedding. `content="graph"` normally performs graph work without embedding; missing semantic provenance or incompatible model identity can escalate a scoped request to all-layer convergence. The default `content="all"` setup path prepares graph and semantic work together, then publishes behind the shared build epoch. Graph preparation is outside the semantic transaction, so a failed semantic publication keeps readers unavailable until recovery.
 
 ---
 

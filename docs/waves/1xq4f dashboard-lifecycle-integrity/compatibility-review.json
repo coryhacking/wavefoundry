@@ -1,0 +1,547 @@
+{
+  "review": "All uncommitted changes: macOS, Windows, Linux compatibility",
+  "date": "2026-09-11",
+  "verdict": "changes_requested",
+  "boundary": {
+    "files": 108,
+    "python_files": 53,
+    "hashes": {
+      ".wavefoundry/framework/README.md": "0d933f302911382e8ddb1155b7afca63b39fde94df8cd16d4aacfba32497bfa2",
+      ".wavefoundry/framework/install/install-wavefoundry.template.md": "cbd1433bea5fd202601184df95e8516a0e3e6f7f9b2837657dd0ac2246c32ce4",
+      ".wavefoundry/framework/scripts/dashboard_lib.py": "b3b4e82e9cf948c7e93c487b97d94940529df4933c787261aea8151399ed8b72",
+      ".wavefoundry/framework/scripts/dashboard_server.py": "7bbe2200bab9478e1636c944b9bed654de0bcdb07ce6bd5de9b745a8929cf8c2",
+      ".wavefoundry/framework/scripts/gen_codebase_map.py": "f24fb731fab6c64f8f3c9f9caf8625124cebaefe0aa30172c3177c14ffc02225",
+      ".wavefoundry/framework/scripts/graph_cluster.py": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "45adf502ca6f6b1cd9ab4153a13436eaa65bf76dcbcfc1c0fcbcfbdbcb66668d",
+      ".wavefoundry/framework/scripts/graph_query.py": "89db4a5723137b4576b210fbfdfe90ed4c74645b36c2ce1ab314ad2cb50902b5",
+      ".wavefoundry/framework/scripts/graph_snapshot.py": "539b9216dab7d706a98df531678e35263881271c41b4fd160d6955e68a43d855",
+      ".wavefoundry/framework/scripts/graph_store.py": "a5498da5b74cf88db045a55d0107675c29fd430f5ba5c56e52223ff8303608d2",
+      ".wavefoundry/framework/scripts/index_paths.py": "08c186fc889987dceb6747c9bec10f59b2f686a8e1b26274272c69b90889ee07",
+      ".wavefoundry/framework/scripts/index_state_store.py": "48b8b07fc75d0ce59f6f6bd2b8522c6b36297f5e7c849d80939e3827d60a185c",
+      ".wavefoundry/framework/scripts/indexer.py": "edfcf43aa2e5d0c3645789126645576d922ed62f68e63e90b7a9f36981ae63ee",
+      ".wavefoundry/framework/scripts/render_platform_surfaces.py": "1b51311a9e8926d365769eaf764db1ae2adda4deea1cda1adce10562c61af0a1",
+      ".wavefoundry/framework/scripts/server_impl.py": "27365a1374070cb12d324f7a5c1b99de3aff0d070d5118a7714faef137007cc3",
+      ".wavefoundry/framework/scripts/setup_index.py": "0759df81ad390fd6ef9d73d81b4fa39bf0b0778aeacecc30f00e76dab459f7d1",
+      ".wavefoundry/framework/scripts/sqlite_runtime.py": "dd1abaf055413295df307302083bf3442c7f730fec44707e6cd5d4142f690d0f",
+      ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "b667956e48cb236279a83369774e7018e67a78290aabf16b47255918dca416e6",
+      ".wavefoundry/framework/scripts/sqlite_vector_store.py": "00c4485c852979ce3cd5de1d1c6129389cf64da72158c3676e10e83b7a990f52",
+      ".wavefoundry/framework/scripts/tests/fixtures/graph_parity_baseline_golden_corpus.json": "8b5012036bee585303917607b0da40ed1fed1387ce0bef87965312dc93820489",
+      ".wavefoundry/framework/scripts/tests/fixtures/legacy_sqlite_state_schemas.json": "189faa85d08422908d646b9f55402b60124adb180b2b72b92fbfaf98b58589b4",
+      ".wavefoundry/framework/scripts/tests/graph_fixture_support.py": "f5b4597fff7fe28e54344e9ca237e5528c5a1b3397aaf9a1f368cfb5acbac9dd",
+      ".wavefoundry/framework/scripts/tests/sqlite_event_eval.py": "c703fe965570525665371f06b3e6de7c2e834475bb077477910b98bf3d870e2b",
+      ".wavefoundry/framework/scripts/tests/sqlite_update_eval.py": "1deca856762c131ef7d4d50fdad78fc6bfe7226754c79c26e4b056f20f541449",
+      ".wavefoundry/framework/scripts/tests/test_dashboard_server.py": "a83a3a87c3a70f537d3564958a5f06896b79674676fa2728b9dd9ac3ce6d2739",
+      ".wavefoundry/framework/scripts/tests/test_fts_lexical_layer.py": "41b6e23694d3b2016f613b8a6f146c7acdae2c5fee701b94c210fdfd815d41ad",
+      ".wavefoundry/framework/scripts/tests/test_fts_query_honesty.py": "cf66ddfc5ffb2f6d0bd1f534ae366b1e656f87ba37276248c5ca6f0b3c716e93",
+      ".wavefoundry/framework/scripts/tests/test_gen_codebase_map.py": "c1bda4d0c4abcda1254705dc08d8b17927bf123926cee1fec09082ef06f1d849",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+      ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "00bd022ada055cd67561d10b4d333463c47dfe2e163f8abce07d23b1e3796d95",
+      ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "b0822cb2ed67e7656f936dcab0692c898af75d64f5dce507e631403178c4568b",
+      ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "b12a7148d6e97cab340de81e6813021bcfda2d68ef8298db791ebcce396fb3fc",
+      ".wavefoundry/framework/scripts/tests/test_graph_query.py": "24e87e86ae375ea3bfc0146bb5ce01c5c6c84fdd51af7780081659acc33fb611",
+      ".wavefoundry/framework/scripts/tests/test_graph_snapshot_readers.py": "26fa022043e1149332df5023aeaa7e33ea6a8a1b62ca449486e167b436425362",
+      ".wavefoundry/framework/scripts/tests/test_index_state_store.py": "3eb336bc305004f982a72a97773c63446e1184a4fc158ff1fd47c636437d94d4",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "c3d6464c66e16d0bea9e308327b7b8164801cdf211820d31c55d13f5775d502e",
+      ".wavefoundry/framework/scripts/tests/test_memory_records.py": "fd369733ad9fd1571d28f267a948a959a7a88036cadb8cded5b1d2035c8e42c2",
+      ".wavefoundry/framework/scripts/tests/test_model_bundle.py": "267eb6055d843b3075c79f3ac79fcc08b84dd07503ae47f10674348b2f95e28e",
+      ".wavefoundry/framework/scripts/tests/test_per_area_agents_context.py": "14c6ce4ba4e686e20d73e867af8d823ac67d5783a76e30ca6faf7ddef017bd99",
+      ".wavefoundry/framework/scripts/tests/test_python_parse_diagnostics.py": "1f08e6cbb0ca8240a8edb1527f2c14da04e82fc3517c785af954e2414930a552",
+      ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "a63fc4645cc5eea16eb40ca4aabdb5108563a5e0eed3a6bc07744eecbbb8c4ae",
+      ".wavefoundry/framework/scripts/tests/test_retrieval_eval.py": "c7f0c1b8940b0c63bd878e29beb8c182d36496bba8b2cb87417ac5b630f846b9",
+      ".wavefoundry/framework/scripts/tests/test_secret_scan_cache.py": "602bdfa4a8bd7a3842c9d3672c1e457521c6ff4c93d86167fdebb7c65be7ae37",
+      ".wavefoundry/framework/scripts/tests/test_server_tools.py": "ea5c810543a4ed56a490afc70043fae83d2eb95c5b111bc4a3f64d1682bd6a8d",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "fcbfbd94fa32984977ba03a72a78268e5b6da83d173f0ddc08c5094ab25e8e7b",
+      ".wavefoundry/framework/scripts/tests/test_setup_index.py": "630e95eb9bef151fb45463f917226e3451a3ca21a86dbc0b3a6a9b054081a1a4",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_publication.py": "8d508ce398f3ab48e686e8fb4dfdfa581fe452344eabc64db35338f3bae1d6f6",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_publication_optimization.py": "c66de734fe78e8ea2bd6cbc1e1f5e82ea77ce2e452baceb95fb743a27bc13834",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_serving.py": "91749f0a3a226750de03d694be1cc055d667651cd8de5e9c30d68c31f45cb2e5",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "ce03b5c69721fb77466dc213282df389f652b133cfdc3591d0b0880e93fde98b",
+      ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "8761cb9a9e17e725d924b9a1222dbeaa78dda2287c2db846d5c8871272c5c25a",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "c52ce4ca9212ad059a6bdcf800ccf41f75b43657b056d5210d4f5e2683689252",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "a42f24375d492a8a8d80c7dddf6208bf5af001d827be0588a5ec85e010ba6cfd",
+      ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "a6bd3202f558d9e830e06c0c8a98d04c43aabf1705263af9f1adcb39a3becb74",
+      ".wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md": "656a0a5e2316cae00492f6d2c76f4f9d3edbbb4f59fd8d09eefe2ff7a087d7e9",
+      ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "aa1a40ba5224239c509bd25944bbe5ba367ec12d8d46edaffa1126a982ba818c",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "061b53e7b719412b979dfae7eeaa606bdc711c4f357ce0748e3b8ebbb09f6c03",
+      ".wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md": "e06963c3849038b7f5b852cce4beaf6ff67067d27f6845958a3467d4b12f1a19",
+      "CHANGELOG.md": "996b268f9d73368ac06ac3f6d42598ac1fd465feaa3a5ad15b58107bde1217c6",
+      "docs/ARCHITECTURE.md": "4110a4c01daaa8a3760a2ba0ee29023fe9c690312c79f71ec56eb1ae759db003",
+      "docs/RELIABILITY.md": "e1540bd812b1180bcad0bc02a1919a6f3c6feaa94d245c88d650e425c19c92d1",
+      "docs/agents/memory/1xogr-mem repaired-defect-qa-current-2.md": "730c57a6335949e07de546f0f66037ad872a03589b2c5a81a520c98caa6fb558",
+      "docs/agents/memory/1xoyl-mem measure-acquired-writer-intervals-and-freeze-per-run-timing-.md": "b07fe3f379c60fe0f107ebb879f0a327daf28ff288ba69a52664101381bb1a83",
+      "docs/agents/memory/1xppo-mem repaired-defect-perf-current-1.md": "ea532766ac1246bf5349048a742e89e5a8d3dfa3e00427af509b8ec8230c8621",
+      "docs/agents/session-handoff.md": "55ceadd3e594572cf3bd8a569c9499905941ffca5e409b11d0d51e5f9896ba28",
+      "docs/architecture/chunking-and-indexing-pipeline.md": "016861a98c059039084b3e39f0e0886f135237181e8a7bd1438f726be04552b5",
+      "docs/architecture/cross-cutting-concerns.md": "9a198e60eb0695f41edf43d137690b8e3588ff72c21b3700be18fbbac50d2567",
+      "docs/architecture/current-state.md": "c1f8b7bfb2dfab32ba15d02715142651bf7e7a15ba994adae3bca8ef792cbaed",
+      "docs/architecture/data-and-control-flow.md": "e3a34cc50270497c43ac27ad510e6b1c85075c3e62ece01c12331ac9b1219a95",
+      "docs/architecture/decisions/1xny4-adr sqlite-graph-evaluation.md": "553ff62dc41c9b6f949785549dd4b0a7f179b860d52f68e92e6fff4d49a3cb37",
+      "docs/architecture/decisions/README.md": "c23660a8e1b7774b0a4a9a30e3a1898e733c3e544f8dac73d04eb4d6eb59aa70",
+      "docs/architecture/embedding-model.md": "bc6e72162c5528152e80003b27f875f149142a2474140a455578ec5a65f5ab13",
+      "docs/architecture/graph-index-system.md": "2818a54a52e79bf22a32a624934ab81a58d7428811b85b8f0a64b195e37c42c5",
+      "docs/architecture/layering-rules.md": "d13de3db0032041705d77fc4af393ecadb69b079b5ae09b594e20d7b284434a9",
+      "docs/architecture/performance-budget.md": "e9ab46d81d161d5483bab3e0ff5f06af30bebc05c5e905268f3a7dff2904a4ca",
+      "docs/architecture/search-architecture.md": "8fc5aa9227353d062332fae7a79b494cc0d783299a5c3b93272c81de3c903368",
+      "docs/architecture/testing-architecture.md": "8f064384331be6a7f980961665b9ee1c12c3e73e6b4b22deea16318ccac4eb05",
+      "docs/contributing/build-and-verification.md": "34bb7e96a6f8f3c5fa067b87470cf1528e92e7f45fceb07f70cb4052d8619058",
+      "docs/index.md": "75bf3177e37f6181380ff467f5f559cece8dc5e376460f83b3c1e7e0fe6a4c94",
+      "docs/prompts/install-wavefoundry.prompt.md": "40b4a5e042135540de275f2a3f728f9101333a931264e0ef020156a4371773e3",
+      "docs/prompts/prompt-surface-manifest.json": "8f46975a728968ab3418b68f9c45ec2aaf21b70b7bea1a32704b07fad38454cd",
+      "docs/prompts/upgrade-wavefoundry.prompt.md": "986daa19d41fac1bf541c22703dc7f6f4e64984171aee447e9412a6b35a3f1a0",
+      "docs/references/codebase-map.md": "c87c9f8212399615eff717e52786351a630ac16f1f623b4439dc1669b85f6954",
+      "docs/references/dashboard-adapter-model.md": "2f78bb5f9fb1328bb5fd7f93ec407b53c5f554de795a1657e5dde14b09d1601a",
+      "docs/references/native-windows-support.md": "5ed360c5b3afb5d0ebfb61943f1259c915de542ef0fba55d0174d06481bc0f67",
+      "docs/references/project-context-memory.md": "3be9dd2740d29f27933c69a2d7874fcf72ef97af92f57d9b5efa732efba26017",
+      "docs/repo-index.md": "b5c74738bcf2b946e9812b410e8e9c7103af8e184c4101f69faa8a1312ca2b20",
+      "docs/specs/mcp-tool-surface.md": "e6d1a641a0f3901900ff84ea1bffaecf1caf3ee2f852a128391c5c2c5dd2150a",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/1xny2-task evaluate-sqlite-graph-consolidation.md": "3401d473618f2186146498a7accd7c9d1f0c38619e41a003cd9dcc610bfc5186",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json": "bc25f26e3f69cd94b9aa2fb7b2f17cde6ae4515f6ba11cfa5c486084d0f27ed2",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/events.jsonl": "76ec587304b56035cea819b158438a5b0f87e3d56c121a0defca955b1c5289b5",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_eval.py": "6087b1c67d3a61f584540be68f8b03b974e36ecdd27f5fc4dbab7d0e426a84d7",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py": "1dd1406b80deaef0984f8c3bddd754c436931b625f2d2d288b1324aef175b6f7",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_eval.py": "b1711bb76431927df5b5a9af26faa7ac6ab49fadc3ae3d6d36c1a967098468a9",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/retrieval_queries.json": "0d75c64e34b22eecdf5e5e0b19697a796691901b1ab560420bd34e0893f40137",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/review-results.json": "9a1156eec5b121f9939694922f5b16e52fa3cb9e2bcac30b5c095d2ea66fe7d9",
+      "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/wave.md": "6a4f61ee731570d2bc9389f2bb52907f66ce66b6c1a9379e229e35adeb3ea57c",
+      "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md": "b1fb1d77e5bcc8889a6c7953048d5815816c95a4a65ff9eee9c81e52ee3bd0a0",
+      "docs/waves/1xny6 unified-index-database/delivery-review.json": "2190ee57c70acdfeaaa342ba7edb0a0ba20d8e097a1f2e82b2b04b791016eff1",
+      "docs/waves/1xny6 unified-index-database/events.jsonl": "252b000ba363e1d26c0b864c836ac088cfecc51d5c1c90014c2e38b28a1e0a10",
+      "docs/waves/1xny6 unified-index-database/readiness-review-r2.json": "f33768b14da883cb6993f54fbd35ad321f25cee8b832b295d5b7b6c23aba61f2",
+      "docs/waves/1xny6 unified-index-database/readiness-review.json": "1f71607f7e3b0896840c2f3673365288874fcb9a7d1deb748ca90360192e99e3",
+      "docs/waves/1xny6 unified-index-database/runtime-qualification.json": "2e1afb1001e700ed4aaddff11ac3309ababe2580dbc16810bbe9b10f75ce0af9",
+      "docs/waves/1xny6 unified-index-database/wave.md": "0d965cedceabaf4d1a4ce3481732a996599a3f3af94cf05f714d3d0ebaa0c741",
+      "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "112715eb0bb675b43782b471070e362865e3ef4ee1bab94c778b8499dabbb35b",
+      "docs/waves/1xq4f dashboard-lifecycle-integrity/events.jsonl": "4ed21abca41e3095a9e3d8e48ccfdb64b4066973817200e0cf96623e0e19caa3",
+      "docs/waves/1xq4f dashboard-lifecycle-integrity/readiness-review.json": "3a06f8dae155d70d6eae438978cd93cbce38171c46ea94af803dcce78a155381",
+      "docs/waves/1xq4f dashboard-lifecycle-integrity/wave.md": "11a93f08ca6009d5b83eaaa00afd1ede2d0a0c290c0740b604c498e0c520c7b3"
+    },
+    "python_changed_during_review": []
+  },
+  "synthesis": {
+    "primer_depth": "full",
+    "strongest_challenge": "Graph reads now require native SQLite/WAL; qualify public failure paths and OS filesystem lifetime rather than infer support from wheel inventory.",
+    "primer_questions": [
+      "Do public readers preserve runtime/storage/migration causes?",
+      "Do cutover/retained-handle/interruption checks cover real OS behavior?",
+      "Are path authority and cleanup fail-closed across permissions, aliases and platform variants?"
+    ],
+    "merit_order": [
+      "Two-connection old-node/new-source-hash result is a concrete consistency defect",
+      "Retained exception traceback leaves native connection open; Windows interference remains an inferred consequence",
+      "Typed runtime and WAL faults demonstrably become misleading graph-not-built guidance",
+      "Windows symlink privilege assumption is a test-only capability failure",
+      "Security cleanup probes preserve data; native platform coverage is still incomplete"
+    ],
+    "role_disclosure": "Isolated security and architecture seats, root reality-checker, QA in primer context (not independent of primer), release alternative after fixed outputs. No lifecycle approvals or five fictional independent seats claimed.",
+    "agreement": "All concrete findings retained; no conflicting disposition requiring challenge round.",
+    "strongest_alternative": "Keep unified SQLite, make focused fixes, then complete existing native package qualification. Do not restore duplicate JSON/vector backends."
+  },
+  "reports": {
+    "security": {
+      "seat": "security",
+      "verdict": "approved-with-notes",
+      "overall_severity": "none",
+      "scope": "Independent targeted review of all-diff orientation with depth on sqlite_storage_migration.py, new index_paths.py, upgrade cleanup delta, and migration tests. Other graph/store source is covered by peer seats; this is not a claim of exhaustive per-line review of 81 changed files.",
+      "findings": [],
+      "controls": [
+        {
+          "symbol": "_safe/_safe_sqlite",
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "line": 156,
+          "result": "Existing inherited lstat-based link/reparse rejection remains, now applied to role-selected main and sidecar names. Permission errors propagate rather than authorize deletion."
+        },
+        {
+          "symbol": "_resolve_authority",
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "line": 410,
+          "result": "New both-name handling uses published receipt inode/device identity, not timestamp/schema guesses; undecidable authority is refused."
+        },
+        {
+          "symbol": "_publish_candidate/_resume_schema8_cutover",
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "line": 1507,
+          "result": "New kind records candidate hash and identity before atomic replacement; retry validates source/candidate; nonempty live WAL refuses; os.replace and sidecar access failures retain actionable cutover_pending state."
+        },
+        {
+          "symbol": "_inventory_retired_graph_directory",
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "line": 1981,
+          "result": "New classifier preserves whole retired graph directory containing unknown names, nested directories, links or reparse nodes, before deletion. Uses inherited bounded upgrade removal primitive."
+        },
+        {
+          "symbol": "_plan_retire_source_database/cleanup_legacy",
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "line": 1831,
+          "result": "New retirement verifies source identity and refuses nonempty source WAL; staging and graph inventory precede irreversible source retirement."
+        }
+      ],
+      "evidence": [
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_sqlite_storage_migration.py",
+          "result": "107 tests ran in 16.300s, OK, skipped=1 (native Windows junction only). All storage fixtures were isolated temporary directories."
+        },
+        {
+          "probe": "Real POSIX chmod(0) index directory traversal",
+          "expected": "Undecidable presence must not authorize fresh creation/deletion",
+          "observed": "resolve_index_database returned both; detect raised PermissionError; original bytes retained."
+        },
+        {
+          "probe": "Canonical resolved repository symlink alias",
+          "expected": "Repository alias accepted after entry canonicalization",
+          "observed": "_safe accepted canonical resolved path."
+        },
+        {
+          "probe": "Retired graph owned-name symlink",
+          "expected": "Whole graph folder retained",
+          "observed": "retained_unowned_contents; target bytes retained."
+        }
+      ],
+      "gaps": [
+        {
+          "id": "SEC-GAP-1",
+          "classification": "validation_gap_not_demonstrated_bug",
+          "severity": "informational",
+          "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+          "line": 1230,
+          "symbol": "test_cutover_access_errors_retain_candidate_and_retry_without_transfer",
+          "detail": "WinError 5/32 replacement and sidecar failures are injected mocks. This host is macOS, so passing these does not establish actual Windows retained-handle sharing behavior. Native junction test line 505 was skipped. UNC roots, drive-letter case variants and Windows retained handles were not executed here.",
+          "introduced_vs_head": "Tests and new schema-8 branch are in this diff; underlying no-follow/OS cleanup primitives are inherited."
+        },
+        {
+          "id": "SEC-GAP-2",
+          "classification": "scope_limit_not_bug",
+          "severity": "informational",
+          "detail": "No separately demonstrated less-trusted actor or privilege delta. Under repository threat model, operator-controlled paths and same-user concurrent processes are trusted. Path substitution race hypotheticals are not escalated into security findings absent a promoted multi-user/untrusted-repository deployment."
+        }
+      ],
+      "threat_assumptions": "Local operator-owned repository and same-user processes remain trusted; no remote/non-loopback or multi-user promotion identified in examined migration delta.",
+      "exploit_chains": []
+    },
+    "qa": {
+      "role": "qa-reviewer",
+      "scope": "Bounded compatibility census of all uncommitted test diffs, untracked Python fixtures/evaluation scripts, changed setup/install/upgrade guidance and package boundary; read-only repository review.",
+      "independence": "Same context as prior red-team primer by coordinator direction; independent of root and other seats, not independent of primer.",
+      "findings": [
+        {
+          "id": "compat-qa-1",
+          "priority": "P3",
+          "title": "New migration inventory fixture assumes Windows symlink privilege",
+          "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+          "lines": [
+            2035,
+            2043
+          ],
+          "introduced": true,
+          "category": "test-only portability",
+          "trigger": "Native Windows environment with qualified SQLite runtime but without Developer Mode or symlink privilege.",
+          "expected": "Run file/directory assertions and skip only unsupported symlink cases or use the existing reparse metadata simulation.",
+          "observed": "Injected Path.symlink_to OSError(1314) creates two unittest errors before inventory is called; unmodified local fixture passes.",
+          "evidence": "SchemaEightKindTests guard checks native runtime only; cases invoke symlink_to and plant(entry) without handling capability denial.",
+          "qualification": "Simulated Windows capability denial on macOS, not native execution. Other pre-existing migration tests also assume symlinks, so this adds a failing fixture to an existing suite portability gap, rather than newly breaking an otherwise Windows-clean suite. Tests excluded from distribution.",
+          "recommendation": "Handle unavailable symlink capability per symlink subtest, keep ordinary file/directory cases running, and preserve simulated reparse coverage.",
+          "actionability": "do_now"
+        }
+      ],
+      "primer_answers": {
+        "1": "Graph/dashboard dependencies expand as primer states. Snapshot suite passes but does not establish native platform qualification or actionable diagnostics for all runtime-unavailable states. Refer cause-loss concern to owning implementation seat.",
+        "2": "Migration tests include real local staged/cutover flows and injected Windows access/sharing errors, plus a native-Windows-only junction test. macOS pass and injected errors do not prove Windows sharing semantics; documentation explicitly says native Windows/Linux/Intel package execution remains pending.",
+        "3": "Found new unconditional symlink fixture capability assumption; reviewed reparse/junction coverage exists in prior tests. No additional concrete path-authority product defect established in this bounded seat."
+      },
+      "checks": [
+        {
+          "name": "test_graph_snapshot_readers.py",
+          "result": "pass",
+          "tests": 45,
+          "seconds": 7.939
+        },
+        {
+          "name": "test_setup_index.py",
+          "result": "pass",
+          "tests": 163,
+          "seconds": 26.591
+        },
+        {
+          "name": "SchemaEightKindTests.test_the_inventory_preserves_the_whole_folder_for_every_unowned_shape",
+          "result": "pass",
+          "tests": 1
+        },
+        {
+          "name": "same fixture with Path.symlink_to raising OSError(1314)",
+          "result": "2 errors across symlink subtests; 0 failures, 0 skips",
+          "kind": "bounded fault injection"
+        }
+      ],
+      "non_findings": [
+        {
+          "topic": "Untracked docs evaluation scripts",
+          "detail": "graph_eval.py imports fcntl/resource and uses POSIX signals; retrieval_eval.py has macOS-only RSS monitor and SIGALRM. They are research evidence under docs/waves, outside packaged framework root; retrieval monitor explicitly rejects non-macOS. Do not report these as shipped runtime portability defects."
+        },
+        {
+          "topic": "Packaging",
+          "detail": "build_pack.py EXCLUDED_REL_PATHS excludes scripts/tests and scripts/benchmarks; untracked runtime graph_snapshot.py, graph_store.py, index_paths.py reside inside packaged scripts tree. No static manifest omission identified."
+        },
+        {
+          "topic": "Native support claims",
+          "detail": "Changed README and native-Windows guidance explicitly extend WAL/native requirements to graph and retain pending native package qualification. Existing sqlite-vec wheel constraints are baseline limitations, not newly introduced package availability bugs."
+        },
+        {
+          "topic": "Setup",
+          "detail": "Current diff only changes optimize reporting documentation; selected setup suite passed. No new shell-string invocation or platform-specific executable path introduced there."
+        }
+      ],
+      "limitations": [
+        "No native Windows/Linux/Intel macOS execution performed.",
+        "Census is bounded review of diff patterns plus targeted validation, not exhaustive per-test semantic audit.",
+        "No production lifecycle or migration run against the shared repository; test fixtures use temporary roots.",
+        "No repository files edited; only this report and temporary diff artifact written."
+      ]
+    },
+    "architecture": {
+      "seat": "ARCHITECTURE",
+      "verdict": "changes_requested",
+      "scope": [
+        "graph_indexer.py changed graph state, publication, producer lifecycle and direct snapshot reader",
+        "indexer.py changed shared-store preparation/publication lifecycle",
+        "sqlite_vector_store.py PreparedUpdates changes",
+        "graph_store.py complete new schema"
+      ],
+      "findings": [
+        {
+          "id": "ARCH-COMPAT-1",
+          "priority": "P2",
+          "actionability": "do_now",
+          "title": "Close the shared build connection on every exit",
+          "file": ".wavefoundry/framework/scripts/indexer.py",
+          "lines": [
+            5459,
+            5472
+          ],
+          "other_locations": [
+            "4728-4800 idle store lifetime",
+            "5030-5033 acquisition",
+            "5230-5375 preparation/reconciliation gap"
+          ],
+          "problem": "The publication cleanup changed from finally to an Exception handler plus success close. KeyboardInterrupt or another BaseException rolls back but skips close. New earlier acquisition also leaves ordinary exceptions in post-preparation reconciliation outside any closing arm. A retained exception traceback retains store and its actual APSW connection after build_index returns control and releases the build lock; __del__ cannot reclaim that connection until traceback lifetime ends.",
+          "evidence": "Public build_index on isolated temporary fixture with real APSW/SQLite and deterministic fake embeddings; injected KeyboardInterrupt at GraphPublication.apply. Retain caught exception, find store in traceback frame: connection still executes SELECT 1 => (1,), autocommit true, published census unchanged, build lock false. Separate OSError injection at _reap_stranded_vector_rows returns the same open connection result.",
+          "reproductions": [
+            "/tmp/compat-cancellation.py",
+            "/tmp/compat-reaper-fault.py"
+          ],
+          "expected": "Connection already closed after failure/cancellation, including while the exception traceback remains retained.",
+          "observed": "Native connection remains queryable.",
+          "recommendation": "Use unconditional finally covering each owned store's full lifetime, on both changed/full and idle paths; test retained traceback after cancellation and ordinary preparation/reconciliation errors.",
+          "limits": "P2 resource-lifetime failure in in-process callers retaining traceback. CLI process exit reclaims OS handles. Windows rename/delete interference is a possible platform consequence, not native-Windows-tested or claimed inevitable. Publication rollback itself worked."
+        },
+        {
+          "id": "ARCH-COMPAT-2",
+          "priority": "P2",
+          "actionability": "do_now",
+          "title": "Pin the published graph helper to one read transaction",
+          "file": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "lines": [
+            16540,
+            16547
+          ],
+          "problem": "read_published_graph_snapshot says graph payload and source receipts come from one snapshot but never starts a read transaction. open_read_only likewise only opens and verifies schema. Its sequential SELECTs can straddle a concurrent atomic publication. server_impl._published_exact_definition_candidate removed its prior identity recheck relying on this promise; a new source receipt may therefore certify a node read from the old graph.",
+          "evidence": "Two native APSW connections in a temporary fixture: call original read_graph_payload_rows, commit node-label and source-hash updates on another connection, return to the helper's manifest read. Result has old label defined and new hash new_generation_hash. Control beginning a read transaction before payload read returns old label defined and old hash source-hash despite the same concurrent commit.",
+          "reproductions": [
+            "/tmp/compat-snapshot.py",
+            "/tmp/compat-snapshot-control.py"
+          ],
+          "expected": "Payload and source receipt are both old, both new, or helper returns unavailable.",
+          "observed": "Payload old; source receipt new.",
+          "recommendation": "Begin one explicit read transaction before reading graph metadata, nodes, edges, and extraction manifest, and close it in finally. Add deterministic two-connection interleaving regression coverage.",
+          "consumer": ".wavefoundry/framework/scripts/server_impl.py:1767-1772,1808-1833",
+          "limits": "Concurrency correctness issue on all supported OSes, not Windows-specific. Probe exercises helper with actual native storage, not full registered code_ask response."
+        }
+      ],
+      "tests": [
+        {
+          "name": "temporary public build cancellation probe",
+          "result": "confirmed handle lifetime defect",
+          "storage": "real APSW"
+        },
+        {
+          "name": "temporary public build reconciliation OSError probe",
+          "result": "confirmed handle lifetime defect",
+          "storage": "real APSW, fault injected at reconciliation seam"
+        },
+        {
+          "name": "two-connection snapshot interleaving",
+          "result": "confirmed mixed-generation result",
+          "storage": "real APSW WAL"
+        },
+        {
+          "name": "BEGIN read transaction control",
+          "result": "consistent old generation",
+          "storage": "real APSW WAL"
+        },
+        {
+          "name": "selected repository tests",
+          "result": "11 passed",
+          "members": [
+            "test_sqlite_publication_optimization (4)",
+            "UnifiedPublicationParticipantTests.test_process_interruption_before_commit_leaves_the_old_state (1)",
+            "PublishedGraphSnapshotTests (6)"
+          ]
+        }
+      ],
+      "mutation_table": [
+        {
+          "mechanism": "connection closure",
+          "mutation": "KeyboardInterrupt during native publication while retaining traceback",
+          "existing_test": "test_process_interruption_before_commit_leaves_the_old_state passes; resource lifetime NOT CAUGHT"
+        },
+        {
+          "mechanism": "snapshot generation binding",
+          "mutation": "native second-connection commit between payload and source receipt reads",
+          "existing_test": "PublishedGraphSnapshotTests passes; interleaving NOT CAUGHT",
+          "control": "BEGIN prevents mixed snapshot"
+        }
+      ],
+      "preserved_boundaries": [
+        "GraphStateStore no longer opens stdlib sqlite3 or deletes a busy shared database; caller-supplied connection ownership explicit",
+        "graph_store complete schema is DDL on caller transaction without autonomous connection",
+        "PreparedUpdates spill and drain use native binding with finally closure of spool connections",
+        "Index paths normalized to slash representation in graph inputs; process worker arguments carry extraction state rather than live SQLite connections"
+      ],
+      "not_claimed": [
+        "No native Windows/Linux/Intel execution qualification",
+        "No new multiprocessing spawn execution in this seat",
+        "No live index migration, cutover, source edits or destructive OS handle probes",
+        "No all-diff blanket certification beyond allocated producer/storage changes"
+      ],
+      "test_invocation_notes": "Direct unittest discovery initially failed import/runtime bootstrap; reran selected tests after test_indexer.load_build_index loads the normal tool dependency environment. A guessed test_sqlite_vector_store.py pattern discovered zero tests and supplied no evidence.",
+      "architecture_sources": [
+        "docs/architecture/layering-rules.md:41-52",
+        "docs/architecture/domain-map.md",
+        "docs/agents/architecture-reviewer.md"
+      ]
+    },
+    "reality": {
+      "role": "reality-checker",
+      "scope": "New graph reader, map and dashboard consumers; all-current uncommitted diff",
+      "findings": [
+        {
+          "id": "COMPAT-1",
+          "severity": "P2",
+          "summary": "Native runtime/storage errors are translated into graph not-built guidance",
+          "introduced": true,
+          "platforms": [
+            "macOS",
+            "Windows",
+            "Linux"
+          ],
+          "anchors": [
+            "graph_snapshot._read_pinned",
+            "graph_query.graph_not_ready_diagnostic",
+            "dashboard_lib.read_graph_payload"
+          ],
+          "lines": [
+            290,
+            373
+          ],
+          "probe": {
+            "control": "Real canonical fixture with one node; dashboard present true, node count 1",
+            "faults": [
+              "storage_runtime_unavailable",
+              "storage_recovery_required"
+            ],
+            "observed": "Both faults yield dashboard present false without diagnostic; public code_graph_path_response emits graph_not_ready and recommends index_build graph create",
+            "seams": "Native connect injected to raise typed errors; automatic builder refresh suppressed for read-only safety",
+            "expected": "Preserve distinct typed cause and actionable runtime/filesystem recovery rather than imply missing graph"
+          },
+          "recommendation": "Carry runtime/migration/storage diagnostic in GraphSnapshot and forward it at public consumers. Keep genuine missing graph and busy/in-flight state separate."
+        }
+      ],
+      "validation": {
+        "graph_snapshot_reader_suite": {
+          "tests": 45,
+          "result": "OK",
+          "native_host": "macOS ARM64"
+        }
+      },
+      "limitations": [
+        "No native Windows/Linux execution",
+        "Existing dashboard lifecycle bugs are outside introduced diff and remain planned in 1xq4f",
+        "No source changes"
+      ]
+    },
+    "release": {
+      "seat": "release-strongest-alternative",
+      "scope": "Bounded final challenge of all-uncommitted compatibility council; package selection and published native qualification; no new full suite, package build, release or source mutation.",
+      "verdict": "changes_requested_before_broad_release",
+      "strongest_alternative": {
+        "proposal": "Keep unified SQLite graph/semantic storage. Repair demonstrated runtime-error cause loss, exception-path connection lifetime, and mixed-generation publication reads. Then qualify the produced package on native targets before broad release; do not reinstate the legacy graph store or add a second compatibility storage backend.",
+        "why": "The central design remains supported by local tests and coherent ownership boundaries. The concrete defects have small local repairs; remaining platform uncertainty concerns native dependency loading, WAL and retained-handle cutover, which mocks and wheel inventory cannot settle.",
+        "minimum_repairs": [
+          "Preserve typed runtime/storage/migration failure causes in graph snapshots and forward them through MCP and dashboard consumers; reserve graph-not-built guidance for genuinely missing graph state.",
+          "Deterministically close APSW connections when post-open validation or ordinary reaper errors raise; rethrow the original diagnostic. Architecture seat demonstrated retained connection usability while exception traceback is retained; Windows sharing consequence remains unexecuted.",
+          "Wrap read_published_graph_snapshot payload and manifest reads in one explicit read transaction. Architecture seat demonstrated old payload/new manifest after a real second-connection commit; BEGIN control retained old/old. Add focused two-connection regression replay, including the public exact-definition consumer that trusts this snapshot.",
+          "Make only symlink-dependent inventory fixture subtests capability-aware, preserving file/directory and simulated reparse coverage."
+        ]
+      },
+      "release_gate": {
+        "decision": "Retain the existing G4 native-package qualification hold; a macOS source-tree pass is insufficient for a general cross-platform package claim.",
+        "not_a_new_defect": "Pinned dependency inventory and pending native execution are already candidly disclosed in current guidance. Do not label missing evidence as a demonstrated Windows runtime failure.",
+        "sources": [
+          ".wavefoundry/framework/README.md:13-26",
+          "docs/references/native-windows-support.md:7-11",
+          "docs/agents/session-handoff.md"
+        ]
+      },
+      "minimum_native_matrix": [
+        {
+          "target": "macOS Apple Silicon on local APFS",
+          "coverage": "Packaged fresh setup and legacy-to-schema8 upgrade; verify docs/code/graph public reads, incremental publication and independent-process reopen. Existing source-tree evidence is useful but does not replace package execution."
+        },
+        {
+          "target": "Native Windows x64 on local NTFS with a standard non-symlink-privileged account",
+          "coverage": "Same package/setup/upgrade/read smoke; real second-process retained database reader during cutover, retry after handle release, actual access denial, trusted profile/junction alias and drive-letter case alias, unowned index reparse refusal. Use qualified Python and record dependency/runtime versions."
+        },
+        {
+          "target": "Linux glibc x86_64 and aarch64 on local WAL-capable storage",
+          "coverage": "Same fresh/upgrade/public-read/reopen smoke; package native loading on each architecture, concurrent reader/writer and process-death recovery. Exercise glibc floor 2.28 if asserting that floor is execution-qualified."
+        },
+        {
+          "target": "macOS Intel on local APFS",
+          "coverage": "Same package native-loading/fresh/upgrade/public-read/reopen smoke."
+        },
+        {
+          "target": "WSL2 on local Linux filesystem",
+          "coverage": "Focused invocation/setup and package upgrade/public-read smoke for the declared WSL path; Linux native binary results can inform dependency coverage but do not demonstrate WSL host behavior."
+        }
+      ],
+      "negative_scope": "Do not add musl, native Windows ARM64/32-bit, UNC/network shares or VM shared filesystems to the success matrix: pinned binary absence or filesystem nonqualification is documented. For unsupported storage paths, verify explicit refusal without data mutation if those entry paths are supported; UNC spelling alone cannot establish WAL support.",
+      "package_check": {
+        "method": "Read build_pack outline then code_read should_exclude/collect_files and exclusion constants. Execute only AST-extracted constants and these two read-only functions against framework tree; no build imports, manifests, zip writes or version stamps.",
+        "result": "194 selected files; graph_snapshot.py, graph_store.py and index_paths.py all selected; scripts/tests absent.",
+        "anchors": [
+          "build_pack.EXCLUDED_REL_PATHS (build_pack.py:39)",
+          "build_pack.should_exclude (build_pack.py:191)",
+          "build_pack.collect_files (build_pack.py:210)"
+        ],
+        "limit": "Selection proves intended inclusion; final installed archive and upgrade import smoke remain package qualification work."
+      },
+      "final_challenge": {
+        "challenge": "The previous wave closed with broad local green evidence: are these claims merely a demand to rerun tests?",
+        "answer": "The runtime-cause loss and mixed-generation snapshot are demonstrated behavior failures; the leaked exception-path connection is also demonstrated locally. Native release qualification is an explicitly outstanding gate. Use focused repair replay and real native package evidence. Do not promote the handle-lifetime defect into a proven Windows cutover failure without native execution."
+      },
+      "evidence_used": [
+        "/tmp/compat-security.json: 107 migration tests, safe POSIX permission/alias probes, native limitations",
+        "/tmp/compat-qa.json: 45 graph reader and 163 setup tests, symlink capability fault injection",
+        "/tmp/compat-reality.json: typed runtime/storage errors collapse to graph-not-ready via public path",
+        "Parent-provided final architecture evidence: retained-traceback connection lifetime with explicit-close control; real two-connection old-payload/new-manifest interleaving with BEGIN old/old control. Architecture report will supply detailed anchors."
+      ],
+      "limitations": [
+        "No independent native Windows, Linux, Intel macOS or WSL2 execution in this seat.",
+        "No actual package built or installed.",
+        "No new independent product defect asserted beyond fixed-seat findings.",
+        "Repository unchanged; temporary report only."
+      ]
+    }
+  },
+  "source_edits": false,
+  "native_execution": "macOS ARM64 only; Windows capability/errors simulated where stated; Linux and Intel macOS not executed",
+  "package_built": false
+}

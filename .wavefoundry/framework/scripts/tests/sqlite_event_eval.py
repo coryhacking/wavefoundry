@@ -20,6 +20,30 @@ import sys
 import time
 import threading
 
+
+def _index_paths():
+    """Resolve the owned database names from the single definition."""
+    import importlib.util as _util
+    spec = _util.spec_from_file_location(
+        "index_paths", Path(__file__).resolve().parents[1] / "index_paths.py")
+    module = _util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _owned_index_names():
+    paths = _index_paths()
+    names = []
+    for stem in (paths.INDEX_DATABASE_FILENAME, paths.LEGACY_INDEX_DATABASE_FILENAME):
+        base = Path(stem)
+        names += [base.name] + [p.name for p in paths.sidecar_paths(base)]
+    return names
+
+
+def _index_database(index_dir):
+    return _index_paths().runtime_database_path(index_dir)
+
+
 from sqlite_update_eval import distribution
 
 
@@ -109,13 +133,13 @@ def run(args):
     if root.exists():
         raise RuntimeError("Use a new disposable output directory")
     shutil.copytree(args.source.resolve(), root, ignore=shutil.ignore_patterns(
-        "index-state.sqlite", "index-state.sqlite-wal", "index-state.sqlite-shm",
+        *_owned_index_names(),
         "index-build.lock", "sqlite-migration.json", "upgrade.lock",
         "upgrade-in-progress.json", "__pycache__"))
     index_dir = root / ".wavefoundry/index"
-    source_conn = apsw.Connection(str(args.source.resolve() / ".wavefoundry/index/index-state.sqlite"),
+    source_conn = apsw.Connection(str(_index_database(args.source.resolve() / ".wavefoundry/index")),
                                  flags=apsw.SQLITE_OPEN_READONLY)
-    dest_conn = apsw.Connection(str(index_dir / "index-state.sqlite"))
+    dest_conn = apsw.Connection(str(_index_database(index_dir)))
     try:
         with dest_conn.backup("main", source_conn, "main") as backup:
             while not backup.done:

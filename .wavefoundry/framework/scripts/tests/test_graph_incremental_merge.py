@@ -32,8 +32,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import index_paths  # noqa: E402 — one definition of the shared database name
 
 
 def _load_module(name: str, filename: str):
@@ -46,6 +50,24 @@ def _load_module(name: str, filename: str):
 
 def load_graph_indexer():
     return _load_module("graph_indexer", "graph_indexer.py")
+
+
+def load_index_state_store():
+    import index_state_store
+
+    return index_state_store
+
+
+def load_sqlite_runtime():
+    import sqlite_runtime
+
+    return sqlite_runtime
+
+
+def load_graph_store():
+    import graph_store
+
+    return graph_store
 
 
 # ---------------------------------------------------------------------------
@@ -204,111 +226,280 @@ class _IncrementalMergeBase(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class _SharedStore:
+    """Open the graph state reader on a real shared index connection.
+
+    Wave 1xny6: ``GraphStateStore`` no longer opens anything -- it reads
+    through the caller's ``sqlite_runtime`` connection. Tests therefore open
+    an ``IndexStateStore`` the way the build coordinator does and hand its
+    connection over, which is also what makes the single-binding rule
+    testable: there is no second SQLite library anywhere in this path.
+    """
+
+    def __init__(self, mod, index_dir: Path, **kwargs):
+        self.mod = mod
+        defaults = {"layer": "project", "walker_version": "1", "chunker_version": "1"}
+        defaults.update(kwargs)
+        self.iss = load_index_state_store()
+        self.state = self.iss.IndexStateStore(index_dir)
+        self.store = mod.GraphStateStore(self.state._conn, **defaults)
+
+    @property
+    def conn(self):
+        return self.state._conn
+
+    def publish(self, publication, *, settle: bool = True) -> None:
+        """Apply a prepared publication in one transaction, as a caller does.
+
+        ``settle`` mirrors what a real build does across session boundaries:
+        once the rebuilt rows commit, the owed reset is no longer pending and
+        the next session's version gate passes. Pass ``settle=False`` to keep
+        observing the pre-commit view.
+        """
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            publication.apply(self.conn)
+            self.conn.execute("COMMIT")
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+        if settle:
+            self.store.reset_pending = False
+
+    def close(self):
+        self.store.close()
+        self.state.close()
+
+
+def make_publication(mod, *, layer="project", **kwargs):
+    """A minimal GraphPublication for store-level unit tests."""
+    return mod.GraphPublication(layer=layer, **kwargs)
+
+
+def file_publication(mod, store, puts: dict, deletes=(), meta=None):
+    """Publish file-extraction rows the way ``_prepare_publication`` would."""
+    return mod.GraphPublication(
+        layer="project",
+        file_puts={
+            rel: (str(rec.get("source_hash") or ""), mod._encode_state_record(rec))
+            for rel, rec in puts.items()
+        },
+        file_deletes=list(deletes),
+        meta=meta if meta is not None else dict(store._expected_versions()),
+    )
+
+
 class GraphStateStoreTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_graph_indexer()
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmp.name) / "graph" / "project-graph-state.sqlite"
+        self.index_dir = Path(self.tmp.name) / ".wavefoundry" / "index"
+        self.shared = _SharedStore(self.mod, self.index_dir)
+        self.store = self.shared.store
 
     def tearDown(self):
+        try:
+            self.shared.close()
+        except Exception:
+            pass
         self.tmp.cleanup()
 
-    def _store(self, **kwargs):
-        defaults = {"layer": "project", "walker_version": "1", "chunker_version": "1"}
-        defaults.update(kwargs)
-        return self.mod.GraphStateStore(self.path, **defaults)
-
     def test_put_get_delete_iterate_roundtrip(self):
-        store = self._store()
-        store.ensure_current()
+        self.store.ensure_current()
         record_a = {"source_hash": "ha", "artifact": {"kind": "code", "path": "a.py", "nodes": [], "edges": []}}
         record_b = {"source_hash": "hb", "artifact": {"kind": "doc", "path": "b.md"}}
-        store.apply_build(puts={"a.py": record_a, "b.md": record_b}, deletes=[], blobs={}, meta={})
-        self.assertEqual(store.get_record("a.py"), record_a)
-        self.assertEqual(store.paths_with_hashes(), {"a.py": "ha", "b.md": "hb"})
-        self.assertEqual(dict(store.iter_records()), {"a.py": record_a, "b.md": record_b})
-        store.apply_build(puts={}, deletes=["a.py"], blobs={}, meta={})
-        self.assertIsNone(store.get_record("a.py"))
-        self.assertEqual(store.paths_with_hashes(), {"b.md": "hb"})
-        store.close()
+        self.shared.publish(file_publication(
+            self.mod, self.store, {"a.py": record_a, "b.md": record_b}))
+        self.assertEqual(self.store.get_record("a.py"), record_a)
+        self.assertEqual(self.store.paths_with_hashes(), {"a.py": "ha", "b.md": "hb"})
+        self.assertEqual(dict(self.store.iter_records()), {"a.py": record_a, "b.md": record_b})
+        self.shared.publish(file_publication(self.mod, self.store, {}, deletes=["a.py"]))
+        self.assertIsNone(self.store.get_record("a.py"))
+        self.assertEqual(self.store.paths_with_hashes(), {"b.md": "hb"})
 
     def test_record_bytes_are_gzip_compact_json(self):
-        store = self._store()
-        store.ensure_current()
+        self.store.ensure_current()
         record = {"source_hash": "h", "artifact": {"kind": "code"}}
-        store.apply_build(puts={"a.py": record}, deletes=[], blobs={}, meta={})
-        raw = store._conn.execute("SELECT record FROM files WHERE path='a.py'").fetchone()[0]
+        self.shared.publish(file_publication(self.mod, self.store, {"a.py": record}))
+        raw = self.shared.conn.execute(
+            "SELECT record FROM graph_file_state WHERE path='a.py'").fetchone()[0]
         self.assertEqual(bytes(raw[:2]), b"\x1f\x8b", "record blob must be gzip")
         self.assertEqual(self.mod._decode_state_record(raw), record)
-        store.close()
 
-    def test_version_mismatch_resets_whole_store(self):
-        store = self._store()
-        store.ensure_current()
-        store.apply_build(
-            puts={"a.py": {"source_hash": "h", "artifact": {}}},
-            deletes=[],
-            blobs={"merge_state": {"format": "1"}},
-            meta={},
+    def test_graph_meta_is_namespaced_and_never_collides_with_the_semantic_pin(self):
+        """The store shares `meta` with the semantic store; a bare
+        `store_schema_version` write would overwrite the resident schema pin
+        and make the next open refuse the whole database."""
+        self.store.ensure_current()
+        self.shared.publish(file_publication(self.mod, self.store, {}))
+        resident = self.shared.conn.execute(
+            "SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+        self.assertEqual(resident[0], load_index_state_store().STATE_STORE_SCHEMA_VERSION)
+        self.assertEqual(
+            self.store.meta_all()["store_schema_version"],
+            self.mod.GRAPH_STORE_SCHEMA_VERSION,
         )
-        store.close()
-        # Reopen with a different walker version: whole-store invalidation.
-        store2 = self._store(walker_version="2")
-        self.assertFalse(store2.versions_current())
-        store2.ensure_current()
-        self.assertEqual(store2.paths_with_hashes(), {})
-        self.assertIsNone(store2.get_blob("merge_state"))
-        self.assertTrue(store2.versions_current())
-        store2.close()
+        self.assertNotEqual(resident[0], self.mod.GRAPH_STORE_SCHEMA_VERSION)
 
-    def test_corrupted_database_file_resets_loudly(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_bytes(b"this is not a sqlite database at all........")
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            store = self._store()
-            store.ensure_current()
-        self.assertIn("resetting store", stderr.getvalue())
-        self.assertEqual(store.paths_with_hashes(), {})
-        store.close()
+    def test_version_mismatch_defers_the_reset_to_the_publication_transaction(self):
+        """A builder/walker bump must not erase the readable generation at
+        session open; the previous rows stay queryable until the rebuilt rows
+        commit (wave 1xny6, Graph extraction row)."""
+        self.store.ensure_current()
+        record = {"source_hash": "h", "artifact": {}}
+        self.shared.publish(file_publication(self.mod, self.store, {"a.py": record}))
+        self.shared.close()
+
+        shared2 = _SharedStore(self.mod, self.index_dir, walker_version="2")
+        self.addCleanup(shared2.close)
+        store2 = shared2.store
+        self.assertFalse(store2.versions_current())
+        self.assertFalse(store2.ensure_current())
+        self.assertTrue(store2.reset_pending)
+        # The stale generation reads as empty to the MERGE ...
+        self.assertEqual(store2.paths_with_hashes(), {})
+        self.assertIsNone(store2.read_merge_state())
+        # ... but is still physically present for every other reader.
+        rows = shared2.conn.execute("SELECT COUNT(*) FROM graph_file_state").fetchone()[0]
+        self.assertEqual(rows, 1, "the previous generation must stay readable")
+
+        # The reset lands only when the rebuilt rows commit.
+        plan = self.mod.GraphPublication(
+            layer="project", reset=True,
+            file_puts={"b.py": ("h2", self.mod._encode_state_record(record))},
+            meta=dict(store2._expected_versions()),
+        )
+        shared2.publish(plan, settle=False)
+        self.assertEqual(
+            dict(shared2.conn.execute("SELECT path, source_hash FROM graph_file_state")),
+            {"b.py": "h2"},
+        )
+        store2.reset_pending = False
+        self.assertTrue(store2.versions_current())
+
+    def test_failed_reset_publication_leaves_the_previous_generation_intact(self):
+        self.store.ensure_current()
+        record = {"source_hash": "h", "artifact": {}}
+        self.shared.publish(file_publication(self.mod, self.store, {"a.py": record}))
+        plan = self.mod.GraphPublication(
+            layer="project", reset=True,
+            file_puts={"b.py": ("h2", self.mod._encode_state_record(record))},
+            meta=dict(self.store._expected_versions()),
+        )
+        original = plan.apply
+
+        def _boom(conn):
+            original(conn)
+            raise RuntimeError("injected fault after the scoped reset")
+
+        plan.apply = _boom
+        with self.assertRaises(RuntimeError):
+            self.shared.publish(plan)
+        self.assertEqual(
+            dict(self.shared.conn.execute("SELECT path, source_hash FROM graph_file_state")),
+            {"a.py": "h"},
+            "a failed attempt must not publish, not even its reset",
+        )
+
+    def test_busy_open_propagates_instead_of_deleting_the_store(self):
+        """Memory 1wys2-mem: treating a busy timeout as corruption once
+        destroyed a healthy store. The delete-and-recreate arm is gone; the
+        open is `IndexStateStore._open`, which preserves the file and lets the
+        wait condition surface."""
+        sqlite_runtime = load_sqlite_runtime()
+        iss = load_index_state_store()
+        path = iss.state_store_path(self.index_dir)
+        size_before = path.stat().st_size
+        blocker = sqlite_runtime.connect(path)
+        blocker.execute("BEGIN EXCLUSIVE")
+        blocker.execute(
+            "INSERT INTO meta (key, value) VALUES ('1xny6-probe','1') "
+            "ON CONFLICT(key) DO UPDATE SET value='1'")
+        try:
+            with self.assertRaises(Exception) as ctx:
+                other = iss.IndexStateStore(self.index_dir)
+                # _create_tables writes; the held EXCLUSIVE lock blocks it.
+                other._conn.execute("BEGIN IMMEDIATE")
+            self.assertNotIsInstance(ctx.exception, sqlite_runtime.CorruptionError or ())
+        finally:
+            blocker.execute("ROLLBACK")
+            blocker.close()
+        self.assertTrue(path.exists(), "a busy store must never be deleted")
+        self.assertGreaterEqual(path.stat().st_size, size_before)
+
+    def test_structural_corruption_returns_the_typed_recovery_response(self):
+        sqlite_runtime = load_sqlite_runtime()
+        iss = load_index_state_store()
+        self.shared.close()
+        path = iss.state_store_path(self.index_dir)
+        for suffix in ("-wal", "-shm"):
+            Path(str(path) + suffix).unlink(missing_ok=True)
+        path.write_bytes(b"this is not a sqlite database at all........")
+        with self.assertRaises((sqlite_runtime.StorageRecoveryRequired,) + tuple(sqlite_runtime.CorruptionError)):
+            iss.IndexStateStore(self.index_dir)
+        self.assertTrue(path.exists(), "a corrupt store is preserved, never unlinked")
+        self.shared = _SharedStore.__new__(_SharedStore)  # tearDown guard
 
     def test_io_counters_track_record_granularity(self):
-        store = self._store()
-        store.ensure_current()
-        store.apply_build(
-            puts={"a.py": {"source_hash": "h", "artifact": {}}, "b.py": {"source_hash": "h2", "artifact": {}}},
-            deletes=[],
-            blobs={},
-            meta={},
-        )
-        self.assertEqual(store.record_writes, 2)
-        store.get_record("a.py")
-        self.assertEqual(store.record_reads, 1)
+        self.store.ensure_current()
+        self.shared.publish(file_publication(self.mod, self.store, {
+            "a.py": {"source_hash": "h", "artifact": {}},
+            "b.py": {"source_hash": "h2", "artifact": {}},
+        }))
+        self.store.get_record("a.py")
+        self.assertEqual(self.store.record_reads, 1)
         # Manifest reads never count as record I/O.
-        store.paths_with_hashes()
-        self.assertEqual(store.record_reads, 1)
-        store.apply_build(puts={}, deletes=["a.py", "b.py"], blobs={}, meta={})
-        self.assertEqual(store.record_deletes, 2)
-        store.close()
+        self.store.paths_with_hashes()
+        self.assertEqual(self.store.record_reads, 1)
+
+    def test_digest_renderer_separates_values_that_differ_only_by_type(self):
+        """The row digest decides whether an owner's rows are rewritten. A
+        renderer without type tags would hash ``True`` and ``"True"``
+        identically and silently keep the stale JSON attributes."""
+        render = self.mod._render_for_digest
+        self.assertNotEqual(render({"a": True}), render({"a": "True"}))
+        self.assertNotEqual(render({"a": 1}), render({"a": "1"}))
+        self.assertNotEqual(render({"a": None}), render({"a": "None"}))
+        # Order-independent: the same mapping renders identically.
+        self.assertEqual(render({"a": 1, "b": 2}), render({"b": 2, "a": 1}))
+
+    def test_unpublished_generation_is_never_trusted_as_a_fingerprint(self):
+        """`graph_rows_state` is written by the transaction that writes the
+        rows. Without the gate a fingerprint left behind by an attempt that
+        never committed its rows would read as a published generation."""
+        published = self.mod.graph_published_fingerprint(
+            {"graph_rows_state": "published", "payload_fingerprint": "fp"})
+        self.assertEqual(published, "fp")
+        for meta in (
+            {"payload_fingerprint": "fp"},
+            {"graph_rows_state": "pending", "payload_fingerprint": "fp"},
+            {"graph_rows_state": "published"},
+        ):
+            self.assertEqual(self.mod.graph_published_fingerprint(meta), "")
 
     def test_read_state_builder_version_probe(self):
-        index_dir = Path(self.tmp.name) / "idx"
+        index_dir = Path(self.tmp.name) / "idx2"
         graph_dir = index_dir / "graph"
         graph_dir.mkdir(parents=True)
         # Nothing present: unknown.
         self.assertEqual(self.mod.read_state_builder_version(index_dir), "")
-        # Legacy fallback.
+        # Legacy monolithic fallback for pre-upgrade repositories.
         (graph_dir / "project-graph-state.json").write_text(
             json.dumps({"builder_version": "7"}), encoding="utf-8"
         )
         self.assertEqual(self.mod.read_state_builder_version(index_dir), "7")
-        # SQLite store takes precedence once present.
-        store = self.mod.GraphStateStore(
-            graph_dir / "project-graph-state.sqlite",
-            layer="project", walker_version="1", chunker_version="1",
+        # The resident copy in the shared database takes precedence, and it is
+        # the CURRENT filename that carries it (wave 1xny6).
+        shared = _SharedStore(self.mod, index_dir)
+        self.addCleanup(shared.close)
+        shared.publish(file_publication(self.mod, shared.store, {}))
+        self.assertTrue(index_paths.index_database_path(index_dir).is_file())
+        (graph_dir / "project-graph-state.json").write_text(
+            json.dumps({"builder_version": "stale-retired-artifact"}), encoding="utf-8"
         )
-        store.ensure_current()
-        store.close()
+        # An EMPTY return on a healthy post-cutover store is a failure, not a
+        # fail-safe: the version-staleness rebuild would silently stop firing.
+        self.assertNotEqual(self.mod.read_state_builder_version(index_dir), "")
         self.assertEqual(
             self.mod.read_state_builder_version(index_dir),
             self.mod.GRAPH_BUILDER_VERSION,
@@ -665,21 +856,30 @@ class DepthSwapDeltaKeyTests(_IncrementalMergeBase):
 
 class VersionAndMigrationTests(_IncrementalMergeBase):
     def _store_path(self) -> Path:
-        return self.driver.index_dir / "graph" / "project-graph-state.sqlite"
+        return load_index_state_store().state_store_path(self.driver.index_dir)
 
     def _legacy_path(self) -> Path:
         return self.driver.index_dir / "graph" / "project-graph-state.json"
+
+    def _poke_graph_meta(self, key: str, value: str) -> None:
+        iss = load_index_state_store()
+        store = iss.IndexStateStore(self.driver.index_dir)
+        try:
+            with store._conn:
+                store._conn.execute(
+                    "UPDATE meta SET value=? WHERE key=?",
+                    (value, load_graph_indexer().GRAPH_META_PREFIX + key),
+                )
+        finally:
+            store.close()
 
     def test_builder_version_mismatch_forces_full_reextract(self):
         self.driver.write("a.py", "def alpha():\n    return 1\n")
         self.driver.write("b.py", "def run():\n    alpha()\n")
         first = self.driver.build_incremental(set(self.driver.files))
         self.assertTrue(first.get("nodes"))
-        # Poke an older builder_version into the store meta.
-        conn = sqlite3.connect(str(self._store_path()))
-        with conn:
-            conn.execute("UPDATE meta SET value='0' WHERE key='builder_version'")
-        conn.close()
+        # Poke an older builder_version into the graph meta namespace.
+        self._poke_graph_meta("builder_version", "0")
         # A build with NO changed files must still recover the full corpus
         # (whole-store invalidation → empty state → corpus expansion).
         payload = self.driver.build_incremental(set())
@@ -703,7 +903,7 @@ class VersionAndMigrationTests(_IncrementalMergeBase):
             payload = self.driver.build_incremental(set(self.driver.files))
         self.assertIn("legacy monolithic graph state discarded", stderr.getvalue())
         self.assertFalse(legacy.exists(), "legacy state must be discarded")
-        self.assertTrue(self._store_path().exists(), "store must be seeded")
+        self.assertTrue(self._store_path().exists(), "shared index database must be seeded")
         self.assertTrue(payload.get("nodes"))
         # Second build: no legacy file, no discard message — idempotent.
         stderr2 = io.StringIO()
@@ -719,100 +919,120 @@ class VersionAndMigrationTests(_IncrementalMergeBase):
 
 
 class CrashConsistencyTests(_IncrementalMergeBase):
+    """One publication transaction means one crash window (wave 1xny6).
+
+    Before this wave the graph published in three steps -- store commit,
+    payload file write, binding stat commit -- and each gap had its own
+    recovery. The rows, the merge fragments and the published fingerprint now
+    commit together with the semantic rows, so there is exactly one window:
+    either the transaction committed or it did not. The derived artifacts are
+    written afterwards and cannot un-publish anything.
+    """
+
     def _seed(self):
         self.driver.write("pkg_a/definer.py", "def helper():\n    return 1\n")
         self.driver.write("pkg_a/caller.py", "def run():\n    helper()\n")
         return self.driver.build_incremental(set(self.driver.files))
 
-    def test_abort_inside_store_transaction_rolls_back_cleanly(self):
-        """Interrupted between per-file writes: the transaction aborts whole,
-        the previous state stays intact, and the next build recovers."""
+    def _graph_state(self):
+        iss = load_index_state_store()
+        conn = iss.open_read_only(self.driver.index_dir)
+        try:
+            return {
+                "files": dict(conn.execute("SELECT path, source_hash FROM graph_file_state")),
+                "nodes": conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0],
+                "edges": conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0],
+                "fingerprint": (conn.execute(
+                    "SELECT value FROM meta WHERE key=?",
+                    (self.mod.GRAPH_META_PREFIX + "payload_fingerprint",),
+                ).fetchone() or [""])[0],
+            }
+        finally:
+            conn.close()
+
+    def test_abort_inside_publication_transaction_rolls_back_cleanly(self):
+        """An injected fault mid-apply aborts the whole transaction: graph
+        rows, extraction state and the published fingerprint all stay at the
+        previous generation, and the next build recovers."""
         self._seed()
-        conn = sqlite3.connect(str(self.driver.index_dir / "graph" / "project-graph-state.sqlite"))
-        before = dict(conn.execute("SELECT path, source_hash FROM files"))
-        conn.close()
+        before = self._graph_state()
 
         self.driver.write("pkg_a/definer.py", "def helper():\n    return 2\n")
-        original = self.mod._encode_state_record
+        original = self.mod.GraphPublication.apply
         calls = {"n": 0}
 
-        def _boom(payload):
+        def _boom(pub_self, conn):
             calls["n"] += 1
+            original(pub_self, conn)
             raise RuntimeError("injected mid-transaction fault")
 
-        self.mod._encode_state_record = _boom
+        self.mod.GraphPublication.apply = _boom
         try:
             with self.assertRaises(RuntimeError):
                 self.driver.build_incremental({"pkg_a/definer.py"})
         finally:
-            self.mod._encode_state_record = original
-        self.assertGreater(calls["n"], 0)
+            self.mod.GraphPublication.apply = original
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(self._graph_state(), before,
+                         "a failed attempt must publish nothing at all")
 
-        conn = sqlite3.connect(str(self.driver.index_dir / "graph" / "project-graph-state.sqlite"))
-        after = dict(conn.execute("SELECT path, source_hash FROM files"))
-        conn.close()
-        self.assertEqual(before, after, "aborted transaction must roll back completely")
-
-        # Next build (same pending change) succeeds and equals the oracle.
         payload = self.driver.build_incremental({"pkg_a/definer.py"})
         self.assert_equivalent(payload, self.driver.build_oracle(), "after rollback recovery")
 
-    def test_crash_between_store_commit_and_payload_write_degrades_loudly(self):
+    def test_source_change_under_prepared_rows_refuses_to_publish(self):
+        """The in-transaction recheck is (size, mtime_ns) only -- no hashing
+        under the write lock -- and a file that moved between preparation and
+        the lock aborts the attempt instead of publishing rows that disagree
+        with disk."""
+        self._seed()
+        before = self._graph_state()
+        self.driver.write("pkg_a/definer.py", "def helper():\n    return 5\n")
+
+        original = self.mod.GraphPublication.recheck_sources
+        target = self.root / "pkg_a" / "definer.py"
+
+        def _mutate(pub_self):
+            target.write_text("def helper():\n    return 55555\n", encoding="utf-8")
+            os.utime(target, ns=(0, 0))
+            return original(pub_self)
+
+        self.mod.GraphPublication.recheck_sources = _mutate
+        try:
+            with self.assertRaises(self.mod.GraphSourceChanged):
+                self.driver.build_incremental({"pkg_a/definer.py"})
+        finally:
+            self.mod.GraphPublication.recheck_sources = original
+        self.assertEqual(self._graph_state(), before,
+                         "a moved source must abort the attempt, not publish it")
+
+    def test_no_derived_artifact_is_written_and_none_is_needed(self):
+        """Wave 1xny6 lane L6b retired the derived artifact and its writer.
+
+        The pre-change pair here injected a write failure and then deleted the
+        file out of band, proving neither forced a full re-merge. There is now
+        no file at all: the build must write none, must not create the retired
+        folder, and the next build must still take the zero-change fast path
+        rather than the recovery the old three-step publish owed.
+        """
         self._seed()
         self.driver.write("pkg_a/definer.py", "def helper():\n    return 3\n")
-        original = self.mod._write_json
-        graph_name = "project-graph.json"
+        with patch.object(self.mod, "_write_json",
+                          side_effect=AssertionError("a derived graph artifact was written")):
+            self.driver.build_incremental({"pkg_a/definer.py"})
+        self.assertFalse((self.driver.index_dir / "graph").exists(),
+                         "the build recreated the retired graph folder")
 
-        def _boom(path, payload):
-            if path.name == graph_name:
-                raise RuntimeError("injected crash before payload write")
-            return original(path, payload)
-
-        self.mod._write_json = _boom
-        try:
-            with self.assertRaises(RuntimeError):
-                self.driver.build_incremental({"pkg_a/definer.py"})
-        finally:
-            self.mod._write_json = original
-
-        # Store committed but payload was never rewritten: the binding is
-        # pending → next build detects it, degrades loudly to a full re-merge
-        # from the (newer) rows, and converges with the oracle.
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            payload = self.driver.build_incremental(set())
-        self.assertIn("full re-merge", stderr.getvalue())
-        self.assert_equivalent(payload, self.driver.build_oracle(), "after payload-write crash")
-
-    def test_crash_before_binding_stat_commit_degrades_loudly(self):
-        self._seed()
-        self.driver.write("pkg_a/definer.py", "def helper():\n    return 4\n")
-        original = self.mod.GraphStateStore.set_meta
-
-        def _boom(store_self, updates):
-            raise RuntimeError("injected crash before binding commit")
-
-        self.mod.GraphStateStore.set_meta = _boom
-        try:
-            with self.assertRaises(RuntimeError):
-                self.driver.build_incremental({"pkg_a/definer.py"})
-        finally:
-            self.mod.GraphStateStore.set_meta = original
+        after = self._graph_state()
+        self.assertEqual(after["files"]["pkg_a/definer.py"],
+                         self.driver._meta()["pkg_a/definer.py"]["hash"],
+                         "the committed rows are the published graph")
 
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             payload = self.driver.build_incremental(set())
-        self.assertIn("full re-merge", stderr.getvalue())
-        self.assert_equivalent(payload, self.driver.build_oracle(), "after binding-commit crash")
-
-    def test_payload_deleted_out_of_band_recovers_loudly(self):
-        self._seed()
-        (self.driver.index_dir / "graph" / "project-graph.json").unlink()
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            payload = self.driver.build_incremental(set())
-        self.assertIn("full re-merge", stderr.getvalue())
-        self.assert_equivalent(payload, self.driver.build_oracle(), "after payload deletion")
+        self.assertNotIn("full re-merge", stderr.getvalue())
+        self.assertEqual((payload.get("merge_stats") or {}).get("mode"), "zero-change")
+        self.assert_equivalent(payload, self.driver.build_oracle(), "with no derived artifact")
 
 
 # ---------------------------------------------------------------------------
@@ -821,48 +1041,154 @@ class CrashConsistencyTests(_IncrementalMergeBase):
 
 
 class DeltaCostTests(_IncrementalMergeBase):
+    def _graph_row_census(self) -> dict:
+        iss = load_index_state_store()
+        conn = iss.open_read_only(self.driver.index_dir)
+        try:
+            return {
+                table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in load_graph_store().GRAPH_TABLES
+            }
+        finally:
+            conn.close()
+
+    def _graph_rows_by_owner(self) -> dict:
+        """(nodes, edges, fragment bytes, rows digest) per owning file."""
+        iss = load_index_state_store()
+        conn = iss.open_read_only(self.driver.index_dir)
+        try:
+            out: dict = {}
+            for owner, count in conn.execute(
+                "SELECT source_file, COUNT(*) FROM graph_nodes GROUP BY source_file"
+            ):
+                out.setdefault(str(owner), {})["nodes"] = count
+            for owner, count in conn.execute(
+                "SELECT source_file, COUNT(*) FROM graph_edges GROUP BY source_file"
+            ):
+                out.setdefault(str(owner), {})["edges"] = count
+            for path, name, fragment in conn.execute(
+                "SELECT path, name, fragment FROM graph_merge_state"
+            ):
+                out.setdefault(str(path), {})[str(name)] = bytes(fragment)
+            return out
+        finally:
+            conn.close()
+
     def test_zero_change_build_rewrites_nothing(self):
         self.driver.write("a.py", "def alpha():\n    return 1\n")
         self.driver.write("b.py", "def run():\n    alpha()\n")
         self.driver.build_incremental(set(self.driver.files))
-        graph_path = self.driver.index_dir / "graph" / "project-graph.json"
-        store_path = self.driver.index_dir / "graph" / "project-graph-state.sqlite"
-        payload_stat = graph_path.stat().st_mtime_ns
-        store_size = store_path.stat().st_size
+        retired = self.driver.index_dir / "graph"
+        rows_before = self._graph_row_census()
 
         payload = self.driver.build_incremental(set())
         stats = payload.get("merge_stats") or {}
         self.assertEqual(stats.get("mode"), "zero-change")
         self.assertEqual(stats.get("state_reads"), 0)
         self.assertEqual(stats.get("state_writes"), 0)
-        self.assertEqual(stats.get("blob_writes"), 0, "zero-change must not rewrite the sidecar")
+        self.assertEqual(stats.get("blob_writes"), 0, "zero-change must not rewrite a fragment")
         self.assertEqual(stats.get("blob_bytes"), 0)
-        self.assertEqual(
-            graph_path.stat().st_mtime_ns, payload_stat, "zero-change build must not rewrite the payload"
+        self.assertFalse(
+            retired.exists(),
+            "zero-change build recreated the retired graph folder",
         )
-        self.assertEqual(store_path.stat().st_size, store_size)
+        self.assertEqual(self._graph_row_census(), rows_before)
 
     def test_one_file_edit_touches_only_changed_rows(self):
         for k in range(6):
             self.driver.write(f"pkg_a/mod_{k}.py", f"def fn_{k}():\n    return {k}\n")
         self.driver.build_incremental(set(self.driver.files))
 
-        self.driver.write("pkg_a/mod_3.py", "def fn_3():\n    return 33\n")
+        # A change that MOVES the graph (a new symbol), so the changed file's
+        # fragment and rows genuinely differ from the published ones.
+        self.driver.write("pkg_a/mod_3.py", "def fn_3():\n    return 33\n\n\ndef fn_3_extra():\n    return 3\n")
         payload = self.driver.build_incremental({"pkg_a/mod_3.py"})
         stats = payload.get("merge_stats") or {}
         self.assertEqual(stats.get("mode"), "incremental")
         self.assertEqual(stats.get("state_reads"), 0, "no unchanged row may be read")
         self.assertEqual(stats.get("state_writes"), 1, "exactly the changed row is written")
         self.assertEqual(stats.get("files_changed"), 1)
-        # The merge_state sidecar is O(graph) per changed build BY DESIGN
-        # (it is the persistent merged map); the counters must make that
-        # term visible rather than hiding it behind row counts
-        # (delivery-review finding: `state io: writes=1` under-reported the
-        # dominant byte term).
-        self.assertEqual(stats.get("blob_reads"), 1, "sidecar read must be counted")
-        self.assertEqual(stats.get("blob_writes"), 1, "sidecar rewrite must be counted")
-        self.assertGreater(stats.get("blob_bytes"), 0, "sidecar bytes must be visible")
+        # The merge state is PER FILE now (wave 1xny6). Every fragment is READ
+        # to assemble the whole graph -- that is inherent to producing a whole
+        # payload -- but only the changed file's fragment is WRITTEN BACK. The
+        # counters keep both terms visible: the read is O(corpus), the write
+        # is O(changed). Before this wave the write was a single O(graph) blob.
+        self.assertEqual(stats.get("blob_reads"), 6, "every fragment is read to assemble")
+        self.assertEqual(stats.get("blob_writes"), 1, "only the changed fragment is written")
+        self.assertGreater(stats.get("blob_bytes"), 0, "fragment bytes must be visible")
         self.assert_equivalent(payload, self.driver.build_oracle(), "one-file edit")
+
+    def test_content_only_edit_reuses_compatible_graph_work(self):
+        """A change that leaves the node/edge set alone must not rewrite the
+        file's graph rows or its merge fragment at all (AC-4 reuse)."""
+        for k in range(6):
+            self.driver.write(f"pkg_a/mod_{k}.py", f"def fn_{k}():\n    return {k}\n")
+        self.driver.build_incremental(set(self.driver.files))
+        before = self._graph_rows_by_owner()
+
+        self.driver.write("pkg_a/mod_3.py", "def fn_3():\n    return 33  # same symbols\n")
+        payload = self.driver.build_incremental({"pkg_a/mod_3.py"})
+        stats = payload.get("merge_stats") or {}
+        self.assertEqual(stats.get("blob_writes"), 0,
+                         "an unchanged fragment must not be rewritten")
+        self.assertEqual(self._graph_rows_by_owner(), before,
+                         "compatible graph work must be reused wholesale")
+        self.assert_equivalent(payload, self.driver.build_oracle(), "content-only edit")
+
+    def test_bounded_rows_oracle_one_file_edit_unchanged_callers(self):
+        """AC-4 oracle: after a one-file edit whose callers are unchanged, the
+        rows written to the graph tables are bounded by that file's own nodes
+        and edges plus the affected community members, and every unrelated
+        file's merge-state row is untouched."""
+        for k in range(8):
+            self.driver.write(f"pkg_a/mod_{k}.py", f"def fn_{k}():\n    return {k}\n")
+        self.driver.write(
+            "pkg_a/caller.py",
+            "".join(f"def call_{k}():\n    return fn_{k}()\n\n\n" for k in range(8)),
+        )
+        self.driver.build_incremental(set(self.driver.files))
+        before = self._graph_rows_by_owner()
+
+        edited = "pkg_a/mod_3.py"
+        self.driver.write(edited, "def fn_3():\n    return 33\n\n\ndef fn_3_helper():\n    return 3\n")
+        captured = {}
+        original = self.mod.GraphPublication.apply
+
+        def _capture(pub_self, conn):
+            captured["nodes"] = {o: len(r) for o, r in pub_self.node_rows.items()}
+            captured["edges"] = {o: len(r) for o, r in pub_self.edge_rows.items()}
+            captured["fragments"] = sorted(pub_self.fragment_puts)
+            captured["files"] = sorted(pub_self.file_puts)
+            captured["owner_deletes"] = sorted(pub_self.owner_deletes)
+            return original(pub_self, conn)
+
+        self.mod.GraphPublication.apply = _capture
+        try:
+            payload = self.driver.build_incremental({edited})
+        finally:
+            self.mod.GraphPublication.apply = original
+
+        self.assertEqual(captured["files"], [edited], "only the edited file's state is written")
+        self.assertEqual(captured["fragments"], [edited],
+                         "unrelated files' merge-state rows are untouched")
+        self.assertEqual(captured["owner_deletes"], [], "nothing is retired by an edit")
+        # The rows written belong to the edited file (and possibly the
+        # unowned external/synthetic bucket) -- never to an unchanged caller.
+        written_owners = set(captured["nodes"]) | set(captured["edges"])
+        self.assertTrue(
+            written_owners <= {edited, ""},
+            f"rows written outside the edited file's bounds: {sorted(written_owners)}",
+        )
+        edited_nodes = sum(1 for n in payload["nodes"] if n.get("source_file") == edited)
+        self.assertLessEqual(captured["nodes"].get(edited, 0), edited_nodes + 1)
+
+        after = self._graph_rows_by_owner()
+        untouched = set(before) - written_owners - {edited}
+        self.assertTrue(untouched, "the fixture must contain unrelated owners")
+        for owner in untouched:
+            self.assertEqual(after.get(owner), before.get(owner),
+                             f"unrelated owner rewritten: {owner}")
+        self.assert_equivalent(payload, self.driver.build_oracle(), "bounded-rows oracle")
 
     def test_merge_stats_shape(self):
         self.driver.write("a.py", "def alpha():\n    return 1\n")
@@ -882,9 +1208,12 @@ class DeltaCostTests(_IncrementalMergeBase):
             "blob_bytes",
         ):
             self.assertIn(key, stats)
-        # The persisted payload must NOT carry merge stats.
-        on_disk = self.mod.read_graph_payload(self.root, "project")
-        self.assertNotIn("merge_stats", on_disk)
+        # The PERSISTED payload must NOT carry merge stats. Wave 1xny6 lane
+        # L6b retired the derived JSON artifact, so the persisted payload is
+        # the one rebuilt from the published rows and their header.
+        published = self.mod.read_published_graph_snapshot(self.root, "project")
+        self.assertIsNotNone(published, "the incremental build must have published rows")
+        self.assertNotIn("merge_stats", published["payload"])
 
 
 # ---------------------------------------------------------------------------
@@ -962,7 +1291,10 @@ class FingerprintAnalysisSkipTests(unittest.TestCase):
             stat_before,
             "changed fingerprint must refresh the artifact",
         )
-        payload = self.gc.read_cluster_payload(self.root, "project")
+        # This class drives the no-connection (file) mode, so the artifact it
+        # just wrote is what it must read back. Wave 1xny6 moved the PUBLIC
+        # `read_cluster_payload` onto the published community rows.
+        payload = self.gc._legacy_file_cluster_payload(self.root, "project")
         self.assertEqual(payload.get("input_fingerprint"), "fp-two")
 
     def test_cluster_builder_version_change_recomputes(self):
@@ -1308,19 +1640,28 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
 class LaterCreatedDocTargetTests(_IncrementalMergeBase):
     DOC = "docs/linker.md"
 
+    def _poke_graph_meta(self, index_dir, key: str, value: str) -> None:
+        iss = load_index_state_store()
+        state = iss.IndexStateStore(index_dir)
+        try:
+            with state._conn:
+                state._conn.execute(
+                    "UPDATE meta SET value=? WHERE key=?",
+                    (value, self.mod.GRAPH_META_PREFIX + key),
+                )
+        finally:
+            state.close()
+
     def _stored_unresolved(self):
         # A new connection after each build proves both representations survive
         # session close, including a document pruned from the served graph.
-        store = self.mod.GraphStateStore(
-            self.driver.index_dir / self.mod.GRAPH_DIRNAME / self.mod.GRAPH_STORE_FILENAMES["project"],
-            layer="project", walker_version="1", chunker_version="1",
-        )
+        shared = _SharedStore(self.mod, self.driver.index_dir)
         try:
-            artifact = store.get_record(self.DOC)["artifact"]
-            summary = store.get_blob("merge_state")["files"][self.DOC]
+            artifact = shared.store.get_record(self.DOC)["artifact"]
+            summary = shared.store.read_merge_state()["files"][self.DOC]
             return artifact.get("unresolved_doc_targets", []), summary.get("unresolved_doc_targets", [])
         finally:
-            store.close()
+            shared.close()
 
     def _assert_link(self, payload, target, *, noded):
         ids = {n["id"] for n in payload["nodes"]}
@@ -1433,20 +1774,21 @@ class LaterCreatedDocTargetTests(_IncrementalMergeBase):
         d.build_incremental({self.DOC})
         self.assertEqual(preflight()["pending_docs"], [])
         d.write(target, "cache/\n")
-        graph_dir = d.index_dir / self.mod.GRAPH_DIRNAME
-        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in graph_dir.iterdir()}
+        index_dir = d.index_dir
+        watched = [q for q in index_dir.rglob("*") if q.is_file()]
+        before = {q: (q.read_bytes(), q.stat().st_mtime_ns) for q in watched}
         with patch.object(self.mod.GraphStateStore, "__init__", side_effect=AssertionError("mutating store open")):
             plan = preflight()
             self.assertEqual(preflight(unreadable_dirs={"docs"})["pending_docs"], [])
         self.assertEqual(plan["pending_docs"], [self.DOC])
         self.assertFalse(plan["rebuild_required"])
-        self.assertEqual(set(before), {p.name for p in graph_dir.iterdir()})
-        for p in graph_dir.iterdir():
+        for q in watched:
             # SQLite read transactions touch the SHM reader-lock mapping;
             # durable database/WAL/payload contents and timestamps stay put.
-            if not p.name.endswith("-shm"):
-                self.assertEqual(before[p.name], (p.read_bytes(), p.stat().st_mtime_ns), p.name)
-        with patch.object(self.mod.GraphStateStore, "get_blob", side_effect=AssertionError("duplicate blob read")):
+            if not q.name.endswith("-shm") and not q.name.endswith(".lock"):
+                self.assertEqual(before[q], (q.read_bytes(), q.stat().st_mtime_ns), q.name)
+        with patch.object(self.mod.GraphStateStore, "read_merge_state",
+                          side_effect=AssertionError("duplicate merge-state read")):
             payload = self.mod.update_graph_index(
                 root=d.root, index_dir=d.index_dir, layer="project",
                 files=[d.root / rel for rel in d.files], current_file_meta=d._meta(),
@@ -1455,9 +1797,7 @@ class LaterCreatedDocTargetTests(_IncrementalMergeBase):
             )
         self._assert_link(payload, target, noded=False)
         # A current-store plan cannot override the builder migration reset.
-        store_path = graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]
-        with sqlite3.connect(store_path) as conn:
-            conn.execute("UPDATE meta SET value='50' WHERE key='builder_version'")
+        self._poke_graph_meta(d.index_dir, "builder_version", "50")
         mismatch = preflight()
         self.assertTrue(mismatch["rebuild_required"])
         self.assertIsNone(mismatch["merge_state"])
@@ -1478,11 +1818,16 @@ class LaterCreatedDocTargetTests(_IncrementalMergeBase):
         target = "assets/.gitignore"
         d.write(self.DOC, "[later](/assets/.gitignore)\n")
         d.build_incremental({self.DOC})
-        graph_dir = d.index_dir / self.mod.GRAPH_DIRNAME
-        # Interrupted-state recovery still has the source artifact and a valid
-        # bound payload, but lacks the merge summary needed to prove idleness.
-        with sqlite3.connect(graph_dir / self.mod.GRAPH_STORE_FILENAMES["project"]) as conn:
-            conn.execute("DELETE FROM blobs WHERE key='merge_state'")
+        # Interrupted-state recovery still has the source artifacts and a
+        # published fingerprint, but lacks the merge fragments needed to prove
+        # idleness.
+        iss = load_index_state_store()
+        state = iss.IndexStateStore(d.index_dir)
+        try:
+            with state._conn:
+                state._conn.execute("DELETE FROM graph_merge_state")
+        finally:
+            state.close()
         d.write(target, "cache/\n")
         plan = self.mod.read_pending_doc_link_repairs(
             index_dir=d.index_dir, current_paths=set(d.files),

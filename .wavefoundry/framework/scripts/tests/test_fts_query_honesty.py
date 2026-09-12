@@ -657,7 +657,7 @@ class ProbedServingTests(unittest.TestCase):
     def test_failure_detail_is_bounded_and_repo_relative(self):
         iss_srv = self._server_iss()
         noisy = RuntimeError(
-            f"disk exploded at {self.root}/.wavefoundry/index/index-state.sqlite " + "x" * 2000)
+            f"disk exploded at {self.root}/.wavefoundry/index/index.sqlite " + "x" * 2000)
         with patch.object(iss_srv, "fts_search", side_effect=noisy):
             resp = self._lexical("alpha_handler", table="code")
             serve = self.srv._fts_degraded_serve(self.root, ("code",), "alpha_handler", 5)
@@ -665,7 +665,7 @@ class ProbedServingTests(unittest.TestCase):
         for detail in (resp["data"]["detail"], serve["detail"]):
             self.assertLessEqual(len(detail), self.srv._FTS_DETAIL_CAP)
             self.assertNotIn(str(self.root), detail)
-            self.assertIn(".wavefoundry/index/index-state.sqlite", detail)
+            self.assertIn(".wavefoundry/index/index.sqlite", detail)
         self.assertEqual(serve["failure_reason"], "query_failed")
         self.assertFalse(serve["available"])
 

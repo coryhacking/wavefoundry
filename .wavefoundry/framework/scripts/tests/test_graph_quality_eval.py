@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import graph_cluster  # noqa: E402
 import graph_indexer  # noqa: E402
 import graph_quality_eval as subject  # noqa: E402
+import index_paths  # noqa: E402
 import indexer  # noqa: E402
 import retrieval_eval  # noqa: E402
 
@@ -21,15 +26,15 @@ CORPUS = REPO_ROOT / "docs" / "evals" / "graph-quality-golden.json"
 
 
 def _build(corpus):
-    """Materialize the corpus and build a real graph over it."""
+    """Materialize the corpus and build a real graph over it.
+
+    Wave 1xny6 AC-11: this delegates to the PUBLIC
+    ``graph_quality_eval.build_graph_over_corpus`` rather than re-stating its
+    body, so the tests and the product cannot drift over what "a real build"
+    means. The only thing left here is ownership of the temporary directory.
+    """
     tmp = tempfile.TemporaryDirectory()
-    root = Path(tmp.name)
-    files = subject.materialize(root, corpus)
-    meta = {str(p.relative_to(root)): {"hash": f"h{i}"} for i, p in enumerate(files)}
-    payload = graph_indexer.update_graph_index(
-        root=root, index_dir=root / ".wavefoundry" / "index", layer="project",
-        files=files, current_file_meta=meta, changed=set(meta), removed=set(),
-        walker_version="1", chunker_version="1", verbose=False)
+    _files, payload = subject.build_graph_over_corpus(corpus, Path(tmp.name))
     return tmp, payload
 
 
@@ -1172,6 +1177,289 @@ class ReportSelfContaminationTests(unittest.TestCase):
             [f"--corpus={CORPUS}", f"--report={target}", "--label=post",
              f"--root={REPO_ROOT}"]))
         self.assertFalse(target.exists(), "a refused run must write nothing")
+
+
+# --------------------------------------------------------------------------- #
+# Wave 1xny6 AC-6: the committed graph parity baseline gets a GUARD.
+# --------------------------------------------------------------------------- #
+PARITY_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures" / "graph_parity_baseline_golden_corpus.json"
+)
+
+
+def _canon(value):
+    """The fixture's own recorded canonical form."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha(value) -> str:
+    return hashlib.sha256(_canon(value).encode("utf-8")).hexdigest()
+
+
+def _strip(payload, removed):
+    return {k: v for k, v in payload.items() if k not in removed}
+
+
+def _owner(node_id) -> str:
+    """The source file a node id or edge endpoint belongs to."""
+    return str(node_id).split("::", 1)[0]
+
+
+def _parity_sections(root, files, payload, communities, normalization):
+    """Re-derive the fixture's three compared sections from a fresh build.
+
+    Every rule here is the one the fixture RECORDS: volatile build bookkeeping
+    stripped by name, nodes sorted by ``(id, canonical json)``, edges collapsed
+    into a multiset keyed on the canonical json of the WHOLE edge record with an
+    explicit multiplicity so a lost duplicate is visible, and community order
+    left as the producer emitted it.
+    """
+    nodes = sorted(payload.get("nodes") or [],
+                   key=lambda n: (str(n.get("id") or ""), _canon(n)))
+    edges = list(payload.get("edges") or [])
+    multiset = [{"edge": json.loads(key), "multiplicity": count}
+                for key, count in sorted(Counter(_canon(e) for e in edges).items())]
+    declared = sorted(str(p.relative_to(root)).replace("\\", "/") for p in files)
+    with_nodes = sorted({str(n["source_file"]) for n in nodes if n.get("source_file")})
+    coverage = {
+        "declared_corpus_files": declared,
+        "files_with_extracted_nodes": with_nodes,
+        "files_without_extracted_nodes": sorted(set(declared) - set(with_nodes)),
+        "file_coverage_ratio": (round(len(with_nodes) / len(declared), 4)
+                                if declared else 0.0),
+        "nodes_per_source_file": dict(sorted(Counter(
+            str(n["source_file"]) for n in nodes if n.get("source_file")).items())),
+        "edges_per_source_owner": dict(sorted(Counter(
+            _owner(e.get("source")) for e in edges).items())),
+        "edges_per_relation": dict(sorted(Counter(
+            str(e.get("relation") or "") for e in edges).items())),
+        "edges_per_confidence": dict(sorted(Counter(
+            str(e.get("confidence") or "") for e in edges).items())),
+        "external_endpoints": sorted({str(e.get("target")) for e in edges
+                                      if str(e.get("target")).startswith("external::")}),
+        "graph_bounds": subject.corpus_within_bounds(payload),
+        "scored_relation_triples": sorted(
+            list(triple) for triple in subject.observed_edges(payload)),
+    }
+    graph = {
+        **_strip({k: v for k, v in payload.items() if k not in ("nodes", "edges")},
+                 set(normalization["graph_fields_removed"])),
+        "node_count": len(nodes),
+        "edge_count_with_multiplicity": sum(m["multiplicity"] for m in multiset),
+        "distinct_edge_count": len(multiset),
+        "nodes": nodes,
+        "edge_evidence_multiset": multiset,
+    }
+    clusters = _strip(communities, set(normalization["community_fields_removed"]))
+    if isinstance(clusters.get("betweenness"), dict):
+        clusters["betweenness"] = _strip(
+            clusters["betweenness"], set(normalization["betweenness_fields_removed"]))
+    return {"graph": graph, "extraction_coverage": coverage, "communities": clusters}
+
+
+class GraphParityBaselineFixtureTests(unittest.TestCase):
+    """Wave 1xny6 AC-6: ASSERT the committed pre-change parity baseline.
+
+    ``tests/fixtures/graph_parity_baseline_golden_corpus.json`` was captured
+    from the pre-change builder through exactly the public entries its own
+    ``producer`` block names -- ``graph_quality_eval.build_graph_over_corpus``
+    for the graph and ``graph_cluster.update_graph_clusters`` for the
+    communities. Until this class existed the fixture was evidence with NO
+    guard: it re-derived green by hand and nothing in the suite would have
+    caught a later regression that moved a node identity, dropped a duplicate
+    edge, changed extraction coverage or reshaped community output.
+
+    No skip path, deliberately. The fixture records its corpus by ``sha256``
+    and NOT by content, so there is no recorded copy to rebuild from; embedding
+    one would mean re-capturing a baseline whose file digest is already
+    recorded in the wave's ``runtime-qualification.json``, which is receipt
+    editing. Instead an absent or drifted corpus FAILS here and names which of
+    the two moved. That costs nothing in practice: this module is a framework
+    internal that is never packaged, so it only ever runs in a tree that also
+    carries ``docs/evals/graph-quality-golden.json``.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))
+        if not CORPUS.is_file():
+            return  # reported as a failure by the corpus-identity test below
+        cls.corpus = subject.load_corpus(CORPUS)
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = Path(cls._tmp.name)
+        cls.files, cls.payload = subject.build_graph_over_corpus(cls.corpus, root)
+        index_dir = root / ".wavefoundry" / "index"
+        # Observed BEFORE the cluster pass: the graph build itself publishes
+        # into the shared database and writes no graph folder.
+        cls.store_after_graph_build = sorted(p.name for p in index_dir.iterdir())
+        cls.communities = graph_cluster.update_graph_clusters(
+            root=root, index_dir=index_dir, layer="project",
+            graph_payload=cls.payload)
+        cls.sections = _parity_sections(
+            root, cls.files, cls.payload, cls.communities,
+            cls.fixture["normalization"])
+
+    @classmethod
+    def tearDownClass(cls):
+        tmp = getattr(cls, "_tmp", None)
+        if tmp is not None:
+            tmp.cleanup()
+
+    def _sections(self):
+        sections = getattr(self, "sections", None)
+        if sections is None:
+            self.fail("the parity build did not run; see the corpus-identity test")
+        return sections
+
+    def test_the_corpus_is_the_one_the_baseline_was_captured_from(self):
+        recorded = self.fixture["corpus"]
+        self.assertTrue(
+            CORPUS.is_file(),
+            f"the parity baseline pins {recorded['path']} by sha256 and records no "
+            "copy of it, so an absent corpus is a failure, never a skip")
+        digest = hashlib.sha256(CORPUS.read_bytes()).hexdigest()
+        self.assertEqual(
+            recorded["sha256"], digest,
+            "the evaluation corpus drifted from the one the parity baseline was "
+            "captured over; re-capture the fixture rather than relaxing this")
+        self.assertEqual(recorded["files"], len(self._sections()
+                                                ["extraction_coverage"]
+                                                ["declared_corpus_files"]))
+
+    def test_node_identities_and_attributes_match_the_baseline(self):
+        expected = self.fixture["graph"]["nodes"]
+        actual = self._sections()["graph"]["nodes"]
+        self.assertEqual([n["id"] for n in expected], [n["id"] for n in actual])
+        self.assertEqual(_canon(expected), _canon(actual))
+        self.assertEqual(self.fixture["graph"]["node_count"], len(actual))
+
+    def test_edge_evidence_multiset_matches_including_multiplicity(self):
+        expected = self.fixture["graph"]["edge_evidence_multiset"]
+        actual = self._sections()["graph"]["edge_evidence_multiset"]
+        # Multiplicity first: a silently dropped duplicate is the regression a
+        # plain set comparison cannot see.
+        self.assertEqual([m["multiplicity"] for m in expected],
+                         [m["multiplicity"] for m in actual])
+        self.assertEqual(_canon(expected), _canon(actual))
+        self.assertEqual(self.fixture["graph"]["edge_count_with_multiplicity"],
+                         self._sections()["graph"]["edge_count_with_multiplicity"])
+        self.assertEqual(self.fixture["graph"]["distinct_edge_count"],
+                         self._sections()["graph"]["distinct_edge_count"])
+
+    def test_graph_section_matches_the_baseline_whole(self):
+        # Counts, layer, input fingerprint and the builder/schema versions the
+        # payload carries, on top of the node and edge sections above.
+        self.assertEqual(_canon(self.fixture["graph"]),
+                         _canon(self._sections()["graph"]))
+
+    def test_extraction_coverage_matches_the_baseline(self):
+        expected = self.fixture["extraction_coverage"]
+        actual = self._sections()["extraction_coverage"]
+        for key in sorted(expected):
+            with self.subTest(field=key):
+                self.assertEqual(_canon(expected[key]), _canon(actual.get(key)))
+        self.assertEqual(_canon(expected), _canon(actual))
+
+    def test_community_output_matches_the_baseline(self):
+        expected = self.fixture["communities"]
+        actual = self._sections()["communities"]
+        # Named first so a missing community backend reads as "different
+        # backend" instead of a ten-kilobyte membership diff. The baseline was
+        # captured on igraph+leidenalg with the producer's own seeding; the
+        # label-propagation fallback cannot reproduce it and must not be
+        # silently accepted as parity.
+        self.assertEqual(
+            expected["cluster_algorithm"], actual.get("cluster_algorithm"),
+            "the parity baseline was captured with the "
+            f"{self.fixture['community_seed']['backend']} community backend")
+        self.assertEqual([c["community_id"] for c in expected["communities"]],
+                         [c["community_id"] for c in actual["communities"]])
+        self.assertEqual([c["node_ids"] for c in expected["communities"]],
+                         [c["node_ids"] for c in actual["communities"]])
+        self.assertEqual(_canon(expected["betweenness"]), _canon(actual["betweenness"]))
+        self.assertEqual(_canon(expected), _canon(actual))
+
+    def test_every_recorded_digest_re_derives(self):
+        sections = self._sections()
+        digests = self.fixture["digests"]
+        self.assertEqual(digests["nodes_sha256"], _sha(sections["graph"]["nodes"]))
+        self.assertEqual(digests["edge_evidence_multiset_sha256"],
+                         _sha(sections["graph"]["edge_evidence_multiset"]))
+        self.assertEqual(digests["extraction_coverage_sha256"],
+                         _sha(sections["extraction_coverage"]))
+        self.assertEqual(digests["communities_sha256"], _sha(sections["communities"]))
+        self.assertEqual(digests["body_sha256"], _sha(sections))
+        # The repeatability claim the fixture makes about itself.
+        self.assertEqual(self.fixture["repeatability"]["body_digest"],
+                         digests["body_sha256"])
+
+    def test_the_parity_build_publishes_into_the_shared_store(self):
+        # The parity corpus is built through the product entry, so the baseline
+        # is re-derived against schema-8 storage rather than a retired folder.
+        self.assertEqual([index_paths.RUNTIME_DATABASE_FILENAME],
+                         self.store_after_graph_build)
+
+
+class EvaluatorFailedPublicationRollbackTests(unittest.TestCase):
+    """The evaluator's production publisher rolls back actual SQLite writes.
+
+    This inline corpus keeps bootstrap and rollback coverage independent of
+    the optional repository evaluation corpus and its parity artifacts.
+    """
+
+    def setUp(self):
+        self.corpus = {"files": {"src/a.py":
+            "def helper():\n    return 1\n\ndef caller():\n    return helper()\n"}}
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name).resolve()
+
+    def _graph_row_counts(self):
+        import graph_store
+        import sqlite_runtime
+        path = self.root / ".wavefoundry" / "index" / index_paths.RUNTIME_DATABASE_FILENAME
+        self.assertTrue(path.is_file(), "the production path must bootstrap the shared store")
+        conn = sqlite_runtime.connect(path, read_only=True)
+        try:
+            return {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                    for t in graph_store.GRAPH_TABLES}
+        finally:
+            conn.close()
+
+    def test_inline_corpus_bootstraps_shared_storage(self):
+        subject.build_graph_over_corpus(self.corpus, self.root)
+        self.assertGreater(self._graph_row_counts()["graph_nodes"], 0)
+        self.assertFalse((self.root / ".wavefoundry" / "index" / "graph").exists())
+
+    def test_missing_extraction_result_refuses_publication(self):
+        with patch.object(graph_indexer.GraphIndexSession, "record_file") as record:
+            with self.assertRaisesRegex(RuntimeError, "graph extraction incomplete: src/a.py"):
+                subject.build_graph_over_corpus(self.corpus, self.root)
+        record.assert_called_once()
+        counts = self._graph_row_counts()
+        self.assertEqual({t: 0 for t in counts}, counts)
+
+    def test_a_producer_failure_after_partial_writes_commits_no_graph_rows(self):
+        original = graph_indexer.GraphPublication.apply
+        written = []
+
+        def failing_apply(publication, conn):
+            original(publication, conn)
+            self.assertFalse(conn.get_autocommit(), "writes must share the publisher transaction")
+            written.append(conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0])
+            raise RuntimeError("injected failure after actual graph writes")
+
+        with patch.object(graph_indexer.GraphPublication, "apply", failing_apply):
+            with self.assertRaisesRegex(RuntimeError, "after actual graph writes"):
+                subject.build_graph_over_corpus(self.corpus, self.root)
+
+        self.assertEqual(len(written), 1, "the real publisher must reach the fault")
+        self.assertGreater(written[0], 0, "preparation alone does not prove rollback")
+        counts = self._graph_row_counts()
+        self.assertEqual({t: 0 for t in counts}, counts,
+                         "a failed producer committed graph rows")
+        self.assertFalse((self.root / ".wavefoundry" / "index" / "graph").exists())
 
 
 if __name__ == "__main__":

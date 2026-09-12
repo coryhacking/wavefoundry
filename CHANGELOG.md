@@ -6,6 +6,23 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.24.0]
+
+### Fixed
+
+- **Reliable dashboard controls.** Start, stop and restart work with project paths containing spaces and distinguish successful startup from pending or failed launches. Refused stops leave unrelated processes alone and cannot launch a replacement. Wave `1xq4f`.
+- **Selected-file updates preserve the rest of your index.** Unrelated search and graph results stay intact; requests needing a full rebuild explain why before changing data. Wave `1xq4f`.
+- **Clearer recovery from index failures.** Failed or cancelled builds release database handles, and graph errors explain the runtime or storage issue instead of appearing as missing results. Wave `1xq4f`.
+
+### Changed
+
+- **One local database for search and the code graph.** Project updates publish together, keeping each answer and its source evidence consistent while simplifying maintenance and recovery. Wave `1xny6`.
+- **Less temporary disk activity.** Ordinary index updates prepare in memory; larger batches spill to disk only when the 64 MiB preparation budget is exceeded. Wave `1xny6`.
+- **Safe upgrades without an intermediate release.** Existing embeddings are preserved and the graph is rebuilt from current files. Stop project hosts when prompted; interrupted conversions resume through the standard upgrade. Retired files are removed only after verification, with unrecognized files preserved. Wave `1xny6`.
+
+
 ## [1.23.0]
 
 ### Fixed

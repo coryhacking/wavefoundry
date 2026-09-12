@@ -16,8 +16,16 @@ import time
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import graph_fixture_support as gfs  # noqa: E402
+import graph_snapshot  # noqa: E402
 
 
 def load_graph_query():
@@ -35,15 +43,25 @@ def load_graph_query():
 
 
 def _write_graph(root: Path, layer: str, payload: dict) -> None:
+    """Publish one graph generation from ``payload`` (wave 1xny6).
+
+    The fixture is no longer a JSON file: it is rows committed with a build
+    generation, which is what every reader now resolves. Keeping the helper's
+    signature keeps each call site expressing the same intent.
+    """
     # Wave 1p4ww: single project graph.
-    graph_dir = root / ".wavefoundry" / "index" / "graph"
-    graph_dir.mkdir(parents=True, exist_ok=True)
-    (graph_dir / "project-graph.json").write_text(json.dumps(payload), encoding="utf-8")
+    gfs.publish_graph(root, graph=dict(payload), layer="project")
 
 
+# Wave 1xny6: the fixture declares the RUNTIME builder version. Publishing a
+# graph now records that version where the staleness check reads it, so a
+# placeholder "1" would make every fixture look like a pre-upgrade graph and
+# fire the auto-rebuild -- against an empty temp root, wiping the fixture.
+# Tests that WANT the stale path set an older version explicitly.
 FIXTURE_GRAPH = {
     "schema_version": "1",
-    "builder_version": "1",
+    "builder_version": str(
+        __import__("graph_indexer").GRAPH_BUILDER_VERSION),
     "layer": "project",
     "nodes": [
         {"id": "src/a.py", "label": "a", "kind": "module", "source_file": "src/a.py", "layer": "project"},
@@ -767,12 +785,21 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
         self.assertIsNone(self.mod._POST_REBUILD_CALLBACK)
 
     def _seed_stale_graph(self):
-        graph_dir = self.root / ".wavefoundry" / "index" / "graph"
-        graph_dir.mkdir(parents=True, exist_ok=True)
-        (graph_dir / "project-graph.json").write_text(
-            json.dumps({"present": True, "nodes": [], "edges": []}), encoding="utf-8")
-        (graph_dir / "project-graph-state.json").write_text(
-            json.dumps({"builder_version": "0"}), encoding="utf-8")
+        """Publish a generation whose builder version is older than runtime.
+
+        Wave 1xny6: the staleness signal is the PUBLISHED payload's
+        ``builder_version``, read from the same pinned snapshot the query would
+        be served from — not a separate state file that could disagree with the
+        graph beside it.
+        """
+        gfs.publish_graph(
+            self.root,
+            nodes=[{"id": "src/a.py", "label": "a", "kind": "module",
+                    "source_file": "src/a.py", "layer": "project"}],
+            edges=[],
+            builder_version="0",
+        )
+        graph_snapshot.invalidate(self.root)
 
     def _with_fake_rebuild(self):
         from unittest.mock import patch
@@ -944,10 +971,9 @@ class GraphQueryAutoRebuildCallbackTests(unittest.TestCase):
             self.assertNotIn(cache_key, self.mod._VERSION_REBUILD_INFLIGHT,
                              "in-flight marker should be cleared after a successful rebuild")
 
-        # Failure path: reset state-file version so the mismatch fires again,
-        # and fake build_index to raise so the except branch runs.
-        graph_state = self.root / ".wavefoundry" / "index" / "graph" / "project-graph-state.json"
-        graph_state.write_text(json.dumps({"builder_version": "0"}), encoding="utf-8")
+        # Failure path: republish the stale builder version so the mismatch
+        # fires again, and fake build_index to raise so the except branch runs.
+        self._seed_stale_graph()
         # Bust the in-process verification cache so the rebuild fires again.
         with self.mod._VERSION_CHECK_LOCK:
             self.mod._VERSION_CHECK_CACHE.clear()
@@ -1052,33 +1078,42 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.indexer = self.mod._get_graph_indexer()
-        # Version-current fixture: the accessor never PINS a payload whose
-        # builder_version differs from the runtime constant (old-code-window
-        # hardening), so cache-mechanics tests must serve a current payload.
+        # Version-current fixture: a payload whose builder_version differs from
+        # the runtime constant is served but reported as degraded (old-code
+        # window), so cache-mechanics tests must publish a current payload.
         self.fixture = json.loads(json.dumps(FIXTURE_GRAPH))
         self.fixture["builder_version"] = str(self.indexer.GRAPH_BUILDER_VERSION)
-        _write_graph(self.root, "project", self.fixture)
-        # Instrument the loader: count every full payload parse (both the
-        # cached accessor's miss path and the kill-switch/from_root path go
-        # through read_graph_payload on the lazily-loaded indexer module).
+        self._publish(self.fixture)
+        # Instrument the HYDRATION point. Wave 1xny6: a cache miss hydrates the
+        # payload from the published rows, so `read_graph_payload_rows` is what
+        # a reuse must avoid calling. Patched on the module object graph_query
+        # actually uses, via the module-level import the snapshot resolves.
         self.load_calls: list[tuple[str, str]] = []
-        real_read = self.indexer.read_graph_payload
+        import graph_indexer as _gi
 
-        def counting_read(root, layer="project"):
-            self.load_calls.append((str(root), layer))
-            return real_read(root, layer)
+        self._gi = _gi
+        real_read = _gi.read_graph_payload_rows
 
-        self.indexer.read_graph_payload = counting_read
+        def counting_read(conn, layer="project"):
+            self.load_calls.append((str(self.root), layer))
+            return real_read(conn, layer)
+
+        _gi.read_graph_payload_rows = counting_read
+        self.addCleanup(setattr, _gi, "read_graph_payload_rows", real_read)
 
     def tearDown(self):
+        graph_snapshot.invalidate(self.root)
         self.tmp.cleanup()
 
-    def _graph_path(self) -> Path:
-        return self.root / ".wavefoundry" / "index" / "graph" / "project-graph.json"
+    def _publish(self, payload: dict) -> None:
+        """Publish one generation carrying ``payload`` and drop the resident view.
 
-    def _seed_state(self, builder_version: str) -> None:
-        state_path = self._graph_path().with_name("project-graph-state.json")
-        state_path.write_text(json.dumps({"builder_version": builder_version}), encoding="utf-8")
+        Dropping it models a fresh process: these tests are about what the
+        accessor does on a COLD cache and on the hit after it.
+        """
+        graph_snapshot.invalidate(self.root)
+        gfs.publish_graph(self.root, graph=json.loads(json.dumps(payload)))
+        graph_snapshot.invalidate(self.root)
 
     # ---- AC-1: hit/reuse ----
 
@@ -1089,32 +1124,47 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
         self.assertIs(i1, i2)
         self.assertEqual(len(i1._node_by_id), 5)
 
-    def test_kill_switch_restores_load_per_call(self):
-        from unittest.mock import patch
+    SNAPSHOT_KILL_SWITCH = "WAVEFOUNDRY_DISABLE_GRAPH_SNAPSHOT_CACHE"
+
+    def test_kill_switch_restores_construction_per_call(self):
+        """The query kill switch governs the CONSTRUCTED index, not the store read.
+
+        Wave 1xny6 split the two caches: ``WAVEFOUNDRY_DISABLE_GRAPH_QUERY_CACHE``
+        builds a fresh ``GraphQueryIndex`` on every call, while the resident
+        payload is still shared across calls of one unchanged generation.
+        Hydrating per call is the SNAPSHOT kill switch's job, and the second
+        assertion pins that the two are separately controllable.
+        """
         with patch.dict(os.environ, {self.KILL_SWITCH: "1"}):
             i1 = self.mod.get_query_index(self.root)
             i2 = self.mod.get_query_index(self.root)
-        self.assertEqual(len(self.load_calls), 2)
         self.assertIsNot(i1, i2)
+        self.assertEqual(len(self.load_calls), 1, "content is shared across calls")
 
-    def test_stale_builder_version_payload_is_never_pinned(self):
-        # Old-code-window hardening: a stale pre-upgrade process can rewrite
-        # the payload with an older builder_version while the store meta the
-        # version check probes still reads current. Such a payload is served
-        # (graceful) but never cached — every access reloads until a build
-        # heals it.
+        with patch.dict(os.environ, {self.KILL_SWITCH: "1",
+                                     self.SNAPSHOT_KILL_SWITCH: "1"}):
+            i3 = self.mod.get_query_index(self.root)
+            i4 = self.mod.get_query_index(self.root)
+        self.assertIsNot(i3, i4)
+        self.assertEqual(len(self.load_calls), 3, "both switches -> hydrate per call")
+
+    def test_stale_builder_version_payload_is_served_and_reported(self):
+        # Old-code-window: a stale pre-upgrade process can publish rows whose
+        # builder_version is older than this runtime. Wave 1xny6 serves such a
+        # generation rather than refusing to cache it — the generation and the
+        # builder version now come from the SAME pinned read, so the
+        # disagreement the un-pinned rule guarded against (a current store meta
+        # beside an older payload file) cannot occur. The version-staleness
+        # path reports it; that is asserted in the auto-rebuild tests.
         stale = json.loads(json.dumps(self.fixture))
         stale["builder_version"] = "1"  # != runtime GRAPH_BUILDER_VERSION
-        _write_graph(self.root, "project", stale)
-        i1 = self.mod.get_query_index(self.root)
-        i2 = self.mod.get_query_index(self.root)
-        self.assertEqual(len(self.load_calls), 2, "stale-version payload must not be pinned")
-        self.assertIsNot(i1, i2)
-        # A current payload re-enables pinning.
-        _write_graph(self.root, "project", self.fixture)
-        i3 = self.mod.get_query_index(self.root)
-        i4 = self.mod.get_query_index(self.root)
-        self.assertIs(i3, i4)
+        self._publish(stale)
+        with patch.object(self.mod, "_ensure_graph_builder_current", return_value=None):
+            i1 = self.mod.get_query_index(self.root)
+            i2 = self.mod.get_query_index(self.root)
+        self.assertTrue(i1.present)
+        self.assertIs(i1, i2)
+        self.assertEqual(i1.builder_version, "1")
 
     def test_rejects_non_project_layer(self):
         with self.assertRaises(ValueError):
@@ -1122,37 +1172,58 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
 
     # ---- AC-2: invalidation matrix ----
 
-    def test_stat_change_reloads_and_reflects_new_graph(self):
+    def test_new_generation_with_changed_graph_reloads(self):
         self.mod.get_query_index(self.root)
         new_graph = json.loads(json.dumps(self.fixture))
         new_graph["nodes"].append(
             {"id": "src/c.py::baz", "label": "baz", "kind": "function", "source_file": "src/c.py", "layer": "project"})
-        _write_graph(self.root, "project", new_graph)  # different size → different stat
+        self._publish(new_graph)  # different content -> different fingerprint
         idx = self.mod.get_query_index(self.root)
         self.assertEqual(len(self.load_calls), 2)
         self.assertIsNotNone(idx.get_node("src/c.py::baz"))
 
-    def test_same_stat_rewrite_requires_explicit_invalidation(self):
+    def test_new_generation_with_unchanged_graph_shares_the_constructed_index(self):
+        """Wave 1xny6: the cross-generation content-sharing path.
+
+        A generation bump over an identical graph must NOT re-hydrate the rows
+        or rebuild the adjacency structures, and the snapshot must say so
+        explicitly rather than leaving the reuse implicit.
+        """
         i1 = self.mod.get_query_index(self.root)
-        # Pathological rewrite: same byte length, forced-identical mtime_ns.
-        graph_path = self._graph_path()
-        st = graph_path.stat()
-        same_size = json.loads(json.dumps(self.fixture))
-        same_size["nodes"][3]["label"] = "baz"  # "bar" → "baz": same length
-        data = json.dumps(same_size)
-        self.assertEqual(len(data.encode("utf-8")), st.st_size)
-        graph_path.write_text(data, encoding="utf-8")
-        os.utime(graph_path, ns=(st.st_atime_ns, st.st_mtime_ns))
-        # Stat validation alone cannot see this rewrite — cache still serves old.
+        self.assertEqual(len(self.load_calls), 1)
+        gfs.bump_generation(self.root)
         i2 = self.mod.get_query_index(self.root)
         self.assertIs(i1, i2)
-        # The explicit hook (called by every known-rebuild path) forces reload.
+        self.assertEqual(len(self.load_calls), 1, "unchanged graph must not re-hydrate")
+        snapshot = graph_snapshot.acquire(self.root)
+        self.assertTrue(snapshot.shared_graph_content)
+        self.assertLess(snapshot.graph_content_generation, snapshot.generation)
+
+    def test_same_size_rewrite_is_seen_without_explicit_invalidation(self):
+        """The defect the retired stat validation could not see.
+
+        A rewrite with the same byte length and a forced-identical mtime was
+        invisible to ``(st_mtime_ns, st_size)`` validation, so the cache kept
+        serving the old graph until something called the explicit invalidation
+        hook. Wave 1xny6 keys the cache on the graph CONTENT fingerprint, so
+        the same change is seen with no hook at all.
+        """
+        i1 = self.mod.get_query_index(self.root)
+        same_size = json.loads(json.dumps(self.fixture))
+        same_size["nodes"][3]["label"] = "baz"  # "bar" -> "baz": same length
+        self._publish(same_size)
+        i2 = self.mod.get_query_index(self.root)
+        self.assertIsNot(i1, i2)
+        self.assertEqual((i2.get_node("src/b.py::bar") or {}).get("label"), "baz")
+        self.assertEqual(len(self.load_calls), 2)
+
+    def test_explicit_invalidation_still_forces_a_reload(self):
+        i1 = self.mod.get_query_index(self.root)
+        self.assertIs(i1, self.mod.get_query_index(self.root))
+        self.assertEqual(len(self.load_calls), 1)
         self.mod.invalidate_query_index_cache(self.root)
-        i3 = self.mod.get_query_index(self.root)
-        self.assertIsNot(i1, i3)
-        self.assertEqual((i3.get_node("src/b.py::bar") or {}).get("label"), "baz")
-        # Loads: initial construction + post-invalidation reload (the same-stat
-        # hit in between served the cache without loading).
+        i2 = self.mod.get_query_index(self.root)
+        self.assertIsNot(i1, i2)
         self.assertEqual(len(self.load_calls), 2)
 
     def _with_fake_rebuild(self):
@@ -1184,28 +1255,32 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
         return patch("importlib.util.spec_from_file_location", _fake_spec), \
                patch("importlib.util.module_from_spec", _fake_module)
 
-    def test_rebuild_triggered_invalidation_reloads_despite_equal_stats(self):
-        runtime = str(getattr(self.indexer, "GRAPH_BUILDER_VERSION", "") or "")
-        self._seed_state(runtime)
+    def test_rebuild_triggered_invalidation_reloads_the_published_view(self):
         i1 = self.mod.get_query_index(self.root)
         self.assertEqual(len(self.load_calls), 1)
-        # Simulate a builder-version bump observed at query time: stale state
-        # on disk, fresh runtime (version-check cache cleared as a process
-        # restart would). Payload stats are UNCHANGED — only the explicit
-        # in-process invalidation (plus the rebuild-ran bypass) can reload.
-        self._seed_state("0")
+        # A builder-version bump observed at query time: publish a generation
+        # whose builder is older than runtime, then clear the verification
+        # cache the way a process restart would.
+        stale = json.loads(json.dumps(self.fixture))
+        stale["builder_version"] = "0"
+        self._publish(stale)
         with self.mod._VERSION_CHECK_LOCK:
             self.mod._VERSION_CHECK_CACHE.clear()
         p1, p2 = self._with_fake_rebuild()
         with p1, p2:
             i2 = self.mod.get_query_index(self.root)
         self.assertEqual((i2.auto_rebuild_diagnostic or {}).get("code"), "graph_auto_rebuilt")
-        self.assertEqual(len(self.load_calls), 2)
         self.assertIsNot(i1, i2)
-        # Next call: version verified, stats stable → hit, no diagnostic replay.
+        # Next call: the post-rebuild state was recorded as verified (the
+        # pre-1xny6 rebuild-storm guard, preserved), so no diagnostic replay.
+        # It hydrates once, because the rebuild path explicitly dropped the
+        # resident view; the call after that reuses it.
         i3 = self.mod.get_query_index(self.root)
         self.assertIsNone(i3.auto_rebuild_diagnostic)
-        self.assertEqual(len(self.load_calls), 2)
+        loads_after_reload = len(self.load_calls)
+        i4 = self.mod.get_query_index(self.root)
+        self.assertIs(i3, i4)
+        self.assertEqual(len(self.load_calls), loads_after_reload)
 
     # ---- AC-3: cached vs kill-switch equivalence per tool family ----
 
@@ -1266,14 +1341,14 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
     def test_concurrent_access_during_construction_is_safe(self):
         entered = threading.Event()
         release = threading.Event()
-        real_read = self.indexer.read_graph_payload
+        real_read = self._gi.read_graph_payload_rows
 
-        def slow_read(root, layer="project"):
+        def slow_read(conn, layer="project"):
             entered.set()
             release.wait(timeout=10)
-            return real_read(root, layer)
+            return real_read(conn, layer)
 
-        self.indexer.read_graph_payload = slow_read
+        self._gi.read_graph_payload_rows = slow_read
         results: dict[str, object] = {}
         errors: list[BaseException] = []
 
