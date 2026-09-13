@@ -130,6 +130,94 @@ class SQLiteServingTests(unittest.TestCase):
             else:
                 self.assertIn("restart the MCP host", diagnostic["message"])
 
+    def test_registered_compatibility_errors_request_restart_not_rebuild(self):
+        tools = self._registered_epoch_tools()
+        self._set_registered_epoch("complete")
+        for code in ("index_runtime_stale", "index_version_newer", "index_compatibility_unproven"):
+            error = runtime.StorageRecoveryRequired("graph.builder_version persisted=53 supported=52; preserve index")
+            error.code = code
+            with self.subTest(code=code), patch.object(self.index, "docs_health", side_effect=error):
+                health = tools["index_health"]()
+            self.assertEqual(health["status"], "error")
+            self.assertEqual(health["diagnostics"][0]["code"], code)
+            self.assertIn("Restart", health["usage"])
+            self.assertNotIn("index_build", health["next_tools"])
+            for tool, request in self._registered_requests().items():
+                with self.subTest(code=code, tool=tool), patch.object(runtime, "connect", side_effect=error):
+                    response = tools[tool](**request)
+                self.assertEqual(response["status"], "error")
+                self.assertEqual(response["diagnostics"][0]["code"], code)
+                self.assertEqual(response["data"]["results"], [])
+                self.assertIn("Restart", response["usage"])
+                self.assertNotIn("index_build", response["next_tools"])
+
+    def test_stale_coordinator_never_schedules_background_or_explicit_build(self):
+        import index_compatibility
+        error = index_compatibility.IndexCompatibilityError(
+            "index_runtime_stale", "indexer", "new-source", "loaded-source")
+        observed = []
+        with patch.object(index_compatibility, "ensure_runtime_current", side_effect=error), \
+                patch("subprocess.Popen") as spawn:
+            for _ in range(2):
+                self.assertFalse(server._maybe_refresh_if_stale(self.root, observed.append))
+                self.assertFalse(server._start_background_index_refresh(self.root))
+                health = server.index_health_response(self.index)
+                self.assertEqual(health["status"], "error")
+                self.assertEqual(health["diagnostics"][0]["code"], "index_runtime_stale")
+                result = server.index_build_response(self.root, content="graph")
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["diagnostics"][0]["code"], "index_runtime_stale")
+            spawn.assert_not_called()
+        self.assertEqual([row["reason"] for row in observed], ["index_runtime_stale"] * 2)
+        self.assertTrue(all(not row["triggered"] for row in observed))
+
+    def test_graph_snapshot_refuses_other_newer_contracts_before_reading_rows(self):
+        import graph_fixture_support as gfs
+        import graph_snapshot
+        import index_compatibility
+        graph_root = self.root / "graph-only"
+        gfs.publish_graph(graph_root)
+        path = graph_root / ".wavefoundry/index/index.sqlite"
+        for field in ("graph:store_schema_version", "graph:schema_version",
+                      "graph:walker_version", "graph:chunker_version"):
+            with self.subTest(field=field):
+                conn = runtime.connect(path)
+                try:
+                    previous = conn.execute("SELECT value FROM meta WHERE key=?", (field,)).fetchone()[0]
+                    conn.execute("UPDATE meta SET value=? WHERE key=?",
+                                 (str(int(index_compatibility.SUPPORTED[field]) + 1), field))
+                    # Deliberate future-producer fixture bypasses current writer guards.
+                    snapshot = graph_snapshot._read_pinned(path.parent, "project", None)
+                    self.assertFalse(snapshot.present)
+                    self.assertEqual(snapshot.diagnostic["code"], "index_version_newer")
+                    self.assertIn(field, snapshot.diagnostic["message"])
+                    conn.execute("UPDATE meta SET value=? WHERE key=?", (previous, field))
+                finally:
+                    conn.close()
+
+    def test_graph_newer_builder_never_invokes_auto_rebuild(self):
+        import graph_query
+        import graph_snapshot
+        import graph_indexer
+        from contextlib import contextmanager
+        graph_query._get_graph_indexer()  # Prime the normal reader module, not the rebuild loader.
+        snapshot = SimpleNamespace(present=True,
+            builder_version=str(int(graph_indexer.GRAPH_BUILDER_VERSION) + 1))
+        @contextmanager
+        def pinned(*args, **kwargs):
+            yield snapshot
+        with patch.object(graph_snapshot, "pinned", pinned), \
+                patch("importlib.util.spec_from_file_location") as loader:
+            for _ in range(2):
+                payload = graph_query.load_graph(self.root)
+                index = graph_query.get_query_index(self.root)
+                self.assertFalse(payload["present"])
+                self.assertFalse(index.present)
+                self.assertEqual(payload["diagnostic"]["code"], "index_version_newer")
+                self.assertEqual(index.diagnostic["code"], "index_version_newer")
+                self.assertNotIn("index_build", payload["diagnostic"]["recovery_tools"])
+            loader.assert_not_called()
+
     def test_registered_health_actions_match_condition_and_preserve_corruption(self):
         health = self._registered_epoch_tools()["index_health"]
         base = dict(semantic_ready=False, stale_layers=[], missing_layers=[],

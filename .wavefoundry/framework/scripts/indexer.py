@@ -2,6 +2,7 @@
 """Build and maintain the Wavefoundry semantic index at .wavefoundry/index/."""
 from __future__ import annotations
 
+
 import argparse
 import datetime
 import hashlib
@@ -21,6 +22,9 @@ sys.dont_write_bytecode = True
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+import index_compatibility
+index_compatibility.register_loaded_source()
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
@@ -218,6 +222,8 @@ def docs_lint_hook_timeout_seconds(root: Path) -> float:
         val = (cfg.get("docs_lint") or {}).get("hook_timeout_seconds")
         if isinstance(val, (int, float)) and val > 0:
             return float(val)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:
         pass
     return DOCS_LINT_HOOK_TIMEOUT_DEFAULT
@@ -274,6 +280,8 @@ def _process_is_zombie(pid: int) -> bool:
             ["ps", "-o", "state=", "-p", str(int(pid))],
             capture_output=True, text=True, check=False,
         )
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 — best-effort; any failure → not-zombie (safe: no reclaim)
         return False
     if result.returncode != 0:
@@ -306,6 +314,8 @@ def _process_cmdline(pid: int) -> Optional[str]:
                 ["ps", "-o", "args=", "-p", str(int(pid))],
                 capture_output=True, text=True, check=False,
             )
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 — best-effort; any failure → None (caller falls back)
         return None
     if result.returncode != 0:
@@ -1190,6 +1200,8 @@ def _record_reap_state(
         return False
     try:
         return bool(iss.write_reap_state(index_dir, deferred=deferred, preserved=preserved))
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception as exc:  # noqa: BLE001 - a visibility aid never fails a build
         msg = (
             "build_index: reap state record not written "
@@ -1562,6 +1574,8 @@ def _load_meta(index_dir: Path) -> dict:
         return {}
     try:
         snapshot = iss.export_meta_snapshot(index_dir)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 - unreadable store == no prior state
         return {}
     return snapshot or {}
@@ -1601,6 +1615,8 @@ def _remove_legacy_meta_json(index_dir: Path) -> bool:
             iss = _get_index_state_store()
             if iss is not None:
                 iss.store_log(index_dir, msg)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception:
             pass
     return False
@@ -1635,6 +1651,8 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
                 raw = raw.get("code") or []
             if isinstance(raw, list):
                 code_prefixes = tuple(str(p) for p in raw if p)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception:
             pass
         files = walk_repo(root, respect_ignore=True)
@@ -1655,6 +1673,8 @@ def project_index_inputs_stale(root: Path, meta: dict | None = None) -> bool | N
         }
         _, changed, removed = _detect_changes(files, root, filtered_file_meta)
         return bool(changed or removed)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001
         return None
 
@@ -1715,6 +1735,8 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
         try:
             current_meta, changed, removed = _detect_changes(walk_files, root, filtered_file_meta)
             walk_stale = bool(changed or removed)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception:  # noqa: BLE001 - undeterminable, never current
             current_meta = {}
             walk_stale = None
@@ -1797,6 +1819,8 @@ def project_layer_freshness(root: Path) -> "dict[str, Any]":
             stale = False
             reason = "current"
         return {"stale": stale, "layers": layers, "chunker_stale": chunker_stale, "reason": reason}
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception as exc:  # noqa: BLE001 - honesty rule: undeterminable, never silently current
         return {"stale": None, "layers": {}, "chunker_stale": None, "reason": f"error: {exc}"}
 
@@ -2052,6 +2076,8 @@ def _store_log_safe(index_dir: "Optional[Path]", message: str) -> None:
         iss = _get_index_state_store()
         if iss is not None:
             iss.store_log(index_dir, message)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 - logging must never fail the caller
         pass
 
@@ -2400,6 +2426,8 @@ def _reap_stranded_vector_rows(
                     f"build_index: reaper {table_name} — {len(stranded)} stranded path(s), "
                     f"{reaped_here} row(s) reaped",
                 )
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:
             raise RuntimeError(f"Canonical reaper {table_name} failed; previous data preserved: {exc}") from exc
     return reaped
@@ -2423,6 +2451,8 @@ def _cleanup_layer_state_for_reaped(index_dir: Path, reaped_paths: "dict[str, se
             continue
         try:
             iss.update_layer_hashes(index_dir, layer, remove_paths=paths)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception:  # noqa: BLE001 - drift detection is the backstop
             pass
 
@@ -2520,6 +2550,8 @@ def _plan_orphan_store_reconcile(
         return plan
     try:
         store_paths = iss.orphan_store_paths(index_dir)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 - unreadable store means no candidates
         return plan
     candidates_by_store = {
@@ -2611,6 +2643,8 @@ def _execute_orphan_store_reconcile(
                 if verbose:
                     print(msg, flush=True)
                 _store_log_safe(index_dir, msg)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:  # noqa: BLE001 - next build's plan re-detects
             print(
                 f"build_index: orphan reconcile sidecar removal failed ({exc}); "
@@ -2671,6 +2705,8 @@ def _execute_orphan_store_reconcile(
             if verbose:
                 print(msg, flush=True)
             _store_log_safe(index_dir, msg)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:  # noqa: BLE001 - next build's plan re-detects
             print(
                 f"build_index: orphan reconcile graph retirement failed ({exc}); "
@@ -2913,12 +2949,14 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected=False, verbose=False,
             store = iss.IndexStateStore(index_dir)
             try:
                 store._conn.execute("BEGIN IMMEDIATE")
+                index_compatibility.check_connection(store._conn)
                 verdict = iss.fts_state_verdict(index_dir, layer, _writer_conn=store._conn)
                 needs_repair = force or not verdict.get("ok")
                 if needs_repair:
                     store._conn.execute("ROLLBACK")
                     iss.rebuild_chunk_index(index_dir, layer, [])
                     store._conn.execute("BEGIN IMMEDIATE")
+                    index_compatibility.check_connection(store._conn)
                 with store._conn:
                     store.set_meta({iss.META_CHUNK_INDEX_COLD: "0"})
                     if needs_repair and not verdict.get("ok"):
@@ -2934,6 +2972,8 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected=False, verbose=False,
             stats[layer] = {"reconciled": bool(needs_repair), "rows_written": count if needs_repair else 0,
                             "fts_repaired": bool(needs_repair and not verdict.get("ok")),
                             "fts_reason": verdict.get("reason")}
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:
             stats[layer] = {"error": str(exc)}
     return stats
@@ -2987,6 +3027,8 @@ def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[i
         if out["l_type"] == fcntl.F_UNLCK:
             return (False, None)  # no conflicting lock -> not held
         return (True, out["l_pid"] or None)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 — probe failure -> undetermined; acquire-time lock is the authority
         return (None, None)
 
@@ -3026,6 +3068,8 @@ def _test_run_lock_held(index_dir: Path) -> bool:
             return probe_runtime_lock(path, style="flock").held
     try:
         return bool(probe(_test_run_lock_path(index_dir)))
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:  # noqa: BLE001 — the guard must never break a build
         return False
 
@@ -3130,6 +3174,8 @@ def _index_build_lock(index_dir: Path):
                 try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
                     lock_meta["ended_at"] = time.time()
                     lock.write_metadata(lock_meta)
+                except index_compatibility.IndexCompatibilityError:
+                    raise
                 except Exception:  # noqa: BLE001
                     pass
             try:
@@ -3291,6 +3337,8 @@ def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
     if accel_embedder is not None and not small_run:
         try:
             accel = accel_embedder.make_embedder(model_name, providers)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception:
             accel = None
         if accel is not None:
@@ -3354,6 +3402,8 @@ def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers)
     ladder the GPU-path call sites use before the online attempt."""
     try:
         return text_embedding_cls(model_name=model_name, providers=providers, local_files_only=True)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:
         pass
     import setup_index
@@ -3481,15 +3531,13 @@ def _get_index_state_store():
     """
     global _index_state_store_mod
     if _index_state_store_mod is None:
-        import importlib.util
+        import importlib
         store_path = Path(__file__).resolve().parent / "index_state_store.py"
         if not store_path.exists():
             return None
-        spec = importlib.util.spec_from_file_location("index_state_store", store_path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["index_state_store"] = mod
-        spec.loader.exec_module(mod)
-        _index_state_store_mod = mod
+        # Use Python's module lock so concurrent readers cannot observe a
+        # partially initialized store, and all callers share its identity.
+        _index_state_store_mod = importlib.import_module("index_state_store")
     return _index_state_store_mod
 
 
@@ -3645,6 +3693,9 @@ def _build_graph_artifacts(
             f" writes={merge_stats.get('blob_writes', 0)}"
             f" bytes={merge_stats.get('blob_bytes', 0)}"
             f" | dangling: dropped={merge_stats.get('edges_dropped_dangling', 0)}"
+            f" | calls: non_callable={merge_stats.get('non_callable_call_targets', 0)}"
+            f" callable_wins={merge_stats.get('callable_wins_collisions', 0)}"
+            f" malformed_dropped={merge_stats.get('malformed_external_call_targets_dropped', 0)}"
         )
     print(
         f"build_index: finished graph: {len(changed)} changed, {len(removed)} removed"
@@ -3687,6 +3738,8 @@ def _build_secrets_artifacts(
             full=full,
             verbose=verbose,
         )
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception as exc:
         print(f"build_index: secrets scan failed: {exc}", file=sys.stderr)
         return {"error": str(exc)}
@@ -3853,6 +3906,8 @@ def _close_owned_build_store(store) -> None:
     failing = sys.exc_info()[0] is not None
     try:
         store.close()
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception:
         if not failing:
             raise
@@ -3879,6 +3934,7 @@ def _build_index_locked(
 
     Returns a summary dict with counts.
     """
+    index_compatibility.ensure_runtime_current()
     requested_files = tuple(files) if files is not None else None
     selected_paths = None
     if requested_files is not None:
@@ -3968,6 +4024,8 @@ def _build_index_locked(
                         walker_version=WALKER_VERSION, chunker_version=prepared_identity[3])
                     if not graph_store.versions_current():
                         reason = reason or "graph builder/schema identity changed"
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:
             reason = reason or f"storage currency cannot be established: {exc}"
         finally:
@@ -4011,6 +4069,8 @@ def _build_index_locked(
                     "outside .wavefoundry/index, then run wf setup --full. Keep the separate "
                     "memory store and any migration receipt/rollback intact. "
                     f"If migration is pending, resume its recorded recovery first. Detail: {exc}")
+            except index_compatibility.IndexCompatibilityError:
+                raise
             except Exception as exc:  # noqa: BLE001 - store must be decidable before any mutation
                 return _build_failed_result(
                     files or [], f"index-state store could not be brought current: {exc}"
@@ -4508,6 +4568,8 @@ def _build_index_locked(
             invalidated = False
             try:
                 invalidated = _iss_mem.memory_invalidate(index_dir)
+            except index_compatibility.IndexCompatibilityError:
+                raise
             except Exception:
                 invalidated = False
             if not invalidated:
@@ -4722,6 +4784,8 @@ def _build_index_locked(
                         "failing the build so the stale drift is not served behind "
                         "an up_to_date result; the next build retries the clear",
                     )
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as _exc:
             return _build_failed_result(
                 files, f"no-op drift reconcile failed: {_exc}"
@@ -4777,6 +4841,8 @@ def _build_index_locked(
                 for _layer in _claimed_missing:
                     try:
                         _iss_epoch.replace_layer_hashes(index_dir, _layer, {})
+                    except index_compatibility.IndexCompatibilityError:
+                        raise
                     except Exception:
                         pass
                 return _build_failed_result(
@@ -4787,6 +4853,8 @@ def _build_index_locked(
                 )
         try:
             _idle_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}:idle-maintenance")
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:  # noqa: BLE001 - fence failure fails the build
             return _build_failed_result(files, f"could not open the build epoch: {exc}")
         reap_idle = {"docs": 0, "code": 0, "total": 0}
@@ -4811,6 +4879,8 @@ def _build_index_locked(
         # still applied inside a transaction and finalized by the same CAS.
         try:
             _idle_store = _iss_epoch.IndexStateStore(index_dir)
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:  # noqa: BLE001
             return _build_failed_result(files, f"could not open the index store: {exc}")
         try:
@@ -4829,6 +4899,8 @@ def _build_index_locked(
                         doc_link_repair_plan=_doc_link_plan,
                     )
                     _idle_graph_publication = _idle_artifacts.get("publication")
+                except index_compatibility.IndexCompatibilityError:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - preserve dirty epoch for retry
                     return _build_failed_result(files, f"idle graph recovery failed: {exc}")
                 # The same merge already retires graph orphans. Reconcile only
@@ -4879,6 +4951,8 @@ def _build_index_locked(
                     except BaseException:
                         _conn.execute("ROLLBACK")
                         raise
+                except index_compatibility.IndexCompatibilityError:
+                    raise
                 except Exception as exc:  # noqa: BLE001
                     return _build_failed_result(
                         files, f"idle graph publication failed: {exc}"
@@ -4906,6 +4980,8 @@ def _build_index_locked(
             }
             try:
                 _iss_epoch.write_build_bookkeeping(index_dir, _recovery_meta)
+            except index_compatibility.IndexCompatibilityError:
+                raise
             except Exception as exc:  # noqa: BLE001 - converted to a structured failure
                 return _build_failed_result(files, f"zero-change recovery bookkeeping write failed: {exc}")
         _idle_errors = {k: v.get("error") for k, v in _idle_heal_stats.items()
@@ -5109,6 +5185,8 @@ def _build_index_locked(
         return _build_failed_result(files, "index-state store module unavailable — refusing to mutate without the build epoch")
     try:
         _build_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}{':full' if full else ''}")
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception as exc:  # noqa: BLE001 - fence failure fails the build
         return _build_failed_result(files, f"could not open the build epoch: {exc}")
 
@@ -5119,6 +5197,8 @@ def _build_index_locked(
     # rows commit with the semantic rows instead of ahead of them.
     try:
         store = _iss_epoch.IndexStateStore(index_dir)
+    except index_compatibility.IndexCompatibilityError:
+        raise
     except Exception as exc:  # noqa: BLE001 - a store that will not open fails the build
         return _build_failed_result(files, f"could not open the index store: {exc}")
     try:
@@ -5322,6 +5402,8 @@ def _build_index_locked(
 
             # Counts are computed after the prepared transaction publishes below.
             total_doc_chunks = total_code_chunks = 0
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:
             print(f"build_index: index update failed: {exc}", file=sys.stderr)
             raise
@@ -5473,83 +5555,86 @@ def _build_index_locked(
             conn.execute("BEGIN IMMEDIATE")
             _held_t0 = time.monotonic()
             try:
-                epoch = conn.execute("SELECT attempt_id,status FROM build_state WHERE id=1").fetchone()
-                if epoch != (_build_attempt,"building"):
-                    raise RuntimeError("Prepared index attempt is no longer current")
-                def validate_sources():
-                    if storage_rebuild and preflight_rebuild_sources(root, index_dir, **rebuild_options) != rebuild_inventory:
-                        raise RuntimeError("storage_rebuild_source_changed: retry the complete rebuild")
-                    current_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
-                                        getattr(_get_chunker(), "CHUNKER_VERSION", ""))
-                    current_config = _sha256(config_path) if config_path.is_file() else None
-                    if current_identity != prepared_identity or current_config != prepared_config_hash:
-                        raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
-                    for rel in chunks_emitted_by_file:
-                        expected = current_file_meta.get(rel,{}).get("hash")
-                        if expected and _sha256(root / rel) != expected:
-                            raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
-                    _validate_prepared_removals(
-                        root, index_dir, removed_broad,
-                        {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
-                         for layer in ("docs", "code")}, requested_files=requested_files,
-                        respect_ignore=respect_ignore, include_prefixes=include_prefixes,
-                        project_include_prefixes=project_include_prefixes,
-                        include_tests=include_tests, include_generated=include_generated)
-                validate_sources()
-                prepared.apply(store)
-                _state_store.write_build_bookkeeping_locked(conn,new_meta)
-                conn.execute("INSERT INTO meta(key,value) VALUES('targeted_corpus_policy',?) "
-                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (policy_identity,))
-                if full:
-                    for layer, enabled, eligible in (("docs",build_docs,docs_eligible_rel),("code",build_code,code_eligible_rel)):
-                        if enabled:
-                            conn.execute("DELETE FROM layer_path_state WHERE layer=?", (layer,))
-                            conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?)",
-                                ((layer,r,current_file_meta[r]['hash']) for r in eligible if r in current_file_meta))
-                else:
-                    for layer, written in _layer_written.items():
-                        conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?) "
-                            "ON CONFLICT(layer,path) DO UPDATE SET hash=excluded.hash",
-                            ((layer,r,current_file_meta[r]['hash']) for r in written if r in current_file_meta))
-                        conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
-                            ((layer,r) for r in set(removed_broad) | set(_reap_paths_by_table.get(layer,()))))
-                for layer in ("docs", "code"):
-                    integrity = vector_store.vector_integrity(conn, layer)
-                    if integrity['missing_vectors'] or integrity['orphan_vectors']:
-                        raise RuntimeError(f"{layer}: vector integrity failed "
-                                           f"({integrity['missing_vectors']} missing, "
-                                           f"{integrity['orphan_vectors']} orphaned); explicit full rebuild required")
-                if storage_rebuild and build_docs and build_code:
-                    sqlite_storage_migration.record_rebuild_proof(
-                        conn, storage_receipt, rebuild_inventory, rebuild_options, new_meta, _build_attempt)
-                # Per-layer publication state: which generation and attempt each
-                # layer was last published under. A layer this build did not
-                # publish keeps its own row, so a graph-only build never advertises
-                # semantic freshness it did not establish, and vice versa. The
-                # scalar build_state.generation stays THE reader token; these rows
-                # describe layers relative to it.
-                _state_store.write_build_layer_state_locked(
-                    conn,
-                    _layer_publication_state(
-                        build_docs=build_docs,
-                        build_code=build_code,
-                        graph_published=_graph_publication is not None,
-                        graph_sources_changed=bool(changed_for_graph or removed),
-                    ),
-                    attempt_id=_build_attempt,
-                )
-                validate_sources()
-                # Graph, extraction and community rows join the semantic rows as
-                # participants. Everything expensive already happened outside this
-                # lock; `apply` does a cheap (size, mtime_ns) recheck and a
-                # change-sized set of writes. It runs AFTER the trailing
-                # `validate_sources` so the broad content-hash gate reports a
-                # source that moved during embedding; the graph's stat recheck is
-                # the last-mile guard for the window this gate does not cover
-                # (files the graph indexes that emitted no semantic chunks).
-                if _graph_publication is not None:
-                    _graph_rows_written = _graph_publication.apply(conn)
-                    _graph_rows_written["planned_total"] = _graph_publication.row_count()
+                with index_compatibility.writer_transaction(conn):
+                    index_compatibility.check_connection(conn)
+                    epoch = conn.execute("SELECT attempt_id,status FROM build_state WHERE id=1").fetchone()
+                    if epoch != (_build_attempt,"building"):
+                        raise RuntimeError("Prepared index attempt is no longer current")
+                    def validate_sources():
+                        if storage_rebuild and preflight_rebuild_sources(root, index_dir, **rebuild_options) != rebuild_inventory:
+                            raise RuntimeError("storage_rebuild_source_changed: retry the complete rebuild")
+                        current_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
+                                            getattr(_get_chunker(), "CHUNKER_VERSION", ""))
+                        current_config = _sha256(config_path) if config_path.is_file() else None
+                        if current_identity != prepared_identity or current_config != prepared_config_hash:
+                            raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
+                        for rel in chunks_emitted_by_file:
+                            expected = current_file_meta.get(rel,{}).get("hash")
+                            if expected and _sha256(root / rel) != expected:
+                                raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
+                        _validate_prepared_removals(
+                            root, index_dir, removed_broad,
+                            {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
+                             for layer in ("docs", "code")}, requested_files=requested_files,
+                            respect_ignore=respect_ignore, include_prefixes=include_prefixes,
+                            project_include_prefixes=project_include_prefixes,
+                            include_tests=include_tests, include_generated=include_generated)
+                    validate_sources()
+                    prepared.apply(store)
+                    _state_store.write_build_bookkeeping_locked(conn,new_meta)
+                    conn.execute("INSERT INTO meta(key,value) VALUES('targeted_corpus_policy',?) "
+                                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (policy_identity,))
+                    if full:
+                        for layer, enabled, eligible in (("docs",build_docs,docs_eligible_rel),("code",build_code,code_eligible_rel)):
+                            if enabled:
+                                conn.execute("DELETE FROM layer_path_state WHERE layer=?", (layer,))
+                                conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?)",
+                                    ((layer,r,current_file_meta[r]['hash']) for r in eligible if r in current_file_meta))
+                    else:
+                        for layer, written in _layer_written.items():
+                            conn.executemany("INSERT INTO layer_path_state(layer,path,hash) VALUES(?,?,?) "
+                                "ON CONFLICT(layer,path) DO UPDATE SET hash=excluded.hash",
+                                ((layer,r,current_file_meta[r]['hash']) for r in written if r in current_file_meta))
+                            conn.executemany("DELETE FROM layer_path_state WHERE layer=? AND path=?",
+                                ((layer,r) for r in set(removed_broad) | set(_reap_paths_by_table.get(layer,()))))
+                    for layer in ("docs", "code"):
+                        integrity = vector_store.vector_integrity(conn, layer)
+                        if integrity['missing_vectors'] or integrity['orphan_vectors']:
+                            raise RuntimeError(f"{layer}: vector integrity failed "
+                                               f"({integrity['missing_vectors']} missing, "
+                                               f"{integrity['orphan_vectors']} orphaned); explicit full rebuild required")
+                    if storage_rebuild and build_docs and build_code:
+                        sqlite_storage_migration.record_rebuild_proof(
+                            conn, storage_receipt, rebuild_inventory, rebuild_options, new_meta, _build_attempt)
+                    # Per-layer publication state: which generation and attempt each
+                    # layer was last published under. A layer this build did not
+                    # publish keeps its own row, so a graph-only build never advertises
+                    # semantic freshness it did not establish, and vice versa. The
+                    # scalar build_state.generation stays THE reader token; these rows
+                    # describe layers relative to it.
+                    _state_store.write_build_layer_state_locked(
+                        conn,
+                        _layer_publication_state(
+                            build_docs=build_docs,
+                            build_code=build_code,
+                            graph_published=_graph_publication is not None,
+                            graph_sources_changed=bool(changed_for_graph or removed),
+                        ),
+                        attempt_id=_build_attempt,
+                    )
+                    validate_sources()
+                    # Graph, extraction and community rows join the semantic rows as
+                    # participants. Everything expensive already happened outside this
+                    # lock; `apply` does a cheap (size, mtime_ns) recheck and a
+                    # change-sized set of writes. It runs AFTER the trailing
+                    # `validate_sources` so the broad content-hash gate reports a
+                    # source that moved during embedding; the graph's stat recheck is
+                    # the last-mile guard for the window this gate does not cover
+                    # (files the graph indexes that emitted no semantic chunks).
+                    if _graph_publication is not None:
+                        _graph_rows_written = _graph_publication.apply(conn)
+                        _graph_rows_written["planned_total"] = _graph_publication.row_count()
+                    index_compatibility.ensure_runtime_current()
                 conn.execute("COMMIT")
                 # The lock-held segment: BEGIN IMMEDIATE to COMMIT. Reported on
                 # every build so the incremental publication cost is observable in
@@ -5558,6 +5643,8 @@ def _build_index_locked(
             except BaseException:
                 conn.execute("ROLLBACK")
                 raise
+        except index_compatibility.IndexCompatibilityError:
+            raise
         except Exception as exc:
             return _build_failed_result(files, f"Atomic semantic publication failed: {exc}")
         # Wave 1xny6 lane L6b: the transitional graph and cluster JSON writers that
@@ -5850,6 +5937,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"build_index: exiting 1 — {result.get('failure', 'build failed')}", file=sys.stderr, flush=True)
             return 1
         return 0
+    except index_compatibility.IndexCompatibilityError as exc:
+        print(json.dumps({"failed": True, "code": exc.code, "component": exc.component,
+                          "persisted": exc.persisted, "supported": exc.supported,
+                          "failure": str(exc)}), file=sys.stderr, flush=True)
+        return 1
     except IndexBuildAlreadyRunning as exc:
         print(f"build_index: {exc}", file=sys.stderr)
         return 1

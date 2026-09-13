@@ -19,6 +19,8 @@ import re
 import sys
 import shlex
 import subprocess
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 try:  # normal import: the scripts directory is on sys.path
     import index_paths
@@ -724,6 +726,17 @@ def read_restart_action(root: Path, exit_code: int, invocation_token: str) -> di
     """Recognize only this invocation's durable, receipt/checkpoint-bound pause."""
     if exit_code != 3 or not invocation_token:
         return None
+    # An already-running pre-guard MCP wrapper loads this installed reader after
+    # extraction. Its final response also needs adaptation: returning a guard
+    # action alone would make that wrapper mislabel it as a storage migration.
+    try:
+        import upgrade_extensions
+        reader = getattr(upgrade_extensions, "legacy_index_guard_restart_action", None)
+    except ImportError:
+        reader = None
+    guard_action = reader(root, exit_code, invocation_token, sys._getframe(1)) if callable(reader) else None
+    if guard_action is not None:
+        return guard_action
     import upgrade_lib
     try:
         root = Path(root).resolve()
@@ -1528,6 +1541,55 @@ def _resume_schema8_cutover(root: Path, index_dir: Path, receipt: dict,
                             "need verification. " + _forward_recovery(source))
 
 
+_candidate_build = ContextVar("sqlite_migration_candidate_build", default=None)
+
+
+@contextmanager
+def _candidate_build_scope(index_dir: Path, receipt: dict, staging_index: Path):
+    """Complete an owned unpublished candidate without authorizing live memory.
+
+    This is deliberately not an environment override: sibling threads and live
+    index producers retain their ordinary publication context.
+    """
+    index_dir = Path(index_dir).resolve()
+    work = _safe(index_dir / (KIND_WORK_PREFIX + receipt["migration_id"]))
+    expected = _safe(_staging_index_dir(work))
+    candidate = _safe_sqlite(staged_database_path(expected))
+    current = read_receipt(index_dir)
+    if (current != receipt or receipt.get("kind") != KIND_SCHEMA8
+            or receipt.get("state") != "staged"
+            or receipt.get("staging_pid") != os.getpid()
+            or receipt.get("work_dir") != work.name
+            or receipt.get("work_identity") != _identity(work)
+            or Path(staging_index).absolute() != expected
+            or not candidate.is_file()):
+        raise MigrationRequired("storage_staging_identity_changed")
+    binding = (index_dir, receipt["migration_id"], expected, _identity(expected),
+               candidate, _identity(candidate), work, _identity(work))
+    token = _candidate_build.set(binding)
+    try:
+        yield
+    finally:
+        _candidate_build.reset(token)
+
+
+def is_unpublished_candidate(index_dir: Path) -> bool:
+    """True only inside this migration's exact, still-owned candidate build."""
+    binding = _candidate_build.get()
+    if binding is None or Path(index_dir).absolute() != binding[2]:
+        return False
+    live_index, migration_id, staging, staging_id, candidate, candidate_id, work, work_id = binding
+    receipt = read_receipt(live_index)
+    if (not receipt or receipt.get("migration_id") != migration_id
+            or receipt.get("state") != "staged" or receipt.get("kind") != KIND_SCHEMA8
+            or receipt.get("staging_pid") != os.getpid()
+            or receipt.get("work_identity") != work_id
+            or _identity(staging) != staging_id or _identity(work) != work_id
+            or _identity(_safe_sqlite(candidate)) != candidate_id):
+        raise MigrationRequired("storage_staging_identity_changed")
+    return True
+
+
 def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_store) -> dict:
     """Stage, rebuild the graph from current sources, then publish the rename."""
     source = _safe_sqlite(source_database_path(index_dir, receipt))
@@ -1595,7 +1657,8 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
     import sqlite_vector_store as vector_store
     # The entry always consumes prepared updates. Empty graph-only preparation
     # stays in memory; any overflow belongs to the staging tree.
-    with vector_store.PreparedUpdates(staging_index) as prepared:
+    with _candidate_build_scope(index_dir, receipt, staging_index), \
+            vector_store.PreparedUpdates(staging_index) as prepared:
         summary = indexer._build_index_locked(
             Path(root), content="graph", full=True, index_dir=staging_index,
             prepared=prepared)

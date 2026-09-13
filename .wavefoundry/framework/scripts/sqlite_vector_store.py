@@ -5,6 +5,9 @@ selection and payload hydration, without materializing an Arrow table.
 """
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 import errno
 import itertools
 import json
@@ -54,6 +57,7 @@ def _layer(layer):
 
 def create_schema(conn) -> None:
     """Create storage tables inside the caller's transaction, never migrate implicitly."""
+    index_compatibility.check_connection(conn)
     for layer in LAYERS:
         conn.execute(f"""CREATE TABLE IF NOT EXISTS chunks_{layer} (
             id INTEGER PRIMARY KEY, chunk_id TEXT NOT NULL UNIQUE,
@@ -104,6 +108,7 @@ def pack_vector(vector) -> bytes:
 
 def write_rows(conn, layer: str, rows, *, require_vector: bool = True) -> None:
     """Upsert public payloads and vectors without committing the caller's transaction."""
+    index_compatibility.check_connection(conn)
     layer = _layer(layer)
     if conn.get_autocommit():
         raise RuntimeError("write_rows requires an indexing transaction")
@@ -133,6 +138,7 @@ def write_rows(conn, layer: str, rows, *, require_vector: bool = True) -> None:
 
 
 def delete_rows(conn, layer: str, *, ids=(), paths=()) -> None:
+    index_compatibility.check_connection(conn)
     layer = _layer(layer)
     if conn.get_autocommit():
         raise RuntimeError("delete_rows requires an indexing transaction")
@@ -468,6 +474,7 @@ opens its write transaction. A failed process leaves no published half-delta.
     def apply(self, store, *, batch_size=250):
         """Drain into the caller's BEGIN IMMEDIATE; all resident updates share it."""
         import index_state_store as iss
+        index_compatibility.check_connection(store._conn)
         if store._conn.get_autocommit():
             raise RuntimeError("Prepared publication requires a writer transaction")
         if batch_size < 1:

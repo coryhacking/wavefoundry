@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-13
 
 ## Allowed Dependencies
 
@@ -38,7 +38,7 @@ Last verified: 2026-09-11
 
 ## Shared index storage (waves 1xjmm, 1xny6)
 
-`sqlite_runtime` is the sole connection policy for `index.sqlite`, and no module
+`sqlite_runtime` is the sole runtime connection policy for `index.sqlite`, and no module
 may open that file with a second SQLite library in one process. `index_paths` is
 the one definition of the database's current and legacy filenames; it deliberately
 does NOT decide authority when both exist — that is the migration receipt's job.
@@ -47,10 +47,32 @@ does NOT decide authority when both exist — that is the migration receipt's jo
 CALLER's transaction and never opening a connection of its own; `index_state_store`
 owns bookkeeping, FTS validation and publication fences; `indexer` owns the single
 transaction combining every one of their mutations. `graph_snapshot` is the only
-generation-bound read path for graph and community rows: it opens read-only, reads
+runtime generation-bound read path for graph and community rows: it opens read-only, reads
 one SQLite snapshot, and returns immutable content rather than a live handle. Query
 consumers open read-only connections and cannot repair or migrate persistent data.
+
+The standalone `graph_call_census.py` diagnostic is an explicit exception: in its
+own process, it uses stdlib SQLite to inspect relational graph rows in one
+read-only transaction without loading the runtime or vector extension. It is
+not a serving path and must not open a second SQLite library inside an existing
+runtime process. It confines the database and required existing WAL sidecars to
+the selected repository, refuses missing sidecars rather than creating them,
+and closes its connection explicitly. It does not repair, migrate or publish data.
+
 `sqlite_storage_migration` may load the pinned legacy reader only during standard
 upgrade conversion. Its durable receipt records recovery and cleanup progress;
 the existing build epoch remains publication authority. Graph participates in the shared publication transaction. Memory retains
 separate persistent ownership.
+
+## Index compatibility ownership (wave 1xxc9)
+
+`index_compatibility.py` owns stdlib-only classification, typed refusals and
+producer source identity; it does not own migrations or create connections.
+Ordered revisions come from producer declarations. Opaque model/FTS identities
+retain their selection/integrity contracts and are never sorted as versions.
+Writer owners invoke compatibility under the stable SQLite write snapshot before
+mutation, preserving the existing epoch CAS and publication transaction. A
+preflight alone is insufficient for a worker prepared before newer publication.
+The upgrade owns first-hop host coordination through `index_guard_handoff`,
+separate from the storage conversion receipt; incoming code cannot protect
+already-loaded unprotected hosts without the confirmed fresh-CLI handoff.

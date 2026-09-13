@@ -41,6 +41,7 @@ EXCLUDED_REL_PATHS = {
     "scripts/tests",
     "scripts/run_tests.py",
     "scripts/build_pack.py",
+    "scripts/repair_ppol_memory_staging.py",  # one-off local repair; not a normal upgrade tool
     "scripts/build_scan_allowlist.py",  # source-host-only; top-imports build_pack (excluded) — don't ship
     "scripts/benchmarks",
     "test-cache.json",

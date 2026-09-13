@@ -501,6 +501,8 @@ class MaintenanceTests(_TempRepoCase):
         path = self.iss.state_store_path(self.index_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = self.iss.sqlite_runtime.connect(path)
+        conn.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+        conn.execute("INSERT INTO meta VALUES('store_schema_version',?)", (self.iss.STATE_STORE_SCHEMA_VERSION,))
         conn.execute("CREATE TABLE churn(id INTEGER PRIMARY KEY,payload BLOB)")
         with conn:
             conn.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<6000) "
@@ -516,12 +518,28 @@ class MaintenanceTests(_TempRepoCase):
         after_control = conn.execute("PRAGMA freelist_count").fetchone()[0]
         self.assertEqual(before - after_control, 1)
         conn.close()
-        result = self.iss.sqlite_store_maintenance(path, full_vacuum=False)
+        free_before_planner = []
+        real_connect = self.iss.sqlite_runtime.connect
+        class ObservePlanner:
+            def __init__(self, native):
+                self.native = native
+            def __getattr__(self, name):
+                return getattr(self.native, name)
+            def execute(self, sql, *args):
+                if sql == "PRAGMA optimize":
+                    free_before_planner.append(self.native.execute("PRAGMA freelist_count").fetchone()[0])
+                return self.native.execute(sql, *args)
+        with mock.patch.object(self.iss.sqlite_runtime, "connect",
+                               side_effect=lambda *args, **kwargs: ObservePlanner(real_connect(*args, **kwargs))):
+            result = self.iss.sqlite_store_maintenance(path, full_vacuum=False)
         self.assertIsNone(result["error"])
         conn = self.iss.sqlite_runtime.connect(path, read_only=True)
         after = conn.execute("PRAGMA freelist_count").fetchone()[0]
         conn.close()
-        self.assertEqual(after_control - after, self.iss.INCREMENTAL_VACUUM_PAGES)
+        # Measure the vacuum before planner statistics allocate their own pages;
+        # file-size shrink also includes retired auto-vacuum pointer-map pages.
+        self.assertEqual(len(free_before_planner), 1)
+        self.assertEqual(after_control - free_before_planner[0], self.iss.INCREMENTAL_VACUUM_PAGES)
         self.assertGreater(after, 0)
         self.assertGreater(result["reclaimed_bytes"], 4096)
 
@@ -529,6 +547,8 @@ class MaintenanceTests(_TempRepoCase):
         path = self.iss.state_store_path(self.index_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         writer = self.iss.sqlite_runtime.connect(path)
+        writer.execute("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+        writer.execute("INSERT INTO meta VALUES('store_schema_version',?)", (self.iss.STATE_STORE_SCHEMA_VERSION,))
         writer.execute("PRAGMA wal_autocheckpoint=0")
         writer.execute("CREATE TABLE checkpoint_fixture(id INTEGER PRIMARY KEY,payload BLOB)")
         with writer:
@@ -633,6 +653,9 @@ class UnifiedStoreMaintenanceTests(_TempRepoCase):
         store = self.iss.IndexStateStore(self.index_dir)
         self.addCleanup(store.close)
         with store._conn:
+            import index_compatibility
+            store._conn.executemany("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                ((key,str(value)) for key,value in index_compatibility.SUPPORTED.items() if key.startswith("graph:")))
             store._conn.executemany(self.INSERT_EDGE, self._edges(rows))
         return store
 
@@ -1473,8 +1496,16 @@ class LexicalStatisticsTests(_TempRepoCase):
         return {"id": id, "path": "unindexed_path", "tags": "unindexed_tag",
                 "kind": "unindexed_kind", "language": "unindexed_language", "text": text}
 
+    def publish_fixture_provenance(self):
+        import index_compatibility
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "walker_version": index_compatibility.SUPPORTED["walker_version"],
+            "chunker_versions": {name: index_compatibility.SUPPORTED["chunker_version"]
+                                 for name in ("docs", "code")}})
+
     def populate(self):
         attempt = self.iss.begin_build_epoch(self.index_dir, "all")
+        self.publish_fixture_provenance()
         self.iss.rebuild_chunk_index(self.index_dir, "docs", [
             self.row("d1", "alpha alpha beta keep_together"), self.row("d2", "beta gamma")])
         self.iss.rebuild_chunk_index(self.index_dir, "code", [self.row("c1", "alpha delta")])
@@ -1495,11 +1526,15 @@ class LexicalStatisticsTests(_TempRepoCase):
             conn.close()
 
     def put_cache(self, value):
-        store = self.iss.IndexStateStore(self.index_dir)
+        # Fault injection bypasses the production writer, which now correctly
+        # refuses to overwrite a malformed/newer compatibility revision.
+        conn = self.iss.sqlite_runtime.connect(self.iss.state_store_path(self.index_dir))
         try:
-            store.set_meta({self.iss.META_LEXICAL_STATISTICS: json.dumps(value)})
+            with conn:
+                conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                    (self.iss.META_LEXICAL_STATISTICS, json.dumps(value)))
         finally:
-            store.close()
+            conn.close()
 
     def test_overlap_repetitions_underscore_and_unindexed_fields(self):
         self.populate()
@@ -1514,6 +1549,7 @@ class LexicalStatisticsTests(_TempRepoCase):
         self.assertEqual(self.iss.lexical_statistics(self.index_dir)["reason"], "empty_corpus")
         for content, expected in (("alpha alpha", (2, 1)), ("", (0, 0))):
             attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+            self.publish_fixture_provenance()
             self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("one", content)])
             self.iss.finalize_build_epoch(self.index_dir, attempt)
             payload = self.iss.lexical_statistics(self.index_dir)

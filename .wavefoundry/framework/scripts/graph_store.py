@@ -35,6 +35,9 @@ Identity contract (wave ``1xny6``, change ``1xny5-ref``):
 """
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 # Tables this module owns. Exported so the publication transaction can do
 # scoped DELETEs (the replacement for the old whole-store reset) without
 # re-listing table names at the call site.

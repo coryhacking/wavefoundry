@@ -4755,6 +4755,44 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(failed["status"], "error")
         self.assertIn("upgrade_failed", [d["code"] for d in failed["diagnostics"]])
 
+    def test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli(self):
+        extensions = self.srv._load_script("upgrade_extensions")
+        migration = self.srv._load_script("sqlite_storage_migration")
+        checkpoint = self.root / ".wavefoundry/upgrade-in-progress.json"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps({"from_version": "1.24.0+old",
+            "to_version": "1.24.0+new", "zip_path": None}), encoding="utf-8")
+        context = types.SimpleNamespace(root=self.root, dry_run=False,
+                                        index_guard_coordinator_capability=0)
+        def pause_child(cmd, **kwargs):
+            stream = io.StringIO()
+            with patch.dict(os.environ, kwargs["env"]), \
+                    patch.object(migration, "discover_hosts", return_value=([], ["best effort"])), \
+                    contextlib.redirect_stdout(stream):
+                with self.assertRaises(SystemExit) as paused:
+                    extensions.enforce_index_guard_handoff(context)
+            return subprocess.CompletedProcess(cmd, paused.exception.code,
+                                               stdout=stream.getvalue() + "progress\n" * 25000, stderr="")
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=pause_child):
+            response = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(response["status"], "action_required")
+        self.assertFalse(response.get("isError"))
+        self.assertEqual(response["data"]["code"], "index_guard_restart_required")
+        self.assertIsNone(response["data"]["failed_phase"])
+        self.assertIn("--confirm-hosts-stopped", response["data"]["action_required"]["command_argv"])
+        self.assertIn("non-MCP shell", response["next_step"])
+        action = response["data"]["action_required"]
+        recorded = extensions.read_index_guard_action(self.root, 3, action["invocation_token"])
+        self.assertEqual(action["command_argv"], recorded["command_argv"])
+        self.assertNotIn("receipt_path", action)
+        self.assertNotIn("_index_guard_envelope_proof", json.dumps(response))
+        self.assertLessEqual(len(json.dumps(response, ensure_ascii=False)), self.srv.UPGRADE_RESPONSE_CAP_CHARS)
+        self.assertTrue(response["data"]["output_truncated"])
+        with patch.object(self.srv, "_mcp_subprocess_run", return_value=subprocess.CompletedProcess([], 3, "", "")):
+            stale = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(stale["status"], "error")
+        self.assertNotIn("action_required", stale["data"])
+
     def test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses(self):
         proc = subprocess.CompletedProcess([], 3, stdout='{"code":"storage_restart_required"}', stderr="")
         for mode in ("apply", "dry_run"):

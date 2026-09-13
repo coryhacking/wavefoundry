@@ -118,6 +118,15 @@ def _seed_store_state(index_dir: Path, meta: dict) -> None:
     )
     iss = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(iss)
+    # Complete fixture publications carry the same producer provenance as a
+    # real build. Preserve explicit caller versions for compatibility tests.
+    import index_compatibility
+    meta = dict(meta)
+    meta.setdefault("walker_version", str(index_compatibility.SUPPORTED["walker_version"]))
+    meta.setdefault("chunker_versions", {
+        layer: str(index_compatibility.SUPPORTED["chunker_version"])
+        for layer in ("docs", "code")})
+    meta.setdefault("model_versions", {layer: "test-model" for layer in ("docs", "code")})
     iss.write_build_bookkeeping(index_dir, meta)
     attempt = iss.begin_build_epoch(index_dir, "fixture")
     assert iss.finalize_build_epoch(index_dir, attempt)

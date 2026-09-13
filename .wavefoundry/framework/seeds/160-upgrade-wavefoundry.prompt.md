@@ -16,6 +16,49 @@ The first upgrade into 1.22.0 runs with the installed older runner, so it does n
 
 When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, memory, index, cleanup, and protocol-1 bridge requirements remain unchanged.
 
+## Index writer compatibility and first protected upgrade
+
+Protected index writers check persisted ordered revisions and their loaded producer
+source contract before preparation and inside publication. A newer revision,
+malformed or unproven populated identity, or changed installed producer contract
+refuses with `index_version_newer`, `index_compatibility_unproven`, or
+`index_runtime_stale`. Preserve the index; reload/restart the affected host and
+resume the ordinary setup, upgrade or index command. Do not delete metadata,
+force an older rebuild, or repeatedly retry through the same stale process.
+Equal revisions retain incremental updates; a current runtime can rebuild older
+supported revisions and apply supported model changes. Model names, tokenizer
+identities and source hashes are compatibility identities, not ordered versions.
+
+The first protected upgrade cannot retrofit checks into already-loaded older
+hosts. It therefore retains `index_guard_handoff` in the ordinary upgrade
+checkpoint and pauses with `index_guard_restart_required` before publication,
+including same-schema upgrades. Capture the response's exact `command_argv`,
+stop this repository's Wavefoundry MCP/dashboard hosts (including the invoking
+host), then run that command through the ordinary non-MCP shell in a fresh CLI
+process. It retains the selected `--pack` and `--confirm-hosts-stopped`; the
+checkpoint verifies the package's SHA-256 identity on resume. Keep the checkpoint
+and original archive; do not substitute a newer package or edit recovery data.
+Confirmation asserts that undiscovered hosts have also stopped: discovery is
+best effort, and positively identified live hosts still block. No unrelated
+repository host is stopped automatically. Reconnect MCP only when CLI recovery
+permits it. Fresh installs with no former runtime are exempt.
+
+A validated pause returns outer `status: "action_required"`, without a true
+`isError`, and `failed_phase: null`. This also covers the pre-guard ppjy MCP
+wrapper when it first loads the incoming restart-action reader after extraction.
+A host that already cached an older reader may still label the outer response
+an error. In that case, follow the validated `index_guard_restart_required`
+checkpoint and its exact captured CLI command; an exit code alone is not proof
+of an expected pause. The presentation fix does not remove the host-stop or
+confirmation requirement and does not create a storage-migration receipt.
+
+This checkpoint records the pre-extraction capability and survives extraction
+and retries. It is independent of `sqlite-migration.json`: same-schema handoff
+creates no fictitious storage conversion, while actual format migrations retain
+their existing receipt and forward-only recovery. The handoff is rechecked
+before index children run; a post-upgrade reload alone is insufficient for this
+first protected release.
+
 ## Local semantic storage conversion (wave 1xjmm)
 
 Continue through standard `wf_upgrade`; no bridge release or externally staged
@@ -106,6 +149,23 @@ no backward rollback to the previous runner, and the retained rollback copy is
 never read back into service. Never delete the receipt or the retained source
 to force progress.
 
+When historical memory backfill overlaps this conversion, the unpublished
+graph candidate completes independently of the live memory run. Only ordinary
+live index publication may advance that run. Continue through the standard
+upgrade flow and its retained CLI command after any required host-stop
+checkpoint. Never copy the memory database into staging, edit recovery
+receipts, or substitute a different package while a receipt is pending.
+
+**Audit the documented state-store schema version.** The ordinary upgrade
+snapshots supported docs-constants claims before extraction and reconciles exact,
+unchanged claims against newly installed constants before its docs gate. Verify
+the `state-store schema version` claim in `docs/RELIABILITY.md` during the editing
+pass. If a customized claim or unavailable snapshot leaves a mismatch, correct
+the named claim from the installed code at the reported docs-gate stop, then
+resume the ordinary upgrade. There is no separate manual editing checkpoint
+before the first gate. Repositories without that document need no edit; an
+existing document with a missing required claim must be corrected.
+
 **Rebuild legacy semantic storage from current sources.** If faithful transfer
 refuses historical duplicate or missing chunk IDs, or legacy vectors cannot be
 read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuation
@@ -173,7 +233,7 @@ Operator mental model — how framework updates actually work:
  - A full host restart is needed for storage-format/native-runtime cutovers and hosts that cannot hot-reload; ordinary code-only upgrades retain in-process reload.
  - **Exception — upgrades that RENAME MCP tools require a full restart of every attached host (or fresh sessions), not a hot reload.** The 1.14.0 release renames the whole tool surface (`wave_*` to `wf_*`/`memory_*`/`index_*`), including the reload tool itself: upgrading sessions still hold the OLD in-memory tool names, and the hot-reload path cannot re-register the renamed reload survivor from inside an old process. After upgrading across such a boundary, fully quit and restart every attached agent host (or start fresh conversations) so each client fetches the new tool list; until then old sessions' tools are stale and renamed-tool calls fail. The reconciliation scan lists the old-to-new tool renames alongside the retired-wrapper findings. Stale `mcp__wavefoundry__<old-name>` allow rules split by ownership: rules the permissions renderer recorded emitting into the committed `.claude/settings.json` (its `wavefoundryManagedAllow` provenance) **self-heal on the upgrade render** and surface only informationally in the `renderer_provenance_flags` channel; everything else (`.claude/settings.local.json`, non-provenance `settings.json` rules, per-host equivalents) still surfaces in the operator flags channel, and the operator must update those rules or every renamed tool call will prompt.
  - **Exception: a cutover-active 1.15 events-only review-evidence upgrade run requires a full restart of every attached MCP/agent host, including the invoking host.** Upgrading across the 1.15 boundary removes the retired project-global review-evidence sidecars (`docs/waves/review-evidence-adoptions.json`, `docs/waves/review-evidence-migration.json`) and makes each wave's fixed sibling `events.jsonl` the sole review authority. The cutover is a maintenance window: the upgrade stops the dashboard, refuses while either shipped publication-lock path is held (the current `.wavefoundry/locks/review-evidence-adoptions.lock` or the v1.13 root-level `.wavefoundry/review-evidence-adoptions.lock`), holds both locks for the whole sidecar-deletion window, and releases then unlinks the v1.13 root-lock file last (Windows cannot delete an open locked file; on POSIX an unlink under a concurrent v1.13-era holder would split the lock domain onto a fresh inode; both slivers are bounded by the full-restart instruction). The restart requirement is scoped, not permanent: `restart_required` is true only on cutover-active runs (the run removed a sidecar or the stale root lock, or the installed version predates 1.15; an unknown installed version is treated fail-safe as pre-1.15). On a cutover-active run the upgrade suppresses its own automatic in-process reload at both automatic-reload phases, removes `wf_reload_mcp` from the suggested next tools, and instructs the full host restart instead: an in-process `wf_reload_mcp` alone is NOT sufficient, because a still-running pre-upgrade host would write receipt state the new implementation no longer reads. The suppression executes in the invoking host's already-loaded server code, so it is guaranteed only when that host already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may still fire its old unconditional in-process reload, which loads the new module but does not substitute for the full restart; the full-restart instruction, delivered in the upgrade summary, stands either way. Ordinary post-1.15 upgrades, and reruns on an already-converged repository, keep the established in-process reload flow and report no cutover restart requirement. Mixed-version concurrent lifecycle mutation during a cutover-active upgrade is unsupported; the upgrade states that plainly rather than claiming safety it cannot prove. Existing `wave.md` and `events.jsonl` files are left byte-for-byte untouched. One narrow exception to the suppressed-reload guidance: when the upgrade pauses action-required at the historical-memory gate, its response still names `wf_reload_mcp`, because that reload is required to continue the upgrade itself; the final cleanup response still carries the full-restart instruction.
- - **Mandatory after a `GRAPH_BUILDER_VERSION` bump — a non-reloaded server DOWNGRADES the graph.** An already-running MCP server keeps the PRE-upgrade graph extractor in memory for its whole lifetime (the module is lazy-loaded once per process). The upgrade's Phase 4b already re-extracts the graph at the new builder version, but the FIRST graph query on a still-stale server sees its own old in-memory version, decides the on-disk store is "wrong", and re-extracts the graph back DOWN to the old version — silently reverting the upgrade's graph work. Reloading (`wf_reload_mcp`) or restarting the host loads the new extractor so this cannot happen. Do not skip this step when the release notes flag a graph-builder bump.
+ - **Index writer compatibility:** protected runtimes preserve newer graph, semantic, lexical and chunker/walker state and refuse with restart guidance. The first upgrade from an unprotected host requires the confirmed fresh-CLI handoff above before publication, even when the storage schema is unchanged. A reload after publication cannot protect against an already-loaded unprotected host.
 4. **The index update runs automatically as the upgrade's final phase** — you do not run a separate index command for a normal upgrade.
  - The indexer auto-escalates to a full rebuild when chunker/graph/model versions changed; a manual `index_build` / `wf_upgrade(phase="update_index")` is only for re-running after the agent editing pass.
  - The final index phase updates BOTH the semantic indexes AND the graph, each version-aware: an incremental update when nothing material changed, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-chunk + re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s, `--graph-only`). So a graph-builder bump materializes **during the upgrade**, symmetric with the semantic indexes — no manual step. (The first-query in-process auto-rebuild remains a safety net if the graph step is ever skipped.) 1.8.1 bumps `GRAPH_BUILDER_VERSION` only (32→35) → a graph-only re-extract (no re-embed) carrying the new edges/nodes: cross-language confidence promotion, `reads_config`, `instruments`, `.properties`/`.yml` config-key nodes.
@@ -247,10 +307,7 @@ Execution flow (no-MCP CLI fallback — `wf upgrade`; when MCP is attached, pref
  ```bash
  python3 .wavefoundry/framework/scripts/prune_framework.py --old-manifest /tmp/wf-manifest-old.txt
  ```
- - **Remove any re-dropped bootstrap file (fail-safe).** The pack ships the single-use `install-wavefoundry.md` at the zip root. The scoped unpack above excludes it, but an earlier unscoped `unzip -o` may have dropped it at the repository root, and prune is MANIFEST-scoped to `.wavefoundry/framework/` and never touches a root file. Delete it so it does not linger in the project root (the MCP `wf_upgrade` / `wf upgrade` path removes it automatically; this manual step is only for the fully-hand-run unzip fallback):
- ```bash
- rm -f install-wavefoundry.md
- ```
+ - **Preserve root installers.** The package retains `install-wavefoundry.md` for fresh installs, but ordinary upgrades exclude it before extraction, including the installing hop under a supported older runner. Scoped manual unpack also excludes it. Existing files and older leftovers remain untouched; do not infer ownership from the name, matching package bytes, or untracked status. Remove a leftover only after reviewing its provenance and obtaining operator authorization.
  - **Journal migration is mechanical and automatic (wave retirement).** The upgrade's pre-docs-gate migration deletes journals byte-identical to the pristine generated scaffold and moves content-bearing wave journals into their wave directories, reporting anything it leaves behind (role journals, template drift, missing wave directories). Do not hand-edit journal content during the upgrade; the operator finishes the leftover set later with the one-time **Migrate journals** prompt (`seed-210`), which promotes still-valuable findings into typed memory candidates and folds role-journal content into role docs. Durable capture now lives in the memory system, not journals.
  - **Continue automatically in the same run:** step 0 only adopts the pack. After unpack + hook regeneration + prune, immediately continue with step 1 and complete the full upgrade workflow (`020`, `150`, drift detection, backfill, verification). Do **not** stop after unpacking or treat unzip success alone as a completed upgrade.
  - **Operator caution:** when multiple semver packs exist, the highest semver zip is selected automatically; archive or delete packs that must not be applied so they are not selected by mistake.
@@ -365,7 +422,7 @@ The migrations:
  - `persona_review_policy`, including when user/operator personas are invoked and whether their findings are advisory or gating
  - readiness-review behavior, including whether readiness is required before implementation, auto-runs when missing, and reruns before closure
  - **`lifecycle_id_policy`** in `docs/workflow-config.json` — provisioning and v1→v2 migration are **code, not agent edits**: the automated upgrade flow runs `materialize_lifecycle_policy` (`upgrade_wavefoundry.py` Phase 2c) on every upgrade, which provisions the scheme-v2 policy (epoch = rollout date, offset placed above all scanned existing IDs) when `scheme_version` is absent and leaves an already-v2 block untouched. This editing pass is an **audit only**: confirm `scheme_version: "v2"` is present after the upgrade; if it is somehow absent, run `wf upgrade --materialize-lifecycle-policy` rather than hand-writing any value. **Never hand-edit or overwrite** `epoch_utc`, `offset`, or `scheme_version` once provisioned — issued IDs depend on them. (The retired backfill-a-fixed-default and install-time epoch formulas no longer apply; fresh installs are provisioned automatically by `wf setup`'s first step, with the same command as the recovery fallback.)
- - **`.gitignore` runtime file contract** — the runtime block is now written programmatically by `render_gitignore_block` (in `render_platform_surfaces.py`), which the upgrade's surface-rendering phase (`wf render-surfaces`) runs on **every** upgrade, so the marker-delimited `# >>> wavefoundry runtime …` block self-heals automatically — including on a repo that was not a git repo at install time and never got the block. Verify the block is present after rendering (it must contain the `seed-050` entries: dashboard-server.json, guard-overrides.json, `**/*.lock`, `logs/`, `index/`, `framework/index/`, `/wavefoundry-*.zip`); if it is somehow absent, re-run `wf render-surfaces` rather than hand-adding it. Then check whether any of those runtime files are still tracked: `git ls-files .wavefoundry/dashboard-server.json .wavefoundry/*.lock .wavefoundry/framework/*.lock`. For each tracked file, run `git rm --cached <file>` to remove it from the index without deleting it from disk — this prevents the live pid/port from churning into git history on every dashboard restart.
+ - **`.gitignore` runtime file contract** — `wf render-surfaces` refreshes the canonical managed runtime block on every upgrade and reports tracked files matching those rules, including guards, locks, logs, indexes, recovery assets and package archives. Ignore rules do not untrack existing files. The warning is advisory: review each exact reported path and obtain operator authorization before `git rm --cached -- <path>`; this stops tracking while keeping the local file. Never automatically untrack files or flip guards to resolve a warning. Inspection failures are reported as unavailable, not clean; resolve Git access and rerun `wf render-surfaces`. Reconcile this guidance and the root-installer preservation rule into the project's customized upgrade prompt outside renderer-owned marker regions.
  - **`docs/scan-rules.toml` secrets threshold** — **verify/complete** the project-level scan-rules policy. Note (wave 1p44z): the automated upgrade flow now **materializes this file before the first docs gate** (`upgrade_wavefoundry.py` Phase 2b, `materialize_secrets_policy`) when it is ABSENT, so the common "file missing" case is already handled by the upgrade — this editing-pass step is now an audit that completes the rarer "file exists but lacks the policy key" case and confirms the value. Do not double-write a value the preflight already set. See `docs/references/scan-findings-format.md` for the findings schema, status lifecycle, and the `[policy]` confirmation-threshold contract.
    1. Count unique committer emails in the last 24 months: `git log --format="%ae" --since="2 years ago" | sort -u | wc -l`. Treat 0 on failure. If the result is 0 (no commits in window), fall back to all-time: `git log --format="%ae" | sort -u | wc -l`.
    2. Map to threshold: 0–1 → 1, 2–6 → 2, 7+ → 3.

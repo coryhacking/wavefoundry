@@ -87,6 +87,10 @@ def write_upgrade_lock(
     """
     p = upgrade_lock_path(root)
     prior = read_upgrade_lock(root) or {}
+    guard_handoff = prior.get("index_guard_handoff")
+    if "index_guard_handoff" in prior:
+        from upgrade_extensions import _validate_index_guard_handoff
+        _validate_index_guard_handoff(root, prior, guard_handoff, zip_path, to_version)
     data: dict[str, Any] = {
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "from_version": from_version,
@@ -110,6 +114,8 @@ def write_upgrade_lock(
         "retired_model_cleanup_unowned": [],
         "retired_model_cleanup_failed": [],
     }
+    if "index_guard_handoff" in prior:
+        data["index_guard_handoff"] = guard_handoff
     # A failed prior run may have stopped a dashboard before mutating the tree.
     # A full recovery run replaces the lock, but must carry that restart intent
     # until a successful cleanup has actually restarted the dashboard.

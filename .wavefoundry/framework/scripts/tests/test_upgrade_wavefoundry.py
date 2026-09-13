@@ -1938,10 +1938,22 @@ class PhasePruningCountTests(unittest.TestCase):
         self.assertIsNone(self._prune("prune: deleted 5 item(s)\n", returncode=1))
 
 
+def _confirmed_index_guard_fixture(test):
+    """These publication fixtures model an operator-confirmed, quiesced host."""
+    import sqlite_storage_migration
+    confirmation = patch.dict(os.environ, {sqlite_storage_migration.CONFIRM_ENV: "1"})
+    confirmation.start()
+    test.addCleanup(confirmation.stop)
+    discovery = patch.object(sqlite_storage_migration, "discover_hosts", return_value=([], ["fixture host inventory"]))
+    discovery.start()
+    test.addCleanup(discovery.stop)
+
+
 class PreferredPythonTests(unittest.TestCase):
     """Regression coverage for explicit shared-venv subprocess routing."""
 
     def setUp(self):
+        _confirmed_index_guard_fixture(self)
         self.mod = load_upgrade_module()
         # Wave 1p7pm: phase_surface_rendering calls venv_bootstrap.ensure_python_resolves(), which is
         # SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). Patch it to a
@@ -3065,6 +3077,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
     """Blocking Phase 4 children carry the value-bound publisher grant."""
 
     def setUp(self):
+        _confirmed_index_guard_fixture(self)
         self.mod = load_upgrade_module()
         self.lib = _load_upgrade_lib()
         self.tmp = tempfile.TemporaryDirectory()
@@ -5501,111 +5514,168 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self.assertEqual(transitions, [])
 
 
-class RemoveRootBootstrapFileTests(unittest.TestCase):
-    """Only a demonstrably created, unchanged installer is cleanup-owned."""
-
-    def setUp(self) -> None:
+class TrackedRuntimeUpgradeWarningTests(unittest.TestCase):
+    def setUp(self):
         self.mod = load_upgrade_module()
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self.guard = self.root / ".wavefoundry/guard-overrides.json"
+        self.guard.parent.mkdir()
+        self.guard.write_bytes(b'{"framework_edit_allowed":false}')
+        self.installer = self.root / "install-wavefoundry.md"
+        self.installer.write_bytes(b"project-owned installer")
+        subprocess.run(["git", "-C", str(self.root), "add", "--", "."], check=True)
+
+    def test_real_upgrade_render_output_and_summary_preserve_tracking(self):
+        before = (self.root / ".git/index").read_bytes()
+        code = ('import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
+                'import upgrade_wavefoundry as u; u.phase_surface_rendering(Path(sys.argv[2]))')
+        result = subprocess.run([sys.executable, "-B", "-c", code, str(SCRIPTS_ROOT), str(self.root)],
+                                check=True, capture_output=True, text=True)
+        self.assertIn('Runtime file remains tracked: ".wavefoundry/guard-overrides.json"', result.stderr)
+        self.assertIn("Surfaces rendered", result.stdout)
+        lines = []
+        with patch.object(self.mod, "_log", side_effect=lines.append):
+            self.mod._print_operator_summary(from_version="1.23.0", to_version="1.24.0",
+                zip_path=None, pruned_count=0, ran_index_rebuild=True, failed_phase=None, root=self.root)
+        sentinel = next(line for line in lines if str(line).startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL))
+        summary = json.loads(sentinel[len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+        rows = [r for r in summary["renderer_warnings"] if r["channel"] == "tracked-runtime"]
+        self.assertEqual([r["file"] for r in rows], [".wavefoundry/guard-overrides.json"])
+        self.assertIsNone(summary["failed_phase"])
+        self.assertIn("operator approval", "\n".join(lines))
+        self.assertEqual((self.root / ".git/index").read_bytes(), before)
+        self.assertEqual(self.guard.read_bytes(), b'{"framework_edit_allowed":false}')
+        self.assertEqual(self.installer.read_bytes(), b"project-owned installer")
+
+    def test_summary_keeps_unavailable_inspection_distinct_from_clean(self):
+        import render_platform_surfaces
+        with patch.object(render_platform_surfaces, "tracked_runtime_diagnostics", side_effect=OSError("denied")):
+            warnings = self.mod._run_renderer_warning_scan(self.root)
+        self.assertEqual(warnings[0]["channel"], "tracked-runtime-inspection")
+        self.assertIn("unavailable", warnings[0]["detail"])
+
+
+class RootBootstrapUpgradeTests(unittest.TestCase):
+    """Upgrade selection must prevent creation, including the old-code window."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.ext = _load_upgrade_extensions()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        self.pack = self.root / "pack.zip"
+        with zipfile.ZipFile(self.pack, "w") as archive:
+            archive.writestr("install-wavefoundry.md", "fresh install instructions")
+            archive.writestr(".wavefoundry/framework/VERSION", "9.9.9")
+            archive.writestr("__main__.py", "runner only")
 
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
+    def _legacy(self):
+        import types
+        name = "bootstrap_legacy_runner_fixture"
+        legacy = types.ModuleType(name)
+        # Frozen pre-fix member selection and unconditional cleanup. The incoming
+        # hook must affect THIS loaded module, not just the new files on disk.
+        exec('''
+_EXTRACT_ROOT_MEMBERS = frozenset({"install-wavefoundry.md"})
+def extract(zf, root):
+    zf.extractall(str(root), members=[n for n in zf.namelist()
+        if n.startswith(".wavefoundry/") or n in _EXTRACT_ROOT_MEMBERS])
+def _remove_root_bootstrap_file(root):
+    (root / "install-wavefoundry.md").unlink(missing_ok=True)
+class Context: pass
+''', legacy.__dict__)
+        ctx = legacy.Context()
+        ctx.root, ctx.zip_path, ctx.dry_run = self.root, self.pack, False
+        return legacy, ctx, name
 
-    def _extract_bootstrap(self):
-        stream = io.BytesIO()
-        with zipfile.ZipFile(stream, "w") as archive:
-            archive.writestr("install-wavefoundry.md", "bootstrap instructions")
-        with zipfile.ZipFile(stream) as archive:
+    def _exclude_old(self, legacy, ctx, name):
+        with patch.dict(sys.modules, {name: legacy}), \
+             patch.object(self.ext, "_preserve_original_manifest"), \
+             patch.object(self.ext, "_snapshot_graph_builder_doc_claim"), \
+             patch.object(self.ext, "_cut_over_runtime_locks"):
+            self.mod._run_hook("pre_extract", ctx, self.ext)
+
+    def test_old_runner_excludes_before_pause_and_fresh_process_resume(self):
+        legacy, ctx, name = self._legacy()
+        self._exclude_old(legacy, ctx, name)
+        with zipfile.ZipFile(self.pack) as archive:
+            legacy.extract(archive, self.root)
+        bootstrap = self.root / "install-wavefoundry.md"
+        # This is the post-extract pause boundary: cleanup has NOT run.
+        self.assertFalse(bootstrap.exists())
+        self.assertEqual((self.root / ".wavefoundry/framework/VERSION").read_text(), "9.9.9")
+        self.assertFalse((self.root / "__main__.py").exists())
+        # A genuinely fresh interpreter re-extracts without any process receipt.
+        code = ('import sys,zipfile; from pathlib import Path; '
+                'sys.path.insert(0,sys.argv[1]); import upgrade_wavefoundry as u; '
+                'z=zipfile.ZipFile(sys.argv[2]); u._extract_feature_members(z,Path(sys.argv[3]))')
+        subprocess.run([sys.executable, "-B", "-c", code, str(SCRIPTS_ROOT),
+                        str(self.pack), str(self.root)], check=True, capture_output=True)
+        self.assertFalse(bootstrap.exists())
+
+    def test_existing_file_survives_current_and_repeated_legacy_cleanup(self):
+        bootstrap = self.root / "install-wavefoundry.md"
+        bootstrap.write_bytes(b"project instructions, locally modified")
+        identity = bootstrap.stat().st_ino
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "--", bootstrap.name], check=True)
+        index_before = (self.root / ".git/index").read_bytes()
+        with zipfile.ZipFile(self.pack) as archive:
             self.mod._extract_feature_members(archive, self.root)
+        legacy, ctx, name = self._legacy()
+        self._exclude_old(legacy, ctx, name)
+        with zipfile.ZipFile(self.pack) as archive:
+            legacy.extract(archive, self.root)
+        legacy._remove_root_bootstrap_file(self.root)
+        legacy._remove_root_bootstrap_file(self.root)
+        self.assertEqual(bootstrap.read_bytes(), b"project instructions, locally modified")
+        self.assertEqual(bootstrap.stat().st_ino, identity)
+        self.assertEqual((self.root / ".git/index").read_bytes(), index_before)
 
-    def test_removes_only_file_created_by_this_extract(self) -> None:
-        f = self.root / "install-wavefoundry.md"
-        self._extract_bootstrap()
-        self.mod._remove_root_bootstrap_file(self.root)
-        self.assertFalse(f.exists())
+    def test_existing_symlink_and_dangling_symlink_are_untouched(self):
+        bootstrap = self.root / "install-wavefoundry.md"
+        target = self.root / "operator.md"
+        for present in (False, True):
+            if present:
+                target.write_bytes(b"operator target")
+            try:
+                bootstrap.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"host cannot create symlinks: {exc}")
+            before = bootstrap.lstat()
+            legacy, ctx, name = self._legacy()
+            self._exclude_old(legacy, ctx, name)
+            with zipfile.ZipFile(self.pack) as archive:
+                legacy.extract(archive, self.root)
+                self.mod._extract_feature_members(archive, self.root)
+            legacy._remove_root_bootstrap_file(self.root)
+            self.assertTrue(bootstrap.is_symlink())
+            self.assertEqual(bootstrap.lstat().st_ino, before.st_ino)
+            self.assertEqual(target.exists(), present)
+            if present:
+                self.assertEqual(target.read_bytes(), b"operator target")
+            bootstrap.unlink()
 
-    def test_existing_and_modified_bootstrap_survive(self) -> None:
-        f = self.root / "install-wavefoundry.md"
-        f.write_bytes(b"project-owned instructions")
-        self._extract_bootstrap()
-        self.mod._remove_root_bootstrap_file(self.root)
-        self.assertEqual(f.read_bytes(), b"project-owned instructions")
-        f.unlink()
-        self._extract_bootstrap()
-        f.write_bytes(b"operator edits after extraction")
-        self.mod._remove_root_bootstrap_file(self.root)
-        self.assertEqual(f.read_bytes(), b"operator edits after extraction")
+    def test_preview_and_no_pack_have_no_extraction_to_protect(self):
+        legacy, ctx, name = self._legacy()
+        del legacy._EXTRACT_ROOT_MEMBERS
+        for dry_run, pack in ((True, self.pack), (False, None)):
+            ctx.dry_run, ctx.zip_path = dry_run, pack
+            with patch.dict(sys.modules, {name: legacy}):
+                self.ext._protect_existing_root_bootstrap(ctx)
+            self.assertFalse((self.root / ".wavefoundry").exists())
 
-    def test_fresh_process_cannot_infer_installer_ownership(self) -> None:
-        self._extract_bootstrap()
-        fresh = load_upgrade_module()
-        fresh._remove_root_bootstrap_file(self.root)
-        self.assertEqual((self.root / "install-wavefoundry.md").read_text(), "bootstrap instructions")
-
-    def test_absent_is_noop(self) -> None:
-        # AC-2: no file present → no-op, no exception.
-        self.mod._remove_root_bootstrap_file(self.root)  # must not raise
-        self.assertFalse((self.root / "install-wavefoundry.md").exists())
-
-    def test_unlink_error_is_swallowed(self) -> None:
-        # AC-2: a failed unlink is logged and swallowed — the upgrade must never abort over cleanup.
-        f = self.root / "install-wavefoundry.md"
-        self._extract_bootstrap()
-        with patch.object(self.mod.Path, "unlink", side_effect=OSError("boom")):
-            self.mod._remove_root_bootstrap_file(self.root)  # must not raise
-
-    def test_only_touches_the_reserved_bootstrap_name(self) -> None:
-        # A same-directory unrelated file is never touched — only the framework-reserved name is removed.
-        other = self.root / "README.md"
-        other.write_text("project readme", encoding="utf-8")
-        (self.root / "install-wavefoundry.md").write_text("bootstrap", encoding="utf-8")
-        self.mod._remove_root_bootstrap_file(self.root)
-        self.assertTrue(other.exists(), "unrelated root files must be left untouched")
-        self.assertEqual((self.root / "install-wavefoundry.md").read_text(), "bootstrap")
-
-    def test_extract_phase_wires_the_cleanup_after_extractall(self) -> None:
-        # F1 (delivery review): lock the wiring — the upgrade extract phase must CALL
-        # `_remove_root_bootstrap_file(root)` AFTER `zf.extractall`, so a refactor that drops the call is
-        # caught. This complements the process-level ownership tests in
-        # test_storage_upgrade_resume.py.
-        import inspect
-        src = inspect.getsource(self.mod)
-        self.assertIn("_remove_root_bootstrap_file(root)", src, "the cleanup call must be wired in")
-        # Wave 1u0cc: the extract phase now calls the allowlist helper instead of a bare
-        # zf.extractall — anchor on its unique call site (the def has annotated params).
-        extract_pos = src.index("_extract_feature_members(zf, root)")
-        # Wave 1rych added a second call in the --update-index phase (which precedes the extract block in
-        # source order), so anchor on the FIRST call AT OR AFTER the extract call — that is the
-        # extract-phase call this test locks.
-        call_pos = src.index("_remove_root_bootstrap_file(root)", extract_pos)
-        self.assertGreater(
-            call_pos, extract_pos,
-            "the bootstrap cleanup must run AFTER the filtered extraction in the extract phase",
-        )
-
-    def test_update_index_phase_wires_the_bootstrap_removal(self) -> None:
-        # Keep the --update-index cleanup call after indexing. The helper itself
-        # requires creation proof from this invocation; a fresh process must
-        # preserve a preexisting installer rather than infer ownership by name.
-        import inspect
-        src = inspect.getsource(self.mod)
-        piu = src.index("phase_index_update(root)")  # closing paren matches the call site, not the def
-        removal_after = src.index("_remove_root_bootstrap_file(root)", piu)
-        self.assertGreater(
-            removal_after, piu,
-            "the --update-index phase must call _remove_root_bootstrap_file after phase_index_update",
-        )
-
-    def test_removal_wired_at_both_extract_and_update_index_sites(self) -> None:
-        # AC-3: belt-and-suspenders — the extract-phase call is KEPT and the --update-index call is ADDED,
-        # so there must be (at least) two distinct call sites of _remove_root_bootstrap_file(root).
-        import inspect
-        src = inspect.getsource(self.mod)
-        self.assertGreaterEqual(
-            src.count("_remove_root_bootstrap_file(root)"), 2,
-            "both the extract-phase and --update-index removal call sites must be present",
-        )
+    def test_unknown_active_extractor_refuses_before_archive_write(self):
+        legacy, ctx, name = self._legacy()
+        del legacy._EXTRACT_ROOT_MEMBERS
+        with self.assertRaisesRegex(RuntimeError, "cannot exclude"):
+            with patch.dict(sys.modules, {name: legacy}):
+                self.ext._protect_existing_root_bootstrap(ctx)
+        self.assertFalse((self.root / ".wavefoundry").exists())
 
 
 class ExtractFeatureMembersTests(unittest.TestCase):
@@ -5653,17 +5723,14 @@ class ExtractFeatureMembersTests(unittest.TestCase):
             return self.mod._extract_feature_members(zf, self.proj)
 
     def test_runner_members_and_payload_are_skipped(self) -> None:
-        # AC-1: no runner debris at the project root; skip count covers all six runner/payload members.
+        # AC-1: no runner debris at the project root; skip count also covers the fresh-install bootstrap.
         skipped = self._extract(self._combined_bundle_zip())
-        self.assertEqual(skipped, 6)
+        self.assertEqual(skipped, 7)
         for name in self.RUNNER_MEMBERS:
             self.assertFalse((self.proj / name).exists(), f"{name} must not be extracted")
         self.assertFalse((self.proj / "payload").exists(), "payload/ must not be extracted")
 
-    def test_feature_members_and_bootstrap_extract_as_before(self) -> None:
-        # AC-2: .wavefoundry/** extracts with content parity; the bootstrap file still lands at the
-        # root (its removal stays the wired _remove_root_bootstrap_file cleanup, ordering-locked by
-        # test_extract_phase_wires_the_cleanup_after_extractall).
+    def test_feature_members_extract_without_fresh_install_bootstrap(self) -> None:
         self._extract(self._combined_bundle_zip())
         self.assertEqual(
             (self.proj / ".wavefoundry" / "framework" / "VERSION").read_text(encoding="utf-8"),
@@ -5673,11 +5740,6 @@ class ExtractFeatureMembersTests(unittest.TestCase):
             (self.proj / ".wavefoundry" / "framework" / "scripts" / "example.py").read_text(encoding="utf-8"),
             "print('hi')\n",
         )
-        self.assertEqual(
-            (self.proj / "install-wavefoundry.md").read_text(encoding="utf-8"),
-            "bootstrap instructions",
-        )
-        self.mod._remove_root_bootstrap_file(self.proj)
         self.assertFalse((self.proj / "install-wavefoundry.md").exists())
 
     def test_preexisting_collision_files_are_byte_identical(self) -> None:
@@ -5702,7 +5764,7 @@ class ExtractFeatureMembersTests(unittest.TestCase):
         skipped = self._extract(
             self._combined_bundle_zip(extra_members={".wavefoundry\\evil.py": "evil"})
         )
-        self.assertEqual(skipped, 7)
+        self.assertEqual(skipped, 8)
         self.assertEqual(
             [p.name for p in self.proj.iterdir() if "\\" in p.name], [],
             "no backslash-named member may land at the project root",
@@ -5718,13 +5780,13 @@ class ExtractFeatureMembersTests(unittest.TestCase):
         escaped = [p for p in self.root.rglob("escape.txt") if self.proj not in p.parents]
         self.assertEqual(escaped, [], "the traversal-shaped member must stay under the project root")
 
-    def test_feature_only_archive_skips_zero(self) -> None:
-        # Requirement 5: the bridge-retained inner zip is feature-only; the skip log must never fire.
+    def test_feature_only_archive_still_withholds_bootstrap(self) -> None:
+        # Feature archive inventory includes the installer for fresh installs only.
         zp = self.root / "feature-only.zip"
         with zipfile.ZipFile(zp, "w") as zf:
             zf.writestr(".wavefoundry/framework/VERSION", "9.9.9+test")
             zf.writestr("install-wavefoundry.md", "bootstrap instructions")
-        self.assertEqual(self._extract(zp), 0)
+        self.assertEqual(self._extract(zp), 1)
 
     def test_allowlist_pins_bundle_layout_constants(self) -> None:
         # Requirement 2: the runner mirrors upgrade_bundle's layout constants (it cannot import them
@@ -8200,6 +8262,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         cls.mod = load_upgrade_module()
 
     def setUp(self):
+        _confirmed_index_guard_fixture(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / ".wavefoundry" / "index").mkdir(parents=True)
@@ -8273,7 +8336,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         with patch.object(self.mod, "phase_index_update", side_effect=phase), \
              patch.object(self.backfill, "mark_indexed", side_effect=mark):
             first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(first, 0)
         self.assertEqual(observed, ["ready_for_index", "mark"])
@@ -8283,7 +8346,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update") as phase_again:
             second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(second, 0)
         phase_again.assert_not_called()
@@ -8303,7 +8366,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             failed_at=None,
         )
         with patch.object(self.mod, "phase_index_update", return_value=True) as phase:
-            result = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+            result = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
 
         self.assertEqual(result, 0)
         phase.assert_called_once_with(self.root.resolve())
@@ -8339,7 +8402,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update") as phase:
             resumed_memory = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(resumed_memory, 0)
         phase.assert_called_once_with(self.root.resolve())
@@ -8394,7 +8457,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update") as phase:
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
 
         self.assertEqual(result, 0)
@@ -8424,7 +8487,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         with patch.object(self.mod, "phase_index_update") as phase, \
              contextlib.redirect_stderr(stderr):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
 
         self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
@@ -8475,7 +8538,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         with patch.object(self.mod, "phase_index_update") as phase, \
              contextlib.redirect_stderr(stderr):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
 
         self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
@@ -8528,7 +8591,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             self.mod.subprocess_util, "isolated_run", side_effect=child_run
         ):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
 
         self.assertEqual(result, 0)
@@ -8565,11 +8628,11 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         with patch.object(self.mod, "phase_index_update", side_effect=phase), \
              patch.object(self.mod, "_verify_storage_publication", side_effect=[
                  RuntimeError("fresh verifier interrupted"), None]) as verify:
-            first = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+            first = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
             self.assertEqual(first, 1)
             self.assertEqual(self.backfill.run_summary(self.root, self.run_id)["state"], "indexed")
             self.assertIsNotNone(self.upgrade_lib.read_upgrade_lock(self.root))
-            second = self.mod.main(["--root", str(self.root), "--resume-after-memory"])
+            second = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
         self.assertEqual(second, 0)
         self.assertEqual(calls, ["children"])
         self.assertEqual(verify.call_count, 2)
@@ -8594,13 +8657,13 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
                  side_effect=RuntimeError("checkpoint unavailable"),
              ):
             first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(first, 1)
         self.assertEqual(phase_calls, 1)
         with patch.object(self.mod, "phase_index_update", side_effect=phase):
             second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(second, 0)
         self.assertEqual(phase_calls, 1)
@@ -8626,7 +8689,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update", side_effect=phase):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
         self.assertEqual(
@@ -8694,7 +8757,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         with patch.object(self.mod, "phase_index_update") as phase, \
              contextlib.redirect_stderr(stderr):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(result, 1)
         phase.assert_not_called()
@@ -8712,7 +8775,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
             self.mod, "phase_index_update", side_effect=RuntimeError("disk full")
         ), contextlib.redirect_stderr(io.StringIO()):
             first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(first, 1)
         lock = self.upgrade_lib.read_upgrade_lock(self.root)
@@ -8720,7 +8783,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update"):
             second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(second, 0)
         lock = self.upgrade_lib.read_upgrade_lock(self.root)
@@ -8735,7 +8798,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         )
         with patch.object(self.mod, "phase_index_update"):
             result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory"]
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
         self.assertEqual(result, 0)
         lock = self.upgrade_lib.read_upgrade_lock(self.root)
@@ -8748,7 +8811,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
 
         with patch.object(self.mod, "phase_index_update"):
             self.assertEqual(
-                self.mod.main(["--root", str(self.root), "--resume-after-memory"]),
+                self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]),
                 0,
             )
         self.upgrade_lib.update_upgrade_lock(
@@ -8756,7 +8819,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         )
         with patch.object(self.mod, "phase_index_update") as phase_again:
             self.assertEqual(
-                self.mod.main(["--root", str(self.root), "--resume-after-memory"]),
+                self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]),
                 0,
             )
         phase_again.assert_not_called()

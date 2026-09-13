@@ -2,6 +2,9 @@
 """Graph index extraction and persistence for Wavefoundry."""
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 import ast
 import functools
 import gzip
@@ -36,7 +39,10 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "51"  # Wave 1x5tq (1x8e1): retained unresolved document targets in extraction artifacts and merge fragments enable later-created-path recovery. Bump this on every emitted-graph change; earlier bump rationale lives in CHANGELOG.md under each wave.
+GRAPH_BUILDER_VERSION = "52"
+# 52 (1xtnq): callable identity, receiver provenance and lexical Java scope.
+# 52 (1xtns): structural callee leaves and malformed-external refusal.
+# Bump on emitted-graph changes; prior history is recorded in CHANGELOG.md.
 GRAPH_DIRNAME = "graph"
 
 # Wave 1u8r2: explicit incremental graph inputs now exclude the retired
@@ -503,6 +509,39 @@ def _extract_doc_backtick_paths(source_text: str, rel_path: str, current_paths: 
 
 def _is_module_node_id(node_id: str) -> bool:
     return bool(node_id) and "::" not in node_id
+
+
+_CALL_INTEGRITY_STATS_KEYS = (
+    "non_callable_call_targets", "callable_wins_collisions",
+    "callable_wins_collision_details", "malformed_external_call_targets_dropped",
+)
+
+
+def _is_non_callable_call_target(kind: str | None) -> bool:
+    """Data-only node kinds cannot receive name-guessed calls (1xtnq)."""
+    return kind in ("variable", "constant")
+
+
+def _is_malformed_external_call_target(target: str) -> bool:
+    return target.startswith("external::") and (
+        target.endswith("-") or any(token in target for token in ("->", "?.", "!.", "(", "[", "<"))
+    )
+
+
+def _merge_call_evidence(
+    edge_map: dict[tuple[str, str, str, str], dict[str, Any]],
+    key: tuple[str, str, str, str], edge: dict[str, Any],
+) -> None:
+    """Union evidence for the same edge independent of arrival order.
+
+    An unknown receiver cannot erase a genuine known witness, and an unknown
+    witness alone cannot become known merely because it was deduplicated.
+    """
+    previous = edge_map.get(key)
+    if previous is None:
+        edge_map[key] = edge
+    elif previous.get("receiver_unknown") and not edge.get("receiver_unknown"):
+        edge_map[key] = edge
 
 
 def _is_json_config_node_id(node_id: str) -> bool:
@@ -1556,6 +1595,8 @@ class GraphStateStore:
         graph generation stays readable until the rebuilt rows commit inside
         the publication transaction.
         """
+        index_compatibility.check_connection(self._conn,
+            {self.meta_key(k): v for k, v in self._expected_versions().items() if k != "layer"})
         if self.versions_current():
             return True
         self.reset_pending = True
@@ -1784,49 +1825,51 @@ class GraphCommunityPublication:
                 + (1 if self.analysis_row else 0))
 
     def apply(self, conn) -> dict:
-        for community_id in self.community_deletes:
-            conn.execute(
-                "DELETE FROM graph_communities WHERE community_id = ? AND layer = ?",
-                (community_id, self.layer),
-            )
-        for row in self.community_puts:
-            conn.execute(
-                "INSERT INTO graph_communities (community_id, layer, input_fingerprint, "
-                "label, seed_node_id, node_count, attributes) VALUES (?,?,?,?,?,?,?) "
-                "ON CONFLICT(community_id, layer) DO UPDATE SET "
-                "input_fingerprint=excluded.input_fingerprint, label=excluded.label, "
-                "seed_node_id=excluded.seed_node_id, node_count=excluded.node_count, "
-                "attributes=excluded.attributes",
-                row,
-            )
-        for node_id, community_id in self.member_deletes:
-            conn.execute(
-                "DELETE FROM graph_community_members WHERE node_id = ? AND community_id = ?",
-                (node_id, community_id),
-            )
-        for row in self.member_inserts:
-            conn.execute(
-                "INSERT INTO graph_community_members (node_id, community_id, layer, "
-                "input_fingerprint) VALUES (?,?,?,?) "
-                "ON CONFLICT(node_id, community_id) DO UPDATE SET layer=excluded.layer",
-                row,
-            )
-        if self.analysis_row is not None:
-            conn.execute(
-                "INSERT INTO graph_analysis (kind, layer, input_fingerprint, method, "
-                "payload, computed_at) VALUES (?,?,?,?,?,?) "
-                "ON CONFLICT(kind, layer) DO UPDATE SET "
-                "input_fingerprint=excluded.input_fingerprint, method=excluded.method, "
-                "payload=excluded.payload, computed_at=excluded.computed_at",
-                self.analysis_row,
-            )
-        return {
-            "communities": len(self.community_puts),
-            "communities_retired": len(self.community_deletes),
-            "members": len(self.member_inserts),
-            "members_retired": len(self.member_deletes),
-            "analysis": 1 if self.analysis_row else 0,
-        }
+        with index_compatibility.writer_transaction(conn):
+            index_compatibility.check_connection(conn)
+            for community_id in self.community_deletes:
+                conn.execute(
+                    "DELETE FROM graph_communities WHERE community_id = ? AND layer = ?",
+                    (community_id, self.layer),
+                )
+            for row in self.community_puts:
+                conn.execute(
+                    "INSERT INTO graph_communities (community_id, layer, input_fingerprint, "
+                    "label, seed_node_id, node_count, attributes) VALUES (?,?,?,?,?,?,?) "
+                    "ON CONFLICT(community_id, layer) DO UPDATE SET "
+                    "input_fingerprint=excluded.input_fingerprint, label=excluded.label, "
+                    "seed_node_id=excluded.seed_node_id, node_count=excluded.node_count, "
+                    "attributes=excluded.attributes",
+                    row,
+                )
+            for node_id, community_id in self.member_deletes:
+                conn.execute(
+                    "DELETE FROM graph_community_members WHERE node_id = ? AND community_id = ?",
+                    (node_id, community_id),
+                )
+            for row in self.member_inserts:
+                conn.execute(
+                    "INSERT INTO graph_community_members (node_id, community_id, layer, "
+                    "input_fingerprint) VALUES (?,?,?,?) "
+                    "ON CONFLICT(node_id, community_id) DO UPDATE SET layer=excluded.layer",
+                    row,
+                )
+            if self.analysis_row is not None:
+                conn.execute(
+                    "INSERT INTO graph_analysis (kind, layer, input_fingerprint, method, "
+                    "payload, computed_at) VALUES (?,?,?,?,?,?) "
+                    "ON CONFLICT(kind, layer) DO UPDATE SET "
+                    "input_fingerprint=excluded.input_fingerprint, method=excluded.method, "
+                    "payload=excluded.payload, computed_at=excluded.computed_at",
+                    self.analysis_row,
+                )
+            return {
+                "communities": len(self.community_puts),
+                "communities_retired": len(self.community_deletes),
+                "members": len(self.member_inserts),
+                "members_retired": len(self.member_deletes),
+                "analysis": 1 if self.analysis_row else 0,
+            }
 
 
 class GraphPublication:
@@ -1946,112 +1989,114 @@ class GraphPublication:
         ``graph_store.create_schema`` and ``sqlite_vector_store`` already
         follow. The caller's single publication transaction owns atomicity.
         """
-        self.recheck_sources()
-        counts = {"nodes": 0, "edges": 0, "files": 0, "files_retired": 0,
-                  "fragments": 0, "fragments_retired": 0, "owners_rewritten": 0,
-                  "reset": 1 if self.reset else 0}
-        if self.reset:
-            # Scoped DELETEs -- the replacement for the whole-store reset that
-            # used to run as an independent commit at session open. Inside
-            # this transaction the previous generation stayed readable right
-            # up to the commit that replaces it.
-            for table in graph_store.GRAPH_TABLES:
-                conn.execute(f"DELETE FROM {table}")
-            conn.execute("DELETE FROM meta WHERE key LIKE ?", (GRAPH_META_PREFIX + "%",))
+        with index_compatibility.writer_transaction(conn):
+            index_compatibility.check_connection(conn)
+            self.recheck_sources()
+            counts = {"nodes": 0, "edges": 0, "files": 0, "files_retired": 0,
+                      "fragments": 0, "fragments_retired": 0, "owners_rewritten": 0,
+                      "reset": 1 if self.reset else 0}
+            if self.reset:
+                # Scoped DELETEs -- the replacement for the whole-store reset that
+                # used to run as an independent commit at session open. Inside
+                # this transaction the previous generation stayed readable right
+                # up to the commit that replaces it.
+                for table in graph_store.GRAPH_TABLES:
+                    conn.execute(f"DELETE FROM {table}")
+                conn.execute("DELETE FROM meta WHERE key LIKE ?", (GRAPH_META_PREFIX + "%",))
 
-        owners = set(self.owner_deletes) | set(self.node_rows) | set(self.edge_rows)
-        for owner in owners:
-            conn.execute("DELETE FROM graph_nodes WHERE source_file = ? AND layer = ?",
-                         (owner, self.layer))
-            conn.execute("DELETE FROM graph_edges WHERE source_file = ?", (owner,))
-        counts["owners_rewritten"] = len(owners)
+            owners = set(self.owner_deletes) | set(self.node_rows) | set(self.edge_rows)
+            for owner in owners:
+                conn.execute("DELETE FROM graph_nodes WHERE source_file = ? AND layer = ?",
+                             (owner, self.layer))
+                conn.execute("DELETE FROM graph_edges WHERE source_file = ?", (owner,))
+            counts["owners_rewritten"] = len(owners)
 
-        for owner, rows in self.node_rows.items():
-            if not rows:
-                continue
-            conn.executemany(
-                "INSERT INTO graph_nodes (node_id, label, kind, source_file, "
-                "source_location, layer, external, attributes) VALUES (?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(node_id) DO UPDATE SET label=excluded.label, "
-                "kind=excluded.kind, source_file=excluded.source_file, "
-                "source_location=excluded.source_location, layer=excluded.layer, "
-                "external=excluded.external, attributes=excluded.attributes",
-                rows,
-            )
-            counts["nodes"] += len(rows)
-        for owner, rows in self.edge_rows.items():
-            if not rows:
-                continue
-            conn.executemany(
-                "INSERT INTO graph_edges (source_file, source_id, target_id, relation, "
-                "confidence, evidence, self_edge_kind, occurrence, attributes) "
-                "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_file, source_id, target_id, "
-                "relation, confidence, evidence, occurrence) DO UPDATE SET "
-                "self_edge_kind=excluded.self_edge_kind, attributes=excluded.attributes",
-                rows,
-            )
-            counts["edges"] += len(rows)
+            for owner, rows in self.node_rows.items():
+                if not rows:
+                    continue
+                conn.executemany(
+                    "INSERT INTO graph_nodes (node_id, label, kind, source_file, "
+                    "source_location, layer, external, attributes) VALUES (?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(node_id) DO UPDATE SET label=excluded.label, "
+                    "kind=excluded.kind, source_file=excluded.source_file, "
+                    "source_location=excluded.source_location, layer=excluded.layer, "
+                    "external=excluded.external, attributes=excluded.attributes",
+                    rows,
+                )
+                counts["nodes"] += len(rows)
+            for owner, rows in self.edge_rows.items():
+                if not rows:
+                    continue
+                conn.executemany(
+                    "INSERT INTO graph_edges (source_file, source_id, target_id, relation, "
+                    "confidence, evidence, self_edge_kind, occurrence, attributes) "
+                    "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_file, source_id, target_id, "
+                    "relation, confidence, evidence, occurrence) DO UPDATE SET "
+                    "self_edge_kind=excluded.self_edge_kind, attributes=excluded.attributes",
+                    rows,
+                )
+                counts["edges"] += len(rows)
 
-        for rel in self.file_deletes:
-            conn.execute(
-                f"DELETE FROM {GRAPH_FILE_STATE_TABLE} WHERE path = ? AND layer = ?",
-                (rel, self.layer),
-            )
-            counts["files_retired"] += 1
-        now = time.time()
-        for rel, (source_hash, record) in self.file_puts.items():
-            conn.execute(
-                f"INSERT INTO {GRAPH_FILE_STATE_TABLE} (path, layer, source_hash, record, "
-                "extracted_at) VALUES (?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
-                "layer=excluded.layer, source_hash=excluded.source_hash, "
-                "record=excluded.record, extracted_at=excluded.extracted_at",
-                (rel, self.layer, source_hash, record, now),
-            )
-            counts["files"] += 1
+            for rel in self.file_deletes:
+                conn.execute(
+                    f"DELETE FROM {GRAPH_FILE_STATE_TABLE} WHERE path = ? AND layer = ?",
+                    (rel, self.layer),
+                )
+                counts["files_retired"] += 1
+            now = time.time()
+            for rel, (source_hash, record) in self.file_puts.items():
+                conn.execute(
+                    f"INSERT INTO {GRAPH_FILE_STATE_TABLE} (path, layer, source_hash, record, "
+                    "extracted_at) VALUES (?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+                    "layer=excluded.layer, source_hash=excluded.source_hash, "
+                    "record=excluded.record, extracted_at=excluded.extracted_at",
+                    (rel, self.layer, source_hash, record, now),
+                )
+                counts["files"] += 1
 
-        for rel in self.fragment_deletes:
-            conn.execute(
-                f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ?", (rel,)
-            )
-            counts["fragments_retired"] += 1
-        for rel, encoded in self.fragment_puts.items():
-            conn.execute(
-                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
-                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
-                "fragment=excluded.fragment",
-                (rel, MERGE_FRAGMENT_NAME, encoded),
-            )
-            counts["fragments"] += 1
-        for owner in self.rows_digest_deletes:
-            conn.execute(
-                f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ? AND name = ?",
-                (owner, MERGE_ROWS_DIGEST_NAME),
-            )
-        for owner, digest in self.rows_digest_puts.items():
-            conn.execute(
-                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
-                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
-                "fragment=excluded.fragment",
-                (owner, MERGE_ROWS_DIGEST_NAME, digest.encode("utf-8")),
-            )
-        if self.di_synth_bytes is not None:
-            conn.execute(
-                f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
-                "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
-                "fragment=excluded.fragment",
-                (MERGE_CORPUS_PATH, MERGE_DI_SYNTH_NAME, self.di_synth_bytes),
-            )
+            for rel in self.fragment_deletes:
+                conn.execute(
+                    f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ?", (rel,)
+                )
+                counts["fragments_retired"] += 1
+            for rel, encoded in self.fragment_puts.items():
+                conn.execute(
+                    f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                    "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                    "fragment=excluded.fragment",
+                    (rel, MERGE_FRAGMENT_NAME, encoded),
+                )
+                counts["fragments"] += 1
+            for owner in self.rows_digest_deletes:
+                conn.execute(
+                    f"DELETE FROM {GRAPH_MERGE_STATE_TABLE} WHERE path = ? AND name = ?",
+                    (owner, MERGE_ROWS_DIGEST_NAME),
+                )
+            for owner, digest in self.rows_digest_puts.items():
+                conn.execute(
+                    f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                    "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                    "fragment=excluded.fragment",
+                    (owner, MERGE_ROWS_DIGEST_NAME, digest.encode("utf-8")),
+                )
+            if self.di_synth_bytes is not None:
+                conn.execute(
+                    f"INSERT INTO {GRAPH_MERGE_STATE_TABLE} (path, name, fragment) "
+                    "VALUES (?,?,?) ON CONFLICT(path, name) DO UPDATE SET "
+                    "fragment=excluded.fragment",
+                    (MERGE_CORPUS_PATH, MERGE_DI_SYNTH_NAME, self.di_synth_bytes),
+                )
 
-        for key, value in self.meta.items():
-            conn.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (GRAPH_META_PREFIX + key, value),
-            )
+            for key, value in self.meta.items():
+                conn.execute(
+                    "INSERT INTO meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (GRAPH_META_PREFIX + key, value),
+                )
 
-        if self.community is not None:
-            counts.update(self.community.apply(conn))
-        return counts
+            if self.community is not None:
+                counts.update(self.community.apply(conn))
+            return counts
 
 
 def _pending_doc_link_repairs(
@@ -3321,6 +3366,9 @@ def _ts_kind_for_definition(node_type: str, current_scope_kind: str | None, mode
 # ``result`` is short or has no external users the short-symbol pruning pass
 # silently drops the call edge with the local-variable node.
 _TS_VARIABLE_DEFINITION_TYPES = frozenset({
+    # Scala
+    "val_definition",
+    "var_definition",
     # Swift / Kotlin
     "property_declaration",
     # Java
@@ -3823,6 +3871,8 @@ _TS_IDENTIFIER_TYPES = frozenset({
     "name",
     "variable_name",
     "field_identifier",
+    "property_identifier",
+    "command_name",  # Bash wraps the invoked command's word in this field.
     "scoped_identifier",
     "shorthand_identifier",
 })
@@ -3834,6 +3884,8 @@ _TS_IDENTIFIER_TYPES = frozenset({
 _TS_NAVIGATION_TYPES = frozenset({
     "navigation_expression",          # Swift
     "navigation_suffix",              # Kotlin (nested)
+    "conditional_access_expression",  # C# optional access
+    "member_binding_expression",      # C# optional member
     "member_access_expression",       # C#
     "member_expression",              # JS/TS
     "field_access",                   # Java
@@ -3954,32 +4006,79 @@ def _find_enclosing_java_class_name(node, source_bytes: bytes) -> str | None:
     return None
 
 
-def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
-    """Search descendants of scope_node for a matching variable/parameter/field declaration."""
-    stack = [scope_node]
-    while stack:
-        n = stack.pop()
-        n_type = getattr(n, "type", "")
-        if n_type in ("local_variable_declaration", "field_declaration"):
-            type_node = n.child_by_field_name("type")
-            for child in (getattr(n, "children", []) or []):
-                if getattr(child, "type", "") == "variable_declarator":
-                    name_node = child.child_by_field_name("name")
-                    if name_node is not None and type_node is not None:
-                        var_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-                        if var_name == name:
-                            return _extract_simple_java_type_name(type_node, source_bytes)
-        elif n_type == "formal_parameter":
-            type_node = n.child_by_field_name("type")
-            name_node = n.child_by_field_name("name")
-            if name_node is not None and type_node is not None:
-                param_name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
-                if param_name == name:
-                    return _extract_simple_java_type_name(type_node, source_bytes)
-        # Don't descend into nested method/class bodies — they're separate scopes.
-        if n_type in ("method_declaration", "constructor_declaration", "class_declaration") and n is not scope_node:
-            continue
-        stack.extend(reversed(getattr(n, "children", []) or []))
+def _search_java_declarations_in_scope(scope_node, name: str, source_bytes: bytes, ref_node=None) -> str | None:
+    """Visible declarations in ONE lexical scope; empty type blocks outer lookup.
+
+    No descendant method-wide search: sibling scopes and later locals cannot
+    capture the reference. ``""`` means a nearer declaration has unknown type.
+    """
+    reference = ref_node if ref_node is not None else scope_node
+    offset = reference.start_byte
+
+    def declared(node):
+        kind = node.type
+        type_node = node.child_by_field_name("type")
+        if type_node is None and kind == "catch_formal_parameter":
+            type_node = next((c for c in node.named_children if c.type == "catch_type"), None)
+        names = []
+        if kind in ("local_variable_declaration", "field_declaration"):
+            names = [c.child_by_field_name("name") for c in node.named_children if c.type == "variable_declarator"]
+        else:
+            names = [node.child_by_field_name("name")]
+            if kind == "identifier":
+                names = [node]
+        for ident in names:
+            if ident is not None and kind in ("local_variable_declaration", "resource") and ident.start_byte > offset:
+                continue
+            if ident is not None and _ts_node_text(ident, source_bytes) == name:
+                if type_node is None or _ts_node_text(type_node, source_bytes) == "var":
+                    return ""
+                if type_node.type == "catch_type":
+                    types = type_node.named_children
+                    return _extract_simple_java_type_name(types[0], source_bytes) or "" if len(types) == 1 else ""
+                return _extract_simple_java_type_name(type_node, source_bytes) or ""
+        return None
+
+    kind = scope_node.type
+    candidates = []
+    if kind in ("block", "constructor_body", "switch_block_statement_group"):
+        candidates = [c for c in scope_node.named_children
+                      if c.type == "local_variable_declaration" and c.start_byte < offset]
+    elif kind == "switch_block":
+        # Colon-labelled groups share the enclosing switch block's scope.
+        # Arrow-rule blocks are separate and must never contribute siblings.
+        candidates = [decl for group in scope_node.named_children
+                      if group.type == "switch_block_statement_group"
+                      for decl in group.named_children
+                      if decl.type == "local_variable_declaration" and decl.start_byte < offset]
+    elif kind == "class_declaration":
+        body = scope_node.child_by_field_name("body")
+        candidates = [c for c in (body.named_children if body else []) if c.type == "field_declaration"]
+    elif kind in ("method_declaration", "constructor_declaration", "lambda_expression"):
+        params = scope_node.child_by_field_name("parameters")
+        if params is not None:
+            candidates = [params] if params.type == "identifier" else list(params.named_children)
+    elif kind == "catch_clause":
+        candidates = [c for c in scope_node.named_children if c.type == "catch_formal_parameter"]
+    elif kind == "enhanced_for_statement":
+        body = scope_node.child_by_field_name("body")
+        if body is not None and body.start_byte <= offset < body.end_byte:
+            candidates = [scope_node]
+    elif kind == "for_statement":
+        candidates = [c for c in scope_node.named_children
+                      if c.type == "local_variable_declaration" and c.start_byte < offset]
+    elif kind == "try_with_resources_statement":
+        body = scope_node.child_by_field_name("body")
+        resources = scope_node.child_by_field_name("resources")
+        if resources is None:
+            resources = next((c for c in scope_node.named_children if c.type == "resource_specification"), None)
+        if resources is not None and ((body is not None and body.start_byte <= offset < body.end_byte)
+                                      or resources.start_byte <= offset < resources.end_byte):
+            candidates = [c for c in resources.named_children if c.type == "resource" and c.start_byte < offset]
+    for candidate in reversed(candidates):
+        result = declared(candidate)
+        if result is not None:
+            return result
     return None
 
 
@@ -4021,12 +4120,11 @@ def _resolve_java_identifier_type(name: str, ref_node, source_bytes: bytes) -> s
     cur = getattr(ref_node, "parent", None)
     while cur is not None:
         cur_type = getattr(cur, "type", "")
-        if cur_type in ("method_declaration", "constructor_declaration", "class_declaration"):
-            resolved = _search_java_declarations_in_scope(cur, name, source_bytes)
-            if resolved is not None:
-                return resolved
-            if cur_type == "class_declaration":
-                break
+        resolved = _search_java_declarations_in_scope(cur, name, source_bytes, ref_node)
+        if resolved is not None:
+            return resolved or None  # unknown nearer shadow must stop lookup
+        if cur_type == "class_declaration":
+            break
         cur = getattr(cur, "parent", None)
     if name and name[:1].isupper():
         return name
@@ -5325,7 +5423,10 @@ def _resolve_scala_call_target(call_node, source_bytes: bytes, symbol_lookup: di
     callee_type = getattr(callee, "type", "")
     method_name: str | None = None
     if callee_type == "identifier":
-        method_name = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+        # A bare Scala apply may name a val (array/function value), not a
+        # method on the enclosing class. Use the kind-gated same-file path.
+        # Construction was already handled before receiver resolution.
+        return None
     elif callee_type == "field_expression":
         # Method name is the LAST identifier child (after the `.`).
         identifiers = [c for c in (getattr(callee, "children", []) or []) if getattr(c, "type", "") == "identifier"]
@@ -9909,6 +10010,76 @@ def _sql_apply_file_extraction(
             node_map[module_id]["sql_partial_bodies_recovered"] = analysis["partial_bodies_recovered"]
 
 
+_TS_CALLEE_FIELDS = ("callee", "function", "name", "member", "selector", "method")
+
+
+def _ts_call_has_receiver(node) -> bool:
+    if any(node.child_by_field_name(field) is not None for field in ("object", "scope", "receiver")):
+        return True
+    for field in _TS_CALLEE_FIELDS:
+        child = node.child_by_field_name(field)
+        if child is not None:
+            return child.type not in _TS_IDENTIFIER_TYPES or child.type == "scoped_identifier"
+    for child in node.named_children:
+        if child.type not in _TS_ARGS_NODE_TYPES:
+            return child.type not in _TS_IDENTIFIER_TYPES or child.type == "scoped_identifier"
+    return False
+
+
+def _ts_pure_callee_path(node) -> bool:
+    """Only identifiers joined by dot/scope tokens; no text/regex surgery."""
+    if node.type in (_TS_IDENTIFIER_TYPES | {"namespace_identifier"}) and node.type != "scoped_identifier":
+        return True
+    if node.type not in (_TS_NAVIGATION_TYPES | {"scoped_identifier"}):
+        return False
+    for child in node.children:
+        if child.is_named:
+            if not _ts_pure_callee_path(child):
+                return False
+        elif child.type not in (".", "::"):
+            return False
+    return bool(node.named_children)
+
+
+def _ts_callee_leaf(node, source_bytes: bytes) -> str | None:
+    for field in ("property", "field", "name"):
+        child = node.child_by_field_name(field)
+        if child is not None:
+            return _ts_extract_callee_recursive(child, source_bytes)
+    return _ts_extract_callee_recursive(node, source_bytes)
+
+
+def _ts_code_call_candidates(node, source_bytes: bytes, profile) -> list[str]:
+    # Swift models a bracket subscript as a call with a call_suffix.
+    # Inspect grammar tokens, never the receiver text (Scala apply is a call).
+    for child in node.named_children:
+        if child.type == "call_suffix":
+            arguments = next((c for c in child.named_children if c.type == "value_arguments"), None)
+            if arguments is not None and any(c.type == "[" for c in arguments.children):
+                return []
+    for field in _TS_CALLEE_FIELDS:
+        child = node.child_by_field_name(field)
+        if child is None:
+            continue
+        # Parentheses are transparent around a member, but a function body
+        # is not a member path. Do not walk IIFEs/opaque callees for a name:
+        # that can mistake a call INSIDE the body for the outer invocation.
+        member = child
+        while member.type == "parenthesized_expression" and len(member.named_children) == 1:
+            member = member.named_children[0]
+        member_like = ((member.type in _TS_NAVIGATION_TYPES and member.type != "binary_expression")
+                       or member.type == "scoped_identifier")
+        if not member_like or _ts_pure_callee_path(member):
+            candidate = _ts_clean_name(_ts_node_text(child, source_bytes))
+        else:
+            candidate = _ts_callee_leaf(member, source_bytes)
+        return [candidate] if candidate and not _ts_candidate_rejected(candidate) else []
+    candidate = _ts_extract_callee_positional(node, source_bytes)
+    stop = profile.stop_terms if profile is not None else frozenset()
+    return ([candidate] if candidate and not _ts_candidate_rejected(candidate)
+            and candidate not in _STOP_TERMS and candidate not in stop else [])
+
+
 def _ts_relation_candidates(
     node,
     source_bytes: bytes,
@@ -9916,6 +10087,8 @@ def _ts_relation_candidates(
     mode: str,
     profile: _TsLanguageProfile | None = None,
 ) -> list[str]:
+    if relation == "call" and mode == "code":
+        return _ts_code_call_candidates(node, source_bytes, profile)
     candidates = []
     for field_name in _ts_relation_field_names(relation, mode):
         try:
@@ -10631,6 +10804,8 @@ def _resolve_external_call_target(
     qualified_index: dict[str, list[str]],
     imports_by_file: dict[str, dict[str, str]],
     cs_file_ns: dict[str, set[str]],
+    node_map: dict[str, dict[str, Any]],
+    relation: str = "calls",
     wildcard_imports_by_file: dict[str, list[str]] | None = None,
     java_pkg_by_file: dict[str, str] | None = None,
     rust_module_index: dict[str, dict] | None = None,
@@ -10893,6 +11068,8 @@ def _resolve_external_call_target(
     # JavaScript ones.
     if resolved is not None and _is_json_config_node_id(resolved):
         return None, False
+    if resolved is not None and relation == "calls" and _is_non_callable_call_target(node_map[resolved]["kind"]):
+        return None, False
     return resolved, rewrote_exact
 
 
@@ -11061,6 +11238,8 @@ def _downgrade_unresolved_typed_calls(edge: dict[str, Any]) -> dict[str, Any]:
     over-claim (the library-superclass or ambiguous-definer case genuinely
     never resolved to a project node); this pass makes that label honest too.
     """
+    if edge.get("relation") == "calls" and edge.get("receiver_unknown") and edge.get("confidence") != "EXTRACTED":
+        return {**edge, "confidence": "EXTRACTED"}
     if (
         edge.get("relation") == "calls"
         and edge.get("confidence") in _TYPED_RECEIVER_CONFS
@@ -11137,6 +11316,8 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         conf,
         simple_name_index=ctx["simple_name_index"],
         qualified_index=ctx["qualified_index"],
+        node_map=ctx["node_map"],
+        relation=rel,
         imports_by_file=ctx["imports_by_file"],
         cs_file_ns=ctx["cs_file_ns"],
         wildcard_imports_by_file=ctx.get("wildcard_imports_by_file"),
@@ -11161,7 +11342,7 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
     # by construction — promote EXTRACTED->RECEIVER_RESOLVED. Heuristic binds
     # (AC-2 fallback, same-dir, C# namespace) correctly stay EXTRACTED.
     out = {**raw_edge, "target": resolved, _PROV_EXT: bare}
-    if conf == "EXTRACTED" and rewrote_exact:
+    if conf == "EXTRACTED" and rewrote_exact and not raw_edge.get("receiver_unknown"):
         out["confidence"] = "RECEIVER_RESOLVED"
         out[_PROV_CONF] = conf
     return out
@@ -11342,6 +11523,7 @@ def _arbitrate_static_or_inherited(
         conf,
         simple_name_index=resolve_ctx["simple_name_index"],
         qualified_index=resolve_ctx["qualified_index"],
+        node_map=resolve_ctx["node_map"],
         imports_by_file=resolve_ctx.get("imports_by_file") or {},
         # Wave 1wpie delivery review (CODE-DEL-2): this site omitted the head
         # set, so the import-head guard was INERT here and a
@@ -11404,6 +11586,7 @@ def _apply_inheritance_output_passes(
         resolve_ctx = {
             "simple_name_index": simple_name_index,
             "qualified_index": qualified_index,
+            "node_map": node_map,
         }
     # --- Pass 1: C# base-relation kind correction (project targets only). ---
     for key in sorted(k for k in edge_map if k[2] in _INHERITANCE_RELATIONS):
@@ -12872,30 +13055,35 @@ class GraphIndexSession:
         simple_names: dict[str, list[str]] = defaultdict(list)
         import_aliases: dict[str, str] = {}
 
+        callable_wins_collisions: list[dict[str, str]] = []
+
         def add_node(node_id: str, label: str, kind: str, source_location: str) -> None:
-            if node_id not in node_map:
-                node_map[node_id] = _node(node_id, label, kind, rel_path, source_location, layer=self.layer)
+            previous = node_map.get(node_id)
+            if previous is not None:
+                old_kind = previous["kind"]
+                new_callable = kind in ("function", "class")
+                old_callable = old_kind in ("function", "class")
+                if new_callable and _is_non_callable_call_target(old_kind):
+                    callable_wins_collisions.append({"id": node_id, "winner_kind": kind, "loser_kind": old_kind})
+                    const_node_ids.discard(node_id)
+                elif old_callable and _is_non_callable_call_target(kind):
+                    callable_wins_collisions.append({"id": node_id, "winner_kind": old_kind, "loser_kind": kind})
+                    return
+                else:
+                    return
+            node_map[node_id] = _node(node_id, label, kind, rel_path, source_location, layer=self.layer)
 
         def add_edge(
-            source: str,
-            target: str,
-            relation: str,
-            *,
-            confidence: str,
-            evidence: str | None = None,
-            self_edge_kind: str | None = None,
+            source: str, target: str, relation: str, *, confidence: str,
+            evidence: str | None = None, self_edge_kind: str | None = None,
+            receiver_unknown: bool = False,
         ) -> None:
             key = (source, target, relation, confidence)
-            if key in edge_map:
-                return
-            edge_map[key] = _edge(
-                source,
-                target,
-                relation,
-                confidence=confidence,
-                evidence=evidence,
-                self_edge_kind=self_edge_kind,
-            )
+            edge = _edge(source, target, relation, confidence=confidence,
+                         evidence=evidence, self_edge_kind=self_edge_kind)
+            if receiver_unknown:
+                edge["receiver_unknown"] = True
+            _merge_call_evidence(edge_map, key, edge)
 
         # Wave 1p2q3 (1p2td): per-overload signature accumulator. Maps qualified
         # node id to the set of parameter signatures observed across all
@@ -13178,6 +13366,9 @@ class GraphIndexSession:
             # edges + cross-file resolution see it exactly like a function/class.
             node_id = f"{rel_path}::{qname}"
             add_node(node_id, qname.rsplit(".", 1)[-1], GRAPH_CONST_KIND, self._source_location(source_text, node.start_point[0] + 1))
+            if node_map[node_id]["kind"] != GRAPH_CONST_KIND:
+                return node_id
+            const_node_ids.add(node_id)
             if value is not None:
                 node_map[node_id]["value"] = value
             add_edge(module_id, node_id, "defines", confidence="EXTRACTED")
@@ -13409,7 +13600,7 @@ class GraphIndexSession:
                     _parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     for _cname, _cvalue in _const_decls:
                         _cqname = ".".join([*scope_names, _cname]) if scope_names else _cname
-                        const_node_ids.add(register_constant(_cqname, node, _cvalue, _parent_symbol))
+                        register_constant(_cqname, node, _cvalue, _parent_symbol)
                     # recurse into children WITHOUT pushing scope (initializer calls/reads attribute
                     # to the enclosing scope), then stop — the constant itself is a leaf symbol.
                     for child in getattr(node, "named_children", []):
@@ -13514,7 +13705,7 @@ class GraphIndexSession:
                                 else:
                                     continue
                                 if _mn:
-                                    const_node_ids.add(register_constant(f"{_mem_base}.{_mn}", _mem, _mv, node_id))
+                                    register_constant(f"{_mem_base}.{_mn}", _mem, _mv, node_id)
                     sig = _extract_definition_signature(node, source_bytes, lang_key)
                     if sig:
                         overload_signatures.setdefault(node_id, set()).add(sig)
@@ -13775,14 +13966,18 @@ class GraphIndexSession:
                     confidence="RECEIVER_RESOLVED", self_edge_kind=self_kind,
                 )
             else:
+                receiver_unknown = _ts_call_has_receiver(node)
                 for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
                     resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
+                    if resolved in node_map and _is_non_callable_call_target(node_map[resolved]["kind"]):
+                        continue
                     # Wave 1p2q3 (1p2tz post-ship): direct-function-call import_targets promotion.
                     confidence_for_edge = "EXTRACTED"
                     if (
                         lang_key in ("typescript", "javascript")
                         and resolved.startswith("external::")
                         and import_targets
+                        and not receiver_unknown
                     ):
                         clean_name = _ts_clean_name(target)
                         walked = import_targets.get(clean_name)
@@ -13805,7 +14000,7 @@ class GraphIndexSession:
                     # so the bind is UNCHANGED (no new wrong-twin risk) and the
                     # uniqueness guarantee is the same `_ts_resolve_target` /
                     # symbol_lookup match used for TS/JS — a confidence relabel only.
-                    elif resolved and not resolved.startswith("external::"):
+                    elif resolved and not resolved.startswith("external::") and not receiver_unknown:
                         confidence_for_edge = "RECEIVER_RESOLVED"
                     self_kind = None
                     if (
@@ -13819,6 +14014,7 @@ class GraphIndexSession:
                     add_edge(
                         source_symbol, resolved, "calls",
                         confidence=confidence_for_edge, self_edge_kind=self_kind,
+                        receiver_unknown=receiver_unknown,
                     )
 
         # Wave 1p9qh (1p9qa): drain buffered supertype facts → `extends` /
@@ -13889,6 +14085,7 @@ class GraphIndexSession:
 
         return {
             "kind": "code",
+            "callable_wins_collisions": callable_wins_collisions,
             "path": rel_path,
             "source_hash": _sha256_text(source_text),
             "nodes": sorted(node_map.values(), key=lambda item: str(item.get("id") or "")),
@@ -14477,6 +14674,10 @@ class GraphIndexSession:
                     stats["blob_reads"] = store.blob_reads - blob_reads_before
                     stats["blob_writes"] = store.blob_writes - blob_writes_before
                     stats["blob_bytes"] = store.blob_bytes_written - blob_bytes_before
+                    # These describe the last materialized generation, not
+                    # work repeated by this zero-change build.
+                    stats.update({key: payload.get("call_integrity", {}).get(key, [] if key.endswith("details") else 0)
+                                  for key in _CALL_INTEGRITY_STATS_KEYS})
                     payload["merge_stats"] = stats
                     return payload
             # Fall through: the published rows do not vouch for a complete
@@ -14675,6 +14876,7 @@ class GraphIndexSession:
                 "orm_entity_dynamic",  # Wave 1p9qg: dynamic-name refusal count
                 "orm_entity_convention",  # Wave 1p9qg: convention-refusal count
                 "di_signals",
+                "callable_wins_collisions",
             ):
                 value = artifact.get(summary_key)
                 if value:
@@ -14871,7 +15073,7 @@ class GraphIndexSession:
                 )
                 if not all(key):
                     continue
-                edge_map.setdefault(key, edge)
+                _merge_call_evidence(edge_map, key, edge)
         for key, edge in di_edge_items:
             edge_map.setdefault(key, edge)
 
@@ -15510,13 +15712,23 @@ class GraphIndexSession:
         # is part of the edge key, so re-key and collapse any collision onto an
         # already-EXTRACTED twin.
         _downgraded_edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        stats["non_callable_call_targets"] = 0
+        stats["malformed_external_call_targets_dropped"] = 0
+        collision_details = [collision for entry in merge_files.values()
+                             for collision in entry.get("callable_wins_collisions", [])]
+        stats["callable_wins_collisions"] = len(collision_details)
+        stats["callable_wins_collision_details"] = collision_details
         for _ekey, _eedge in edge_map.items():
-            _new_edge = _downgrade_unresolved_typed_calls(_eedge)
-            if _new_edge is _eedge:
-                _downgraded_edge_map.setdefault(_ekey, _eedge)
+            if _ekey[2] == "calls" and _is_malformed_external_call_target(_ekey[1]):
+                stats["malformed_external_call_targets_dropped"] += 1
                 continue
+            _new_edge = _downgrade_unresolved_typed_calls(_eedge)
             _new_key = (_ekey[0], _ekey[1], _ekey[2], str(_new_edge.get("confidence") or ""))
-            _downgraded_edge_map.setdefault(_new_key, _new_edge)
+            # Count published unique rows, after confidence re-key collapse.
+            if (_new_key not in _downgraded_edge_map and _new_key[2] == "calls"
+                    and _is_non_callable_call_target((node_map.get(_new_key[1]) or {}).get("kind"))):
+                stats["non_callable_call_targets"] += 1
+            _merge_call_evidence(_downgraded_edge_map, _new_key, _new_edge)
         edge_map = _downgraded_edge_map
 
         from datetime import UTC, datetime
@@ -15553,6 +15765,7 @@ class GraphIndexSession:
                 "dead_code_risk": sum(1 for n in node_map.values() if n.get("dead_code_risk")),
                 "chokepoints": sum(1 for n in node_map.values() if n.get("is_chokepoint")),
             },
+            "call_integrity": {key: stats[key] for key in _CALL_INTEGRITY_STATS_KEYS},
             "nodes": sorted(node_map.values(), key=lambda item: str(item.get("id") or "")),
             "edges": sorted(edge_map.values(), key=lambda item: (
                 str(item.get("source") or ""),

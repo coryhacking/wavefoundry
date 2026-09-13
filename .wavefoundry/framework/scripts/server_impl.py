@@ -1139,6 +1139,9 @@ class WaveIndex:
         }
 
     def docs_health(self) -> dict[str, Any]:
+        # Health must report an incompatible writer/runtime even when its
+        # compatible read cache could otherwise look ready.
+        _check_index_writer_current(self.root)
         # Wave 1p4ww: single project docs index — the framework layer is folded in.
         self._ensure_loaded()
         project = self._layer_health("project")
@@ -5081,15 +5084,23 @@ def _index_runtime_failure_response(tool: str, root: Path, payload: dict, exc: E
     """Discard the complete operation when either epoch probe cannot use storage."""
     payload = {**payload, "search_mode": None, "fallback_reason": _REASON_QUERY_FAILED,
                "results": []}
+    code = getattr(exc, "code", _REASON_QUERY_FAILED)
+    compatibility_failure = code in {
+        "index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}
+    recovery = ("Restart the affected Wavefoundry host, then call index_health(). "
+                "Preserve the index; do not rebuild it with this older runtime."
+                if compatibility_failure else "index_health()")
+    message = _bounded_failure_detail(root, exc)
+    if not compatibility_failure:
+        message = ("Semantic index runtime is unusable: " + message
+                   + " Results were discarded; resolve the runtime or filesystem issue and retry.")
     response = _response(
         "error", payload,
         diagnostics=[_diagnostic(
-            getattr(exc, "code", _REASON_QUERY_FAILED),
-            "Semantic index runtime is unusable: " + _bounded_failure_detail(root, exc)
-            + " Results were discarded; resolve the runtime or filesystem issue and retry.",
-            recovery_tools=["index_health"], recovery_usage="index_health()",
+            code, message,
+            recovery_tools=["index_health"], recovery_usage=recovery,
         )],
-        next_tools=["index_health"], usage="index_health()",
+        next_tools=["index_health"], usage=recovery,
     )
     return _attach_retrieval_failure_context(tool, response)
 
@@ -5548,6 +5559,20 @@ def _index_build_active(root: Path, layer: str) -> bool:
     return False
 
 
+def _check_index_writer_current(root: Path) -> None:
+    """Preflight local work scheduling; publication rechecks in its transaction."""
+    # Reject a stale coordinator before it schedules work, including map/FTS
+    # entry points. The child still rechecks under its publication transaction.
+    import index_compatibility
+    index_compatibility.ensure_runtime_current()
+    import index_state_store
+    conn = index_state_store.open_read_only(root / ".wavefoundry" / "index")
+    if conn is not None:
+        try:
+            index_compatibility.check_connection(conn)
+        finally:
+            conn.close()
+
 def run_index_rebuild(
     root: Path,
     *,
@@ -5569,6 +5594,8 @@ def run_index_rebuild(
     # Wave 1p4ww: single project index — the framework layer is folded in.
     if layer != "project":
         raise ValueError(f"Unsupported layer '{layer}'.")
+
+    _check_index_writer_current(root)
 
     # Wave 1p601: content="map" is a map-only refresh — run the ~0.09s codebase
     # map generator (change-only/idempotent) WITHOUT a full index rebuild. No
@@ -7987,6 +8014,12 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
         root, "background_index_refresh"
     ) is not None:
         return False
+    import sqlite_runtime as runtime
+    try:
+        _check_index_writer_current(root)
+    except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+        _wf_log(f"[wavefoundry] background index refresh refused: {exc}")
+        return False
     # Wave 1p98u: reap any prior finished background builds before launching another, so server-owned
     # zombies don't accumulate across a session (each new refresh sweeps the previous ones).
     _reap_background_build_pids()
@@ -8118,6 +8151,13 @@ def _maybe_refresh_if_stale(
             })
         return triggered
 
+    import sqlite_runtime as runtime
+    try:
+        _check_index_writer_current(root)
+    except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+        # Retain the typed reason in health, without spawning/retrying a child
+        # or misclassifying a protected index as current or absent.
+        return _finish(getattr(exc, "code", "index_compatibility_unproven"), stale=True)
     if not _index_inputs_stale(root):
         return _finish("current_or_undetermined", stale=False)
     state_path = _background_refresh_state_path(root, "project")
@@ -9855,6 +9895,9 @@ def index_health_response(
         if code == "storage_runtime_unavailable":
             recovery_usage = setup_usage
             message = f"{exc} From the target repository, run {setup_usage}, then restart the MCP host."
+        elif code in {"index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}:
+            recovery_usage = "Restart the affected Wavefoundry host, then call index_health(). Preserve the existing index."
+            message = str(exc)
         elif code == "storage_recovery_required":
             recovery_usage = str(exc)
             message = str(exc)
@@ -13447,10 +13490,14 @@ def index_build_response(
             next_tools=["index_optimize", "wf_help"],
             usage="wf_help(goal='refresh_semantic_index')",
         )
+    import sqlite_runtime as runtime
     full = mode_s == "rebuild"
     rechunk = mode_s == "rechunk"
     try:
         result = run_index_rebuild(root, content=content_s, full=full, rechunk=rechunk, layer=layer_s)
+    except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
+        return _index_runtime_failure_response(
+            "index_build", root, {"content": content, "mode": mode_s, "layer": layer}, exc)
     except ValueError as exc:
         return _response(
             "error",
@@ -15102,6 +15149,9 @@ def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
     return ("Check wf_upgrade_status for the current lock state.", ["wf_upgrade_status"])
 
 
+INDEX_GUARD_RESPONSE_VERSION = 1
+
+
 def wf_upgrade_response(
     root: Path,
     phase: str = "preflight_to_docs_gate",
@@ -15356,6 +15406,27 @@ def wf_upgrade_response(
                 "Preserve the migration receipt and selected package. Follow the CLI "
                 "recovery instructions before restarting hosts."
             )
+            return _bounded_upgrade_response_envelope(response)
+
+    if result.returncode == 3 and mode == "apply":
+        try:
+            extensions = _load_script("upgrade_extensions")
+            guard_action = extensions.read_index_guard_action(root, 3, storage_invocation)
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            guard_action = None
+        if isinstance(guard_action, dict):
+            guard_action = dict(guard_action)
+            hosts = guard_action.get("old_hosts", [])
+            guard_action["old_hosts"] = hosts[:50]
+            guard_action["old_hosts_total"] = len(hosts)
+            guard_action["old_hosts_omitted"] = max(0, len(hosts) - 50)
+            response = _response(
+                "action_required", {**data, "state": "restart_required", "restart_required": True,
+                       "code": "index_guard_restart_required", "action_required": guard_action,
+                       "failed_phase": None},
+                diagnostics=[], next_tools=["wf_upgrade_status"],
+            )
+            response["next_step"] = extensions.INDEX_GUARD_NEXT_STEP
             return _bounded_upgrade_response_envelope(response)
 
     if result.returncode == 4:
@@ -23994,6 +24065,7 @@ def code_callhierarchy_response(
         # properties, not node properties, so the callers below attach them.
         return {
             "name": label, "file": src, "line": None, "snippet": None,
+            "call_site": None,
             "node_id": nid, "kind": n.get("kind"),
             "community": c_label, "community_id": c_id, "_start_line": start_line,
         }
@@ -24047,14 +24119,20 @@ def code_callhierarchy_response(
         outgoing: list[dict[str, Any]] = []
         external_outgoing_count = 0
         for tgt_id, entry in out_entries:
-            if not tgt_id.startswith("external::") and definition_file:
+            is_external = tgt_id.startswith("external::") or entry.get("file") == "external"
+            if not is_external and entry["_start_line"] > 0:
+                entry["line"] = entry["_start_line"]
+            if not is_external and definition_file:
                 sites = all_out_sites.get(entry["name"], [])
                 ref = _first_call_site_at_or_after(sites, _current_start)
                 if ref:
-                    entry["line"] = ref["line"]
-                    entry["snippet"] = ref.get("snippet")
+                    # Definition and invocation belong to different files.
+                    # Keep the caller's text with its own source coordinates.
+                    entry["call_site"] = {
+                        "file": definition_file, "line": ref["line"],
+                        "snippet": ref.get("snippet"),
+                    }
             entry.pop("_start_line", None)
-            is_external = tgt_id.startswith("external::") or entry.get("file") == "external"
             if is_external:
                 external_outgoing_count += 1
                 if not include_external:
@@ -24159,6 +24237,10 @@ def code_callhierarchy_response(
                 line = ref.get("line") or 0
                 entry["line"] = line
                 entry["snippet"] = ref.get("snippet")
+                entry["call_site"] = {
+                    "file": entry["file"], "line": line,
+                    "snippet": ref.get("snippet"),
+                }
                 used_lines.add(line)
         if _excluded_caller_ids:
             incoming_raw = [
@@ -28487,7 +28569,16 @@ def _context_source_paths(
     elif tool_name == "code_references":
         add_rows("references", "path", ("snippet",))
     elif tool_name == "code_callhierarchy":
-        add_rows("outgoing", "file", ("snippet",))
+        outgoing = data.get("outgoing")
+        if isinstance(outgoing, list):
+            for row in outgoing:
+                site = row.get("call_site") if isinstance(row, dict) else None
+                if not isinstance(site, dict):
+                    continue
+                path, snippet = site.get("file"), site.get("snippet")
+                if (isinstance(path, str) and path and path != "external"
+                        and isinstance(snippet, str) and snippet):
+                    paths.add(path)
         add_rows("incoming", "file", ("snippet",))
     elif tool_name == "code_commit_provenance":
         # The resolved wave record / change docs whose recorded reasoning
@@ -34323,11 +34414,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Response fields:
         - symbol: the queried symbol name
         - definition_file: path of the file where the symbol is defined (null if not found)
-        - outgoing: list of {name, file, line, snippet, node_id, kind, relation, confidence,
+        - outgoing: list of {name, file, line, snippet, call_site, node_id, kind, relation, confidence,
           community_id, community} — symbols called by
           this symbol (when direction includes "outgoing"). ``community_id`` (wave 1316r) is the
           stable identifier of the caller's community, useful for grouping cross-cutting changes.
-        - incoming: list of {name, file, line, snippet, node_id, kind, relation, confidence,
+        - incoming: list of {name, file, line, snippet, call_site, node_id, kind, relation, confidence,
           community_id, community} — symbols that call
           this symbol (when direction includes "incoming"). ``community_id`` is the stable
           community id of each caller (stable across graph rebuilds, unlike Leiden numbering).
@@ -34337,6 +34428,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           CONSTRUCTION_RESOLVED / EXTRACTED); ``relation`` is constant for this response because
           the traversal filters to one relation, and is carried for forward compatibility. NOTE the
           ``context`` list below keeps its own older shape and does NOT carry ``confidence``.
+        - Per-entry call_site (inside incoming/outgoing): caller location
+          ``{file, line, snippet}``, or null when unavailable.
+          Outgoing ``file``/``line`` identify the callee definition and ``snippet`` is null;
+          use ``call_site`` for the calling expression. Incoming top-level locations retain
+          their caller-site meaning. External entries have null line, snippet and call_site.
         - external_outgoing_count, external_incoming_count: number of external (non-project) entries
           suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
         - supertypes: present when the symbol's class declares supertypes —

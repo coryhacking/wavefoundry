@@ -1310,7 +1310,41 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
         sections = getattr(self, "sections", None)
         if sections is None:
             self.fail("the parity build did not run; see the corpus-identity test")
-        return sections
+        # 1xtnr keeps the archived 1xny6 fixture byte-for-byte. On this
+        # unchanged corpus, builder52 changes only two version labels and
+        # adds the explicitly empty integrity snapshot below. Assert those
+        # new values before adapting metadata to the archived digest; never
+        # normalize nodes, edges, evidence, coverage or community membership.
+        self.assertEqual(sections["graph"]["builder_version"], "52")
+        self.assertEqual(sections["communities"]["graph_builder_version"], "52")
+        self.assertEqual(sections["graph"]["call_integrity"], {
+            "non_callable_call_targets": 0,
+            "callable_wins_collisions": 0,
+            "callable_wins_collision_details": [],
+            "malformed_external_call_targets_dropped": 0,
+        })
+        self.assertEqual(self.fixture["graph"]["builder_version"], "51")
+        self.assertEqual(self.fixture["communities"]["graph_builder_version"], "51")
+        normalized = json.loads(json.dumps(sections))
+        normalized["graph"]["builder_version"] = "51"
+        normalized["graph"].pop("call_integrity")
+        normalized["communities"]["graph_builder_version"] = "51"
+        return normalized
+
+    def test_metadata_adaptation_never_masks_node_or_edge_changes(self):
+        for section, key in (("nodes", "label"), ("edge_evidence_multiset", "confidence")):
+            changed = json.loads(json.dumps(self.sections))
+            rows = changed["graph"][section]
+            self.assertTrue(rows)
+            if section == "nodes":
+                rows[0][key] = "injected-node-regression"
+                assertion = self.test_node_identities_and_attributes_match_the_baseline
+            else:
+                rows[0]["edge"][key] = "injected-edge-regression"
+                assertion = self.test_edge_evidence_multiset_matches_including_multiplicity
+            with self.subTest(section=section), patch.object(self, "sections", changed):
+                with self.assertRaises(AssertionError):
+                    assertion()
 
     def test_the_corpus_is_the_one_the_baseline_was_captured_from(self):
         recorded = self.fixture["corpus"]

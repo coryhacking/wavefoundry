@@ -1352,7 +1352,8 @@ class BuildLogInstrumentationTests(unittest.TestCase):
             r" \| delta: files=\d+ removed=\d+ symbols=\d+ edges_reresolved=\d+"
             r" \| state io: reads=\d+ writes=\d+"
             r" \| sidecar: reads=\d+ writes=\d+ bytes=\d+"
-            r" \| dangling: dropped=\d+",
+            r" \| dangling: dropped=\d+"
+            r" \| calls: non_callable=\d+ callable_wins=\d+ malformed_dropped=\d+",
         )
 
 

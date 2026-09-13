@@ -3053,7 +3053,7 @@ class GraphIndexerTests(unittest.TestCase):
             removed=set(),
         )
         original = self.mod.GRAPH_BUILDER_VERSION
-        self.mod.GRAPH_BUILDER_VERSION = original + "-bump"
+        self.mod.GRAPH_BUILDER_VERSION = str(int(original) + 1)
         try:
             payload = self._run({"src/a.py": a, "src/b.py": b}, changed={"src/a.py"}, removed=set())
         finally:
@@ -4352,6 +4352,7 @@ class CrossFileResolutionTests(unittest.TestCase):
             src, bare, "EXTRACTED",
             simple_name_index={}, qualified_index=qi, imports_by_file={},
             cs_file_ns={}, rust_module_index=rmi,
+            node_map={nid: {"kind": "function"} for ids in qi.values() for nid in ids},
         )[0]
 
     def test_rust_same_module_tier_binds_unique_survivor(self):
@@ -4434,6 +4435,7 @@ class CrossFileResolutionTests(unittest.TestCase):
             "c.rs::caller", "Widget.frob", "EXTRACTED",
             simple_name_index={}, qualified_index=qi, imports_by_file=imports,
             cs_file_ns={}, rust_module_index=rmi,
+            node_map={nid: {"kind": "function"} for ids in qi.values() for nid in ids},
         )
         self.assertEqual(resolved, "a.rs::Widget.frob",
                          "explicit import must win before the Rust module tier")
@@ -9237,7 +9239,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # a fragment's re-emitted edge into a deleted doc or a renamed symbol
         # must re-extract.
         # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "51")
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "52")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -10974,6 +10976,7 @@ class JavaPackageDeclarationKeyingTests(unittest.TestCase):
             cs_file_ns={},
             wildcard_imports_by_file=None,
             java_pkg_by_file=pkg_map,
+            node_map={nid: {"kind": "function"} for ids in simple.values() for nid in ids},
         )
         return resolved
 

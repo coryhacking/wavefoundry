@@ -7,9 +7,12 @@ import argparse
 import copy
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from textwrap import dedent
+
+import subprocess_util
 
 
 FRAMEWORK_RENDERER_REL = ".wavefoundry/framework/scripts/render_platform_surfaces.py"
@@ -1974,6 +1977,63 @@ _GITIGNORE_BLOCK = [
 _GITIGNORE_MANAGED_LINES = frozenset(line.strip() for line in _GITIGNORE_BLOCK if line.strip())
 
 
+def tracked_runtime_diagnostics(repo_root: Path) -> list[dict]:
+    """Read-only Git census against canonical runtime rules, not project ignores.
+
+    Git handles directory patterns, **, index entries and linked worktrees.
+    NUL records preserve unusual filenames. Prefix rebasing confines a nested
+    configured project to its own runtime paths inside the containing Git repo.
+    Inspection failures are advisory, never an assertion that tracking is clean.
+    """
+    def unavailable(reason: str) -> list[dict]:
+        return [{"channel": "tracked-runtime-inspection", "file": ".gitignore",
+                 "detail": "Tracked runtime inspection unavailable (" + reason
+                 + "); no Git tracking was changed. Retry wf render-surfaces after resolving Git access."}]
+
+    env = os.environ.copy()
+    # The explicitly configured root owns this inspection, not ambient Git
+    # overrides inherited from a host or hook working on a different index.
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+        env.pop(key, None)
+    env.update({"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"})
+
+    def git(*args: str):
+        return subprocess_util.isolated_run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True, text=False, timeout=5, check=False, env=env,
+        )
+
+    try:
+        prefix_result = git("rev-parse", "--show-prefix")
+        if prefix_result.returncode:
+            if b"not a git repository" in prefix_result.stderr.lower():
+                return []
+            return unavailable("Git repository discovery failed")
+        prefix = os.fsdecode(prefix_result.stdout.removesuffix(b"\n"))
+        # Prefix is literal filesystem text; only the canonical suffix is a glob.
+        prefix = "".join("\\" + c if c in "\\*?[]" else c for c in prefix)
+        exclusions = ["--exclude=/" + prefix + line.lstrip("/")
+                      for line in _GITIGNORE_BLOCK if line and not line.startswith("#")]
+        result = git("ls-files", "--cached", "--ignored", "-z", *exclusions, "--", ".")
+        if result.returncode:
+            return unavailable("Git tracked-file census failed")
+    except subprocess.TimeoutExpired:
+        return unavailable("Git inspection timed out")
+    except OSError as exc:
+        return unavailable(type(exc).__name__)
+    paths = sorted({os.fsdecode(path) for path in result.stdout.split(b"\0") if path})
+    warnings = [{"channel": "tracked-runtime", "file": path,
+                 "detail": "Runtime file remains tracked: " + json.dumps(path, ensure_ascii=True)
+                 + ". Ignore rules do not untrack files. Review this path; with operator approval, "
+                 "use git rm --cached -- <path> to stop tracking while keeping the local file."}
+                for path in paths[:50]]
+    if len(paths) > 50:
+        warnings.append({"channel": "tracked-runtime", "file": ".gitignore",
+                         "omitted_count": len(paths) - 50,
+                         "detail": f"{len(paths) - 50} additional tracked runtime paths omitted from display."})
+    return warnings
+
+
 def render_gitignore_block(repo_root: Path) -> None:
     """Ensure the canonical Wavefoundry runtime ignore block is present in ``.gitignore``.
 
@@ -2277,6 +2337,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     render_bin_launchers(repo_root)
     render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
+    for warning in tracked_runtime_diagnostics(repo_root):
+        print("render_platform_surfaces: WARNING — " + warning["detail"], file=sys.stderr)
     render_gitattributes_block(repo_root)  # wave 1p9hm: propagate the LF line-ending policy to target repos (self-heals)
     remove_git_hooks(repo_root)  # wave 1p88t: git hooks dropped; clean up any prior renders
     for ds in repo_root.rglob(".DS_Store"):

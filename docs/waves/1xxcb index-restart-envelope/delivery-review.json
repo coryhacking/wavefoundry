@@ -1,0 +1,556 @@
+{
+  "readiness": {
+    "phase": "readiness",
+    "verdict": "pass",
+    "actor": "wave-council",
+    "context_id": "1xxcb-council-readiness-fresh-20260913",
+    "fresh_context": true,
+    "independent": true,
+    "review_policy_receipt": "review-policy-2f04b89cd3763b3772f8",
+    "review_policy_digest": "d4ad44f0229f89a3b5711daea91be0ee650edcf9f090fb865db12888370512fb",
+    "depth": "targeted",
+    "primer_tier": "standard",
+    "seats": [
+      "red-team",
+      "docs-contract-reviewer"
+    ],
+    "rotating_seat": "docs-contract-reviewer",
+    "anonymized_first_pass": "One rotating seat; identity omitted during assessment, no blocking attribution to waive. Its concrete design solves the primer challenge. Identity reattached for roster.",
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "primer_summary": "Reader-only bridge fails because ppjy hardcodes storage identity, fake receipt and guidance before final bounder. The selected adapter acts after those writes, uses a per-action validated capability, and preserves original bounder.",
+    "strongest_alternative": "Current-wrapper-only correction is smaller but does not address reported first installing hop. A forced pre-upgrade restart avoids rather than fixes it. The chosen once-installed final adapter is the narrowest supported remedy, with cached-reader limitations explicit.",
+    "points_of_agreement": [
+      "Exact continuation and checkpoint identity retained",
+      "No storage receipt invention or producer reload",
+      "No global pending-response registry",
+      "Unrelated and concurrent responses unchanged",
+      "Real archived wrapper replay is required before delivery"
+    ],
+    "disagreements": [],
+    "improvements_recommended": [
+      "Install adapter before returning marked guard action; unsupported seam must fail closed.",
+      "Canonical snapshot must check immutable identity and argv; original action carries no root so never derive it from log_path.",
+      "Strip internal capability on all serialization paths, including rejected marked action; preserve original bounder and inventory caps.",
+      "Use archived ppjy wrapper replay and stale/foreign/dry-run/storage/interleaving controls; do not substitute current-wrapper-only tests."
+    ],
+    "findings": [],
+    "evidence": [
+      "MCP inspected server_impl.wf_upgrade_response and _bounded_upgrade_response_envelope",
+      "MCP inspected sqlite_storage_migration.read_restart_action and upgrade_extensions.read_index_guard_action",
+      "AST structural control on actual ppjy wf_upgrade_response exit-3 branch, /tmp/1xxcb-council-control.json",
+      "Current admitted change Decision Log and AC1-4, independent docs-contract seat and prior red-team primer"
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Readiness-safe refutation of reader-only proposal at actual archived public wf_upgrade_response AST boundary: storage code/receipt/guidance overwrite precedes preserved final bounder. This is structural feasibility evidence, not a production run."
+    },
+    "limitations": "Readiness only. Inspected public wrapper source and historical AST boundary, not an end-to-end live upgrade. No new adapter implemented, no native platform execution. First-hop full replay and negative/interleaving delivery tests remain required.",
+    "seat_reports": {
+      "red_team": {
+        "mode": "council-adversarial-primer",
+        "phase": "readiness",
+        "depth_tier": "standard",
+        "verification_context": {
+          "actor": "red-team",
+          "context_id": "1xxcb-redteam-primer-20260913-fresh",
+          "fresh_context": true,
+          "independent": true
+        },
+        "thinking_stances_applied": {
+          "adversarial": "An invocation-bound reader result can still be mislabeled by the executing old wrapper; temporary global response interception can catch another concurrent call.",
+          "constructive": "Use the final bounded-envelope seam with matching on validated invocation-specific action data, keeping exact original bounding.",
+          "simplicity": "One idempotent dispatcher with no mutable next-response state; leave genuine storage handling alone. First-principles and analogical stances omitted under declared standard tier."
+        },
+        "strongest_challenge": "The installed reader is not sufficient: ppjy copies its dict then hardcodes storage code, receipt_path, status ok and migration guidance. A compatibility adapter must execute after all four writes. A temporary process-global next-response hook or restore-after-use hook creates interleaving failures, while a broad code/kind matcher could normalize an unvalidated foreign response.",
+        "best_alternative": "Keep current-wrapper formatting direct. In the old wrapper, install one idempotent adapter at its final _bounded_upgrade_response_envelope seam, preserving the prior callable. Normalize only an exact invocation-specific action that the installed reader has just validated through read_index_guard_action(root,3,nonempty_token). Match immutable root/token/action identity, never stdout or only kind/code. Restore correct index code/status/checkpoint guidance and remove synthetic receipt_path, then call the unchanged original bounder. Do not temporarily replace/restore global response behavior around a single response. Prefer a bounded local discriminator over a growing global registry; prove that its marker cannot leak into serialization. If the precise old implementation is unsupported or reader already cached, leave explicit external restart recovery. Cost: intentional compatibility seam adaptation and targeted concurrency coverage remain necessary.",
+        "consequence_of_current_path": "An underspecified reader-only implementation satisfies a new-wrapper test but reproduces the user-visible first-hop defect; broad interception risks mislabeling storage or unrelated concurrent responses.",
+        "recommendation": "Council should name and accept the concrete final-envelope adapter scope and concurrency isolation before implementation, then require real ppjy public-wrapper replay plus adversarial interleaving controls.",
+        "evidence_basis": [
+          "ppjy archive server_impl.py:15330-15359, inspected directly from actual zip",
+          "current server_impl.py:15377-15432, MCP code_read",
+          "sqlite_storage_migration.py:723-758, MCP code_read",
+          "upgrade_extensions.py:822-839, MCP code_read",
+          "change plan Requirements 2-4 and AC-2/AC-3"
+        ],
+        "confidence": "high",
+        "primer_questions": [
+          "What exact final-envelope seam will the newly loaded reader adapt, and how does it bind normalization to only the validated invocation without temporary global hooks or stale registry growth?",
+          "Will the ppjy replay retain the real old wrapper and original bounder, prove stale/foreign/plain-exit-3/dry-run and concurrent storage responses unchanged, and explicitly document already-cached-reader limits?"
+        ],
+        "findings": [],
+        "executed_control": {
+          "execution_status": "executed",
+          "command_or_fixture": "AST-extracted actual ppjy wf_upgrade_response exit-3 branch with a reader returning an index action; response factory/bounder stubbed",
+          "expected": "Reader-only extension fails outer index guard envelope requirements",
+          "observed": "status ok; outer code storage_restart_required; fabricated receipt_path injected; migration receipt guidance retained",
+          "artifact_or_test_id": "/tmp/1xxcb-primer-control.json",
+          "limitations": "Readiness seam control only; full public MCP wrapper, checkpoint validation and interleaving not executed. Not delivery evidence or an approval.",
+          "safety_and_authorization": "Read archive and repository source; execute extracted branch with in-memory fixtures and temporary report only; no subprocess upgrade, host stop, repository mutation or index write."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": false,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Readiness-safe refutation: actual archived old-wrapper branch disproves sufficiency of reader-only adaptation."
+        }
+      },
+      "docs_contract": {
+        "role": "docs-contract-reviewer",
+        "phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "docs-contract-reviewer",
+          "context_id": "1xxcb-docs-readiness-fresh-20260913",
+          "fresh_context": true,
+          "independent": true
+        },
+        "scope": "Plan requirements, operator contracts, and concrete installed-reader/final-envelope compatibility design; no delivery approval",
+        "findings": [],
+        "confirmed_aligned": [
+          "Plan distinguishes current wrapper from real archived ppjy first installing hop; AC-2 requires the latter.",
+          "Plan preserves correct index guard identity, exact continuation command, checkpoint/package guidance, and genuine error behavior without inventing a storage receipt.",
+          "Plan includes canonical seed 160, rendered upgrade prompt, MCP tool spec, and 1.24.0 changelog; no new producer/schema behavior is claimed.",
+          "Cached old action-reader limitation is explicit rather than claiming all running hosts can acquire incoming code."
+        ],
+        "accepted_design": {
+          "normalization_seam": "Incoming read_restart_action validates the index guard through read_index_guard_action(root,3,nonempty invocation), installs one idempotent adapter on the recognized old final _bounded_upgrade_response_envelope seam, then returns a marked shallow-copy-compatible action. Current wrapper normalizes its direct guard branch.",
+          "discriminator": "Use a per-action nonserialized capability bound to immutable root, invocation, guard token and action snapshot. Check original unmodified identity and exact command_argv before normalization. No mutable global next-response registry or temporary restore-after-use hook.",
+          "installation_order": "Install and validate the final adapter before handing the marked guard action to the old storage branch. An unsupported final seam must not receive a guard action that would be hardcoded to storage.",
+          "serialization": "Remove the internal capability before any JSON/bounding path, remove old wrapper's synthesized receipt_path, restore index checkpoint guidance and correct outer status/code/failed_phase, then call the preserved original bounder.",
+          "ownership": "Response data contains phase/exit/output/log_path but no root; never infer checkpoint ownership from log_path. Carry validated root only in the per-action capability.",
+          "limits": "Already-cached pre-fix readers cannot acquire this incoming behavior. Keep the documented external restart handoff available and avoid promising that every old host's envelope is fixed retroactively."
+        },
+        "standard_alternative": "Current-wrapper-only normalization is smaller but fails the reported ppjy first-hop requirement. A mandatory pre-upgrade restart avoids this wrapper path but changes the operator workflow and does not fix its expected checkpoint presentation. The narrowly scoped idempotent adapter is justified by the named installed-code boundary.",
+        "delivery_requirements_already_in_scope": [
+          "Execute actual archived ppjy wrapper with original bounder and real checkpoint validation, not only a new wrapper plus old coordinator.",
+          "Exercise interleaved guard actions from distinct roots and a concurrent genuine storage response, plus stale invocation, malformed checkpoint, dry-run and bare exit 3 controls.",
+          "Assert no internal marker or fabricated storage receipt leaks, exact argv survives, and original response caps remain enforced.",
+          "Documentation must say expected guard pause status action_required; it must not generalize the change to every error or claim cached old readers are upgraded in place."
+        ],
+        "evidence": [
+          "docs/agents/docs-contract-reviewer.md; wave 1xxcb and change 1xxca; /tmp/1xxcb-primer.json",
+          "MCP read server_impl.py:14693-14740 confirms final bounding seam; 15278-15320 confirms response data has no root",
+          "MCP read upgrade_extensions.py:822-839 confirms action token/kind/code plus supplied invocation validation",
+          "MCP read sqlite_storage_migration.py:723-758 confirms receipt-bound storage-only reader and nonempty invocation gate",
+          "Executed synthetic shallow dict-copy capability control: object identity survives copy; stripped action JSON serializes; mutated invocation fails snapshot identity check",
+          "Re-read amended Decision Log: explicitly records final adapter, immutable per-action capability, successful installation ordering, stripping before serialization, no growing registry, and cached-reader limit. Approved amended plan."
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": false,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Synthetic plan control rejected an invocation changed after marker binding; primer independently disproves reader-only normalization with archived old branch. Production adapter is not implemented and no public delivery path was executed by this seat."
+        },
+        "limitations": "Readiness judgment only; no native platform run, complete upgrade, production adapter, or archived full public wrapper executed by this seat. No files edited except this temporary report; no lifecycle events authored.",
+        "review_policy_receipt": "review-policy-2f04b89cd3763b3772f8",
+        "review_policy_digest": "d4ad44f0229f89a3b5711daea91be0ee650edcf9f090fb865db12888370512fb"
+      }
+    }
+  },
+  "code-reviewer": {
+    "actor": "code-reviewer",
+    "context_id": "1xxcb-code-delivery-fresh-20260913",
+    "verdict": "approved",
+    "findings": [],
+    "tree_moved_under_review": false,
+    "reference": "Original consumer report plus actual archived ppjy wf_upgrade_response and original final bounder; independently inspected AC1-4",
+    "executed": {
+      "archived_public_wrapper_tests": 3,
+      "focused_state_tests": 4,
+      "skips": 0,
+      "mutations": [
+        {
+          "mechanism": "immutable action equality",
+          "mutation": "True and response.get(\"status\") == \"ok\"",
+          "test": "test_legacy_adapter_rejects_changed_action_and_strips_internal_proof",
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true
+        },
+        {
+          "mechanism": "idempotent adapter",
+          "mutation": "if True:",
+          "test": "test_legacy_adapter_interleaves_roots_without_pending_response_state",
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true
+        },
+        {
+          "mechanism": "current-wrapper exemption",
+          "mutation": "or False",
+          "test": "test_legacy_adapter_only_installs_at_supported_old_wrapper_seam",
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true
+        },
+        {
+          "mechanism": "caller code identity",
+          "mutation": "or False",
+          "test": "test_legacy_adapter_only_installs_at_supported_old_wrapper_seam",
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true
+        }
+      ]
+    },
+    "observed": "Archived wrapper now returns action_required with exact continuation and no fake storage receipt. Plain/stale/dry-run errors and real storage control pass. Concurrent roots, idempotent install, altered command rejection, foreign/capable caller refusal and malformed ownership controls pass. Four independently executed mutants killed by assertions, zero execution errors. Fingerprint unchanged. No cross-platform-specific new filesystem or process behavior: pathlib retains caller locator spelling; threading lock guards idempotent installation. No producer reload or persistent registry.",
+    "limitations": [
+      "No Windows/Linux native execution; historical replay uses actual archived functions within current test harness and disposable checkpoint, not a complete external target upgrade.",
+      "Reviewed malformed-action behavior only for wave-introduced seams; existing reader schema weakness for manually malformed host inventory is outside delta.",
+      "Did not mutate every conjunct of envelope validator or tuning constant within four-minute budget; executed equality, idempotence, caller identity, capability mutations; implementer reader/normalizer mutants inspected separately.",
+      "Full suite running under coordinator; lane approval is not full-suite completion."
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation: remove action equality, idempotence, current-wrapper exemption and caller-code identity; each one fails its named regression assertion. Actual archived wrapper replay provides independent first-hop reference."
+    }
+  },
+  "qa-reviewer": {
+    "role": "qa-reviewer",
+    "verdict": "PASS",
+    "scope": "AC1-4 focused delivery; full-suite receipt independently required by coordinator before completion",
+    "fresh_context": true,
+    "independent": true,
+    "findings": [],
+    "independent_reference": "Original consumer ppjy->ppm0 report: legitimate invocation-bound guard pause must be action_required without isError, preserve exact continuation and no fake storage receipt; independently read AC1-4.",
+    "executed": {
+      "guard_and_current_public_tests": {
+        "ran": 26,
+        "skips": 0,
+        "result": "ok"
+      },
+      "actual_archived_ppjy_wrapper_and_original_bounder": {
+        "ran": 3,
+        "skips": 0,
+        "result": "ok",
+        "archive_sha256": "386b085776b3533d9d42e429d322c0dda3b858aac7afddf80d5d521eee367fa7"
+      }
+    },
+    "ac_evidence": {
+      "AC-1": "Current wf_upgrade_response produces action_required, no true isError, correct code, failed_phase null and exact checkpoint argv under 200KB stdout.",
+      "AC-2": "Executed actual archived ppjy wf_upgrade_response + original bounded envelope with newly installed reader; no storage receipt created, exact continuation retained. Legacy-reader omission detects original error.",
+      "AC-3": "26-test focused run covers real storage, stale invocation, plain exit3, dry-run, malformed/foreign checkpoint, alias locator, 60-host cap, changed action rejection, two-root thread barrier interleaving, idempotent adapter and unrelated pass-through. Public archived replay retains <100000-char cap and exact argv.",
+      "AC-4": "Both removed-seam mutants and independent current-status mutant fail nonvacuous expected status assertions. Upgrade prompt, spec and tight changelog match cached-reader limit and host-stop requirements."
+    },
+    "mutation_table": [
+      {
+        "mechanism": "incoming legacy reader",
+        "mutation": "return None from legacy_index_guard_restart_action",
+        "test": "test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation",
+        "observed": "FAIL error != action_required; no errors or skips"
+      },
+      {
+        "mechanism": "final legacy envelope normalization",
+        "mutation": "identity _normalize_legacy_index_guard_envelope",
+        "test": "test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation",
+        "observed": "FAIL ok != action_required; no errors or skips"
+      },
+      {
+        "mechanism": "current outer classification",
+        "mutation": "_response maps action_required back to error",
+        "test": "test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli",
+        "observed": "FAIL error != action_required; no errors or skips"
+      }
+    ],
+    "limitations": [
+      "Full suite running under coordinator; this report does not claim its result.",
+      "Archived real wrapper and bounder run in current harness; child process is mocked to execute real checkpoint-producing hook in disposable roots. No real target upgrade or native Windows/Linux execution.",
+      "A host with cached older reader cannot acquire adapter; documented residual boundary."
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation"
+    },
+    "fingerprint_end": {
+      ".wavefoundry/framework/scripts/server_impl.py": "9ff701fb35877b2f07a134acc575f6240ce39ea5",
+      ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "5e02e8e62c8fb955bd9e41e68a4f819077c7ef4f",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "21c7c1e73ce0e0a8f86f849394cfd4285359db73",
+      ".wavefoundry/framework/scripts/tests/test_server_tools.py": "234bc9e63e79b4eda62996a9f912efe2ffa08f28",
+      ".wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py": "adb0e7a9aeacada7d003fcc0386b9e0b0671d45e",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "7f101009f1fa6c9b39bc7ab04dc9be89f2fd33c7",
+      "docs/prompts/upgrade-wavefoundry.prompt.md": "78edff495551e4bd8b6da956a200cf4b6d0bcecf",
+      "docs/specs/mcp-tool-surface.md": "7cfa77d2de460d36d290dc314e42392c687a81fd",
+      "CHANGELOG.md": "39b58979b6f10a27acded89c216e7cb19b1ebf76"
+    }
+  },
+  "delivery-primer": {
+    "role": "red-team",
+    "phase": "delivery",
+    "wave_id": "1xxcb",
+    "fresh_context": true,
+    "independent": true,
+    "verdict": "no_blocking_findings",
+    "fingerprint_matches": true,
+    "findings": [],
+    "strongest_challenge": "The incoming reader must survive the old wrapper copying/capping the action and adding false storage fields, while concurrent responses cannot borrow a pending validation result. Current proof is per action, includes immutable exact snapshot, validates the old transformation, normalizes before the original bounder, and installs idempotently under lock. Executed concurrent roots and modified-command negative control support this boundary.",
+    "strongest_alternative": {
+      "option": "Require a fresh MCP process before every first protected upgrade; format only current wrapper.",
+      "advantage": "Avoid caller-frame/global-callable compatibility adaptation entirely.",
+      "rejection": "Adds an operator round trip and does not correct the already reported installing-hop response. Current narrowly validated incoming-reader seam addresses that case without reloading producers. Cached older readers remain a documented limit."
+    },
+    "primer_questions": [
+      "Does the rotating docs-contract seat verify that no wording promises retroactive repair when the action reader was already cached, and that the external CLI/checkpoint remedy stays explicit?",
+      "Does the council accept the small permanent final-bounder adapter as the bounded compatibility cost, given that actual archived ppjy functions pass positive/storage/error controls and concurrent actions carry distinct immutable proofs?"
+    ],
+    "tests": {
+      "own_controls": {
+        "baseline": {
+          "ran": 4,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "passed": true
+        },
+        "mutant": {
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "passed": false
+        }
+      },
+      "own_archived_replay": {
+        "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.24.0.ppjy.zip",
+        "archive_sha256": "386b085776b3533d9d42e429d322c0dda3b858aac7afddf80d5d521eee367fa7",
+        "source_member": ".wavefoundry/framework/scripts/server_impl.py",
+        "source_sha256": "6ad2bad13fd5a2ed70481b73cdce50e6025a63a577ba304a92d837540f3a1a81",
+        "historical_functions": [
+          "_bounded_upgrade_response_envelope",
+          "wf_upgrade_response"
+        ],
+        "tests": [
+          "test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli",
+          "test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses",
+          "test_storage_pause_carries_external_continuation_and_rejects_stale_action"
+        ],
+        "ran": 3,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "passed": true,
+        "limitations": "Actual archived wrapper and final bounder in current server test harness; child returns a real hook-generated checkpoint in a disposable root. No target project mutation or native platform migration."
+      }
+    },
+    "mutation_table": [
+      {
+        "claim": "An action altered after checkpoint validation must never become action_required.",
+        "mutation": "In-memory AST replaces action == expected with True in _normalize_legacy_index_guard_envelope.",
+        "test": "test_legacy_adapter_rejects_changed_action_and_strips_internal_proof",
+        "result": "killed: expected error, observed action_required",
+        "failures": 1,
+        "errors": 0,
+        "skips": 0
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Own in-memory comparison-bypass mutant fails the changed-command negative test for the precise incorrect status; 4 controls and archived ppjy public wf_upgrade_response replay (3 tests) independently passed."
+    },
+    "limitations": [
+      "No full suite rerun by this reviewer; coordinator receipt remains pending.",
+      "Archived public wrapper and original bounder run inside current test harness with real hook-generated disposable checkpoints, not a full old server process or target installation.",
+      "No native Windows/Linux execution; reviewed path handling and tested portable concurrent/alias behavior only.",
+      "No source, lifecycle events, or approval mutations made."
+    ]
+  },
+  "docs-contract-reviewer": {
+    "role": "docs-contract-reviewer",
+    "wave_id": "1xxcb",
+    "phase": "delivery",
+    "fresh_context": true,
+    "independent": true,
+    "verdict": "pass",
+    "findings": [],
+    "fingerprint_matches": true,
+    "contracts": [
+      "seed160 and customized local prompt have byte-identical added envelope paragraph",
+      "spec explicitly limits ppjy support to newly loaded incoming reader; cached reader limitation explicit",
+      "exact CLI, checkpoint/package preservation and all-host confirmation remain required",
+      "no false storage receipt; dry_run, stale action, real error retain error semantics",
+      "changelog tight end-user benefit with supported older wrapper qualifier"
+    ],
+    "primer_response": {
+      "cached_reader_question": "Confirmed explicit in seed, local prompt and spec; no retroactive universal repair claim.",
+      "strongest_challenge": "Actual archived ppjy wrapper and original final bounder replay passes after incoming action reader adaptation, without fake receipt and with exact argv; final normalization occurs before original bounder. No mutable pending-response registry; per-action immutable proof scope is explicit.",
+      "adapter_tradeoff": "Accept this bounded permanent adapter for the reported installing hop. Mandatory pre-upgrade restart would avoid compatibility code but add an operator round trip and leave the reported case unfixed. Cached reader remains documented limit."
+    },
+    "own_tests": {
+      "current_public_wrapper": {
+        "ran": 2,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "archived_ppjy": {
+        "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.24.0.ppjy.zip",
+        "archive_sha256": "386b085776b3533d9d42e429d322c0dda3b858aac7afddf80d5d521eee367fa7",
+        "source_member": ".wavefoundry/framework/scripts/server_impl.py",
+        "source_sha256": "6ad2bad13fd5a2ed70481b73cdce50e6025a63a577ba304a92d837540f3a1a81",
+        "historical_functions": [
+          "_bounded_upgrade_response_envelope",
+          "wf_upgrade_response"
+        ],
+        "tests": [
+          "test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli",
+          "test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses",
+          "test_storage_pause_carries_external_continuation_and_rejects_stale_action"
+        ],
+        "ran": 3,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "passed": true,
+        "limitations": "Actual archived wrapper and final bounder in current server test harness; child returns a real hook-generated checkpoint in a disposable root. No target project mutation or native platform migration."
+      },
+      "docs_contract": {
+        "seed_prompt_exact_block_equal": true,
+        "cached_reader_limit_explicit": true,
+        "exact_cli_and_no_fake_receipt": true,
+        "failure_semantics_explicit": true,
+        "fingerprint_matches": true,
+        "mutation": {
+          "change": "remove cached older reader limit in memory",
+          "detector": "assert explicit cached-reader applicability limit",
+          "detected": true
+        }
+      }
+    },
+    "mutation_table": [
+      {
+        "mutant": "disable final normalizer in memory",
+        "test": "test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation",
+        "expected": "wrong status must fail positive contract assertion",
+        "observed": "killed: ok != action_required; 1 failure, 0 errors/skips"
+      },
+      {
+        "mutant": "remove cached older reader applicability wording in memory",
+        "test": "explicit applicability-limit contract check",
+        "observed": "detected missing required qualification"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Own in-memory disabled-normalizer mutant fails exact action_required status assertion, while current public wrapper 2/2 and archived ppjy wrapper 3/3 pass; doc qualification-removal control detected."
+    },
+    "limitations": [
+      "No native Windows/Linux execution or full destination upgrade; archived original functions run inside current public test harness with disposable real hook-generated checkpoint.",
+      "No independent full suite run; coordinator suite underway.",
+      "No production source or documentation edits."
+    ]
+  },
+  "wave-council-delivery": {
+    "actor": "wave-council",
+    "phase": "delivery",
+    "wave_id": "1xxcb",
+    "context_id": "1xxcb-council-delivery-fresh-20260913",
+    "fresh_context": true,
+    "independent": true,
+    "verdict": "PASS",
+    "findings": [],
+    "roster": [
+      "red-team",
+      "docs-contract-reviewer"
+    ],
+    "required_lanes_considered": [
+      "code-reviewer",
+      "qa-reviewer",
+      "docs-contract-reviewer"
+    ],
+    "strongest_challenge": "Incoming action-reader adaptation must correct old storage-specific fields and preserve invocation isolation. Final normalization validates immutable per-action snapshot and exact old-wrapper transformation; original final bounder remains in place. Concurrent roots use no pending-response registry. Actual archived ppjy public wrapper and bounder passed my own three controls.",
+    "strongest_alternative": "Require fresh MCP process before every first protected upgrade and format only current wrapper. Rejected because it adds a round trip and leaves the reported installing-hop response unchanged; narrow idempotent final adapter earns its compatibility cost.",
+    "cached_reader_limit": "Explicitly accepted documented boundary: an already cached older reader cannot acquire incoming behavior. Stop hosts and follow checkpoint CLI; no producer reload or universal retroactive fix promised.",
+    "phase_checks": {
+      "requirements_and_AC_reviewed": true,
+      "primer_questions_resolved_by_rotating_docs_seat": true,
+      "required_lane_reports_pass": true,
+      "own_archived_public_replay": {
+        "ran": 3,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "own_known_bad_control": {
+        "baseline": {
+          "ran": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "mutant": {
+          "ran": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0
+        }
+      },
+      "full_suite": "Coordinator running; completion not claimed by this council approval"
+    },
+    "mutation_table": [
+      {
+        "mutation": "Replace final legacy normalizer with identity in isolated process memory",
+        "test": "test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation",
+        "observed": "Killed: ok != action_required, 1 failure, 0 errors/skips; baseline passes"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Own baseline and identity-normalizer mutant, plus actual archived ppjy wf_upgrade_response/original bounder replay across guard, storage, plain exit3/dry-run controls."
+    },
+    "limitations": [
+      "No native Windows/Linux execution or complete destination upgrade; archived functions execute inside current harness with disposable real hook checkpoint.",
+      "Full suite owned by coordinator remains independent completion requirement.",
+      "Cached old action reader remains explicitly unsupported for retroactive adapter delivery."
+    ],
+    "fingerprint_end": {
+      ".wavefoundry/framework/scripts/server_impl.py": "9ff701fb35877b2f07a134acc575f6240ce39ea5",
+      ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "5e02e8e62c8fb955bd9e41e68a4f819077c7ef4f",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "21c7c1e73ce0e0a8f86f849394cfd4285359db73",
+      ".wavefoundry/framework/scripts/tests/test_server_tools.py": "234bc9e63e79b4eda62996a9f912efe2ffa08f28",
+      ".wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py": "adb0e7a9aeacada7d003fcc0386b9e0b0671d45e",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "7f101009f1fa6c9b39bc7ab04dc9be89f2fd33c7",
+      "docs/prompts/upgrade-wavefoundry.prompt.md": "78edff495551e4bd8b6da956a200cf4b6d0bcecf",
+      "docs/specs/mcp-tool-surface.md": "7cfa77d2de460d36d290dc314e42392c687a81fd",
+      "CHANGELOG.md": "39b58979b6f10a27acded89c216e7cb19b1ebf76"
+    },
+    "fingerprint_matches": true
+  }
+}

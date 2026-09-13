@@ -1,0 +1,549 @@
+{
+  "primer": {
+    "mode": "council-adversarial-primer",
+    "phase": "readiness",
+    "depth": "standard",
+    "wave": "1xxc9",
+    "actor": "guard_readiness_primer",
+    "thinking_stances_applied": [
+      {
+        "stance": "adversarial",
+        "result": "A pre-protection host ignores future fences; same-schema upgrades must not bypass host handoff. A final guard outside BEGIN IMMEDIATE leaves a check/write race."
+      },
+      {
+        "stance": "constructive",
+        "result": "Extend existing repository-associated host discovery/retained upgrade continuation to first protected publication, independently of schema migration, then validate persisted participant compatibility under the native writer transaction."
+      },
+      {
+        "stance": "simplicity",
+        "result": "Reuse the existing epoch CAS, configuration fingerprint and transaction owner; add compatibility checks there and at direct-writer owners rather than a new locking subsystem."
+      }
+    ],
+    "strongest_challenge": "The revised design now selects a schema-independent first-hop checkpoint and transaction-bound comparisons. Its strongest remaining challenge is proving that the source-contract fingerprint represents code actually loaded, rather than files first hashed after replacement or a mixed lazy-import generation; an old process must not acquire a fresh fingerprint that blesses stale cached defaults.",
+    "best_alternative": "Keep the revised shared classifier and existing transaction owner. Bind the source fingerprint at producer load before cached constants or opaque defaults can diverge, validate loaded-module versus installed-source generation when modules load lazily, and refuse mixed/changed contracts before mutation. Retain pre-extraction capability state in the independent upgrade checkpoint, require confirmation and no identified old hosts, and preserve existing migration ownership. This is better because it closes both the first-hop blind spot and accidental blessing of old cached code without introducing a new locking system. Cost: explicit load-order invariants and conservative restart on producer source changes.",
+    "consequence_of_current_path": "If fingerprint capture is implemented as a first-operation hash rather than a loaded-code identity, an already-running protected process may bless newly installed files while still using old cached model/lexical defaults. This is an implementation risk to test, not a demonstrated defect in unimplemented code.",
+    "recommendation": "Proceed to architecture/QA scrutiny of the revised concrete design; carry the load-time identity and final-transaction questions into implementation and deterministic rehearsal. No remaining load-bearing blocker established by this bounded primer.",
+    "primer_questions": [
+      "How does fingerprint capture prove the identity of actually loaded producer code across lazy imports or source replacement, and which fixture changes installed files before the first index operation while retaining old cached defaults?",
+      "Which exact transaction owns each persisted-version recheck before the first DELETE/INSERT, and do deterministic barriers cover same-schema first-hop host refusal plus an already-prepared protected worker attempting publication after a newer generation?"
+    ],
+    "load_bearing_blockers": [],
+    "evidence_basis": [
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/graph_indexer.py:1586",
+        "fact": "ensure_current treats any mismatch as reset_pending; no ordering test."
+      },
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/indexer.py:5476",
+        "fact": "BEGIN IMMEDIATE encloses epoch CAS, validate_sources and prepared.apply; current_identity is loaded model/walker/chunker values and config hash, not a complete persisted revision comparison."
+      },
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/index_state_store.py:1623",
+        "fact": "_apply_chunk_deltas_locked has a direct mutation boundary and lexical meta delete; standalone apply_chunk_deltas also reaches it."
+      },
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/sqlite_storage_migration.py:945",
+        "fact": "Qualified readable receipts return before _refresh_hosts, confirmation and _hosts_gone."
+      },
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/sqlite_storage_migration.py:570",
+        "fact": "Known running MCP/dashboard PIDs block; process discovery states hidden/remote/unregistered limitations."
+      },
+      {
+        "kind": "source",
+        "ref": ".wavefoundry/framework/scripts/upgrade_extensions.py:173",
+        "fact": "Incoming legacy post_preflight already emits command_argv with --confirm-hosts-stopped and repository host scope."
+      }
+    ],
+    "executable_evidence": [
+      {
+        "probe": "Isolated in-memory SQLite GraphStateStore compatibility control",
+        "command": "python3 -B importing current graph_indexer; create only meta in :memory:; insert expected_versions; change builder_version to int(current)+1; invoke ensure_current",
+        "expected": "Equal returns true; newer currently returns false with reset_pending=true; metadata unchanged because this class only prepares reset intent.",
+        "observed": {
+          "equal_current": true,
+          "equal_reset": false,
+          "newer_current": false,
+          "newer_reset_pending": true,
+          "metadata_unchanged": true,
+          "supported_builder": "52"
+        },
+        "limits": "Direct current-code preparation seam only. No published graph rows, no full publication, no pre-protection binary, no multi-process race, no Windows execution. Does not prove end-to-end downgrade or effectiveness of unimplemented protection."
+      }
+    ],
+    "integrity": {
+      "independent": true,
+      "fresh_context": true,
+      "context_note": "Separate delegated reviewer agent with its own bounded task prompt, repository reads, and coordinator update messages. No implementation authorship or source edits; coordinator reports fork_turns none. No repair reverification or runtime delivery approval is claimed.",
+      "repository_code_modified": false,
+      "live_index_modified_by_probe": false,
+      "canonical_review_events_written": false,
+      "semantic_retrieval": "code_ask attempted; returned index_not_ready. Source validation used MCP code_outline/code_read, plus bounded local rg for symbols.",
+      "review_scope": "Readiness primer, not delivery test approval or formal specialist signoff."
+    },
+    "confidence": "high",
+    "revision_assessed": "Concrete Compatibility Design reread after coordinator update",
+    "resolved_during_readiness": [
+      "Concrete design now persists pre-extraction guard-capability state independently of storage migration, uses --confirm-hosts-stopped and identified-host absence, and rechecks before index children.",
+      "Concrete design names main BEGIN IMMEDIATE, direct delta/heal/rebuild, graph, initialization and final statistics seams and requires stable write snapshots."
+    ],
+    "revised_assessment": "The new first-hop checkpoint resolves primer question 1 at design level: capture old guard capability before extraction, retain that decision across extraction/retry, and enforce checkpoint confirmation and known-host exit immediately before index children. A post_extract implementation alone must not infer capability from newly installed files; it must consume the retained pre-extraction decision. The selected pre-index recheck is the publication backstop and must cover independent --update-index/resume commands. Existing storage migration remains owner for real conversions. The precise hooks can be chosen during implementation subject to those explicit invariants; no additional plan blocker established."
+  },
+  "docs_contract": {
+    "wave": "1xxc9",
+    "role": "docs-contract-reviewer",
+    "phase": "readiness",
+    "verdict": "approve",
+    "revision_assessed": "Admitted change document including Concrete Compatibility Design",
+    "scope": "Plan feasibility and affected operator contracts only; not delivery approval or proof of unimplemented protection",
+    "affected_contract_surfaces": [
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+      "docs/prompts/upgrade-wavefoundry.prompt.md",
+      "docs/specs/mcp-tool-surface.md",
+      "docs/RELIABILITY.md",
+      "docs/architecture/graph-index-system.md",
+      "docs/architecture/layering-rules.md",
+      "docs/architecture/data-and-control-flow.md"
+    ],
+    "findings": [],
+    "confirmed_aligned": [
+      "Current canonical seed 160 and local upgrade prompt both warn that stale graph builders can downgrade after upgrade. The plan correctly requires canonical guidance first and local reconciliation; current wording is pre-implementation baseline, not a plan defect.",
+      "First-protected-release limitations are explicit: incoming checks cannot retrofit loaded old code, host discovery is best effort, and explicit confirmation covers undiscovered hosts.",
+      "Same-schema first-hop checkpoint is distinct from actual storage migration, preserves pre-extraction capability through resume and requires confirmation plus absence of positively identified old hosts.",
+      "ACs distinguish ordered decimal revisions from opaque model/lexical identity and retain legitimate current-runtime model change; no lexical ordering of build suffixes or hashes.",
+      "Typed refusal, restart recovery, non-destructive preservation, equal/older/empty controls, public-path tests and deterministic mutation controls are required. Native fixture evidence must not be presented as native execution."
+    ],
+    "primer_responses": [
+      {
+        "question": "Loaded identity across replacement/lazy imports",
+        "answer": "Plan requires capture when runtime loads, content verification at load/publication, current source contract checks and no hot reload inside transactions. Interpret this as capture at actual producer load, before cached defaults can diverge; reject any mixed lazy-import generation. AC-5 delivery should explicitly replace installed source files before first index operation while retaining old cached defaults. Hashing only at first operation would violate the selected load-time contract. No implementation claim is made."
+      },
+      {
+        "question": "Transaction owner and first-hop/interleaving coverage",
+        "answer": "Verified indexer _build_index_locked BEGIN IMMEDIATE owns epoch CAS, validate_sources and prepared.apply. Plan adds compatibility there, explicitly inventories initialization, epoch creation, direct delta/heal/rebuild, graph and final statistics owners, and requires stable write snapshots before mutation. AC-3 requires deterministic prepared-worker barriers and guard-removal discrimination; AC-6 independently requires same-schema and migration handoff with an already-loaded pre-protection host. Delivery must demonstrate those cells rather than substitute preflight-only checks."
+      }
+    ],
+    "strongest_alternative": {
+      "proposal": "Retain mandatory full host-stop coordination for every producer upgrade and rely on the existing transaction owner, avoiding a source-contract fingerprint.",
+      "assessment": "Simpler contract but does not protect a protected stale direct writer or background worker that outlives imperfect discovery. The selected combination of load-time identity plus first-hop handoff is justified by the goal. Existing migration-only handoff is insufficient: ensure_upgrade_boundary returns early for qualified readable receipts before host refresh and confirmation. No separate locking subsystem is warranted."
+    },
+    "source_evidence": [
+      {
+        "ref": ".wavefoundry/framework/scripts/graph_indexer.py:GraphStateStore.ensure_current",
+        "fact": "Any mismatch sets reset_pending; no newer-revision ordering refusal."
+      },
+      {
+        "ref": ".wavefoundry/framework/scripts/indexer.py:_build_index_locked",
+        "fact": "BEGIN IMMEDIATE precedes epoch CAS, source/config recheck and prepared.apply."
+      },
+      {
+        "ref": ".wavefoundry/framework/scripts/sqlite_storage_migration.py:qualified READABLE_STATES early return",
+        "fact": "Existing storage handoff can return before host refresh/confirmation; source lines 943-956 independently read via MCP."
+      },
+      {
+        "ref": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md:186",
+        "fact": "Canonical current warning explicitly describes stale first-query downgrade."
+      },
+      {
+        "ref": "docs/prompts/upgrade-wavefoundry.prompt.md:187",
+        "fact": "Local current warning agrees with canonical downgrade behavior."
+      }
+    ],
+    "executable_evidence": {
+      "proposition": "The current GraphStateStore version decision treats a next-builder store as reset intent, while equal-version metadata remains current; this supports the proposed corrective contract.",
+      "public_path": "Readiness-safe current-code GraphStateStore preparation boundary using isolated SQLite :memory:; not public index publication",
+      "command_or_fixture": "python3 -B; import graph_indexer.GraphStateStore; create meta table in :memory:; populate _expected_versions; assert equal ensure_current true and reset_pending false; change graph:builder_version from 52 to 53; assert ensure_current false and reset_pending true; compare ordered metadata before/after",
+      "expected": "Equal current; newer reset intent; metadata preserved at preparation seam.",
+      "observed": {
+        "equal_current": true,
+        "newer_triggers_reset_intent": true,
+        "metadata_preserved": true,
+        "supported_builder": "52"
+      },
+      "known_bad_detection_method": "Readiness baseline refutes the concrete claim that current ensure_current already refuses a newer builder without requesting reset; positive equal control distinguishes ordinary current behavior.",
+      "artifact_or_test_id": "/tmp/1xxc9-ready-docs.json",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "limitations": "Named faithful readiness boundary reached, not public delivery path. No graph rows published, no multiprocess or installed-source replacement run, no first-hop upgrade executed, no native Windows/Linux qualification. Source retrieval initially produced redundant truncated metadata output; load-bearing source ranges were subsequently re-read with content-only output.",
+      "safety_and_authorization": "Read-only source inspection and local in-memory baseline authorized by delegated readiness scope; no live index or repository source modified."
+    },
+    "integrity": {
+      "independent": true,
+      "fresh_context": true,
+      "context_note": "Fresh delegated docs-contract seat; required startup orientation and supplied adversarial primer only, no implementation or repair context retained. Formed assessment from current source and independently executed baseline.",
+      "repository_code_modified": false,
+      "live_index_modified_by_probe": false,
+      "canonical_review_events_written": false
+    },
+    "delivery_watchpoints": [
+      "Bind actual loaded producer identities across lazy import and source replacement.",
+      "Reconcile sibling canonical/local upgrade guidance so first-hop shutdown precedes publication rather than promising post-upgrade reload is sufficient.",
+      "Record exact structured resume command and preserved capability checkpoint in both same-schema and combined-migration rehearsals."
+    ]
+  },
+  "council": {
+    "wave": "1xxc9",
+    "phase": "readiness",
+    "verdict": "approve",
+    "depth": "standard",
+    "actor": "wave-council",
+    "actual_roster": [
+      {
+        "role": "red-team",
+        "mode": "council-adversarial-primer",
+        "source": "/tmp/1xxc9-primer.json"
+      },
+      {
+        "role": "docs-contract-reviewer",
+        "mode": "rotating-best-alternative-seat",
+        "source": "/tmp/1xxc9-ready-docs.json"
+      },
+      {
+        "role": "wave-council",
+        "mode": "independent-readiness-synthesis"
+      }
+    ],
+    "roster_scope": "Targeted receipt-selected readiness roster. No fixed specialist seats were selected; seven required specialist lanes remain delivery obligations and are not waived or claimed run.",
+    "anonymized_merit_pass": "The sole Phase 2 seat was considered as Seat 1 before role weighting: its first-hop and source-identity propositions match the concrete plan and observed transaction owner. With one seat, random permutation is identity and no authority comparison is possible. Reattached docs-contract-reviewer after merit assessment. No blocking specialist finding existed to anonymize or dilute.",
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "agreement_limits": "Unanimous means the selected rotating seat approved and the independent moderator concurs; it does not mean all seven delivery reviewers ran. Primer separately establishes no remaining readiness blocker.",
+    "primer_summary": "Adversarial stance identified old-host first-hop blindness and check/write races; constructive and simplicity stances favor retained pre-extraction checkpoint and existing transaction ownership. Current plan addresses those design boundaries. Actual loaded-source identity remains a delivery-sensitive invariant.",
+    "primer_responses": [
+      {
+        "question": "How does fingerprint capture represent actually loaded producer code across replacement and lazy imports?",
+        "answer": "Concrete plan requires runtime-load capture and content verification at load/publication. That must occur before cached producer defaults diverge; a first-operation-only installed-file hash would contradict this contract. Mixed lazy-import generations must refuse. Require a delivery fixture replacing installed files before first indexing while retaining loaded old defaults. This is a design requirement, not execution evidence."
+      },
+      {
+        "question": "Which transaction owns each recheck and which barriers cover stale prepared workers and first-hop hosts?",
+        "answer": "Independently read _build_index_locked: BEGIN IMMEDIATE precedes attempt CAS, validate_sources and prepared.apply. GraphPublication.apply relies on caller-owned transaction and currently reaches DELETE after source recheck; the plan names this seam plus initialization, begin_build_epoch, direct deltas/heal/rebuild and final statistics and requires stable write snapshots. AC-3 and AC-6 specify prepared-worker and same-schema/pre-protection host barriers. Complete direct-writer census remains implementation work and must precede delivery claims."
+      }
+    ],
+    "strongest_alternative": {
+      "proposal": "Require every producer upgrade to stop hosts and omit source fingerprint fencing.",
+      "weighting": "This reduces fingerprint complexity, but best-effort discovery misses surviving protected direct/background writers and therefore does not satisfy the stale-process objective. Selected load-time identity with first-hop handoff and current transaction owner is stronger. Extending storage-migration-only handoff is also insufficient for same-schema upgrades; retained independent capability checkpoint is the appropriate selected mechanism."
+    },
+    "improvements_recommended": [
+      "Make actual loaded-producer capture, lazy-import rejection and before-first-operation source replacement explicit delivery fixture cells.",
+      "Record each direct mutation owner and the first mutating statement beside its compatibility recheck during implementation census.",
+      "Publish exact retained-checkpoint resume command in both same-schema and real-migration rehearsals."
+    ],
+    "findings": [],
+    "blockers": [],
+    "material_disagreements": [],
+    "source_evidence": [
+      ".wavefoundry/framework/scripts/graph_indexer.py:GraphStateStore.ensure_current",
+      ".wavefoundry/framework/scripts/graph_indexer.py:GraphStateStore._expected_versions",
+      ".wavefoundry/framework/scripts/graph_indexer.py:GraphPublication.apply",
+      ".wavefoundry/framework/scripts/indexer.py:_build_index_locked",
+      "docs/waves/1xxc9 monotonic-index-version-protection/1xwi1-bug prevent-stale-index-writer-downgrades.md:Concrete Compatibility Design"
+    ],
+    "executable_evidence": {
+      "proposition": "Current preparation boundary distinguishes equal metadata from newer builder by requesting reset for newer; the proposed monotonic refusal addresses a real decision seam.",
+      "public_path": "Faithful readiness preparation boundary: actual GraphStateStore.ensure_current with isolated SQLite metadata; not delivery publication.",
+      "command_or_fixture": "python3 -B imports current graph_indexer; creates :memory: meta; fills _expected_versions; equal control; builder +1; ensure_current; metadata before/after comparison; explicit assertion rejection of claim that newer metadata cannot request reset.",
+      "expected": "Equal remains current; newer requests reset under current code; metadata itself unchanged; known-bad current-protection claim rejected.",
+      "observed": {
+        "equal_current": true,
+        "newer_requests_reset": true,
+        "metadata_unchanged": true,
+        "known_bad_claim_rejected": true,
+        "skips": 0
+      },
+      "artifact_or_test_id": "/tmp/1xxc9-ready-council.json; GraphStateStore.ensure_current readiness baseline",
+      "safe_boundary": true,
+      "unexecuted_remainder_prohibited": true,
+      "universal_claim": false,
+      "limitations": "No actual new guard executed. No public index build, multiprocess interleaving, upgrade, installed-file replacement, or native platform qualification. One bounded readiness probe; further delivery fixtures are not claimed executed.",
+      "safety_and_authorization": "Delegated read-only readiness scope; stdlib in-memory SQLite only, no repository source or live index mutation."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Explicitly attempted and rejected known-bad readiness proposition that current ensure_current does not request reset for newer persisted builder; equal-version positive control and metadata preservation assertion make result discriminating."
+    },
+    "verification_context": {
+      "actor": "wave-council",
+      "context_id": "guard_ready_council-1xxc9-independent-20260912",
+      "fresh_context": true,
+      "independent": true
+    },
+    "independence_declaration": "Fresh delegated council context, no implementation or repair work retained or authored. Shared primer intentionally read per council protocol; own current-plan/source assessment and executable baseline formed before relying on rotating seat verdict. Mandatory project orientation used only as orientation. No source writes or canonical event writes.",
+    "retrieval": "MCP code_ask returned index_not_ready; code_outline and targeted content-only code_read validated load-bearing source seams. Truncated broad orientation output was not used as source proof.",
+    "approval_scope": "Readiness only: concrete design can proceed to implementation after coordinator completes stage gates. Not delivery acceptance; no implementation behavior guarantee."
+  },
+  "prepare_code_qa": {
+    "code_reviewer": {
+      "phase": "readiness",
+      "wave": "1xxc9",
+      "verdict": "approve",
+      "findings": [],
+      "independent": true,
+      "fresh_context": true,
+      "context_id": "guard_ready_code_qa-20260912-shared-context",
+      "context_note": "One fresh delegated reviewer context performed two role-specific analyses; same context disclosed, neither implementation nor repair authorship. No delivery approval.",
+      "source_evidence": [
+        ".wavefoundry/framework/scripts/graph_indexer.py:1517-1598: actual compatibility keys and mismatch-to-reset behavior read via MCP",
+        ".wavefoundry/framework/scripts/indexer.py:5476-5503: BEGIN IMMEDIATE encloses attempt CAS, source/config validation and prepared.apply; verified via MCP"
+      ],
+      "executable_evidence": {
+        "proposition": "Baseline supports the concrete graph regression and identifies a feasible guarded transaction owner.",
+        "public_path": "GraphStateStore.ensure_current production preparation API, isolated SQLite :memory: meta fixture",
+        "expected": "Equal returns true without reset; next builder returns false with reset; both preserve metadata at this preparation seam.",
+        "observed": {
+          "equal_control": true,
+          "newer_reset_intent": true,
+          "metadata_preserved": true,
+          "supported_builder": "52"
+        },
+        "known_bad_detection_method": "pre-fix-failure",
+        "known_bad_discriminator": "Assertion of no reset for newer persisted builder is falsified by current production ensure_current. Equal-version positive control succeeds. No guard effectiveness claimed before implementation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "limitations": "Public preparation seam only; not end-to-end publication, loaded-host handoff, native platform qualification or multiprocess test. These remain mandatory delivery evidence."
+      },
+      "role": "code-reviewer",
+      "assessment": "Concrete plan selects shared stdlib classifier without connection ownership, preserves native transaction/CAS boundaries, compares decimal revisions separately from opaque identities, and covers direct writers before first mutation. These are feasible extensions of read source. No readiness blocker established.",
+      "delivery_watchpoints": [
+        "Capture source contract at actual producer load, not first operation; reject mixed lazy imports and in-place replacement.",
+        "Guard before any initialization DDL and at stable write snapshot, including lexical statistics deletion and low-level direct writes.",
+        "Keep explicit first-hop checkpoint independent of migration receipt; old loaded code cannot be retroactively protected."
+      ]
+    },
+    "qa_reviewer": {
+      "phase": "readiness",
+      "wave": "1xxc9",
+      "verdict": "approve",
+      "findings": [],
+      "independent": true,
+      "fresh_context": true,
+      "context_id": "guard_ready_code_qa-20260912-shared-context",
+      "context_note": "One fresh delegated reviewer context performed two role-specific analyses; same context disclosed, neither implementation nor repair authorship. No delivery approval.",
+      "source_evidence": [
+        ".wavefoundry/framework/scripts/graph_indexer.py:1517-1598: actual compatibility keys and mismatch-to-reset behavior read via MCP",
+        ".wavefoundry/framework/scripts/indexer.py:5476-5503: BEGIN IMMEDIATE encloses attempt CAS, source/config validation and prepared.apply; verified via MCP"
+      ],
+      "executable_evidence": {
+        "proposition": "Baseline supports the concrete graph regression and identifies a feasible guarded transaction owner.",
+        "public_path": "GraphStateStore.ensure_current production preparation API, isolated SQLite :memory: meta fixture",
+        "expected": "Equal returns true without reset; next builder returns false with reset; both preserve metadata at this preparation seam.",
+        "observed": {
+          "equal_control": true,
+          "newer_reset_intent": true,
+          "metadata_preserved": true,
+          "supported_builder": "52"
+        },
+        "known_bad_detection_method": "pre-fix-failure",
+        "known_bad_discriminator": "Assertion of no reset for newer persisted builder is falsified by current production ensure_current. Equal-version positive control succeeds. No guard effectiveness claimed before implementation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "limitations": "Public preparation seam only; not end-to-end publication, loaded-host handoff, native platform qualification or multiprocess test. These remain mandatory delivery evidence."
+      },
+      "role": "qa-reviewer",
+      "assessment": "Plan is ready: all seven required ACs name falsifiable verification classes, including positive controls, real producer paths, exact preservation oracle, deterministic barriers and known-bad mutation. Current ACs remain unchecked correctly; no implementation verification is claimed.",
+      "ac_evidence_plan": {
+        "AC-1": "Source field/owner/enforcement matrix; compare every actual reader/writer against census.",
+        "AC-2": "Newer/equal/older/malformed/missing/mixed/empty fixtures for every ordered owner; exact before/after rows, metadata, generation.",
+        "AC-3": "Two-process barrier at preparation/publication; no sleeps as oracle; remove guard and require failure.",
+        "AC-4": "MCP/CLI/background/query repair assertions require typed diagnostic plus no auto-heal or retry loop.",
+        "AC-5": "Replace installed producer source before first operation with old cached model; reject stale identity while current explicit model selection succeeds.",
+        "AC-6": "Same-schema and legacy/schema-7 upgrade with actual pre-protection host, retained capability checkpoint and safe resume; assert no publication before handoff.",
+        "AC-7": "Targeted portable native-handle fixtures, explicit native execution limits, guidance and docs validation."
+      },
+      "delivery_watchpoints": [
+        "A carrier-presence assertion cannot prove the host protocol; execute retained checkpoint across extraction/retry.",
+        "Use real producer reachability for ordered field cases; helper-only classifier tests insufficient.",
+        "Common-mode limitation: readiness plan and reviewers share source concepts; delivery requires independent state-preservation oracle and actual runtime replay."
+      ]
+    }
+  },
+  "prepare_arch_security": {
+    "wave": "1xxc9",
+    "phase": "prepare",
+    "scope": "Current admitted plan readiness only; no implementation or delivery approval",
+    "plan_sha256": "82ecb1a64eaf248ce4d8f8ac147dd1ad134762361d959f1aa50263435da11e26",
+    "architecture": {
+      "role": "architecture-reviewer",
+      "verdict": "approved-with-notes",
+      "context_id": "guard_ready_arch_security-arch-20260912",
+      "findings": [],
+      "assessment": "Small stdlib classifier owns no connection or migration. Producers supply supported values; indexer retains BEGIN IMMEDIATE publication ownership before prepared.apply and bookkeeping. Graph reset preparation requires classification before reset intent. Plan explicitly inventories initialization, epoch, direct delta/heal/rebuild and statistics first writes. Same-schema pre-protection checkpoint belongs to upgrade, separately from actual storage conversion receipts. Pre-extraction capability capture must survive extraction/resume; no new lock owner or ADR needed. Existing architecture docs listed in plan require updates.",
+      "source_evidence": [
+        "indexer.py:5476-5503",
+        "graph_indexer.py:1571-1598",
+        "sqlite_storage_migration.py:885-963",
+        "upgrade_extensions.py:1207-1232,1299-1319",
+        "docs/architecture/layering-rules.md"
+      ],
+      "delivery_watchpoints": [
+        "Fingerprint actual loaded producer contracts, including lazy import generation; do not bless replaced installed source with old cached defaults.",
+        "Complete first-mutating-statement census and stable write snapshot proof before delivery.",
+        "Recheck retained pre-protection checkpoint immediately before index children, including separately invoked --update-index/resume."
+      ],
+      "executable_evidence": {
+        "proposition": "The actual graph metadata decision treats next-builder metadata as reset intent; equal metadata stays current. This demonstrates the planned guard has a real architectural seam.",
+        "public_path": "Faithful preparation boundary GraphStateStore.ensure_current, isolated stdlib in-memory SQLite; not public index publication.",
+        "command_or_fixture": "python3 -B; GraphStateStore with actual expected_versions; equal control then graph builder current+1; assert reset intent and unchanged ordered metadata",
+        "expected": "Equal current; newer requests reset; metadata preserved.",
+        "observed": {
+          "equal_current": true,
+          "newer_requests_reset": true,
+          "metadata_unchanged": true,
+          "skips": 0
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "Actual current-code counterexample falsifies known-bad readiness proposition that newer builder already refuses without requesting reset; equal control discriminates. Not guard-removal mutation of unimplemented protection."
+      }
+    },
+    "security": {
+      "role": "security-reviewer",
+      "verdict": "approved-with-notes",
+      "overall_severity": "none",
+      "context_id": "guard_ready_arch_security-security-20260912",
+      "findings": [],
+      "assessment": "Trusted operator/same-user stale writers create integrity/correctness risk under current threat model, not demonstrated privilege escalation. Existing restart action checks invocation token, resolved root, root identity, migration ID, checkpoint timestamp, target version and consumed/archive SHA-256. Keep these bindings when implementing independent same-schema checkpoint and require explicit confirmation plus absence of identified old hosts; publisher token grants do not substitute for host quiescence. Existing migration early returns show why storage handoff alone is insufficient. No new remote authority, credentials or automatic unrelated host termination planned.",
+      "source_evidence": [
+        "sqlite_storage_migration.py:156-178",
+        "sqlite_storage_migration.py:723-758",
+        "sqlite_storage_migration.py:923-956",
+        "upgrade_extensions.py:1207-1232",
+        "docs/architecture/threat-model.md"
+      ],
+      "confinement_and_regex": "Actual migration path helper rejects descendant symlink and checks SQLite WAL/SHM siblings; restart parser validates resolved root and package identity. No new regex input path or executable shell construction proposed; re.escape change is not applicable. No exploit chains identified.",
+      "delivery_watchpoints": [
+        "Same-schema checkpoint must retain root/package/invocation binding and recovery data across retry.",
+        "Newly installed CLI must honor first-hop obligation even when storage receipt is already readable.",
+        "Exercise known-host liveness refusal and confirmation in actual same-schema and migration upgrade rehearsals."
+      ],
+      "executable_evidence": {
+        "proposition": "Existing reusable path-safety boundary accepts owned database location and refuses symlink escape before opening SQLite.",
+        "public_path": "Faithful _safe_sqlite migration safety boundary on temporary filesystem; no real upgrade performed.",
+        "command_or_fixture": "python3 -B; TemporaryDirectory; owned .wavefoundry/index positive control; .wavefoundry/escape symlink to sibling outside directory negative control; call actual _safe_sqlite",
+        "expected": "Owned path accepted; symlink path raises MigrationRequired.",
+        "observed": {
+          "owned_path_accepted": true,
+          "symlink_escape_rejected": true,
+          "skips": 0
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "Concrete escaped descendant fixture is rejected by actual safety helper while owned control succeeds. Not an end-to-end malicious archive test or mutation test."
+      }
+    },
+    "verification_context": {
+      "independent": true,
+      "fresh_context": true,
+      "note": "Fresh delegated agent context; two separately reasoned role lenses share this same reviewer context. Read current plan, primer/seat/council record and independently inspected sources. No implementation authored."
+    },
+    "limitations": [
+      "No source edits or canonical events written.",
+      "No public build, live index mutation, full suite, actual upgrade, multiprocess interleaving, native Windows/Linux test or effectiveness claim for unimplemented guards.",
+      "MCP code_ask returned stale plan-heavy citations, therefore direct code_outline and targeted code_read supplied source validation.",
+      "Bounded readiness probes only; future guard-removal and package/root checkpoint mutation tests remain delivery obligations."
+    ]
+  },
+  "prepare_perf_release": {
+    "reviews": [
+      {
+        "phase": "prepare",
+        "scope": "Current admitted plan feasibility only; no delivery or universal safety claim",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control",
+        "findings": [],
+        "role": "performance-reviewer",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "performance-reviewer",
+          "context_id": "1xxc9-fresh-perf-release-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "observations": [
+          "Independently read Concrete Compatibility Design and performance role/budget; no prior advisory report read. GraphStateStore.ensure_current currently resets on every mismatch; source validates need for ordered refusal before costly rebuild.",
+          "Bounded faithful-boundary source fingerprint probe hashed exactly the seven named installed producer files (1815257 bytes), five runs 2.090, 0.898, 0.891, 1.027, 0.873 ms. This supports feasibility of load/publication hashing; no per-row callback design.",
+          "Omitting model_bundle from the seven-file contract set failed equality control as expected."
+        ],
+        "limitations": [
+          "Warm local filesystem feasibility measurement only, not implemented guard latency or native-platform qualification. No production write or model load was executed."
+        ],
+        "artifact_or_test_id": "graph_indexer.GraphStateStore.ensure_current; /tmp/1xxc9-prepare-perf-release-fresh.json; local seven-file SHA256 readiness probe"
+      },
+      {
+        "phase": "prepare",
+        "scope": "Current admitted plan feasibility only; no delivery or universal safety claim",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control",
+        "findings": [],
+        "role": "release-reviewer",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "release-reviewer",
+          "context_id": "1xxc9-fresh-perf-release-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "observations": [
+          "Independently read release role and admitted design; no prior advisory report read. upgrade_wavefoundry parser exposes --confirm-hosts-stopped and --rebuild-storage; upgrade_extensions command_argv also uses explicit host confirmation.",
+          "Plan requires preserving pre-extraction guard-capability decision across retry and a final pre-child check, covers same-schema builder and direct schema-7 jumps, and acknowledges undiscovered hosts. These support safe first-release implementation without artificial format bump.",
+          "Executable readiness contract control accepted current plan and rejected removal of pre-extraction capability decision. git check-ignore wavefoundry-1.2.3.zip returned the filename (exit 0)."
+        ],
+        "limitations": [
+          "No pack built or version stamp changed; no upgrade performed or host stopped. Actual old-host blocking and cross-platform resume behavior remain delivery obligations."
+        ],
+        "artifact_or_test_id": "upgrade_wavefoundry parser --confirm-hosts-stopped; upgrade_extensions command_argv; admitted Concrete Compatibility Design; local plan omission control"
+      }
+    ]
+  }
+}

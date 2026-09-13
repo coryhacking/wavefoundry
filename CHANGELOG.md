@@ -8,19 +8,22 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.24.0]
-
-### Fixed
-
-- **Reliable dashboard controls.** Start, stop and restart work with project paths containing spaces and distinguish successful startup from pending or failed launches. Refused stops leave unrelated processes alone and cannot launch a replacement. Wave `1xq4f`.
-- **Selected-file updates preserve the rest of your index.** Unrelated search and graph results stay intact; requests needing a full rebuild explain why before changing data. Wave `1xq4f`.
-- **Clearer recovery from index failures.** Failed or cancelled builds release database handles, and graph errors explain the runtime or storage issue instead of appearing as missing results. Wave `1xq4f`.
+## [1.24.0] - 2026-09-13
 
 ### Changed
 
-- **One local database for search and the code graph.** Project updates publish together, keeping each answer and its source evidence consistent while simplifying maintenance and recovery. Wave `1xny6`.
-- **Less temporary disk activity.** Ordinary index updates prepare in memory; larger batches spill to disk only when the 64 MiB preparation budget is exceeded. Wave `1xny6`.
-- **Safe upgrades without an intermediate release.** Existing embeddings are preserved and the graph is rebuilt from current files. Stop project hosts when prompted; interrupted conversions resume through the standard upgrade. Retired files are removed only after verification, with unrecognized files preserved. Wave `1xny6`.
+- **One local database for search and the code graph.** Related index updates publish together, keeping search results and code relationships consistent while simplifying storage, maintenance and recovery. Wave `1xny6`.
+- **Less temporary disk activity.** Index updates prepare in memory and spill to disk only for larger batches. Wave `1xny6`.
+- **Preserve updated indexes across agent sessions.** Older protected processes cannot overwrite newer search or graph data; restart guidance helps bring stale sessions up to date. Wave `1xxc9`.
+- **Upgrade without an intermediate release.** Existing embeddings are preserved, the graph is rebuilt from current sources, and superseded storage is reclaimed after verification. Interrupted conversions resume through the standard upgrade. Waves `1xny6`, `1xxcd`.
+- **Upgrade action:** stop all hosts attached to the project when prompted, then use the supplied CLI command to continue. Waves `1xny6`, `1xxc9`.
+
+### Fixed
+
+- **More accurate impact analysis and call graphs.** Chained and indexed calls resolve to methods instead of similarly named fields, with uncertainty identified when a receiver cannot be resolved. Wave `1xtnr`.
+- **Useful call-hierarchy navigation.** Callee locations lead to their definitions, while `call_site` shows where each call occurs in the caller. Wave `1xtnr`.
+- **Reliable dashboard controls.** Start, stop and restart handle project paths containing spaces, report startup outcomes clearly, and leave unrelated processes alone. Wave `1xq4f`.
+- **Targeted index updates preserve unrelated results.** Updating selected files retains the rest of the search and graph index; requests that require a full rebuild explain what is needed. Wave `1xq4f`.
 
 
 ## [1.23.0]

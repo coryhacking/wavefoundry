@@ -3689,7 +3689,7 @@ class WaveIndexAutoReloadTests(unittest.TestCase):
             docs_chunks=[{"id": "d1", "path": "docs/a.md", "kind": "doc", "text": "doc", "lines": [1, 1]}],
             docs_vectors=[[1.0, 0.0, 0.0, 0.0]],
         )
-        payload = {"built_at": built_at, "content": ["docs"], "model_versions": {"docs": "test-model"}, "chunker_versions": {}}
+        payload = {"built_at": built_at, "content": ["docs"], "model_versions": {"docs": "test-model"}}
         if extra:
             payload.update(extra)
         _seed_store_state(index_dir, payload)
@@ -9570,10 +9570,13 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertEqual(incoming[0]["name"], "caller")
         self.assertEqual(incoming[0]["line"], 5)
         self.assertIn("service()", incoming[0]["snippet"])
+        self.assertEqual(incoming[0]["call_site"], {
+            "file": "src/svc.py", "line": 5, "snippet": incoming[0]["snippet"],
+        })
 
-    # AC-7: outgoing entries carry line + snippet from file scan
+    # Outgoing definitions and caller snippets use separate coordinates.
     def test_outgoing_line_numbers(self):
-        """AC-7: outgoing entries have line numbers and snippets from targeted file scan."""
+        """Definition lines describe the callee; nested call sites describe the caller."""
         self._add("src/worker.py",
                   "def process():\n    helper()\n    validate()\n\ndef helper(): pass\ndef validate(): pass\n")
         self._write_graph(
@@ -9597,8 +9600,68 @@ class TestCodeCallhierarchy(unittest.TestCase):
         names = {e["name"] for e in outgoing}
         self.assertEqual(names, {"helper", "validate"})
         for entry in outgoing:
-            self.assertIsNotNone(entry["line"], f"Expected line number for {entry['name']}")
-            self.assertIsNotNone(entry["snippet"], f"Expected snippet for {entry['name']}")
+            definition, invocation = {"helper": (5, 2), "validate": (6, 3)}[entry["name"]]
+            self.assertEqual(entry["line"], definition)
+            self.assertIsNone(entry["snippet"])
+            self.assertEqual(entry["call_site"]["file"], "src/worker.py")
+            self.assertEqual(entry["call_site"]["line"], invocation)
+            self.assertIn(entry["name"] + "()", entry["call_site"]["snippet"])
+
+    def test_cross_file_definition_and_call_site_bounds(self):
+        self._add("src/caller.py", "def caller():\n" + "    # padding\n" * 30 + "    helper()\n")
+        self._add("src/callee.py", "def helper(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/caller.py::caller", "label": "caller", "kind": "function",
+                 "source_file": "src/caller.py", "source_location": "1:0"},
+                {"id": "src/callee.py::helper", "label": "helper", "kind": "function",
+                 "source_file": "src/callee.py", "source_location": "1:0"},
+            ],
+            edges=[{"source": "src/caller.py::caller", "target": "src/callee.py::helper",
+                    "relation": "calls", "confidence": "RECEIVER_RESOLVED"}],
+        )
+        outgoing_response = self._call("caller", direction="outgoing")
+        incoming_response = self._call("helper", direction="incoming")
+        outgoing = outgoing_response["data"]["outgoing"]
+        incoming = incoming_response["data"]["incoming"]
+        self.assertEqual(len(outgoing), 1)
+        self.assertEqual(len(incoming), 1)
+        self.assertEqual((outgoing[0]["file"], outgoing[0]["line"]), ("src/callee.py", 1))
+        self.assertIsNone(outgoing[0]["snippet"])
+        self.assertEqual(outgoing[0]["call_site"], incoming[0]["call_site"])
+        self.assertEqual(outgoing[0]["call_site"]["line"], 32)
+        self.assertEqual(outgoing[0]["call_site"]["file"], "src/caller.py")
+        self.assertIn("helper()", outgoing[0]["call_site"]["snippet"])
+        for row in outgoing + incoming:
+            for location in (row, row["call_site"]):
+                count = len((self.root / location["file"]).read_text().splitlines())
+                self.assertGreater(location["line"], 0)
+                self.assertLessEqual(location["line"], count)
+        self.assertEqual(self.srv._context_source_paths("code_callhierarchy", outgoing_response),
+                         ["src/caller.py"])
+
+    def test_outgoing_missing_and_external_locations_stay_null(self):
+        self._add("src/caller.py", "def caller(): pass\n")
+        self._write_graph(
+            nodes=[
+                {"id": "src/caller.py::caller", "label": "caller", "kind": "function",
+                 "source_file": "src/caller.py", "source_location": "1:0"},
+                {"id": "src/missing.py::helper", "label": "helper", "kind": "function",
+                 "source_file": "src/missing.py"},
+                {"id": "external::print", "label": "print", "kind": "external",
+                 "source_file": "external", "source_location": "99:0"},
+            ],
+            edges=[{"source": "src/caller.py::caller", "target": target, "relation": "calls"}
+                   for target in ("src/missing.py::helper", "external::print")],
+        )
+        result = self.srv.code_callhierarchy_response(
+            self.root, "caller", None, "outgoing", include_external=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["data"]["outgoing"]), 2)
+        for row in result["data"]["outgoing"]:
+            self.assertIsNone(row["line"])
+            self.assertIsNone(row["snippet"])
+            self.assertIsNone(row["call_site"])
 
     # AC-6: Invalid direction returns error
     def test_invalid_direction_returns_error(self):
@@ -12647,6 +12710,11 @@ class TestJavaReceiverTypeResolution(unittest.TestCase):
             self.skipTest("tree_sitter_java not available in test env")
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
+        # Exercise the legacy receiver filter, not the separately tested
+        # coordinated upgrade that normally replaces a pre-v13 graph.
+        repair = patch.object(self.srv._load_graph_query(), "_ensure_graph_builder_current", return_value=None)
+        repair.start()
+        self.addCleanup(repair.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -12658,13 +12726,12 @@ class TestJavaReceiverTypeResolution(unittest.TestCase):
         return p
 
     def _write_graph(self, nodes: list, edges: list) -> None:
-        # No builder version: the defense-in-depth receiver filter is active
-        # only for graphs the v13+ indexer did NOT produce, which is what this
-        # class exercises. An absent version reads as 0, i.e. pre-bump.
+        # A recorded numeric legacy revision is required; missing published
+        # provenance is no longer treated as evidence of an older producer.
         gfs.publish_graph_payload(
             self.root,
             {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges},
-            builder_version="",
+            builder_version="0",
         )
 
     # AC-6: the field reproducer — JSON.writeObject vs oos.writeObject (ObjectOutputStream).
@@ -14451,7 +14518,13 @@ class DegradedFtsFallbackTests(unittest.TestCase):
         with contextlib.redirect_stdout(_io.StringIO()), contextlib.redirect_stderr(_io.StringIO()):
             self.iss.reconcile_chunk_index(self.index_dir, "code", {r["id"] for r in code_rows}, lambda: code_rows)
             self.iss.reconcile_chunk_index(self.index_dir, "docs", {r["id"] for r in docs_rows}, lambda: docs_rows)
-        self.iss.write_build_bookkeeping(self.index_dir, {"content": ["docs", "code"]})
+        import index_compatibility
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "content": ["docs", "code"],
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {layer: str(index_compatibility.SUPPORTED["chunker_version"])
+                                 for layer in ("docs", "code")},
+        })
         attempt = self.iss.begin_build_epoch(self.index_dir, "fixture")
         assert self.iss.finalize_build_epoch(self.index_dir, attempt)
         self.COMPLETE = self.iss.build_epoch_state_token(self.index_dir)
@@ -16263,6 +16336,11 @@ class FreshnessAnnotationAndDriftPartitionTests(unittest.TestCase):
                 })
         finally:
             store.close()
+        import index_compatibility
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {"docs": str(index_compatibility.SUPPORTED["chunker_version"])},
+        })
         if finalize:
             attempt = self.iss.begin_build_epoch(self.index_dir, "fixture")
             assert self.iss.finalize_build_epoch(self.index_dir, attempt)

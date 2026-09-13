@@ -225,6 +225,19 @@ def _ensure_graph_builder_current(
         # No published graph yet — nothing to rebuild. The query layer surfaces
         # graph_not_ready_diagnostic separately.
         return None
+    # A newer generation is not stale input for this runtime to repair. Check
+    # before the cache shortcut and before scheduling any in-process rebuild.
+    import index_compatibility
+    try:
+        index_compatibility.ensure_runtime_current()
+        index_compatibility.check_ordered(
+            "graph.builder_version", snapshot.builder_version, runtime_version)
+    except index_compatibility.IndexCompatibilityError as exc:
+        return {
+            "code": exc.code, "message": str(exc),
+            "recovery_tools": ["index_health"],
+            "recovery_usage": "Restart the affected Wavefoundry host, then call index_health().",
+        }
     signature = _graph_state_signature(snapshot)
     cache_key = (str(root.resolve()), layer)
     with _VERSION_CHECK_LOCK:
@@ -299,15 +312,21 @@ def _ensure_graph_builder_current(
         # neutralizes the whole class at the boundary regardless of any print site fixed upstream.
         # isolated_stdout_fd() is a safe no-op when sys.stdout has no real fileno (captured under test).
         with cli_stdio.isolated_stdout_fd(), contextlib.redirect_stdout(sys.stderr):
-            indexer_mod.build_index(
+            build_result = indexer_mod.build_index(
                 root,
                 full=True,
                 content="graph",
                 index_dir=index_dir,
                 verbose=False,
             )
+        if isinstance(build_result, dict) and build_result.get("failed"):
+            raise RuntimeError(build_result.get("failure") or "Graph publication failed")
         duration_ms = int((time.monotonic() - start) * 1000)
     except Exception as exc:
+        if isinstance(exc, index_compatibility.IndexCompatibilityError):
+            return {"code": exc.code, "message": str(exc),
+                    "recovery_tools": ["index_health"],
+                    "recovery_usage": "Restart the affected Wavefoundry host, then call index_health()."}
         return {
             "code": "graph_auto_rebuild_failed",
             "message": f"Stale graph builder version mismatch ({state_version} → {runtime_version}) detected but automatic rebuild failed: {exc}. Run index_build(content='graph') manually.",
@@ -397,7 +416,10 @@ def load_graph(root: Path, *, layer: str = "project") -> dict[str, Any]:
             # `acquire` inside a pin returns the PINNED (pre-rebuild) view;
             # only `repin` rebinds the frame to what the rebuild published.
             snapshot = graph_snapshot.repin(root, layer)
-        payload = dict(snapshot.graph) if snapshot.present else _unavailable_graph_payload(snapshot, layer)
+        if isinstance(rebuild_diag, dict) and rebuild_diag.get("code", "").startswith("index_"):
+            payload = {**_absent_graph_payload(layer), "state": "not_ready", "diagnostic": rebuild_diag}
+        else:
+            payload = dict(snapshot.graph) if snapshot.present else _unavailable_graph_payload(snapshot, layer)
     if rebuild_diag is not None:
         payload["auto_rebuild_diagnostic"] = rebuild_diag
     return payload
@@ -510,7 +532,10 @@ def get_query_index(root: Path, *, layer: str = "project") -> GraphQueryIndex:
             # The rebuild published a new generation; serve THAT one. `acquire`
             # inside a pin would return the pre-rebuild view.
             snapshot = graph_snapshot.repin(root, layer)
-        index = _constructed_index(snapshot, layer)
+        if isinstance(rebuild_diag, dict) and rebuild_diag.get("code", "").startswith("index_"):
+            index = GraphQueryIndex({**_absent_graph_payload(layer), "state": "not_ready", "diagnostic": rebuild_diag})
+        else:
+            index = _constructed_index(snapshot, layer)
     if rebuild_diag is not None:
         return _index_with_diagnostic(index, rebuild_diag)
     return index

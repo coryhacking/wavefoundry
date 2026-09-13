@@ -1,0 +1,182 @@
+{
+  "wave": "1xxcd",
+  "context_id": "1xxcd-docs-architecture-independent-delivery-v2",
+  "lanes": [
+    "docs-contract-reviewer",
+    "architecture-reviewer"
+  ],
+  "verdict": "approved",
+  "review_policy_digest": "e0a0dce9 (re-Prepared scope clarification)",
+  "findings": [],
+  "prior_concern_disposition": "Resolved as scope clarification, not runtime defect. Existing _staging_allowlist explicitly permits disposable memory_meta/memory_writers cache output. It is not historical-backfill authority and never published. Current requirement/AC/architecture distinguishes these. No unsafe invalidation bypass was added.",
+  "source_git_hash_object": {
+    ".wavefoundry/framework/scripts/index_state_store.py": "732ad335fa2bbc33a52c5cafb296b4351eeaf4e8",
+    ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "5575c1b97522c073f2c88c85f02dcb869d4bf69d",
+    ".wavefoundry/framework/scripts/repair_ppol_memory_staging.py": "759e3d19d16f22319a982899ed96b4602a5c5925",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "0df969bb142b468bf41f0807127c85c64ee17566",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "d02f93275c4791c87a330a664090d253beb818cf",
+    "docs/architecture/data-and-control-flow.md": "b25684657108dd692b291f77305aab0468e090e1",
+    "CHANGELOG.md": "7da1815fc8460d9639a0c39204a13a863b8a5ca3"
+  },
+  "independent_checks": [
+    "Read exact before/current migration/finalizer delta and all284 repair utility lines; source stayed frozen",
+    "Read changed seed160/local upgrade paragraph and architecture statement; safe original-package recovery and live-parent publication agree with code",
+    "18 focused tests passed independently in1.848s, no skips",
+    "Independently reran composed exact-ppol replay: actual old installed main failed unknown memory backfill run; generated kit dry-run/apply patched two files; returned retained CLI arguments ran fresh installed main successfully; live run indexed, schema8 fresh-process verified, original package identity retained"
+  ],
+  "mutation_table": [
+    {
+      "mutant": "is_unpublished_candidate returnsFalse",
+      "result": "killed",
+      "observed": "production candidate regression raises original unknown memory backfill run",
+      "execution": "independent in-memory mock,1.075s; shared source untouched"
+    },
+    {
+      "mutant": "unrepaired original ppol installed runtime",
+      "result": "killed",
+      "observed": "exact CLI reproduction exit1 before repair, exit0 after kit",
+      "execution": "independent composed replay /tmp/1xxcd-docs-arch-replay.py"
+    },
+    {
+      "alternative": "redirect only memory root",
+      "result": "rejected by static control flow",
+      "observed": "would authorize live run and emit staging parent receipt before candidate CAS",
+      "execution": "static; not claimed executed"
+    }
+  ],
+  "repair_contract": "Hash-pins original archive, inner feature, old/current patch files and upgrade runner; gates staged schema7 receipt, checkpoint phases, live ready_for_index, source/work identities, retained package locator and host confirmation. Retains source backups and returns resume-after-memory without re-extraction. No receipt/database writes by kit.",
+  "artifacts": [
+    "/tmp/1xxcd-docs-arch-replay.json",
+    "/tmp/1xxcd-docs-arch-replay.log"
+  ],
+  "limitations": "Native macOS ARM64 only. Full suite still running elsewhere. Composed replay uses production migration/parent/finalization/verification, deterministic model child and no-op dependency/model provisioning. No target project modified.",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused regression plus original-runtime replay"
+  },
+  "council_delivery": {
+    "context_id": "1xxcd-targeted-delivery-synthesis",
+    "primer_depth": "standard",
+    "seats": [
+      "red-team",
+      "docs-contract-reviewer"
+    ],
+    "rotating_seat": "docs-contract-reviewer",
+    "moderator": "wave-council",
+    "primer_artifact": "delivery-primer.json",
+    "docs_seat_answers": {
+      "Q1": "Exact-ppol composed replay ends verified, not complete. Candidate completion, live parent memory publication and fresh verification succeeded. Returned resume-after-memory argv avoids re-extraction; separate cleanup argv requires project editing and docs gate first. No package substitution or receipt editing. Native parent regression separately exercises cleanup complete.",
+      "Q2": "Current scope/docs explicitly permit disposable memory cache but forbid historical-backfill authority in staging. Core finalizer never opens that authority for candidate. No native Windows/Linux claim; failed/best-effort discovery still requires host confirmation."
+    },
+    "anonymized_merit_pass": [
+      {
+        "seat": "Seat1",
+        "merit": "Separating verified from complete prevents overstating recovery. Returned two-stage CLI already preserves that requirement; no source change needed."
+      },
+      {
+        "seat": "Seat2",
+        "merit": "Root-only redirect prematurely authorizes live memory and records an unfinished candidate. Identity-bound context preserves source/publication authority, and docs correctly name disposable-cache exception."
+      }
+    ],
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "strongest_agreement": "Keep candidate epoch independent of historical-memory authority; retain parent CAS, fresh verification and post-edit cleanup. Exact original-package recovery observed.",
+    "material_disagreements": "None. Earlier no-staging-memory-file wording clarified through re-Prepare to distinguish existing disposable cache, without adding an invalidation bypass.",
+    "strongest_alternative": "Root-only redirect and process-global environment stripping are smaller but violate authority/concurrency. A subprocess boundary adds protocol without replacing identity checks; no stronger actionable implementation alternative found.",
+    "improvements_recommended": [
+      "Final user handoff must state repair replay reached verified; target editing/docs gate and cleanup remain separate.",
+      "Preserve native-platform and model-provisioning limitations in test claims."
+    ],
+    "specialist_evidence": "Code/security/release, architecture/docs and QA approved. QA independently ran20 tests and killed10 targeted mutants; no findings. Fullsuite pending separately.",
+    "challenge_round": "not required: unanimous/no high-severity disagreement",
+    "verdict": "pass",
+    "fingerprint_rechecked": true
+  },
+  "release_followup": {
+    "context_id": "1xxcd-release-docs-followup",
+    "verdict": "approved",
+    "findings": [],
+    "scope": "Seed160 and project upgrade paragraph remove broad advice to obtain an old-build repair; standard upgrade and retained CLI are now the forward instruction. Historical pinned repair remains historical evidence.",
+    "checks": [
+      "MCP read both paragraphs and full three-case native retained-archive fixture",
+      "Both guidance paragraphs match: unpublished candidate is independent, only live parent advances memory, retain exact CLI and original archive, no copying memory or editing receipts",
+      "Runtime candidate/finalizer and architecture hashes unchanged",
+      "Independently ran SchemaEightMemoryCLIResumeTests:3 passed, no skips,12.872s. Includes interrupted feature, interrupted outer-shaped archive, and uninterrupted outer-shaped archive contexts; live memory indexed, fresh verification before cleanup, source/work cleanup complete and archive hash retained."
+    ],
+    "tree_fingerprint": {
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "b84d367a80f373373ce208853e507c3305ef3bda",
+      "docs/prompts/upgrade-wavefoundry.prompt.md": "93c11d9146a0c93419e51b519dea9a2e0824a4a4",
+      "docs/architecture/data-and-control-flow.md": "b25684657108dd692b291f77305aab0468e090e1",
+      ".wavefoundry/framework/scripts/index_state_store.py": "732ad335fa2bbc33a52c5cafb296b4351eeaf4e8",
+      ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "5575c1b97522c073f2c88c85f02dcb869d4bf69d",
+      ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "8d0d1c665f9bd40fb1e428eaaa53eb919e804568"
+    },
+    "mutation_table": [
+      {
+        "change": "Documentation-only instructions",
+        "control": "Prior known-bad original-runtime replay remains relevant; no runtime logic changed",
+        "new_mutant_execution": false
+      },
+      {
+        "change": "Retained archive fixture expansion",
+        "control": "Explicit hash, state, nonempty memory retrieval and postverification cleanup assertions checked; three native cases passed",
+        "new_mutant_execution": false
+      }
+    ],
+    "boundary_assessment": "No authority or recovery boundary changed; full Council rerun unnecessary. Final package claims must retain fullsuite and platform limitations.",
+    "limitations": "Native macOS ARM64; deterministic model child. Tests exercise retained main/resume/publication/cleanup with archive identity, not full outer-package extraction. Fullsuite result pending separately.",
+    "artifact": "/tmp/1xxcd-release-docs-review.log"
+  },
+  "official_release_refresh": {
+    "context_id": "1xxcd-official-council-refresh",
+    "policy_receipt": "e3319599b2507de04852",
+    "phase": [
+      "readiness",
+      "delivery_delta"
+    ],
+    "verdict": "approved",
+    "primer_depth": "standard",
+    "seats": [
+      "red-team",
+      "docs-contract-reviewer"
+    ],
+    "rotating_seat": "docs-contract-reviewer",
+    "moderator": "wave-council",
+    "findings": [],
+    "scope_review": "Requirements/AC unchanged; progress entries now under ProgressLog. User current authorization supersedes historical exclusion of commit/closure/release. Original local-only repair boundary reinforced by excluding repair utility from shipped archive and generated MANIFEST. Canonical runtime fix remains shipped.",
+    "primer_response": "Exact receipt/path/inode/PID candidate scope and finally reset still avoid live-memory bypass; retained CLI avoids re-extraction. Source hashes unchanged. Root-only redirect and global environment stripping remain rejected.",
+    "docs_seat": "Benefit-focused changelog accurately describes unified database, preserved embeddings and verified cleanup; ordinary upgrade wording aligns with seed/local prompt. No obsolete general instruction to obtain ppol repair. No new scope or authority boundary.",
+    "anonymized_merit_pass": [
+      {
+        "seat": "Seat1",
+        "assessment": "No change to candidate authority mechanism; existing negative controls and original-package recovery evidence remain applicable."
+      },
+      {
+        "seat": "Seat2",
+        "assessment": "Progress relocation changes no requirements; excluding local repair enforces planned package boundary without removing consumer runtime fix."
+      }
+    ],
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "material_disagreements": "None",
+    "challenge_round": "not required",
+    "known_bad": "Independently executed real build_zip exclusion test passes0.003s; removing repair exclusion in memory fails intended manifest assertion0.003s. Shared files untouched. Prior original-runtime replay retained for unchanged isolation.",
+    "tree_fingerprint": {
+      ".wavefoundry/framework/scripts/index_state_store.py": "732ad335fa2bbc33a52c5cafb296b4351eeaf4e8",
+      ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "5575c1b97522c073f2c88c85f02dcb869d4bf69d",
+      ".wavefoundry/framework/scripts/build_pack.py": "3e986992511fe837ce19b67a6b3c1d508660a67f",
+      ".wavefoundry/framework/scripts/tests/test_build_pack.py": "7ba1cabe6329a0b7ca036eafd7629ea968e6936f",
+      "docs/architecture/data-and-control-flow.md": "b25684657108dd692b291f77305aab0468e090e1",
+      "CHANGELOG.md": "c288aedd9b90f36dd501266e6551884b979b2e93"
+    },
+    "limitations": "Fullsuite /tmp/1xxcd-official-tests.log still running; current receipt and final bundle verification remain execution gates. Native macOS only, no Windows/Linux qualification claim."
+  }
+}

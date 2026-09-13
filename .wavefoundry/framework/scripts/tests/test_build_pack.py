@@ -897,12 +897,16 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         (tests_dir / "test_foo.py").write_text("x", encoding="utf-8")
         (scripts_dir / "run_tests.py").write_text("x", encoding="utf-8")
         (scripts_dir / "build_pack.py").write_text("x", encoding="utf-8")
+        (scripts_dir / "repair_ppol_memory_staging.py").write_text("x", encoding="utf-8")
         path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
         with zipfile.ZipFile(path) as zf:
             manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
         entries = {line for line in manifest_text.splitlines() if line.strip()}
         self.assertNotIn("scripts/run_tests.py", entries)
         self.assertNotIn("scripts/build_pack.py", entries)
+        self.assertNotIn("scripts/repair_ppol_memory_staging.py", entries)
+        with zipfile.ZipFile(path) as zf:
+            self.assertNotIn(".wavefoundry/framework/scripts/repair_ppol_memory_staging.py", zf.namelist())
         self.assertFalse(any("tests/" in e for e in entries))
 
     def test_lint_exclusions_doc_ships_in_pack(self):

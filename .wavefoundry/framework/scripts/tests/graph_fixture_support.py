@@ -176,7 +176,11 @@ def _graph_publication(conn, payload: dict, layer: str):
             graph_indexer._edge_row(edge, owner, n))
 
     header = {k: v for k, v in payload.items() if k not in ("nodes", "edges")}
+    import index_compatibility
     meta = {
+        **{key.removeprefix("graph:"): str(value)
+           for key, value in index_compatibility.SUPPORTED.items() if key.startswith("graph:")},
+        "layer": layer,
         "schema_version": str(payload.get("schema_version") or ""),
         "builder_version": str(payload.get("builder_version") or ""),
         "payload_fingerprint": str(payload.get("input_fingerprint") or ""),

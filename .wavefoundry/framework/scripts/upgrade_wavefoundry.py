@@ -880,33 +880,9 @@ def _read_installed_graph_builder_version(root: Path) -> str:
     return probe.stdout.strip()
 
 
-# Wave 1rxyi: the distribution zip ships the single-use bootstrap `install-wavefoundry.md` at the ZIP
-# ROOT (build_pack.py — the agent must discover it before .wavefoundry/ is known). It therefore
-# can extract into the PROJECT ROOT. Preserve any preexisting file there; only
-# remove an unchanged bootstrap whose creation this invocation observed.
+# The archive retains this entry for fresh-install discovery. Upgrades never
+# materialize it: process-local cleanup ownership cannot survive a restart.
 _ROOT_BOOTSTRAP_FILENAME = "install-wavefoundry.md"
-_CREATED_ROOT_BOOTSTRAPS: dict[Path, tuple[int, int, str]] = {}
-
-
-def _remove_root_bootstrap_file(root: Path) -> None:
-    """Remove only an unchanged installer created by this invocation.
-
-    A retry or a standalone index phase cannot infer ownership from the name.
-    Pre-existing, tracked, modified and replaced files remain project-owned.
-    """
-    path = root / _ROOT_BOOTSTRAP_FILENAME
-    created = _CREATED_ROOT_BOOTSTRAPS.pop(root.resolve(), None)
-    if created is None:
-        return
-    try:
-        metadata = path.lstat()
-        if (stat.S_ISREG(metadata.st_mode)
-                and not getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
-                and (metadata.st_dev, metadata.st_ino, _file_sha256_no_follow(path)) == created):
-            path.unlink()
-            _log(f"  Removed transient bootstrap file {_ROOT_BOOTSTRAP_FILENAME} from the project root.")
-    except OSError as exc:  # non-fatal — never abort the upgrade over a cleanup unlink
-        _log(f"  ⚠  Could not remove {_ROOT_BOOTSTRAP_FILENAME} (non-fatal): {exc}")
 
 
 # Wave 1u0cc: the combined release zip also carries the zipapp bridge-runner members at the zip root
@@ -921,29 +897,20 @@ _EXTRACT_ROOT_MEMBERS = frozenset({_ROOT_BOOTSTRAP_FILENAME})
 
 
 def _extract_feature_members(zf: "zipfile.ZipFile", root: Path) -> int:
-    """Extract only intended feature members of the release zip into ``root``.
+    """Extract framework members, withholding the fresh-install root bootstrap.
 
-    Allowlist: members under ``.wavefoundry/`` plus the transient root bootstrap file. Everything
-    else (the zipapp runner members, or any unexpected root member — including backslash-separator
-    names that would otherwise land as literal root files on POSIX) is skipped, never written.
-    Returns the count of skipped members; a feature-only archive skips zero."""
-    bootstrap = root / _ROOT_BOOTSTRAP_FILENAME
-    preexisting_bootstrap = bootstrap.exists() or bootstrap.is_symlink()
+    Archive layout constants still include the bootstrap for package validation;
+    upgrade selection excludes it even when no project file exists. Unexpected
+    root members and zipapp runner payloads are never written.
+    """
     allowed = [
         name
         for name in zf.namelist()
         if name.startswith(_EXTRACT_MEMBER_PREFIX) or name in _EXTRACT_ROOT_MEMBERS
-        if name != _ROOT_BOOTSTRAP_FILENAME or not preexisting_bootstrap
+        if name != _ROOT_BOOTSTRAP_FILENAME
     ]
     skipped = len(zf.namelist()) - len(allowed)
     zf.extractall(str(root), members=allowed)
-    if _ROOT_BOOTSTRAP_FILENAME in allowed:
-        metadata = bootstrap.lstat()
-        if (stat.S_ISREG(metadata.st_mode)
-                and not getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
-            _CREATED_ROOT_BOOTSTRAPS[root.resolve()] = (
-                metadata.st_dev, metadata.st_ino, _file_sha256_no_follow(bootstrap)
-            )
     return skipped
 
 
@@ -1073,6 +1040,7 @@ class UpgradeContext:
         # define it, which lets a protocol-2 feature pack refuse them before
         # extraction through ``post_preflight``.
         self.runner_protocol = 2
+        self.index_guard_coordinator_capability = 1
         # Storage-conversion protocol. 2 declares that this coordinator can run
         # the schema-8 kind in-process; 1 (or an older context that defines
         # nothing) receives the restart handoff and the installed CLI resumes
@@ -1468,6 +1436,8 @@ def _clear_stale_upgrade_lock_for_preflight(root: Path, upgrade_lib: Any) -> Non
         return
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is None or not upgrade_lib.is_lock_stale(root):
+        return
+    if "index_guard_handoff" in existing_lock:
         return
     if (
         existing_lock.get("failed_phase")
@@ -2377,6 +2347,15 @@ def _verify_storage_publication(root: Path) -> None:
         raise RuntimeError("storage_new_process_verification_failed: cleanup remains blocked")
 
 
+def _enforce_index_guard_before_children(root: Path) -> None:
+    import upgrade_lib
+    import upgrade_extensions
+    lock = upgrade_lib.read_upgrade_lock(root) or {}
+    ctx = UpgradeContext(root, lock.get("from_version"), lock.get("to_version"),
+                         Path(lock["zip_path"]) if lock.get("zip_path") else None, True)
+    upgrade_extensions.enforce_index_guard_handoff(ctx)
+
+
 def phase_index_update(root: Path) -> bool:
     """Incremental index update — re-embeds only changed files.
 
@@ -2387,6 +2366,7 @@ def phase_index_update(root: Path) -> bool:
     successful, False when the child exited non-zero (1u44n: the outcome is
     OBSERVED, not assumed; callers derive the summary field from it).
     """
+    _enforce_index_guard_before_children(root)
     import sqlite_storage_migration
     migration_receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
     migration_pending = migration_receipt is not None and migration_receipt["state"] != "complete"
@@ -2441,6 +2421,7 @@ def phase_index_update(root: Path) -> bool:
     if grant_token:
         child_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
+    _enforce_index_guard_before_children(root)
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root)] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
@@ -2490,6 +2471,7 @@ def phase_index_update(root: Path) -> bool:
     graph_env = dict(followup_env)
     if grant_token:
         graph_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
+    _enforce_index_guard_before_children(root)
     graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
@@ -2523,6 +2505,7 @@ def phase_index_update(root: Path) -> bool:
 def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
     """Let the child compute, then publish its epoch from the lock-owning parent."""
 
+    _enforce_index_guard_before_children(root)
     import index_state_store
 
     index_dir = root / ".wavefoundry" / "index"
@@ -2554,6 +2537,7 @@ def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
             # Standard recovery may retire the old attempt's authorization.
             # Recompute through the ordinary children under the current census.
             return False
+        _enforce_index_guard_before_children(root)
         if not index_state_store.finalize_staged_build_epoch(
             index_dir, receipt, memory_run_id
         ):
@@ -2592,6 +2576,7 @@ def phase_index_rebuild(root: Path) -> bool:
     Returns True when the blocking all-layer publication was observed
     successful, False when the child exited non-zero (1u44n).
     """
+    _enforce_index_guard_before_children(root)
     _log("\n── Phase 4: Index rebuild (full) ──")
     setup_script = SCRIPTS_DIR / "setup_index.py"
     if not setup_script.exists():
@@ -2608,6 +2593,7 @@ def phase_index_rebuild(root: Path) -> bool:
         blocking_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
     _log("  Phase 4a: rebuilding docs and code index layers (blocking) ...")
+    _enforce_index_guard_before_children(root)
     result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
@@ -2626,6 +2612,7 @@ def phase_index_rebuild(root: Path) -> bool:
     # Phase 4b: rebuild the GRAPH index too (blocking; fast, no embedding) —
     # symmetric with the semantic full rebuild.
     _log("  Phase 4b: rebuilding graph index (blocking) ...")
+    _enforce_index_guard_before_children(root)
     graph_result = subprocess_util.isolated_run(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only", "--full"],
         cwd=str(root),
@@ -3513,22 +3500,23 @@ def _run_renderer_warning_scan(root: Path | None) -> list[dict]:
     bottom out in one disposition: ``_upsert_review_protocol_region`` returning
     ``None``.
 
-    Returns ``[]`` when *root* is None or any import/scan error occurs, so a
-    scanner fault never breaks the upgrade summary.
+    Runtime tracking warnings use the same canonical census as the renderer.
+    Failures remain advisory and do not claim that Git tracking is clean.
     """
     if root is None:
         return []
+    warnings = []
     try:
         import render_agent_surfaces
 
-        return [
+        warnings = [
             {
                 "channel": "review-protocol",
                 "file": destination,
                 "detail": (
                     f"{destination}: review-protocol markers are malformed, so the "
                     "render SKIPPED this carrier and its content did not update; "
-                    "repair the markers, then re-render"
+                    "these do NOT self-heal — repair the markers, then re-render"
                 ),
             }
             for destination in (
@@ -3536,7 +3524,16 @@ def _run_renderer_warning_scan(root: Path | None) -> list[dict]:
             )
         ]
     except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
-        return []
+        pass
+    try:
+        import render_platform_surfaces
+
+        warnings.extend(render_platform_surfaces.tracked_runtime_diagnostics(root))
+    except Exception:  # advisory summary must survive an unavailable renderer
+        warnings.append({"channel": "tracked-runtime-inspection", "file": ".gitignore",
+                         "detail": "Tracked runtime inspection unavailable; retry wf render-surfaces. "
+                         "No Git tracking was changed."})
+    return warnings
 
 
 def _run_agent_surface_integrity_scan(root: Path | None) -> dict:
@@ -4236,11 +4233,7 @@ def _print_operator_summary(
     # phase, which are exactly the runs where it went unnoticed downstream.
     if renderer_warnings:
         _log("")
-        _log(
-            "  Renderer warnings (carriers the render SKIPPED, leaving their content "
-            "un-updated;"
-        )
-        _log("  these do NOT self-heal — repair the markers, then re-render):")
+        _log("  Renderer warnings (follow the recovery guidance for each item):")
         for warning in renderer_warnings:
             _log(f"    {warning.get('detail') or warning}")
     # Wave 1vgep: this line already acts on the upgrade that DELIVERS the audit, because
@@ -4304,7 +4297,7 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
 
     state = upgrade_lib.read_upgrade_lock(root) or {}
     restart_pending = bool(state.get("dashboard_restart_pending"))
-    if tree_mutated or restart_pending:
+    if tree_mutated or restart_pending or "index_guard_handoff" in state:
         upgrade_lib.update_upgrade_lock(
             root,
             failed_phase=current_phase,
@@ -5146,9 +5139,6 @@ def main(argv: list[str] | None = None) -> int:
             # reliable new-code place to heal. Idempotent (a repo already on scheme_version v2 is a no-op)
             # and fail-safe (a config error degrades to a recovery pointer — never fails the index phase).
             _ensure_lifecycle_policy_backstop(root)
-            # A new process cannot infer ownership from the reserved filename.
-            # The helper preserves it unless this invocation created it.
-            _remove_root_bootstrap_file(root)
             # Wave 1u2b0: rendered-permissions backstop from NEW code, same old-code-window
             # precedent as the two backstops above — an upgrade runs Phase 1 on the
             # already-imported OLD orchestrator, which never passes --include-permissions, so
@@ -5620,10 +5610,6 @@ def main(argv: list[str] | None = None) -> int:
                     )
             _run_hook("post_extract", ctx, ext_mod)
 
-            # Retire only the unchanged bootstrap created by this extraction.
-            # A resumed invocation preserves files whose ownership it cannot prove.
-            _remove_root_bootstrap_file(root)
-
             # Note any framework version transitions in the upgrade log.
             # Don't branch on them — Phase 4 always runs phase_index_update at
             # the end, and the indexer's auto-escalate routes to full rebuild
@@ -5908,6 +5894,13 @@ def main(argv: list[str] | None = None) -> int:
         # designed pause, not a failure. Skip failure finalization so the
         # checkpoint's lock state stays untouched, and print checkpoint
         # wording instead of failure prose.
+        import upgrade_extensions
+        guard_action = upgrade_extensions.read_index_guard_action(root, exc.code)
+        if guard_action is not None and getattr(exc, "index_guard_token", None) == guard_action.get("token"):
+            _log("Index upgrade paused: stop the repository hosts and run the reported confirmation command. The upgrade checkpoint is retained.")
+            upgrade_transaction.__exit__(*sys.exc_info())
+            _close_log()
+            raise
         action_required = _memory_action_required_pause(root, exc)
         if action_required is not None:
             _report_action_required_pause(action_required)

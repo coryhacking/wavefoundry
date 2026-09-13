@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-13
 
 ## Reliability Posture
 
@@ -19,10 +19,18 @@ modes explicitly instead of guessing.
 - **Derived-only stores, drop-and-rebuild:** the project index
   (`.wavefoundry/index/index.sqlite`: docs/code chunks, vectors, FTS, the
   code graph and its communities in one SQLite database) is entirely
-  derived from the repository. Any corruption is
-  recoverable by rebuild via `index_build` (supported
+  derived from the repository. Corruption recovery uses a compatible current
+  runtime and rebuild via `index_build` (supported
   index_build content values: `docs/code/all/graph/map/fts`); nothing
   authoritative lives there.
+- **Stale-writer refusal:** persisted ordered revisions and the loaded producer
+  source contract are checked before preparation and within publication for
+  graph, semantic, lexical and chunker/walker writes. Newer or unproven populated
+  metadata is preserved with restart guidance. Equal/older supported state
+  retains incremental/forward-rebuild behavior. Model and tokenizer identities
+  are not numerically ordered. First-hop upgrades from unprotected hosts require
+  the confirmed fresh-CLI handoff even at the same schema; host discovery is
+  best effort and does not prove every host stopped.
 - **Build lock + `lock.held` contract:** whole-index builds serialize on
   `index-build.lock`. The lock FILE persists by design as a last-owner
   record — liveness is the OS lock, surfaced as
@@ -54,7 +62,7 @@ modes explicitly instead of guessing.
   to the previous runner, and the retained rollback copy is never read back
   into service.
 - **Per-layer freshness and the heal:** each layer records its builder
-  version (graph builder version `51` currently); a version advance triggers
+  version (graph builder version `52` currently); a version advance triggers
   re-extraction, and read-side heals repair false-stale verdicts without a
   rebuild.
 - **Secrets-scan cache posture:** the secrets scan runs inside index builds
@@ -88,7 +96,8 @@ modes explicitly instead of guessing.
 - **Hook entrypoints missing:** re-run `wf render-surfaces`
 - **Index unhealthy or suspect:** `index_health()` for the verdict;
   `index_build(mode='rebuild')` for the affected layer; `index_optimize` for
-  bloat reclaim — all safe at any time
+  bloat reclaim. Compatibility refusal requires a current host first; preserve
+  the index and recovery files instead of deleting or repeatedly rebuilding them
 - **Partial zip archive:** re-run `build_pack.py`; idempotent,
   letter-suffixed archives
 - **Half-completed lifecycle mutation** (crash between file steps): re-run

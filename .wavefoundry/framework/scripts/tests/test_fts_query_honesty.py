@@ -112,7 +112,14 @@ class _StoreFixture(unittest.TestCase):
         return result, err.getvalue(), out.getvalue()
 
     def _publish_epoch(self, scope: str = "fixture") -> str:
-        self.iss.write_build_bookkeeping(self.index_dir, {"content": ["docs", "code"]})
+        import index_compatibility
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "content": ["docs", "code"],
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {layer: str(index_compatibility.SUPPORTED["chunker_version"])
+                                 for layer in ("docs", "code")},
+            "model_versions": {layer: "fixture-model" for layer in ("docs", "code")},
+        })
         attempt = self.iss.begin_build_epoch(self.index_dir, scope)
         self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
         return attempt
@@ -438,7 +445,14 @@ class ProbedServingTests(unittest.TestCase):
                 self.index_dir, "code", {r["id"] for r in self.code_rows}, lambda: self.code_rows)
             self.iss.reconcile_chunk_index(
                 self.index_dir, "docs", {r["id"] for r in self.docs_rows}, lambda: self.docs_rows)
-        self.iss.write_build_bookkeeping(self.index_dir, {"content": ["docs", "code"]})
+        import index_compatibility
+        self.iss.write_build_bookkeeping(self.index_dir, {
+            "content": ["docs", "code"],
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {layer: str(index_compatibility.SUPPORTED["chunker_version"])
+                                 for layer in ("docs", "code")},
+            "model_versions": {layer: "fixture-model" for layer in ("docs", "code")},
+        })
         attempt = self.iss.begin_build_epoch(self.index_dir, "fixture")
         self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
         self.COMPLETE = self.iss.build_epoch_state_token(self.index_dir)

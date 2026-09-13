@@ -1,0 +1,172 @@
+{
+  "wave": "1xxcd",
+  "actor": "qa-reviewer",
+  "context_id": "staging_qa_delivery_20260913",
+  "verdict": "approved",
+  "findings": [],
+  "recorded_at": "2026-09-13T14:51:06.946227+00:00",
+  "tree_fingerprint": {
+    "before": "33d734a9f9e244c3a5f8682b1b900889d59a821a3674ee299d82da9c621f1970",
+    "after": "33d734a9f9e244c3a5f8682b1b900889d59a821a3674ee299d82da9c621f1970"
+  },
+  "tests": {
+    "count": 20,
+    "passed": 20,
+    "skipped": 0,
+    "seconds": 6.182,
+    "scope": "Four migration isolation/retry controls; fifteen repair tests; one real main CLI with native fresh children"
+  },
+  "AC_evidence": {
+    "AC-1": "Real schema7 graph candidate under active backfill completes without live run transition or parent receipt. Nonempty memory CLI permits only disposable memory_meta/memory_writers in staging.",
+    "AC-2": "Exact directory, replaced inode, changed receipt, thread isolation, exception restoration, unknown/pending live memory and stale epoch assertions exercised. Four mechanism mutants independently killed.",
+    "AC-3": "Native retained staged retry preserves nonempty payload, runs all/graph/verify, marks live memory indexed and cleanup_legacy complete only after verified. Composed original ppol replay stops verified deliberately; source remains retained until later editing/cleanup.",
+    "AC-4": "Original ppol composed harness inspected, artifact rehashed independently: original archive 77ca9186..., feature a1b1c8cf..., old failure unknown run, fixed installed payload equals canonical, live memory indexed, fresh verifier schema8, retained archive unchanged. Kit15 and realCLI1 independently rerun. Exact composed harness was executed by implementer, not rerun by this reviewer.",
+    "AC-5": "Candidate/live authority split and exact retained CLI recovery documented; no memory copying or package replacement."
+  },
+  "mutation_table": [
+    {
+      "mechanism": "isolation_removed",
+      "test": "test_schema8_staging_does_not_consume_live_memory_publication",
+      "result": "KILLED",
+      "observation": "original unknown-run error"
+    },
+    {
+      "mechanism": "path_binding_removed",
+      "test": "test_candidate_scope_is_exact_thread_local_and_exception_safe",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "candidate_identity_removed",
+      "test": "test_candidate_binding_refuses_replaced_file_and_changed_receipt",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "scope_restore_removed",
+      "test": "test_candidate_scope_is_exact_thread_local_and_exception_safe",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "pack_pin",
+      "test": "test_altered_pack_is_refused",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "confirmation",
+      "test": "test_apply_requires_confirmation_even_when_discovery_is_empty",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "live_hosts",
+      "test": "test_running_hosts_block_apply",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "receipt_state",
+      "test": "test_unrelated_receipt_and_checkpoint_are_refused_without_writes",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "original_runtime_hash",
+      "test": "test_altered_runtime_or_payload_is_refused",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    },
+    {
+      "mechanism": "retained_backup",
+      "test": "test_conflicting_backup_refuses_before_source_replacement",
+      "result": "KILLED",
+      "observation": "target assertion detects removed guard"
+    }
+  ],
+  "mutation_protocol": {
+    "timebudget_minutes": 5,
+    "sweep_rule": "One focused test per changed protection; whole-file expansion only for survivors. All ten detected; none expanded.",
+    "scope": "isolated copies only, no shared code edits; same mutation scripts independently executed and output checked"
+  },
+  "limits": [
+    "Native macOS ARM64 Python3.13 only; Windows reparse logic simulated, no native Windows/Linux execution.",
+    "Deterministic embeddings and dependency provisioning replace model inference in CLI test; real walk, chunking, native vector/FTS/graph publication and fresh verification run.",
+    "Host enumeration denied by sandbox in composed artifact; explicit hosts-stopped confirmation remains required.",
+    "Full suite still running independently; this approval is bounded QA evidence, not claim its pending result passed.",
+    "No destination project recovery performed; no commit, close or release."
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation"
+  },
+  "fixture_correction_rereview": {
+    "context_id": "staging_qa_delivery_cpu_20260913",
+    "recorded_at": "2026-09-13T14:59:01.165284+00:00",
+    "verdict": "approved",
+    "findings": [],
+    "change": "Fixture stamps model precision/provenance for selected execution provider; no production change, no assertion loosening. Exact retained vector payload equality still required.",
+    "tests": {
+      "test_file_sha256": "b393368a459528aa96a34bdee2329aaa3badc100a28709d065b12ffdd56647bc",
+      "results": [
+        {
+          "mode": "ordinary",
+          "exit": 0,
+          "output": "test_schema8_staging_does_not_consume_live_memory_publication (test_sqlite_storage_migration.SchemaEightKindTests.test_schema8_staging_does_not_consume_live_memory_publication) ... ok\ntest_schema8_parent_publication_retries_staged_with_live_memory (test_sqlite_storage_migration.SchemaEightKindTests.test_schema8_parent_publication_retries_staged_with_live_memory) ... ok\ntest_candidate_scope_is_exact_thread_local_and_exception_safe (test_sqlite_storage_migration.SchemaEightKindTests.test_candidate_scope_is_exact_thread_local_and_exception_safe) ... ok\ntest_candidate_binding_refuses_replaced_file_and_changed_receipt (test_sqlite_storage_migration.SchemaEightKindTests.test_candidate_binding_refuses_replaced_file_and_changed_receipt) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 2.790s\n\nOK\n"
+        },
+        {
+          "mode": "cpu",
+          "exit": 0,
+          "output": "test_schema8_staging_does_not_consume_live_memory_publication (test_sqlite_storage_migration.SchemaEightKindTests.test_schema8_staging_does_not_consume_live_memory_publication) ... ok\ntest_schema8_parent_publication_retries_staged_with_live_memory (test_sqlite_storage_migration.SchemaEightKindTests.test_schema8_parent_publication_retries_staged_with_live_memory) ... ok\ntest_candidate_scope_is_exact_thread_local_and_exception_safe (test_sqlite_storage_migration.SchemaEightKindTests.test_candidate_scope_is_exact_thread_local_and_exception_safe) ... ok\ntest_candidate_binding_refuses_replaced_file_and_changed_receipt (test_sqlite_storage_migration.SchemaEightKindTests.test_candidate_binding_refuses_replaced_file_and_changed_receipt) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 2.781s\n\nOK\n"
+        }
+      ]
+    },
+    "canonical_file_tests": [
+      {
+        "name": "test_repair_ppol_memory_staging.py",
+        "count": 15,
+        "skips": 0,
+        "exit": 0
+      },
+      {
+        "name": "test_storage_upgrade_resume.py",
+        "count": 12,
+        "skips": 0,
+        "exit": 0
+      }
+    ],
+    "known_bad": "Independent isolated old fixed-full fixture on CPU fails storage_staged_counts_changed; corrected fixture passes. /tmp/1xxcd-qa-old-fixture-cpu.log",
+    "skip_audit": "Both new repair module (15 tests) and full storage resume module (12 tests) have zero skips under canonical _run_file CPU/reranker-disabled environment. Eight focused executions also no skips. Overall fullsuite skip increase not attributed without per-file evidence; parent investigating.",
+    "fullsuite": "Rerun pending; no fullsuite pass claimed"
+  },
+  "final_release_followup": {
+    "context_id": "staging_qa_release_20260913",
+    "recorded_at": "2026-09-13T16:41:35.251419+00:00",
+    "verdict": "approved",
+    "findings": [],
+    "test_file_sha256_before": "6bc270d75dbcce01a1a9cdb4e2156c622d2c0eaad44ce73cdad38fb8d8045628",
+    "test_file_sha256_after": "6bc270d75dbcce01a1a9cdb4e2156c622d2c0eaad44ce73cdad38fb8d8045628",
+    "tests": "Three SchemaEightMemoryCLIResumeTests independently pass under CPU, no skips, 13.065s. Fresh outer conversion; interrupted outer retry; interrupted feature retry.",
+    "assertions": "Nonempty validated historical memory is indexed, retained archive digest matches receipt and remains unchanged, all/graph/fresh-verification order holds, source retained before verified cleanup, legacy source/work/graph removed only on cleanup, live memory/index remain.",
+    "archive_scope": "Synthetic readable outer/feature ZIP fixtures exercise retained locator and digest preservation through resume-after-memory. They do not prove full distribution extraction or bridge protocol dispatch; exact original-ppol composed replay remains separate evidence.",
+    "mutation_table": [
+      {
+        "mechanism": "candidate isolation removed",
+        "test": "test_fresh_outer_distribution_conversion_publishes_memory",
+        "result": "KILLED",
+        "observed": "original unknown memory backfill run"
+      }
+    ],
+    "sweep_rule": "120-second bounded review; one targeted mutant; no survivors therefore no whole-file expansion.",
+    "evidence": [
+      "/tmp/1xxcd-qa-release-cases.log",
+      "/tmp/1xxcd-qa-release-mutant.log"
+    ],
+    "limitations": "Native macOS ARM64; deterministic inference substituted, real walk/chunk/vector/FTS/graph and fresh verification. Full canonical suite separately running; no pass claim for pending suite."
+  }
+}

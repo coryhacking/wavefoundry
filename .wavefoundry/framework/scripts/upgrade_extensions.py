@@ -83,6 +83,7 @@ import stat
 import tempfile
 import sys
 import traceback
+import threading
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -617,30 +618,325 @@ def _preserve_original_manifest(ctx) -> None:
 
 
 def _protect_existing_root_bootstrap(ctx) -> None:
-    """Keep the installing old runner from overwriting/deleting project files."""
-    if getattr(ctx, "dry_run", False):
+    """Exclude the fresh-install bootstrap from the already-running extractor."""
+    if getattr(ctx, "dry_run", False) or getattr(ctx, "zip_path", None) is None:
         return
     root = Path(ctx.root).resolve()
     path = root / "install-wavefoundry.md"
-    if not (path.exists() or path.is_symlink()):
-        return
     parent = sys.modules.get(type(ctx).__module__)
     members = getattr(parent, "_EXTRACT_ROOT_MEMBERS", None)
     if parent is None or members is None:
-        raise RuntimeError("upgrade_root_installer_unowned: cannot prove the old runner will preserve the existing install-wavefoundry.md")
+        raise RuntimeError("upgrade_root_installer_unowned: cannot exclude install-wavefoundry.md from the old runner before extraction")
     parent._EXTRACT_ROOT_MEMBERS = frozenset(members) - {path.name}
     original = getattr(parent, "_remove_root_bootstrap_file", None)
     if callable(original):
         def preserve_existing(candidate_root):
-            parent._remove_root_bootstrap_file = original
+            # Older runners may call cleanup more than once. Keep protection
+            # for this root throughout the invocation; never infer ownership.
             if Path(candidate_root).resolve() != root:
                 return original(candidate_root)
         parent._remove_root_bootstrap_file = preserve_existing
 
 
+
+_INDEX_GUARD_HANDOFF = "index_guard_handoff"
+
+
+def _guard_owned_path(root: Path, path: Path) -> Path:
+    """Stdlib-only incoming hook: refuse links before reading checkpoint/source."""
+    path.relative_to(root)
+    for part in (path, *path.parents):
+        if part == root:
+            break
+        try:
+            metadata = part.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise ValueError("index_guard_checkpoint_invalid: linked recovery/source path")
+    return path
+
+
+def _validate_index_guard_handoff(root, lock, record, package=..., target=None):
+    root = Path(root).resolve()
+    identity = root.stat()
+    if (not isinstance(record, dict) or type(record.get("version")) is not int or record.get("version") != 1
+            or type(record.get("required")) is not bool
+            or any(type(record.get(key)) is not bool for key in ("prior_runtime_present", "prior_capability", "prior_coordinator_capable"))
+            or record.get("required") != (record.get("prior_runtime_present") and (not record.get("prior_capability") or not record.get("prior_coordinator_capable")))
+            or record.get("root") != str(root)
+            or record.get("root_identity") != {"device": identity.st_dev, "inode": identity.st_ino}
+            or record.get("target_version") != (target if target is not None else lock.get("to_version"))
+            or not isinstance(record.get("token"), str) or not record["token"]):
+        raise ValueError("index_guard_checkpoint_invalid: preserve checkpoint and original package")
+    expected = record.get("pack_sha256")
+    package = lock.get("zip_path") if package is ... else package
+    if expected is not None:
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(expected)) or not package
+                or _pack_sha256(Path(package)) != expected):
+            raise ValueError("index_guard_package_changed: resume with the recorded byte-identical --pack")
+    elif package is not None:
+        raise ValueError("index_guard_package_changed: checkpoint belongs to a current-tree upgrade")
+    if expected is not None:
+        locator = record.get("pack_path")
+        if not locator or _pack_sha256(Path(locator)) != expected:
+            record["pack_path"] = str(Path(package).resolve())
+    return record
+
+
+def _capture_index_guard_handoff(ctx):
+    """Capture old capability BEFORE replacement; never recalculate on retry."""
+    if getattr(ctx, "dry_run", False):
+        return
+    root = Path(ctx.root).resolve()
+    checkpoint = _guard_owned_path(root, root / ".wavefoundry/upgrade-in-progress.json")
+    if not checkpoint.exists():
+        # The upgrade coordinator creates this before invoking incoming hooks.
+        # Standalone hook previews without an upgrade are not publishers.
+        return
+    lock = json.loads(checkpoint.read_text(encoding="utf-8"))
+    if _INDEX_GUARD_HANDOFF in lock:
+        _validate_index_guard_handoff(root, lock, lock[_INDEX_GUARD_HANDOFF],
+                                     getattr(ctx, "zip_path", None), getattr(ctx, "to_version", None))
+        return
+    source = _guard_owned_path(root, root / ".wavefoundry/framework/scripts/index_compatibility.py")
+    import ast
+    capable = False
+    if source.is_file():
+        try:
+            module = ast.parse(source.read_text(encoding="utf-8"))
+            capable = any(isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "INDEX_GUARD_CAPABILITY" for t in node.targets)
+                          and isinstance(node.value, ast.Constant) and type(node.value.value) is int and node.value.value >= 1
+                          for node in module.body)
+        except (SyntaxError, UnicodeError):
+            capable = False
+    package = getattr(ctx, "zip_path", None)
+    digest = _pack_sha256(Path(package)) if package is not None else None
+    locator = package
+    selected = getattr(ctx, "selected_feature_zip", None)
+    if selected is None:
+        parent = sys.modules.get(type(ctx).__module__)
+        finder = getattr(parent, "_find_zip", None)
+        if callable(finder):
+            try:
+                selected = finder(root)
+            except (OSError, ValueError):
+                selected = None
+    if selected is not None and _pack_sha256(Path(selected)) == digest:
+        locator = selected
+    identity = root.stat()
+    record = {"version": 1, "token": uuid.uuid4().hex,
+              "required": bool(getattr(ctx, "from_version", None)) and (not capable or getattr(ctx, "index_guard_coordinator_capability", 0) != 1),
+              "root": str(root), "root_identity": {"device": identity.st_dev, "inode": identity.st_ino},
+              "target_version": getattr(ctx, "to_version", None), "pack_sha256": digest,
+              "pack_path": str(Path(locator).resolve()) if locator is not None else None,
+              "prior_capability": capable, "prior_runtime_present": bool(getattr(ctx, "from_version", None)),
+              "prior_coordinator_capable": getattr(ctx, "index_guard_coordinator_capability", 0) == 1}
+    import upgrade_lib
+    if not upgrade_lib.update_upgrade_lock(root, **{_INDEX_GUARD_HANDOFF: record}):
+        raise ValueError("index_guard_checkpoint_write_failed")
+
+
+def enforce_index_guard_handoff(ctx):
+    """First-hop host quiescence, independent of storage conversion receipts."""
+    if getattr(ctx, "dry_run", False):
+        return
+    root = Path(ctx.root).resolve()
+    checkpoint = _guard_owned_path(root, root / ".wavefoundry/upgrade-in-progress.json")
+    if not checkpoint.exists():
+        return
+    lock = json.loads(checkpoint.read_text(encoding="utf-8"))
+    if _INDEX_GUARD_HANDOFF not in lock:
+        # Already-extracted legacy checkpoints cannot prove old capability.
+        # Conservatively retain an obligation rather than trusting new files.
+        if not lock.get("from_version"):
+            return
+        identity = root.stat()
+        package = lock.get("zip_path")
+        record = {"version": 1, "token": uuid.uuid4().hex, "required": True,
+                  "root": str(root), "root_identity": {"device": identity.st_dev, "inode": identity.st_ino},
+                  "target_version": lock.get("to_version"), "pack_path": package,
+                  "pack_sha256": _pack_sha256(Path(package)) if package else None,
+                  "prior_capability": False, "prior_runtime_present": True, "prior_coordinator_capable": False}
+    else:
+        record = lock[_INDEX_GUARD_HANDOFF]
+    _validate_index_guard_handoff(root, lock, record)
+    if not record["required"]:
+        return
+    migration = getattr(ctx, "_index_guard_migration_module", None)
+    if migration is None and getattr(ctx, "index_guard_coordinator_capability", 0) != 1:
+        path = _guard_owned_path(root, root / ".wavefoundry/framework/scripts/sqlite_storage_migration.py")
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("_index_guard_installed_migration", path)
+            migration = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(migration)
+    if migration is None:
+        import sqlite_storage_migration as migration
+    import upgrade_lib
+    hosts, limits = migration.discover_hosts(root)
+    prior_hosts = {(h["pid"], h["kind"]): h for h in record.get("old_hosts", [])}
+    prior_hosts.update({(h["pid"], h["kind"]): h for h in hosts})
+    record.update(old_hosts=list(prior_hosts.values()), discovery_limits=limits)
+    reason = None
+    if getattr(ctx, "index_guard_coordinator_capability", 0) != 1:
+        reason = "index_guard_fresh_coordinator_required"
+    elif os.environ.get(migration.CONFIRM_ENV) != "1":
+        reason = "index_guard_hosts_confirmation_required"
+    else:
+        try:
+            migration._hosts_gone(record)
+        except migration.MigrationRequired as exc:
+            reason = str(exc)
+    # Keep this separate from action_required: storage/memory own that field.
+    if reason:
+        storage_receipt = migration.read_receipt(root / ".wavefoundry/index")
+        rebuild = bool(getattr(ctx, "rebuild_storage", False)) or migration.rebuild_requested(storage_receipt)
+        command = migration.restart_command(root, record.get("pack_path"), rebuild)
+        record["action"] = {"status": "action_required", "code": "index_guard_restart_required",
+                            "reason": reason, "kind": "index_guard_handoff", "token": record["token"],
+                            "invocation_token": os.environ.get(migration.INVOCATION_ENV), **command,
+                            "old_hosts": record["old_hosts"], "discovery_limits": limits,
+                            "message": "Stop this repository's Wavefoundry hosts, including hosts discovery cannot observe, then run the retained command in an external terminal. Keep the checkpoint and original package. No index publication is permitted before confirmation."}
+    else:
+        record.pop("action", None)
+        record["hosts_stopped_confirmed"] = True
+    if not upgrade_lib.update_upgrade_lock(root, **{_INDEX_GUARD_HANDOFF: record}):
+        raise ValueError("index_guard_checkpoint_write_failed")
+    if reason:
+        print(json.dumps(record["action"], sort_keys=True), flush=True)
+        pause = SystemExit(3)
+        pause.index_guard_token = record["token"]
+        parent = sys.modules.get(type(ctx).__module__)
+        original = getattr(parent, "_finalize_failed_upgrade", None)
+        if callable(original) and getattr(ctx, "index_guard_coordinator_capability", 0) != 1:
+            def preserve_pause(final_root, tree_mutated, current_phase):
+                parent._finalize_failed_upgrade = original
+                if sys.exc_info()[1] is pause and Path(final_root).resolve() == root:
+                    current = upgrade_lib.read_upgrade_lock(root) or {}
+                    if current.get(_INDEX_GUARD_HANDOFF, {}).get("token") == record["token"]:
+                        return
+                return original(final_root, tree_mutated, current_phase)
+            parent._finalize_failed_upgrade = preserve_pause
+        raise pause
+
+
+def read_index_guard_action(root: Path, exit_code: int, invocation_token: str | None = None) -> dict | None:
+    """Read the root/package-bound handoff for the invoking upgrade wrapper."""
+    if exit_code != 3:
+        return None
+    root = Path(root).resolve()
+    try:
+        path = _guard_owned_path(root, root / ".wavefoundry/upgrade-in-progress.json")
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        record = _validate_index_guard_handoff(root, lock, lock.get(_INDEX_GUARD_HANDOFF))
+        action = record.get("action")
+        if (not isinstance(action, dict) or action.get("token") != record["token"]
+                or action.get("kind") != "index_guard_handoff"
+                or action.get("code") != "index_guard_restart_required"
+                or (invocation_token is not None and action.get("invocation_token") != invocation_token)):
+            return None
+        return action
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+INDEX_GUARD_NEXT_STEP = (
+    "Save action_required.command_argv before stopping MCP. Stop this repository's "
+    "Wavefoundry hosts, including other editors and this server, then run that exact "
+    "command through the ordinary non-MCP shell. Preserve the upgrade checkpoint "
+    "and selected package. Follow the CLI recovery instructions before restarting hosts."
+)
+_INDEX_GUARD_ENVELOPE_PROOF = "_index_guard_envelope_proof"
+_INDEX_GUARD_ADAPTER_LOCK = threading.Lock()
+
+
+class _IndexGuardEnvelopeProof(tuple):
+    """Immutable, process-local capability; never part of a serialized response."""
+
+
+def _normalize_legacy_index_guard_envelope(response: dict) -> dict:
+    data = response.get("data")
+    action = data.get("action_required") if isinstance(data, dict) else None
+    if not isinstance(action, dict) or _INDEX_GUARD_ENVELOPE_PROOF not in action:
+        return response
+    # The old wrapper copies the dict, caps hosts and injects storage fields.
+    # Compare that exact transformation, rather than trusting kind/code alone.
+    action = dict(action)
+    proof = action.pop(_INDEX_GUARD_ENVELOPE_PROOF)
+    valid = isinstance(proof, _IndexGuardEnvelopeProof) and len(proof) == 2
+    if valid:
+        root, serialized = proof
+        expected = json.loads(serialized)
+        hosts = expected.get("old_hosts", [])
+        expected.update(old_hosts=hosts[:50], old_hosts_total=len(hosts),
+                        old_hosts_omitted=max(0, len(hosts) - 50))
+        expected["receipt_path"] = str(Path(root) / ".wavefoundry/index/sqlite-migration.json")
+        valid = (action == expected and response.get("status") == "ok"
+                 and not response.get("isError") and data.get("exit_code") == 3
+                 and data.get("code") == "storage_restart_required"
+                 and data.get("state") == "restart_required"
+                 and data.get("restart_required") is True
+                 and data.get("failed_phase") is None)
+    if not valid:
+        # Never serialize an internal capability or bless an altered envelope.
+        return {"status": "error", "isError": True,
+                "data": {"code": "index_guard_envelope_unproven", "exit_code": 3,
+                         "log_path": data.get("log_path")},
+                "diagnostics": [{"code": "index_guard_envelope_unproven",
+                                 "message": "Restart response changed after checkpoint validation. "
+                                            "Preserve the upgrade checkpoint and selected package; "
+                                            "inspect the recorded continuation before resuming."}],
+                "next_tools": ["wf_upgrade_status"]}
+    action.pop("receipt_path")
+    return {**response, "status": "action_required", "isError": False,
+            "data": {**data, "code": "index_guard_restart_required",
+                     "action_required": action, "failed_phase": None},
+            "diagnostics": [], "next_step": INDEX_GUARD_NEXT_STEP}
+
+
+def legacy_index_guard_restart_action(root: Path, exit_code: int,
+                                     invocation_token: str, caller) -> dict | None:
+    """Bridge the ppjy wrapper's installed reader to its final response boundary.
+
+    This does not reload a runner or producers. Already-cached old readers cannot
+    call this seam. No pending-response registry is used: each validated action
+    carries its own immutable capability across the old wrapper's dict copy.
+    """
+    namespace = caller.f_globals
+    wrapper = namespace.get("wf_upgrade_response")
+    if (exit_code != 3 or not invocation_token
+            or namespace.get("INDEX_GUARD_RESPONSE_VERSION", 0) >= 1
+            or caller.f_code.co_name != "wf_upgrade_response"
+            or getattr(wrapper, "__code__", None) is not caller.f_code):
+        return None
+    action = read_index_guard_action(root, exit_code, invocation_token)
+    if action is None:
+        return None
+    with _INDEX_GUARD_ADAPTER_LOCK:
+        original = namespace.get("_bounded_upgrade_response_envelope")
+        if not callable(original):
+            return None
+        if not getattr(original, "_index_guard_envelope_adapter", False):
+            def bounded(response):
+                return original(_normalize_legacy_index_guard_envelope(response))
+            bounded._index_guard_envelope_adapter = True
+            namespace["_bounded_upgrade_response_envelope"] = bounded
+    # Installation must succeed BEFORE the old storage branch sees this action.
+    # Retain the caller's spelling for the synthetic receipt field comparison
+    # (e.g. macOS /var -> /private/var). The reader already validated its resolved
+    # ownership; normalizing this locator would reject a legitimate old wrapper.
+    return {**action, _INDEX_GUARD_ENVELOPE_PROOF: _IndexGuardEnvelopeProof(
+        (str(Path(root)), json.dumps(action, ensure_ascii=False)))}
+
+
+def pre_index_rebuild(ctx):
+    enforce_index_guard_handoff(ctx)
+
+
 def pre_extract(ctx):
     """Snapshot lint-bound facts, then quiesce old dedicated lock carriers."""
 
+    _capture_index_guard_handoff(ctx)
     _protect_existing_root_bootstrap(ctx)
     _preserve_original_manifest(ctx)
     _snapshot_graph_builder_doc_claim(ctx)
@@ -1300,6 +1596,7 @@ def _pause_for_memory_action(ctx, *, state: str, run_id: str, message: str) -> N
 def pre_index_update(ctx):
     """Keep candidate publication on the newly installed runner."""
 
+    enforce_index_guard_handoff(ctx)
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
     )
@@ -2063,6 +2360,8 @@ def post_extract(ctx):
             migration = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(migration)
             migration.prepare_upgrade(ctx)
+            ctx._index_guard_migration_module = migration
+        enforce_index_guard_handoff(ctx)
 
     # Wave 1p3iv (1p3j7): convergence half — runs on every upgrade.
     _run_convergence_migration(ctx)

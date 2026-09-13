@@ -1,0 +1,209 @@
+{
+  "wave": "1xtnr call-edge-target-integrity",
+  "date": "2026-09-12",
+  "review_kind": "Full preimplementation plan review",
+  "verdict": "changes_requested",
+  "reviewer_context": "root-1xtnr-full-plan-review-20260912",
+  "lifecycle_effect": "Optional Review Plan: no typed approval, readiness revocation, activation, implementation or closure performed. Existing earlier readiness is historical to this review; revise and re-Prepare before implementing changed requirements.",
+  "scope": [
+    "Both admitted changes: rationale against requirements, scope, all ACs and tasks",
+    "Extraction identity and side tables, receiver inference and promotion, cross-file/incremental resolution",
+    "Call-hierarchy response and context attribution",
+    "Census validity, root-confined read-only helper, platform path handling, builder-version invalidation"
+  ],
+  "findings": [
+    {
+      "id": "PR-01",
+      "severity": "high",
+      "title": "Cross-file promotion undoes the receiver-unknown confidence repair",
+      "plan": "1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md:42; 1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers.md:35",
+      "source": ".wavefoundry/framework/scripts/graph_indexer.py:11160",
+      "observed": "Actual Java extraction emits external::authenticatedUser at EXTRACTED for b.subject().authenticatedUser(). Actual candidate indexes plus _resolve_fragment_edge bind it to Other.authenticatedUser at RECEIVER_RESOLVED. The proposed kind gate accepts that function and the AST-only promotion helper is no longer available at this stage.",
+      "recommendation": "Preserve receiver-unknown provenance through stored fragments and incremental re-resolution, and enforce the confidence ceiling at every later promotion point (including import-target promotion). Add separate-file positive-name-collision fixtures and full/incremental equivalence assertions on final confidence; preserve legitimate bare-call and typed-receiver promotions.",
+      "evidence": "cross_file_promotion",
+      "basis": "Executed current production extractor and resolver, with real node-derived indexes; no proposed implementation claimed."
+    },
+    {
+      "id": "PR-02",
+      "severity": "high",
+      "title": "New Java declarations must be visible from the reference, not anywhere in its method",
+      "plan": "1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md:43",
+      "source": ".wavefoundry/framework/scripts/graph_indexer.py:4015",
+      "observed": "A minimal in-memory implementation of the specified declaration-shape extension resolves both sibling loops item.hit() to First, although the second loop declares Second item. The caller searches an entire enclosing method and takes its first descendant match. Adding catch/resource/lambda shapes to that walk expands wrong-type resolution.",
+      "recommendation": "Make the search reference-relative and lexical: nearest enclosing scope, scope-specific visibility, sibling scopes excluded, and declaration ordering where applicable. Test sibling loops, catches/resources and lambda shadowing plus their outer-scope controls. Refuse uncertain cases instead of choosing an unrelated declaration.",
+      "evidence": "sibling_java_scope",
+      "basis": "Plan-feasibility counterexample using an isolated in-memory shape-only extension, not a defect assertion about unimplemented final code."
+    },
+    {
+      "id": "PR-03",
+      "severity": "high",
+      "title": "The prescribed read-only SQLite URI can create a different database",
+      "plan": "1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md:46",
+      "source": "Requirement 7 explicit sqlite3.connect(f\"file:{path}?mode=ro\", uri=True)",
+      "observed": "With a real temporary repo#fragment/index.sqlite, the prescribed expression opened and created a different file named repo. The fragment discarded the remainder including mode=ro. An escaped Path.as_uri()+?mode=ro opened the intended marker table. Root confinement of the original Path does not repair URI interpretation.",
+      "recommendation": "After root confinement and resolution, construct the URI with Path.as_uri() plus mode=ro. Pin no-file-created and correct-database assertions for #, ?, %, spaces and Unicode, and native Windows drive/UNC paths where supported. Close connections explicitly.",
+      "evidence": "raw_uri; escaped_uri",
+      "basis": "Executed real stdlib SQLite on macOS in a temporary directory; native Windows behavior not executed."
+    },
+    {
+      "id": "PR-04",
+      "severity": "medium",
+      "title": "Callable-wins also needs to undo an earlier constant registration",
+      "plan": "1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md:40; AC-9",
+      "source": ".wavefoundry/framework/scripts/graph_indexer.py:13869",
+      "observed": "With only the prescribed callable-wins replacement in memory, a static final hit declared before method hit() becomes kind function but remains in const_node_ids. A.read -> A.hit survives as a reads edge. The plan explicitly handles a losing constant registered after a method but does not pin removal of earlier constant membership.",
+      "recommendation": "When a callable replaces a constant, remove stale const_node_ids membership and constant-only metadata, or gate final local read emission on the winning kind as well. Add the constant-before-method order to AC-9 and assert both node metadata and absence of reads-to-callable edges.",
+      "evidence": "prior_constant_collision",
+      "basis": "Narrow in-memory model demonstrates why replacing node_map alone is insufficient; the general no-reads-to-callable intent is already correct."
+    },
+    {
+      "id": "PR-05",
+      "severity": "medium",
+      "title": "The duplicate-inner-edge baseline is not observable in persisted SQL",
+      "plan": "1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers.md:36; AC-7",
+      "source": ".wavefoundry/framework/scripts/graph_indexer.py:12888",
+      "observed": "For one TypeScript chain, two call AST nodes both produce b.subject, but the artifact contains one calls edge because add_edge deduplicates source/target/relation/confidence. The plan expects one extra persisted inner edge per chain before repair; this fixture already has zero duplicates in storage.",
+      "recommendation": "Measure duplicate candidate emission at extraction before deduplication; use persisted SQL only for unique edge counts, outer-member recovery and malformed targets. Record the two layers separately rather than forcing an impossible before-side baseline.",
+      "evidence": "candidate_vs_persisted",
+      "basis": "Executed actual parser, candidate extractor and artifact builder."
+    },
+    {
+      "id": "PR-06",
+      "severity": "medium",
+      "title": "Outgoing context credit must move its path as well as its snippet",
+      "plan": "1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md:45; AC-6",
+      "source": ".wavefoundry/framework/scripts/server_impl.py:28416",
+      "observed": "The actual helper is _context_source_paths, not _context_paths. Its outgoing branch takes row.file for credit. The proposed response leaves row.file at the callee while call_site.snippet belongs to the caller. Merely teaching the content predicate to see the nested snippet credits the wrong file.",
+      "recommendation": "Extract call_site.file together with call_site.snippet, and add a cross-file accounting test that credits the caller and explicitly does not credit the callee when no callee content was returned. Preserve incoming behavior and null-site handling.",
+      "evidence": "Source inspection of _context_source_paths and _node_entry/outgoing loop",
+      "basis": "Verified source contract and planned response mapping; no implementation exists yet."
+    }
+  ],
+  "cleanup_notes": [
+    "Task at 1xtnq line86 still says symbol_lookup_kinds; Requirement1 correctly requires node_map[resolved]. Use one instruction consistently.",
+    "Wave objective says no calls to variables/constants, but explicit Python callable-constant exceptions are retained. Narrow the objective to false name-guessed binds.",
+    "callable_wins_collisions is described both as callable-winning collisions and as exposing constant/constant collisions. Define separate total and callable-winning populations or make the diagnostic list taxonomy explicit.",
+    "Wave/handoff still say 1xq4f is open; its wave record is now closed. Correct this stale activation precondition when revising.",
+    "Incoming top-level line remains call-site line, contrary to the Decision Log claim that both directions use node location. Keep the explicit compatibility contract and correct the shorthand."
+  ],
+  "positive_assessment": [
+    "Identity before kind filtering prevents deletion of genuine same-named method calls.",
+    "Keeping full qualifiers for structurally pure paths is the correct regression boundary.",
+    "Separating count-only non-callable diagnostics from malformed-target filtering preserves declared callable-constant exceptions.",
+    "Single builder bump plus unchanged-corpus re-extraction and incremental equivalence is appropriate for persisted derived graph changes; semantic model/chunker changes are not implied.",
+    "Consumer validation may be recorded pending rather than invented; self-host zero-variable census is explicitly nonrepresentative."
+  ],
+  "operator_questions": [],
+  "stop_condition": "Review completed; six corrections and the listed consistency cleanups remain before implementation. No unresolved product preference is required to make these corrections.",
+  "validation": {
+    "asserted_probe_groups": 5,
+    "command": "/Users/coryhacking/.wavefoundry/venv/bin/python3 -B /tmp/1xtnr-plan-review-probes.py",
+    "result": "All five counterexample assertions passed",
+    "observations": {
+      "cross_file_promotion": {
+        "extracted": {
+          "source": "Caller.java::Caller.run",
+          "target": "external::authenticatedUser",
+          "relation": "calls",
+          "confidence": "EXTRACTED"
+        },
+        "resolved": {
+          "source": "Caller.java::Caller.run",
+          "target": "Other.java::Other.authenticatedUser",
+          "relation": "calls",
+          "confidence": "RECEIVER_RESOLVED",
+          "_x": "authenticatedUser",
+          "_c": "EXTRACTED"
+        }
+      },
+      "sibling_java_scope": [
+        {
+          "text": "item.hit()",
+          "offset": 104,
+          "type": "First"
+        },
+        {
+          "text": "item.hit()",
+          "offset": 148,
+          "type": "First"
+        }
+      ],
+      "prior_constant_collision": {
+        "node": [
+          {
+            "id": "Fixture.java::A.hit",
+            "label": "hit",
+            "kind": "function",
+            "source_file": "Fixture.java",
+            "source_location": "1:0",
+            "layer": "project",
+            "param_signatures": [
+              "arity:0"
+            ]
+          }
+        ],
+        "reads": [
+          {
+            "source": "Fixture.java::A.read",
+            "target": "Fixture.java::A.hit",
+            "relation": "reads",
+            "confidence": "EXTRACTED"
+          }
+        ]
+      },
+      "candidate_vs_persisted": {
+        "candidates": [
+          [
+            "b.subject"
+          ],
+          [
+            "b.subject"
+          ]
+        ],
+        "calls": [
+          {
+            "source": "fixture.ts::run",
+            "target": "external::b.subject",
+            "relation": "calls",
+            "confidence": "EXTRACTED"
+          }
+        ]
+      },
+      "raw_uri": {
+        "opened": true,
+        "dbs": [
+          [
+            0,
+            "main",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpyeu51__0/repo"
+          ]
+        ],
+        "unexpected_database_created": true
+      },
+      "escaped_uri": {
+        "marker": [
+          [
+            "marker"
+          ]
+        ]
+      }
+    },
+    "probe_source": "import sys,json,tempfile,sqlite3,inspect,textwrap\nfrom pathlib import Path\nsys.path.insert(0,str(Path('.wavefoundry/framework/scripts').resolve()))\nimport graph_indexer as g\nout={}\ndef walk(n):\n yield n\n for c in n.named_children:yield from walk(c)\ndef artifact(path,src,lang):\n session=object.__new__(g.GraphIndexSession);session.layer='project';session.root=Path('/tmp')\n return session._extract_tree_sitter_artifact(path,src,lang)\n# Real extraction plus real cross-file indexes, not synthetic name indexes.\nsrc='class Caller { void run(Object b) { b.subject().authenticatedUser(); } }'\na=artifact('Caller.java',src,'java');b=artifact('Other.java','class Other { String authenticatedUser() { return \"\"; } }','java')\nnodes={n['id']:n for art in (a,b) for n in art['nodes']}\nsimple,qualified,ns,pkg,rust=g._build_candidate_indexes(nodes)\nctx=dict(simple_name_index=simple,qualified_index=qualified,cs_file_ns=ns,java_pkg_by_file=pkg,rust_module_index=rust,imports_by_file={},node_map=nodes)\nraw=next(e for e in a['edges'] if e['target']=='external::authenticatedUser')\nout['cross_file_promotion']={'extracted':raw,'resolved':g._resolve_fragment_edge(raw,ctx)}\n# Model only the declaration-shape extension specified by Req4, keeping its scope walk.\noriginal=g._search_java_declarations_in_scope\ncode=textwrap.dedent(inspect.getsource(original))\ncode=code.replace('elif n_type == \"formal_parameter\":','elif n_type in (\"formal_parameter\", \"enhanced_for_statement\", \"catch_formal_parameter\", \"resource\"):')\nexec(compile(code,'<plan-shape-extension>','exec'),g.__dict__)\nsrc='class Caller { void run(Iterable<First> firsts, Iterable<Second> seconds) { for (First item : firsts) { item.hit(); } for (Second item : seconds) { item.hit(); } } }'\nt=g._ts_parse('java',src);assert t and not t.root_node.has_error\ncalls=[n for n in walk(t.root_node) if n.type=='method_invocation']\nout['sibling_java_scope']=[{'text':src[n.start_byte:n.end_byte],'offset':n.start_byte,'type':g._resolve_java_receiver_type(n,src.encode())} for n in calls]\ng._search_java_declarations_in_scope=original\n# Literal callable-wins replacement; demonstrate prior-constant set membership.\nfn=textwrap.dedent(inspect.getsource(g.GraphIndexSession._extract_tree_sitter_artifact))\nfn=fn.replace('if node_id not in node_map:\\n            node_map[node_id]', 'if node_id not in node_map or (kind in {\"function\", \"class\"} and node_map[node_id][\"kind\"] in {\"constant\", \"variable\"}):\\n            node_map[node_id]')\nns={};exec(compile(fn,'<plan-callable-wins>','exec'),g.__dict__,ns)\norig=g.GraphIndexSession._extract_tree_sitter_artifact;g.GraphIndexSession._extract_tree_sitter_artifact=ns['_extract_tree_sitter_artifact']\nsrc='class A { static final int hit = 1; int hit() { return 1; } int read() { return hit; } }'\na=artifact('Fixture.java',src,'java')\nout['prior_constant_collision']={'node':[n for n in a['nodes'] if n['id'].endswith('::A.hit')],'reads':[e for e in a['edges'] if e['relation']=='reads']}\ng.GraphIndexSession._extract_tree_sitter_artifact=orig\n# Candidate duplicates are discarded before persisted census can see them.\nsrc='function run(b) { b.subject().authenticatedUser(); }'\nt=g._ts_parse('typescript',src);a=artifact('fixture.ts',src,'typescript')\nout['candidate_vs_persisted']={'candidates':[g._ts_relation_candidates(n,src.encode(),'call','code',g._TS_LANGUAGE_PROFILES['typescript']) for n in walk(t.root_node) if n.type=='call_expression'],'calls':[e for e in a['edges'] if e['relation']=='calls']}\nwith tempfile.TemporaryDirectory() as td:\n p=Path(td)/'repo#fragment'/'index.sqlite';p.parent.mkdir();c=sqlite3.connect(p);c.execute('CREATE TABLE marker(v)');c.close()\n try:\n  c=sqlite3.connect(f'file:{p}?mode=ro',uri=True);out['raw_uri']={'opened':True,'dbs':c.execute('PRAGMA database_list').fetchall()};c.close()\n except Exception as e:out['raw_uri']={'error':str(e)}\n out['raw_uri']['unexpected_database_created']=(Path(td)/'repo').is_file()\n with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True) as c:out['escaped_uri']={'marker':c.execute(\"SELECT name FROM sqlite_master WHERE name='marker'\").fetchall()}\nassert out['cross_file_promotion']['resolved']['confidence']=='RECEIVER_RESOLVED'\nassert [r['type'] for r in out['sibling_java_scope']]==['First','First']\nassert out['prior_constant_collision']['node'][0]['kind']=='function' and out['prior_constant_collision']['reads']\nassert len(out['candidate_vs_persisted']['candidates'])==2 and len(out['candidate_vs_persisted']['calls'])==1\nassert out['raw_uri']['unexpected_database_created'] and out['escaped_uri']['marker']\nPath('/tmp/1xtnr-plan-review-results.json').write_text(json.dumps(out,indent=2))\nprint(json.dumps(out,indent=2))\n",
+    "failed_probe_setup": [
+      "System python lacks tree-sitter; reran under configured Wavefoundry venv.",
+      "Initial object-only fixture lacked session.root for TS; set root to /tmp and reran."
+    ],
+    "limits": [
+      "No production source edits, actual project index writes, full suite or consumer corpus replay.",
+      "Java scope and callable-wins examples model only the named changes in memory; they are plan omissions, not claims about unimplemented final code.",
+      "No native Windows/Linux/Intel runtime qualification, no new end-to-end performance benchmark.",
+      "Single reviewer context; no independent multi-seat review claimed."
+    ]
+  },
+  "source_sha256": {
+    "docs/waves/1xtnr call-edge-target-integrity/1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md": "9444d511a978f8fb2486b0b965e5c869ea67855bfe1c48f5f6f348837bc6c576",
+    "docs/waves/1xtnr call-edge-target-integrity/1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers.md": "25f6917f2612fbd46bb64c6ab613c1c53763efa5923ee7db012db12314b12bf6",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "7bd82d93b5d053730fcf476bb7b8cdeef866eeb8d4eea71b461d0ea677771149",
+    ".wavefoundry/framework/scripts/server_impl.py": "97696d97d44dc2718fda7f1164f1348ddbe5477eeb31e631cf7e26f1d2a2f265"
+  }
+}

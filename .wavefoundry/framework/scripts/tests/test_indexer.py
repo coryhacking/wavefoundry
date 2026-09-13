@@ -1519,7 +1519,7 @@ class IncrementalBuildTests(unittest.TestCase):
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
         meta = _read_meta_store(index_dir)
-        meta.setdefault("chunker_versions", {})["code"] = "old-chunker-version"  # simulate a bump
+        meta.setdefault("chunker_versions", {})["code"] = "0"  # simulate a bump
         _seed_meta_store(index_dir, meta)
 
         code_calls: list[list[str]] = []
@@ -2442,7 +2442,7 @@ class ModelVersionChangeTests(unittest.TestCase):
                 },
                 "chunker_versions": {
                     "docs": current_cv,
-                    "code": "old-chunker-version",
+                    "code": "0",
                 },
                 "content": ["docs", "code"],
                 "file_meta": {},
@@ -5974,7 +5974,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
 
 
-    def test_scoped_build_escalates_after_store_reset(self):
+    def test_scoped_build_refuses_unproven_populated_store(self):
         """Review refutation: a scoped build over a reset store (Lance tables
         present, no provenance) must escalate to all-layer convergence — it
         may not publish `complete` around the unprovenanced table."""
@@ -5988,19 +5988,16 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
             store._conn.execute("DELETE FROM build_layer_meta")
             store._conn.execute("DELETE FROM layer_path_state")
         store.close()
-        # Scoped docs request over the reset store.
-        docs_mock = _make_embedder_mock(dim=4)
-        code_mock = _make_embedder_mock(dim=4)
-        with redirect_stderr(io.StringIO()) as err, \
-             patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]):
-            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
-        self.assertFalse(result.get("failed"))
-        self.assertIn("escalating content='docs' to all-layer convergence", err.getvalue())
-        snapshot = _read_meta_store(self.index_dir)
-        self.assertTrue((snapshot.get("model_versions") or {}).get("docs"))
-        self.assertTrue((snapshot.get("model_versions") or {}).get("code"),
-                        "escalation must restore the code layer's provenance")
-        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+        # Missing provenance in a populated completed index is now explicitly
+        # unproven: neither a scoped nor a full build may silently bless it.
+        import index_compatibility
+        token = self.iss.build_epoch_token(self.index_dir)
+        with patch.object(self.bi, "_get_embedder") as embedder:
+            with self.assertRaises(index_compatibility.IndexCompatibilityError) as raised:
+                self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+        self.assertEqual(raised.exception.code, "index_compatibility_unproven")
+        embedder.assert_not_called()
+        self.assertEqual(token, self.iss.build_epoch_token(self.index_dir))
 
     def test_unknown_schema_is_preserved_before_any_build_decision(self):
         _make_repo(self.root, {'src/foo.py':'def f(): return 1\n','docs/guide.md':'## Intro\nHello.\n'})
@@ -8227,9 +8224,12 @@ class TargetedPublicationContractTests(unittest.TestCase):
                 if name == 'policy': kwargs['include_tests'] = True
                 cm = patch.object(module, attr, 'incompatible') if module else contextlib.nullcontext()
                 with cm, patch.object(self.iss.IndexStateStore, 'ensure_current', side_effect=AssertionError('mutation before refusal')) as ensure:
-                    result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all', **kwargs)
+                    try:
+                        result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all', **kwargs)
+                    except self.iss.index_compatibility.IndexCompatibilityError as exc:
+                        result = {'failed': True, 'failure': str(exc), 'code': exc.code}
                 self.assertTrue(result.get('failed'), result)
-                self.assertIn('complete walk', result['failure'])
+                self.assertIn('Reload/restart' if result.get('code') else 'complete walk', result['failure'])
                 ensure.assert_not_called()
                 self.assertEqual(before, self._rows('two.py'))
                 self.assertEqual(generation, self._generation())

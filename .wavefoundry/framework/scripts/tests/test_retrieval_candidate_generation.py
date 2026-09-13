@@ -106,8 +106,12 @@ class _CandidateFixture(unittest.TestCase):
             if docs_chunks:
                 self.iss.reconcile_chunk_index(
                     self.index_dir, "docs", {c["id"] for c in docs_chunks}, lambda: [dict(c) for c in docs_chunks])
+        import index_compatibility
         self.iss.write_build_bookkeeping(self.index_dir, {
             "model_versions": {name: self.model for name in content},
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {name: str(index_compatibility.SUPPORTED["chunker_version"])
+                                 for name in content},
             "content": content, "file_hashes": {},
         })
         attempt = self.iss.begin_build_epoch(self.index_dir, "fixture-fts")

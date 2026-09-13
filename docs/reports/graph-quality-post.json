@@ -2,7 +2,7 @@
   "builder_versions": {
     "cluster_builder_version": "13",
     "cluster_schema_version": "1",
-    "graph_builder_version": "51",
+    "graph_builder_version": "52",
     "graph_schema_version": "1"
   },
   "classification_controls": {
@@ -47,7 +47,7 @@
     "files": 17,
     "forbidden_edges": 11,
     "known_gaps": 2,
-    "path": "docs/evals/graph-quality-golden.json"
+    "path": "/Users/coryhacking/Developer/wavefoundry/docs/evals/graph-quality-golden.json"
   },
   "environment": {
     "community_backend": "igraph+leidenalg",
@@ -71,9 +71,9 @@
   "graph_input_fingerprint": "1226973e9900cd4907a36784a42dd9e46f7a18e79c1e8f56fe4f0dc2fb9d2e58",
   "label": "post",
   "production_identity": {
-    "graph_cluster_sha256": "dfcbd4f98d1677725296dda37179e623b612015dd119819826f66b4d47aa6d52",
-    "graph_indexer_sha256": "7d43237ef6020d8820ce0ba867ebd9967c9ec237206acbceb0f940f315735c17",
-    "graph_query_sha256": "c3d0b20a15d42c4264be1c7a52598bf13c26db1711ac8ef4cce1547e77443fb6",
+    "graph_cluster_sha256": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+    "graph_indexer_sha256": "64fa28d498f7bf4dfe8303a3afbe33754c0dce7572699f384fc91320a038a342",
+    "graph_query_sha256": "a3ce5f870eb349f135c05cecb2694fe00a31300d963e58bfae5c4e88f90d088f",
     "source_root": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts"
   },
   "public_tools": [
@@ -157,14 +157,14 @@
       "true_positives": 1
     }
   },
-  "report_digest": "7f4e11ee7aa3011415e42be3c229f66c08187f7c911e81489d4f74aae200e917",
+  "report_digest": "3bbfa144fcbee3c5eb00bafbdd62f38208ae42333766b20aaeb3e71eb7ba27a6",
   "repository_identity": {
-    "commit": "a317bdf6d98c60867108c329bbc3acbb039f7d79",
+    "commit": "5a30d7a517aebaf0d4b5a77beee5ed4503483dd2",
     "dirty": true,
     "root": "/Users/coryhacking/Developer/wavefoundry"
   },
-  "run_completed_at": "2026-09-05T17:20:32Z",
-  "run_started_at": "2026-09-05T17:20:32Z",
+  "run_completed_at": "2026-09-12T18:04:58Z",
+  "run_started_at": "2026-09-12T18:04:58Z",
   "schema": "wavefoundry.graph-quality-eval/v1",
   "scored_relations": [
     "calls",

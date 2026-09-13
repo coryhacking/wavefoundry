@@ -180,7 +180,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         argv[argv.index("--pack") + 1] = str(bad)
         failed = self.attempt(argv)
         self.assertNotEqual(failed.returncode, 77, failed.stdout + failed.stderr)
-        self.assertIn("storage_pack_changed", failed.stdout + failed.stderr)
+        self.assertRegex(failed.stdout + failed.stderr, "(?:storage_pack_changed|index_guard_package_changed)")
         self.assertEqual(self.source.read_bytes(), self.database_before)
         self.assertEqual(self.bootstrap.read_bytes(), self.original_bootstrap)
         self.assertEqual(migration.read_receipt(self.index)["migration_id"], receipt["migration_id"])
@@ -357,6 +357,8 @@ class StorageRebuildPublicationTests(unittest.TestCase):
         import setup_index
         import index_state_store
         with contextlib.ExitStack() as controls, memory_backfill.index_publication_scope(run_id), \
+             patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), \
+             patch.object(migration, "discover_hosts", return_value=([], ["fixture confirmed hosts"])), \
              patch.object(upgrade.subprocess_util, "isolated_run", side_effect=run), \
              patch.object(setup_index, "ensure_deps"), \
              patch.object(setup_index, "prewarm_models"), \
@@ -503,3 +505,140 @@ class StorageRebuildPublicationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")
+class SchemaEightMemoryCLIResumeTests(unittest.TestCase):
+    """The exact retained CLI branch must publish a nonempty validated backfill."""
+
+    def test_resume_after_memory_runs_real_main_and_fresh_native_children(self):
+        self._exercise_memory_conversion("feature", interrupt=True)
+
+    def test_outer_distribution_checkpoint_resumes_and_reclaims_storage(self):
+        self._exercise_memory_conversion("outer", interrupt=True)
+
+    def test_fresh_outer_distribution_conversion_publishes_memory(self):
+        self._exercise_memory_conversion("outer", interrupt=False)
+
+    def _exercise_memory_conversion(self, archive_kind, *, interrupt):
+        import io
+        from unittest.mock import patch
+        from test_sqlite_storage_migration import SchemaEightKindTests
+        import memory_backfill
+        import memory_records
+        import server_impl
+        import indexer
+        import upgrade_wavefoundry as upgrade
+        import setup_index
+        fixture = SchemaEightKindTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        root, index = fixture.root, fixture.index
+        fixture._seed("7")
+        fixture.ctx.from_version = "1.23.0+powy"
+        fixture.ctx.to_version = "1.24.0+test"
+        # Both entry paths retain authentic archives: the MCP path selects
+        # the distribution, while the bridge may retain its feature payload.
+        import hashlib
+        import zipfile
+        feature_bytes = io.BytesIO()
+        with zipfile.ZipFile(feature_bytes, "w") as archive:
+            archive.writestr(".wavefoundry/framework/VERSION", fixture.ctx.to_version)
+        pack = root / "retained-pack.zip"
+        if archive_kind == "outer":
+            with zipfile.ZipFile(pack, "w") as archive:
+                archive.writestr(".wavefoundry/framework/VERSION", fixture.ctx.to_version)
+                archive.writestr("payload/feature.zip", feature_bytes.getvalue())
+        else:
+            pack.write_bytes(feature_bytes.getvalue())
+        package_hash = hashlib.sha256(pack.read_bytes()).hexdigest()
+        fixture.ctx.zip_path = pack
+        fixture.ctx.selected_feature_zip = pack
+        (root / "docs/waves/1aaa closed").mkdir(parents=True)
+        (root / "docs/workflow-config.json").write_text("{}\n")
+        (root / "docs/waves/1aaa closed/wave.md").write_text(
+            "# Wave\n\nStatus: closed\n\nChange ID: `1abc-enh historical-decision`\n")
+        (root / "docs/waves/1aaa closed/1abc-enh historical-decision.md").write_text(
+            "# Change\n\n## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n"
+            "| --- | --- | --- | --- |\n| 2026-01-01 | Keep `src/m.py` local | Avoid remote authority | none |\n")
+        drafted = server_impl.memory_backfill_response(root, mode="create", entry_path="upgrade")
+        self.assertEqual(drafted["status"], "ok", drafted)
+        run_id = drafted["data"]["run_id"]
+        self.assertEqual(drafted["data"]["candidates_drafted"], 1)
+        candidate = memory_records.load_memory_records(root)[0]
+        validated = server_impl.memory_validate_response(root, candidate["memory_id"], "promote",
+            "Reuse the local decision.", "The historical decision still matches src/m.py.", True, True, "none")
+        self.assertEqual(validated["status"], "ok", validated)
+        summary = memory_backfill.sync_inventory(root, run_id)
+        self.assertEqual(summary["state"], "ready_for_index", summary)
+        self.assertGreater(summary["candidates_drafted"], 0)
+        with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
+            migration.prepare_upgrade(fixture.ctx)
+        # Stop precisely after staging starts, reproducing the retained state
+        # produced by ppol's unknown-live-memory-run failure, before cutover.
+        if interrupt:
+            with memory_backfill.index_publication_scope(run_id), patch.object(indexer, "_build_index_locked",
+                    side_effect=RuntimeError("retained pre-cutover failure")):
+                with self.assertRaisesRegex(RuntimeError, "pre-cutover"):
+                    migration.migrate_legacy(root)
+            self.assertEqual(migration.read_receipt(index)["state"], "staged")
+        upgrade_lib.update_upgrade_lock(root, current_phase="memory_resume_preflight" if interrupt else "awaiting_memory_validation",
+                                       failed_phase="index_update" if interrupt else None,
+                                       zip_path=str(pack), memory_backfill_run_id=run_id)
+        # Fresh setup children execute the real walk, chunking, FTS/vector and
+        # graph publication. Only deterministic model inference and provisioning
+        # are substituted; main's checkpoint/policy/memory branches stay real.
+        child = index / "memory-resume-child.py"
+        child.write_text(REBUILD_CHILD)
+        observations = []
+        def run(argv, **kwargs):
+            if Path(argv[1]).name == "setup_index.py":
+                if "--prewarm-only" in argv:
+                    return subprocess.CompletedProcess(argv, 0)
+                observations.append("graph" if "--graph-only" in argv else "all")
+                env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+                env.update(kwargs.get("env", {}))
+                result = subprocess.run([sys.executable, "-B", str(child), str(SCRIPTS), json.dumps(argv[2:])],
+                    cwd=root, env=env, capture_output=True, text=True, timeout=90)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result
+            if len(argv) > 1 and Path(argv[1]).name == "sqlite_storage_migration.py":
+                observations.append("verify")
+            return subprocess.run(argv, **kwargs)
+        output = io.StringIO()
+        with patch.object(setup_index, "ensure_deps"), patch.object(setup_index, "prewarm_models"), \
+                patch.object(upgrade.subprocess_util, "isolated_run", side_effect=run), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            result = upgrade.main(["--root", str(root), "--resume-after-memory", "--confirm-hosts-stopped"])
+        self.assertEqual(result, 0, output.getvalue())
+        self.assertEqual(observations, ["all", "graph", "verify"])
+        self.assertEqual(memory_backfill.run_state(root, run_id), "indexed")
+        self.assertEqual(migration.read_receipt(index)["state"], "verified")
+        self.assertEqual(upgrade_lib.read_upgrade_lock(root)["current_phase"], "index_complete")
+        self.assertIsNone(upgrade_lib.read_upgrade_lock(root)["failed_phase"])
+        self.assertFalse((index / "upgrade-index-staging-receipt.json").exists())
+        receipt = migration.read_receipt(index)
+        self.assertEqual(receipt["pack_sha256"], package_hash)
+        self.assertEqual(hashlib.sha256(pack.read_bytes()).hexdigest(), package_hash)
+        staging = migration._staging_index_dir(index / receipt["work_dir"])
+        # The graph producer may create its local memory-generation fence.
+        # It must never create or consult a historical backfill authority there.
+        staged_memory = staging / "memory-state.sqlite"
+        if staged_memory.exists():
+            with contextlib.closing(sqlite3.connect(staged_memory)) as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertEqual(tables, {"memory_meta", "memory_writers"})
+        import sqlite_vector_store as vectors
+        rows = vectors.payload_rows(index, "docs")
+        self.assertTrue(any(row["path"] == Path(candidate["path"]).relative_to(root).as_posix() for row in rows), (candidate, rows))
+
+        # Verification must precede reclamation, and completion must retain the
+        # authoritative memory run and published search/graph store.
+        self.assertTrue(fixture.legacy.exists())
+        self.assertTrue(staging.exists())
+        self.assertEqual(migration.cleanup_legacy(root)["state"], "complete")
+        self.assertFalse(fixture.legacy.exists())
+        self.assertFalse((index / receipt["work_dir"]).exists())
+        self.assertFalse((index / "graph").exists())
+        self.assertTrue(fixture.current.exists())
+        self.assertEqual(memory_backfill.run_state(root, run_id), "indexed")

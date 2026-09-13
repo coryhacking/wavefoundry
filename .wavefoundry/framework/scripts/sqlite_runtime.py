@@ -19,6 +19,9 @@ BINARY_SUPPORT_GUIDANCE = (
     "Python environment and rerun wf setup; do not remove the existing index."
 )
 
+import venv_bootstrap
+venv_bootstrap.activate_tool_venv()
+
 try:
     import apsw
 except ImportError:

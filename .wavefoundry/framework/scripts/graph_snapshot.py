@@ -245,6 +245,9 @@ def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
         recovery_tools, recovery_usage = ["wf_upgrade_status"], "wf_upgrade_status()"
     elif code == "storage_runtime_unavailable":
         recovery = "Run wf setup --root . in the repository to repair the native runtime, then restart the host."
+    elif code in {"index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}:
+        recovery = "Restart the affected Wavefoundry host; preserve the newer index instead of rebuilding it."
+        recovery_usage = "Restart the affected Wavefoundry host, then call index_health()."
     elif code == "storage_recovery_required":
         recovery = "Preserve the index; resolve the storage/filesystem refusal before retrying."
     else:
@@ -333,6 +336,10 @@ def _read_pinned(index_dir: Path, layer: str, cached: "GraphSnapshot | None",
         sqlite_storage_migration.require_ready(index_dir)
         conn.execute("BEGIN")
         try:
+            # Validate every graph/storage participant before reconstructing
+            # rows, in the same snapshot that supplies their generation.
+            import index_compatibility
+            index_compatibility.check_connection(conn)
             row = conn.execute(
                 "SELECT attempt_id, status, generation FROM build_state WHERE id = 1"
             ).fetchone()

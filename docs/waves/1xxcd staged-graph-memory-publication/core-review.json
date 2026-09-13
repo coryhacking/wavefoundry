@@ -1,0 +1,146 @@
+{
+  "wave": "1xxcd",
+  "reviewer": "staging_core_review",
+  "scope": "Independent full repair code, security and release delivery review; core plus pinned local recovery kit",
+  "verdict": "approved",
+  "findings": [],
+  "reference": "User original failure trace and admitted AC-1/2/3: candidate epoch must complete without touching authoritative memory or parent receipt; retained staged retry must use live parent publication later. Original ppol archive bytes are independent release reference; generated payload/installed file equality independently checked. Composed full replay authored by implementer and inspected here, while unit and fresh native CLI tests were rerun independently.",
+  "source_sha256": {
+    "sqlite_storage_migration.py": "22633fdbde308be031a45db038e349e3788449ea00fed58648e6b4ac6e1e8bbc",
+    "index_state_store.py": "297d14ab759c20f1fd35d2f4ed50eb6f1ac5027dadaca3dc013c2cbd8640889c",
+    "repair_ppol_memory_staging.py": "fdeb2ce1f957cdd3b636f52eb094868b149a73d22bcca570bb8aa147d7f75669",
+    "tests/test_repair_ppol_memory_staging.py": "696a160fbf7197f15e8dc5f9c54e535a3bfd9e0f3782cc7439489ccc4b7efb4b",
+    "tests/test_storage_upgrade_resume.py": "6e9b3d9a859a3d659382d5fb898e00b794dd2817fe1ea234e84969345351acf6"
+  },
+  "checks": [
+    "Read exact baseline-to-current production delta and caller/finalizer contracts via MCP",
+    "Four targeted SchemaEightKindTests passed independently, 2.518s, no skips",
+    "Actual schema7\u2192schema8 migration with active memory context, retained staged interruption/retry, parent CAS, fresh-process verification and cleanup exercised",
+    "Global environment is not mutated; ContextVar scope resets in finally; same-context other/live index uses original publication checks",
+    "Path checks reuse symlink/Windows reparse safeguards and bind staged directory, database and work inode/device; current staged migration id and PID remain required",
+    "15 repair unit tests independently passed, 0.159s, no skips",
+    "Real main CLI continuation with validated nonempty backfill passed independently, 4.387s",
+    "Inspected exact original ppol composed replay harness and logs; old installed main fails unknown run, generated kit patches two files, fresh repaired installed main exits0",
+    "Independently reopened composed artifact: ZIP CRC clean; both fixed payloads and installed files equal canonical; live memory run indexed; schema8 verified; original feature SHA retained"
+  ],
+  "mutation_table": [
+    {
+      "mechanism": "isolation_removed",
+      "test": "test_schema8_staging_does_not_consume_live_memory_publication",
+      "result": "KILLED",
+      "observed": "original unknown memory backfill error"
+    },
+    {
+      "mechanism": "path_binding_removed",
+      "test": "test_candidate_scope_is_exact_thread_local_and_exception_safe",
+      "result": "KILLED",
+      "observed": "assertion failure on loosened guard"
+    },
+    {
+      "mechanism": "candidate_identity_removed",
+      "test": "test_candidate_binding_refuses_replaced_file_and_changed_receipt",
+      "result": "KILLED",
+      "observed": "assertion failure on loosened guard"
+    },
+    {
+      "mechanism": "scope_restore_removed",
+      "test": "test_candidate_scope_is_exact_thread_local_and_exception_safe",
+      "result": "KILLED",
+      "observed": "assertion failure on loosened guard"
+    },
+    {
+      "mechanism": "pack_pin",
+      "test": "test_altered_pack_is_refused",
+      "result": "KILLED"
+    },
+    {
+      "mechanism": "confirmation",
+      "test": "test_apply_requires_confirmation_even_when_discovery_is_empty",
+      "result": "KILLED"
+    },
+    {
+      "mechanism": "live_hosts",
+      "test": "test_running_hosts_block_apply",
+      "result": "KILLED"
+    },
+    {
+      "mechanism": "receipt_state",
+      "test": "test_unrelated_receipt_and_checkpoint_are_refused_without_writes",
+      "result": "KILLED"
+    },
+    {
+      "mechanism": "original_runtime_hash",
+      "test": "test_altered_runtime_or_payload_is_refused",
+      "result": "KILLED"
+    },
+    {
+      "mechanism": "retained_backup",
+      "test": "test_conflicting_backup_refuses_before_source_replacement",
+      "result": "KILLED"
+    }
+  ],
+  "mutation_limits": "Bounded four highest-risk mutants in isolated script-tree copy; no shared source edits. Did not individually delete every initial receipt field, PID, work identity, or existing safe-path/reparse member. No survivors among executed mutants; whole-file mutant expansion unnecessary. Kit adds six targeted mutants, all caught; no exhaustive deletion of every pin/metadata field. Unit fixture pins synthetic bytes intentionally; actual pinned ppol constants validated by composed artifact inspection.",
+  "security_assumptions": "Local migration coordinator and receipt are owned by the same authorized operator. No new untrusted MCP argument or shell interpolation. Exact-candidate isolation is internal; live publication authority unchanged. No exploit chain identified.",
+  "platform_limits": "Native macOS ARM64 Python3.13; no native Windows/Linux execution. Existing portable reparse checks reused. ContextVar thread test covers ordinary threading, not explicitly inherited contexts/free-threaded future hosts. Repair reparse branch simulated; no native Windows/Linux qualification. Host discovery is best effort; explicit operator confirmation remains required.",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation"
+  },
+  "recorded_at": "2026-09-13T14:41:41.711340+00:00",
+  "clarification": "Requirement1 permits disposable staging memory_meta/memory_writers cache fence; no historical backfill authority in staging. This existed before wave and remains covered by native CLI assertion.",
+  "fixture_followup": {
+    "change": "Seed model identity uses actual provider precision instead of hardcoded full; isolated test setup correction, production unchanged",
+    "independent_check": "Read seed lines1396-1402 and producer precision contract; reran preserved-vector staged retry with WAVEFOUNDRY_EMBED_PROVIDER=cpu:1test passed1.810s, no skip",
+    "failure_reference": "/tmp/1xxcd-cpu-retry.log old hardcoded full makes CPU build discard stale fixture vectors and correctly raises storage_staged_counts_changed",
+    "test_sha256": "b393368a459528aa96a34bdee2329aaa3badc100a28709d065b12ffdd56647bc",
+    "verdict": "approved; no weakened assertion or runtime change"
+  },
+  "outer_locator_followup": {
+    "verdict": "approved",
+    "scope": "code/security/release focused delta",
+    "reason": "Both exact immutable original distribution and exact original feature bytes are legitimate retained locators; no arbitrary archive acceptance, receipt rewrite, or package substitution. Existing receipt gate already allowed both identities.",
+    "independent_tests": "17 repair tests passed0.244s/no skips; two temp-only mutants killed (remove outer support and accept arbitrary retained archive)",
+    "artifact_check": "Inspected actual outer replay harness delta and reopened ZIP/installedfiles/receipt/memory: current canonical tool and payload match; retained outer hash unchanged, memory indexed, schema8verified",
+    "limitations": "Composed replay authored by coordinator; personally inspected/reopened artifact, independently executed17tests and2mutants. macOS only.",
+    "git_hash_object": {
+      "repair_ppol_memory_staging.py": "1a96e74eb99608cae6a7ddc3d9709fb88adc4732",
+      "tests/test_repair_ppol_memory_staging.py": "eef9074ed10515440784c10197e1493d43096230"
+    },
+    "mutation_table": [
+      {
+        "mutation": "drop_outer",
+        "test": "test_retained_outer_archive_applies_without_rewriting_checkpoint",
+        "exit": 1,
+        "output": "ers/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/1xxcd-outer-review-vdzqf9un/repair_ppol_memory_staging.py\", line 201, in inspect\n    raise Refused(\"Retained checkpoint package must still exist and match the original ppol distribution or feature archive\")\nrepair_ppol_memory_staging.Refused: Retained checkpoint package must still exist and match the original ppol distribution or feature archive\n\n----------------------------------------------------------------------\nRan 1 test in 0.014s\n\nFAILED (errors=1)\n"
+      },
+      {
+        "mutation": "accept_any",
+        "test": "test_changed_retained_outer_archive_is_refused_without_writes",
+        "exit": 1,
+        "output": "st):\n  File \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/1xxcd-outer-review-vdzqf9un/test_repair_ppol_memory_staging.py\", line 124, in test_changed_retained_outer_archive_is_refused_without_writes\n    with self.assertRaisesRegex(repair.Refused, \"checkpoint package\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Refused not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.015s\n\nFAILED (failures=1)\n"
+      }
+    ]
+  },
+  "packaging_followup": {
+    "verdict": "approved",
+    "scope": "code/release single exclusion and existing package boundary test",
+    "independent_check": "MCP-read exact exclusion/test; actual build_zip fixture passes:1test0.004s, repair absent from both MANIFEST and ZIP. Removed exclusion in isolated interpreter causes expected failure at repair MANIFEST presence,0.005s; no shared source mutation.",
+    "mutation_table": [
+      {
+        "mechanism": "one-off repair exclusion",
+        "mutation": "remove repair path from EXCLUDED_REL_PATHS in isolated interpreter",
+        "failing_test": "test_manifest_does_not_list_excluded_files",
+        "result": "KILLED"
+      }
+    ],
+    "hashes_before_after": {
+      "build_pack.py": "3e986992511fe837ce19b67a6b3c1d508660a67f",
+      "tests/test_build_pack.py": "7ba1cabe6329a0b7ca036eafd7629ea968e6936f"
+    },
+    "limitations": "Temporary minimal framework ZIP only; no new full distribution or native Windows/Linux test. Runtime core and separately distributed repair retained unchanged."
+  }
+}

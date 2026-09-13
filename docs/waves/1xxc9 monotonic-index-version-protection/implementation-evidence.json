@@ -1,0 +1,573 @@
+{
+  "wave": "1xxc9",
+  "status": "implementation and delivery verification complete",
+  "delivery_approval": true,
+  "evidence": {
+    "core": {
+      "wave": "1xxc9",
+      "owner": "index_guard_census",
+      "status": "implemented; targeted validation complete; coordinator full suite and delivery review pending",
+      "api": {
+        "module": "index_compatibility",
+        "error": "IndexCompatibilityError(sqlite_runtime.StorageRecoveryRequired)",
+        "codes": [
+          "index_runtime_stale",
+          "index_version_newer",
+          "index_compatibility_unproven"
+        ],
+        "functions": [
+          "ensure_runtime_current",
+          "register_loaded_source",
+          "check_ordered",
+          "check_connection",
+          "writer_transaction"
+        ],
+        "capability": "INDEX_GUARD_CAPABILITY = 1"
+      },
+      "changes": [
+        "Import-time immutable source capture in seven producer modules; executing module code matches captured compilation to reject compile-before-capture and lazy-import replacement windows.",
+        "Strict nonnegative decimal revisions; real loaded producer values may override captured literal defaults without importing producers. No AST trees retained.",
+        "Guarded explicit writer transactions wrap resident initialization, shared resident mutations, epoch/finalizers, standalone delta/FTS rebuild/bookkeeping; main publication joins active guarded context and checks source again before COMMIT.",
+        "GraphStateStore checks before reset intent; GraphPublication and GraphCommunityPublication join or own guarded write transaction.",
+        "Vector schema/row/PreparedUpdates guards check existing participants before mutation; main transaction deduplicates nested guard work.",
+        "Typed incompatibility propagates through broad indexer adapters; CLI emits structured JSON stderr failure and returns1.",
+        "Populated completed canonical text requires walker/chunker provenance; vectors additionally require nonempty model identity. Empty/unpublished bootstrap remains permitted; malformed or partial recorded metadata refuses.",
+        "Fault fixtures now supply complete graph or lexical provenance; malformed cache injection uses explicit raw native SQL. Older chunker fixture values now use numeric0; erased published provenance test expects refusal.",
+        "Canonical sqlite_store_maintenance FTS integrity/optimize runs in a guarded transaction; separately owned memory maintenance remains unchanged.",
+        "Optional secret_scan_filter falls back to scanning every candidate on typed compatibility refusal; its cache write still cannot alter a newer index.",
+        "Missing graph identity detects any populated graph_* participant, including edge-only or community-only state.",
+        "Vacuum regression observes native free pages before planner optimization, preserving the exact5000 page bound and one-page negative control without conflating statistics/pointer-map allocations."
+      ],
+      "focused_validation": [
+        {
+          "suite": "test_index_compatibility.py",
+          "tests": 15,
+          "result": "ok",
+          "seconds": 2.673,
+          "log": "/tmp/1xxc9-compat-tests.log"
+        },
+        {
+          "suite": "test_index_state_store.py",
+          "tests": 100,
+          "result": "ok",
+          "seconds": 11.142,
+          "log": "/tmp/1xxc9-state-tests.log"
+        },
+        {
+          "suite": "test_indexer.py",
+          "tests": 366,
+          "result": "ok",
+          "seconds": 155.42,
+          "log": "/tmp/1xxc9-indexer-tests.log"
+        },
+        {
+          "suite": "test_graph_indexer.py",
+          "tests": 549,
+          "result": "ok",
+          "seconds": 70.301,
+          "log": "/tmp/1xxc9-graph-tests.log",
+          "scope_note": "Passed before final registrar/provenance/cache-memory refinements; current compatibility and indexer suites exercise those refinements. Coordinator fullsuite remains authoritative."
+        },
+        {
+          "suite": "test_secret_scan_cache.py",
+          "tests": 24,
+          "result": "ok",
+          "seconds": 3.495,
+          "log": "/tmp/1xxc9-secret-tests.log"
+        }
+      ],
+      "process_evidence": [
+        "Old worker loaded before newer metadata publication refuses preparation.",
+        "Prepared GraphPublication pauses on pipe barrier; parent commits a newer builder, a real graph row and a complete higher generation; guarded worker preserves all captured participant state.",
+        "Same prepared-worker test with check_connection removed commits and deletes the new graph row/downgrades builder, proving preservation oracle detects omission.",
+        "Same-size/same-mtime model source replacement rejects lazy old host; fresh process accepts changed opaque selection.",
+        "Old module compiled before first compatibility import cannot capture/execute newer installed bytes: code-object verification rejects."
+      ],
+      "remaining": [
+        "Full suite and delivery review owned by coordinator.",
+        "Native execution is macOS only; portable fixtures do not establish native Windows/Linux qualification."
+      ],
+      "workspace_hygiene": {
+        "source_committed": false,
+        "wave_closed": false,
+        "live_index_rebuilt": false,
+        "bytecode": "All commands used -B; discovered and removed design_token_build.cpython-313.pyc per repository hygiene."
+      }
+    },
+    "upgrade": {
+      "wave": "1xxc9",
+      "phase": "implementation",
+      "owner": "guard_ready_arch_security acting as implementer",
+      "independent": false,
+      "approval_claim": false,
+      "readiness_integrity": "Readiness judgment was formed before source implementation; this artifact is implementation evidence and cannot independently reverify this agent own changes.",
+      "changes": {
+        "upgrade_extensions.py": "Pre-extraction index_guard_handoff captures prior runtime/source/coordinator capability, resolved-root identity, target and content-bound archive locator. Old loaded coordinator cannot be blessed by newly installed marker. Validates retained decision on retries; same-schema refusal independent of actual storage receipt. Explicit confirmation and identified-host exit required using installed migration helper, and no unrelated process termination. Exact restart argv uses console Python, original verified archive when available and recorded rebuild strategy. Public hooks check after extraction/storage handoff, before update and rebuild. read_index_guard_action returns bound structured action for current MCP wrapper.",
+        "upgrade_wavefoundry.py": "UpgradeContext captures coordinator capability; retained checkpoint survives stale-lock and failed-finalizer paths; real semantic/graph child dispatches and parent staged epoch publication recheck. Designed exit3 exception token is recognized without failure finalization.",
+        "upgrade_lib.py": "Discovered checkpoint writer previously replaced prior handoff; now validates root/target/package before refreshing lock and retains original capability record.",
+        "tests": "15 new first-hop cases; existing publication fixtures now explicitly confirm isolated hosts. Complete graph and model/chunker/walker provenance corrected in two native fixture seams per core owner assessment, preserving strict unknown-populated refusal."
+      },
+      "checkpoint_api": {
+        "key": "index_guard_handoff",
+        "capability": "index_compatibility.INDEX_GUARD_CAPABILITY = 1",
+        "action": "nested handoff.action preserves storage/memory-owned action_required",
+        "reader": "upgrade_extensions.read_index_guard_action(root, exit_code, invocation_token=None)",
+        "error_codes": [
+          "index_guard_restart_required",
+          "index_guard_checkpoint_invalid",
+          "index_guard_package_changed",
+          "index_guard_checkpoint_write_failed"
+        ],
+        "scope": "First-hop standard upgrade; not an authentication boundary against same-user malicious state editing."
+      },
+      "verification": [
+        {
+          "log": "/tmp/1xxc9-index-upgrade-guard-tests.log",
+          "tests": 15,
+          "seconds": 0.119,
+          "result": "OK"
+        },
+        {
+          "log": "/tmp/1xxc9-upgrade-tests.log",
+          "tests": 559,
+          "seconds": 57.485,
+          "result": "OK (skipped=1)"
+        },
+        {
+          "log": "/tmp/1xxc9-storage-migration-tests.log",
+          "tests": 108,
+          "seconds": 28.415,
+          "result": "OK (skipped=1)"
+        },
+        {
+          "log": "/tmp/1xxc9-storage-resume-tests.log",
+          "tests": 11,
+          "seconds": 44.517,
+          "result": "OK"
+        }
+      ],
+      "omission_mutation": {
+        "mutation": "replace actual handoff check with no-op in memory",
+        "test": "test_each_actual_phase_refuses_before_child_or_store_access",
+        "testsRun": 1,
+        "detected": true,
+        "failures": 3,
+        "errors": 0,
+        "isolation": "child subprocess and migration detect tripwires prevent continuation beyond refusal boundary"
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Actual hook and phase tests with omission of enforce_index_guard_handoff in memory produce3 failures; child/storage tripwires block unexecuted remainder."
+      },
+      "files": [
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+          "sha256": "d231523aa4100a21ba6dc77600f8925ddf109158b8648d84663407f7fdf7d26b"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "sha256": "4f3653a4ed4dfa93229e745ba477ef6f77cc35e3f27bf370f881c7451243afc4"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_lib.py",
+          "sha256": "a1be5d38b4676e285fd2bbb3d73b00addcd87839821559fc70392fdd1947f139"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py",
+          "sha256": "7036e279165a925a9a9d7cd469e4ae011e8283f8c5d863ffc0c67c0b705e8f45"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+          "sha256": "bf0506c5a945a833a3fd8e53cab1872fd0736eddf8dba89cbe01fb81bf9ed69f"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py",
+          "sha256": "6ce9bae1ed50fafea70f16da597be2a2c0047858e84091746558d33a5a692d6b"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+          "sha256": "129d60e3a0583a4746fa0e42146202e064e4d82f8f94f4e0b9454a41080a3ab0"
+        }
+      ],
+      "limitations": [
+        "Not an independent delivery approval; no review events, wave closure, git commit or full-suite receipt produced.",
+        "Two documented skips across existing suites remain. Tests ran on macOS; native Windows/Linux not executed.",
+        "First-hop host discovery is best effort; operator confirmation covers undiscovered hosts. No universal old-process fence claim.",
+        "System-Python migration-child run lacked numpy; reran successfully using existing shared tool venv, matching canonical runner interpreter.",
+        "Initial omission probe accidentally reached an empty temporary-root setup/rebuild and offline model prewarm because rebuild lacked a child tripwire; it completed, no live project index mutation. Added tripwire and reran bounded mutation, which detected all3 omissions without children.",
+        "Source files had existing unrelated working changes on entry; artifact describes this lane contributions only."
+      ]
+    },
+    "docs": {
+      "role": "documentation implementer",
+      "wave": "1xxc9",
+      "edited_files": [
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+        ".wavefoundry/framework/README.md",
+        "docs/prompts/upgrade-wavefoundry.prompt.md",
+        "docs/RELIABILITY.md",
+        "docs/architecture/graph-index-system.md",
+        "docs/architecture/layering-rules.md",
+        "docs/architecture/data-and-control-flow.md",
+        "docs/specs/mcp-tool-surface.md",
+        "CHANGELOG.md"
+      ],
+      "changes": [
+        "Replaced canonical/local mandatory-post-publication graph-reload downgrade warning with protected-writer refusal and same-schema first-hop fresh-CLI handoff.",
+        "Added ordered versus opaque compatibility, preservation and ordinary forward recovery guidance.",
+        "Documented checkpoint index_guard_handoff, index_guard_restart_required, retained exact argv/pack identity, confirmation, discovery limitations and separate storage receipt ownership.",
+        "Corrected graph reset-on-open description to deferred reset intent for older supported revisions; newer/unproven identities refuse.",
+        "Added tight Unreleased changelog bullet without changing any format/version declaration."
+      ],
+      "validation": {
+        "git_diff_check": "passed",
+        "wf_validate_docs": "passed; errors=[]; warnings=[]",
+        "full_suite": "not run per delegated scope"
+      },
+      "source_validation": [
+        "index_compatibility.py current source via MCP code_outline/code_read",
+        "upgrade_extensions.enforce_index_guard_handoff current source via MCP code_outline/code_read"
+      ],
+      "limitations": [
+        "Concurrent core/upgrade implementation remains in progress; delivery review must verify final source/contract alignment and public diagnostics.",
+        "This is implementation, not independent delivery review.",
+        "No native platform qualification or upgrade execution performed."
+      ],
+      "preservation": {
+        "preexisting_changes_preserved": true,
+        "code_edited": false,
+        "other_seeds_edited": false,
+        "plan_wave_ac_status_modified": false,
+        "framework_version_modified": false,
+        "guard_flags_owned_by_coordinator": true
+      }
+    },
+    "fixture_repairs": {
+      "wave": "1xxc9",
+      "role": "fixture-implementer",
+      "independent": false,
+      "files_changed": [
+        ".wavefoundry/framework/scripts/tests/test_dashboard_server.py",
+        ".wavefoundry/framework/scripts/tests/test_retrieval_candidate_generation.py",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py"
+      ],
+      "changes": [
+        "Dashboard healthy vector and lexical fixtures record current walker/chunker provenance.",
+        "Candidate fixture bookkeeping retains current walker/chunker provenance when replacing metadata after shared sqlite fixture seeding.",
+        "Degraded FTS fixture carries current walker/chunker provenance, no semantic model asserted because it has no vectors."
+      ],
+      "verification": {
+        "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python3 -B -m unittest test_dashboard_server.DashboardSnapshotTests test_dashboard_server.LexicalDashboardTests test_retrieval_candidate_generation test_server_tools_retrieval.DegradedFtsFallbackTests",
+        "exit_code": 0,
+        "summary": [
+          "----------------------------------------------------------------------",
+          "Ran 118 tests in 16.808s",
+          "",
+          "OK"
+        ],
+        "log": "/tmp/1xxc9-fixture-repairs-tests.log"
+      },
+      "limits": "Targeted fixture verification only; no full suite, no independent review. Existing unrelated diffs in retrieval test file preserved; product code and deliberate missing/malformed fixtures untouched."
+    },
+    "advisory": {
+      "kind": "in-progress advisory",
+      "verification_context": {
+        "actor": "performance-reviewer/release-reviewer advisory",
+        "context_id": "1xxc9-implementation-advisory-20260912",
+        "fresh_context": false,
+        "independent": true,
+        "disclosure": "Retains own readiness review context; performed no implementation. Not a final delivery lane approval."
+      },
+      "findings": [
+        {
+          "id": "ADV-1",
+          "severity": "medium",
+          "path": ".wavefoundry/framework/scripts/index_compatibility.py",
+          "symbol": "check_connection",
+          "problem": "Published lexical-only canonical chunks evade missing-identity refusal because populated is inferred solely from vectors_<layer>. Direct delta writer explicitly permits vectorless canonical rows.",
+          "observed": "Isolated in-memory SQLite fixture with current store schema, build_state complete/generation1, nonempty chunks_docs and empty build_layer_meta was accepted by check_connection.",
+          "expected": "Unknown populated participant missing walker/chunker/model provenance must refuse or match an explicit named legacy policy.",
+          "smallest_correction": "Detect canonical chunks and applicable registry rows as participant presence, not just vectors; define lexical-only model absence explicitly while still requiring applicable walker/chunker provenance. Cover completed vectorless layer missing identities."
+        },
+        {
+          "id": "ADV-2",
+          "severity": "medium",
+          "path": ".wavefoundry/framework/scripts/graph_snapshot.py; .wavefoundry/framework/scripts/graph_query.py",
+          "symbol": "_read_snapshot / _ensure_graph_builder_current",
+          "problem": "Graph serving checks newer builder only; pinned snapshot does not validate graph schema/store/walker/chunker metadata. A newer graph schema with equal builder can be reconstructed and served without explicit compatibility permission.",
+          "observed": "Source trace: snapshot loads all graph metadata then materializes payload without check_connection/check_ordered; query guard checks only graph.builder_version and can return via equal-builder cache. open_read_only checks only top-level storage schema.",
+          "expected": "Either explicitly document supported forward-compatible reads for those fields or refuse incompatible graph snapshot before reconstructing rows.",
+          "smallest_correction": "Validate relevant graph read contract from pinned metadata before reconstruction/cache reuse, preserve typed diagnostic. Add same-builder/newer-graph-schema fixture.",
+          "limitations": "Source-validated advisory; no end-to-end query fixture executed."
+        }
+      ],
+      "performance_observation": "Manual main indexer publication transaction is not enrolled in _ACTIVE_WRITERS, so each chunk batch enters writer_transaction and rehashes all seven producer sources/checks metadata. At 250 rows/batch this is repeated during lock hold. Readiness measured ~1ms/1.8MB hash; not independently benchmarked on actual publication. Consider wrapping outer publication transaction with shared guarded owner to avoid redundant checks, with a final runtime check before commit.",
+      "limitations": [
+        "No full suite; in-progress files may change after read.",
+        "No native Windows execution, packaging, host-stop or upgrade probe.",
+        "Nested transaction check suppression examined; no externally reachable downgrade demonstrated from suppression alone.",
+        "Existing callhierarchy/render_platform changes excluded from findings."
+      ],
+      "artifacts": [
+        "in-memory check_connection vectorless complete-layer probe",
+        "MCP code_keyword integration census and code_read index_compatibility current source"
+      ]
+    },
+    "guard_timing": {
+      "kind": "read-only warm metadata guard microbenchmark",
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "samples": 100,
+      "p50_ms": 1.0814793640747666,
+      "p95_ms": 1.2565830256789923,
+      "max_ms": 1.9373339600861073,
+      "source_bytes": 1823089,
+      "note": "Existing connection, live compatible store; not end-to-end retrieval or cross-platform qualification."
+    },
+    "live_smoke": {
+      "health_status": "ok",
+      "diagnostics": [
+        "index_stale"
+      ],
+      "readiness": "needs_update",
+      "semantic_ready": false,
+      "graph_present": true,
+      "graph_builder": "52",
+      "graph_generation": 1364
+    }
+  },
+  "root_integration": {
+    "serving_tests": {
+      "count": 37,
+      "result": "ok",
+      "log": "/tmp/1xxc9-serving.log"
+    },
+    "graph_query_tests": {
+      "count": 92,
+      "result": "ok",
+      "log": "/tmp/1xxc9-graph-query.log"
+    },
+    "upgrade_mcp_tests": {
+      "count": 61,
+      "result": "ok",
+      "log": "/tmp/1xxc9-upgrade-serving.log"
+    },
+    "corrections": [
+      "Graph snapshots validate full compatibility before reconstruction in their read snapshot.",
+      "Newer/stale/unproven diagnostics preserve typed codes and request restart; health, graph repair and explicit/background launch preflight refuse before scheduling.",
+      "Quiet-period monitor exposes typed refusal reason and never spawns a repeated incompatible child.",
+      "MCP upgrade recognizes invocation-bound index_guard_restart_required and retains exact external CLI argv.",
+      "Copied-source process fixtures use a neutral temporary cwd so the full runner scripts cwd cannot shadow PYTHONPATH; same test passes with scripts cwd."
+    ]
+  },
+  "full_suite": {
+    "result": "ok",
+    "logs": [
+      "/tmp/1xxc9-full-suite.log",
+      "/tmp/1xxc9-full-suite-final.log",
+      "/tmp/1xxc9-full-suite-verified.log",
+      "/tmp/1xxc9-full-suite-complete.log"
+    ],
+    "initial_run_note": "Initial broad run overlapped core repairs and correctly rejected source changes; not final delivery evidence.",
+    "tests": 8976,
+    "files": 90,
+    "skipped": 12,
+    "seconds": 459.981,
+    "receipt": {
+      "inputs_hash": "0e8cbfb99f264b73a0c307095108b532b5cb5cc28969ce9cce8793591d62831d",
+      "ran_at": "2026-09-13T03:27:41.958260+00:00",
+      "test_count": 8976,
+      "result": "ok",
+      "durations_s": {
+        "test_accel_embedder.py": 2.268,
+        "test_agent_surface_integrity.py": 1.291,
+        "test_ann_reference_eval.py": 0.463,
+        "test_build_pack.py": 9.634,
+        "test_check_version.py": 0.058,
+        "test_chunker.py": 34.318,
+        "test_cli_stdio.py": 0.078,
+        "test_commit_provenance.py": 4.184,
+        "test_context_efficiency.py": 0.865,
+        "test_dashboard_server.py": 28.741,
+        "test_design_system_backfill.py": 0.126,
+        "test_design_system_governance_validators.py": 0.2,
+        "test_design_system_surface_validators.py": 0.228,
+        "test_design_system_validators.py": 0.4,
+        "test_design_token_build.py": 0.397,
+        "test_doc_drift.py": 24.885,
+        "test_docs_constants_lint.py": 3.055,
+        "test_docs_gardener.py": 0.313,
+        "test_docs_lint.py": 143.104,
+        "test_events_only_residue_census.py": 0.759,
+        "test_fts_lexical_layer.py": 4.42,
+        "test_fts_query_honesty.py": 6.268,
+        "test_gen_codebase_map.py": 5.011,
+        "test_graph_call_census.py": 0.175,
+        "test_graph_call_integrity.py": 1.982,
+        "test_graph_cluster.py": 0.77,
+        "test_graph_incremental_merge.py": 20.027,
+        "test_graph_indexer.py": 72.563,
+        "test_graph_quality_eval.py": 1.927,
+        "test_graph_query.py": 4.894,
+        "test_graph_snapshot_readers.py": 19.236,
+        "test_index_compatibility.py": 4.087,
+        "test_index_state_store.py": 9.945,
+        "test_index_upgrade_guard.py": 0.256,
+        "test_indexer.py": 153.337,
+        "test_indexer_secrets_scope.py": 3.416,
+        "test_install_log_lib.py": 0.464,
+        "test_lexical_ranking_eval.py": 0.903,
+        "test_lifecycle_id.py": 0.546,
+        "test_lifecycle_mutation_lock.py": 1.404,
+        "test_memory_backfill.py": 4.536,
+        "test_memory_eval.py": 3.54,
+        "test_memory_records.py": 9.624,
+        "test_model_bundle.py": 1.02,
+        "test_per_area_agents_context.py": 1.277,
+        "test_perf_budget_policy.py": 0.047,
+        "test_prune_framework.py": 0.076,
+        "test_python_parse_diagnostics.py": 3.158,
+        "test_reconcile_scan.py": 1.658,
+        "test_render_agent_surfaces.py": 2.296,
+        "test_render_platform_surfaces.py": 3.645,
+        "test_retrieval_candidate_generation.py": 5.57,
+        "test_retrieval_eval.py": 2.364,
+        "test_review_evidence.py": 1.307,
+        "test_review_policy.py": 4.115,
+        "test_run_tests_cache.py": 0.768,
+        "test_run_tests_lock.py": 1.214,
+        "test_runtime_lock.py": 0.458,
+        "test_scan_secrets.py": 0.355,
+        "test_scanner_skips.py": 0.111,
+        "test_secret_scan_cache.py": 2.912,
+        "test_secrets_prefix_collapse.py": 145.339,
+        "test_secrets_validators.py": 5.936,
+        "test_server_context_efficiency.py": 3.617,
+        "test_server_startup_guards.py": 0.285,
+        "test_server_stdout_isolation.py": 0.086,
+        "test_server_tools.py": 77.002,
+        "test_server_tools_lifecycle.py": 140.0,
+        "test_server_tools_retrieval.py": 111.832,
+        "test_setup_index.py": 27.474,
+        "test_setup_wavefoundry.py": 1.428,
+        "test_shipped_reference_docs.py": 0.435,
+        "test_sqlite_event_eval.py": 0.142,
+        "test_sqlite_publication.py": 0.969,
+        "test_sqlite_publication_optimization.py": 0.723,
+        "test_sqlite_serving.py": 4.649,
+        "test_sqlite_storage_migration.py": 102.054,
+        "test_storage_upgrade_resume.py": 55.701,
+        "test_subprocess_util.py": 0.194,
+        "test_techdocs_audit_lib.py": 11.852,
+        "test_tree_sitter_cache.py": 0.068,
+        "test_upgrade_protocol.py": 7.84,
+        "test_upgrade_wavefoundry.py": 27.061,
+        "test_vector_backend_eval.py": 0.146,
+        "test_vector_public_compare.py": 0.084,
+        "test_vector_public_eval.py": 0.066,
+        "test_vector_public_filter_smoke.py": 0.068,
+        "test_venv_bootstrap.py": 2.014,
+        "test_wave_gate.py": 0.084,
+        "test_wf_cli.py": 2.745
+      }
+    },
+    "receipt_hash_recomputed": "0e8cbfb99f264b73a0c307095108b532b5cb5cc28969ce9cce8793591d62831d",
+    "command": "PYTHON_CPU_COUNT=3 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python3 -B .wavefoundry/framework/scripts/run_tests.py",
+    "prior_attempt_note": {
+      "tests": 8975,
+      "files": 90,
+      "skipped": 12,
+      "result": "one concurrent module-loading failure; repair in progress",
+      "seconds": 474.086
+    }
+  },
+  "limitations": [
+    "Native tests and timings executed on macOS ARM64 only; native Windows/Linux qualification remains pending.",
+    "Live smoke reports index_stale from current working edits; graph is readable and source contracts current, not a claim of freshly reindexed content.",
+    "Readiness and delivery approvals recorded; operator authorized closure. No commit/package."
+  ],
+  "advisory_reverification": {
+    "scope": "Only ADV-1, ADV-2, and repeated batch hashing advisory; not formal delivery approval",
+    "verification_context": {
+      "fresh_context": false,
+      "independent": true,
+      "disclosure": "Retained own advisory and readiness context; no implementation involvement."
+    },
+    "status": "resolved",
+    "findings": [
+      {
+        "id": "ADV-1",
+        "status": "resolved",
+        "verified": "check_connection now requires walker/chunker metadata for completed canonical chunk populations; vector populations additionally require model identity. Public rebuild regression refuses text-only completed layer and preserves snapshot."
+      },
+      {
+        "id": "ADV-2",
+        "status": "resolved",
+        "verified": "graph_snapshot._read_pinned runs check_connection inside BEGIN before reading graph rows. Four non-builder future graph contract fixtures returned index_version_newer and no present snapshot."
+      },
+      {
+        "id": "batch-hashing",
+        "status": "resolved",
+        "verified": "Main publication enrolls writer_transaction around all participants, with explicit trailing ensure_runtime_current before COMMIT. Independent 100-nested-batch probe ran exactly two full source verifications (outer entry/exit)."
+      }
+    ],
+    "tests": {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests python3 -B -m unittest test_index_compatibility.CompatibilityTests.test_complete_text_only_provenance_is_required_before_repair test_sqlite_serving.SQLiteServingTests.test_graph_snapshot_refuses_other_newer_contracts_before_reading_rows test_sqlite_serving.SQLiteServingTests.test_stale_coordinator_never_schedules_background_or_explicit_build",
+      "result": "3 tests, 0.137 seconds, OK; no skips",
+      "nested_probe": {
+        "nested_batches": 100,
+        "full_source_checks": 2
+      }
+    },
+    "sha256": {
+      ".wavefoundry/framework/scripts/index_compatibility.py": "2e4db03b98dcaa2b26add6f7d43a6a692993a4c1c9d9b98d61b6e53f9641bc6f",
+      ".wavefoundry/framework/scripts/indexer.py": "6a303fdff790f555c8229e510829969bc665f9403348dcf24807782740ffae90",
+      ".wavefoundry/framework/scripts/graph_snapshot.py": "7e155e819ff246ccc165d94c5921688177ab60f58dd3353b191dfb74494d3f9c",
+      ".wavefoundry/framework/scripts/server_impl.py": "f968fae0d1639484bf9b27dd9488e455623395fa7718307bf4125be135206457",
+      ".wavefoundry/framework/scripts/tests/test_index_compatibility.py": "136b0fac28d3f3b0bfb66ae19335eefa1e040d16c80bbc9e8908596a768b40ab",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_serving.py": "583bfb376e7ae9dce01c3b33c17697bf045899e2fcd32584789f1feb22f78da9"
+    },
+    "limitations": [
+      "Targeted tests and source only; no full suite or native Windows run.",
+      "Read supplied timing artifact p95 1.2566ms; did not independently reproduce its latency measurement."
+    ]
+  },
+  "import_race_repair": {
+    "status": "complete; source frozen",
+    "diagnosis": "Manual optional state-store loaders published sys.modules entries before executing module code without Python import-lock initialization tracking. Concurrent canonical imports could observe missing open_read_only. scan_secrets also executed a duplicate module when an entry already existed.",
+    "files": {
+      "indexer.py": "_get_index_state_store uses importlib.import_module after unchanged path-exists check.",
+      "scan_secrets.py": "_load_state_store uses the same synchronized canonical import after unchanged optional-absence check.",
+      "tests/test_index_compatibility.py": "test_optional_store_loaders_wait_for_complete_canonical_import uses isolated subprocesses for both producers, real SourceFileLoader event barriers, and observed import-lock acquisition; asserts canonical identity and completed open_read_only."
+    },
+    "tests": [
+      {
+        "suite": "test_index_compatibility.py",
+        "tests": 16,
+        "result": "OK",
+        "seconds": 3.297,
+        "log": "/tmp/1xxc9-import-race-compat.log"
+      },
+      {
+        "suite": "test_secret_scan_cache.py",
+        "tests": 24,
+        "result": "OK",
+        "seconds": 3.166,
+        "log": "/tmp/1xxc9-import-race-secret.log"
+      },
+      {
+        "suite": "test_server_tools.py",
+        "summary": "Ran 344 tests in 94.401s\n\nOK",
+        "log": "/tmp/1xxc9-import-race-server.log"
+      }
+    ],
+    "mutations": {
+      "result": "Both old manual-loader mutants killed: partial module observed before module execution was released.",
+      "log": "/tmp/1xxc9-import-race-mutant.log"
+    },
+    "scope": "No optional cache fallback expansion; stale-runtime source checks unchanged. No full suite run by this lane; no commit or wave closure."
+  }
+}

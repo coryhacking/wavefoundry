@@ -1426,12 +1426,20 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 {
                     "definition_file": "metadata-only.py",
                     "context": [{"source_file": "context-only.py"}],
+                    "outgoing": [
+                        {"file": "callee.py", "snippet": None,
+                         "call_site": {"file": "caller.py", "line": 32, "snippet": "helper()"}},
+                        {"file": "null-site.py", "call_site": None},
+                        {"file": "empty-site.py", "call_site": {"file": "empty.py", "snippet": ""}},
+                        {"file": "external", "call_site": {"file": "external", "snippet": "x"}},
+                        {"file": "malformed.py", "call_site": "wrong shape"},
+                    ],
                     "incoming": [
                         {"file": "h.py", "snippet": "caller()"},
                         {"file": "no-snippet.py", "snippet": None},
                     ],
                 },
-                ["h.py"],
+                ["caller.py", "h.py"],
             ),
             "code_commit_provenance": (
                 {

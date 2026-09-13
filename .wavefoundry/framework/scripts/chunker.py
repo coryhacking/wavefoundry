@@ -2,6 +2,9 @@
 """Language-aware text chunker for the Wavefoundry index builder."""
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 import ast
 import logging
 import re

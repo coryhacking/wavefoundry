@@ -1,0 +1,1191 @@
+{
+  "wave": "1xxc9",
+  "status": "approved; wave closed",
+  "fingerprint": {
+    ".wavefoundry/framework/README.md": "6824373220fa006666b65ffaa36ebf601d83da52",
+    ".wavefoundry/framework/scripts/chunker.py": "7a59e634356fd8d3a05f044c757116f07d523f1d",
+    ".wavefoundry/framework/scripts/graph_call_census.py": "7f4b62cf7f73adbebee32ca6229d79b02321292c",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "d6199980afb7473362964b846a49ad1b28342d61",
+    ".wavefoundry/framework/scripts/graph_query.py": "785e2fe72b5250860b787c4c294bf545db364608",
+    ".wavefoundry/framework/scripts/graph_snapshot.py": "c4d71ff6af84c69f680ef6bd693927103cb38dd0",
+    ".wavefoundry/framework/scripts/graph_store.py": "67881e9b6ea0eb5812303f5f0e1e8f444bee5e3f",
+    ".wavefoundry/framework/scripts/index_compatibility.py": "5a2501711056b2dbef8b28f83512447bc3a15e0f",
+    ".wavefoundry/framework/scripts/index_state_store.py": "07b5ee6448032ad0983e0bfb6a88e94a5de2f1aa",
+    ".wavefoundry/framework/scripts/indexer.py": "aea1cc8ec5bf73ef56ee75de1b7eed733e5c0b6b",
+    ".wavefoundry/framework/scripts/model_bundle.py": "7853bbadf3b9ff71a0baf1758add18a8f5db4512",
+    ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+    ".wavefoundry/framework/scripts/scan_secrets.py": "5fd141be782d5fe3c2161a9f88006b985f442877",
+    ".wavefoundry/framework/scripts/server_impl.py": "aa08624a5bedbbff40463cab178ff33aa80597bc",
+    ".wavefoundry/framework/scripts/sqlite_runtime.py": "83fcc02bcfc3fe0a6fb6695c918db40d06a477b4",
+    ".wavefoundry/framework/scripts/sqlite_vector_store.py": "1d0a55907866d5abe6cc8654e1dbe4faab17a0df",
+    ".wavefoundry/framework/scripts/tests/graph_fixture_support.py": "90a225079a77d266924f4150887f61a71ecbd2cc",
+    ".wavefoundry/framework/scripts/tests/server_tools_support.py": "e81f3bef1a1f7a49f9dc41067bb155ead83f63a8",
+    ".wavefoundry/framework/scripts/tests/test_dashboard_server.py": "e143a674136ebf390160be77b95048e7e9c68c10",
+    ".wavefoundry/framework/scripts/tests/test_fts_query_honesty.py": "5f4d4408449952d87c03902383b0057783a2734e",
+    ".wavefoundry/framework/scripts/tests/test_graph_call_census.py": "495752bdfb3937daf2e4c8e79811a349fada8898",
+    ".wavefoundry/framework/scripts/tests/test_graph_call_integrity.py": "a162460d807507389bb318166ad5bfab340e9673",
+    ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "c1433b40006b508162cb3eea7bfd42695a1a4ee0",
+    ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "af7cc318e0ea5816950d9a9ea6f3e20eb111c22d",
+    ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "b9fb2c66cf60bb8c16360bc9e6a8a1db139d4002",
+    ".wavefoundry/framework/scripts/tests/test_index_compatibility.py": "4862ae82039766ec307a285ea28e3c256a24cfd9",
+    ".wavefoundry/framework/scripts/tests/test_index_state_store.py": "15df4b2078634f6028d983633a23fd957221372d",
+    ".wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py": "bd656c94c5e4160fd3dbd3b7f3ba595bc5452c37",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "e1f78493972b66bd8b56809c3c3bf517f3727387",
+    ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+    ".wavefoundry/framework/scripts/tests/test_retrieval_candidate_generation.py": "700571ebb6189cf728674ac1aa6ce604d042e032",
+    ".wavefoundry/framework/scripts/tests/test_server_context_efficiency.py": "3d3ecd27172d96e61c87159bb2ef6ab0d5a04c5e",
+    ".wavefoundry/framework/scripts/tests/test_server_tools.py": "af2e40f4260112a347b6f128a52fa5aa822f6fe4",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "f8cdbec4564a359326ed9b8219df95cd0203ba2a",
+    ".wavefoundry/framework/scripts/tests/test_sqlite_serving.py": "5c4226bb847c6911c479c7918422014d5c520442",
+    ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "fa9eb76bea85e2c998b0f6faad90cd5ccc85806a",
+    ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "3d7d571adfcd0737db4a4468a8b26df3d48064cb",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "0b27b6448940e7dec9f4e9dfe9193f2cebe85431",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "25bb1e839e41b1cad50502fd76a3e1e6ebbe5cc7",
+    ".wavefoundry/framework/scripts/upgrade_lib.py": "f83a10b988638581d18e2fc98492360445404baa",
+    ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "4e8c74196c140656096e4eef419f7f09cce1005c",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "36851c39e867819d65b3f4b39ac32a80cd4c5828",
+    "CHANGELOG.md": "1335f78a84fd6381885f7e4341b87a1d5b874ca3",
+    "docs/RELIABILITY.md": "f2475e703939c18851341ae891abc5d3178296b1",
+    "docs/architecture/data-and-control-flow.md": "a226f3cb36bf868e2ced673ef12f574154cfca82",
+    "docs/architecture/graph-index-system.md": "99f41bf84d15b0897f5eac2a14aa4bd01a922b26",
+    "docs/architecture/layering-rules.md": "b6ce38320b7e1893c4d68ff4c7f8d925bd891b80",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "6f9a45e4d60cf42c03d9bd3b57e9ff485765cd99",
+    "docs/specs/mcp-tool-surface.md": "31ec903719a261862d4e904524cb8a783f7d8e06"
+  },
+  "primer": {
+    "mode": "council-adversarial-primer",
+    "actor": "red-team",
+    "context_id": "1xxc9-close-primer-fresh-20260912",
+    "fresh_context": true,
+    "independent": true,
+    "phases": [
+      "readiness",
+      "delivery"
+    ],
+    "depth": "standard",
+    "thinking_stances_applied": {
+      "adversarial": "Challenge preparation/publication races and first-hop old hosts.",
+      "constructive": "Consider a single external publication coordinator fencing all writers.",
+      "simplicity": "Retain shared transaction guard and explicit upgrade handoff; avoid duplicated revision authorities."
+    },
+    "strongest_challenge": "A compatibility preflight is insufficient when prepared work or a joined caller-owned transaction outlives source replacement. Council must establish that final commit ownership retains runtime and persisted-version fencing and that first-hop unprotected hosts cannot publish before the upgrade handoff.",
+    "strongest_alternative": "Centralize publication in one fresh subprocess with an exclusive repository writer lease and immutable build contract token. This simplifies writer authority and old-host reasoning, but adds process orchestration, requires migration of direct store callers, and cannot retroactively teach pre-protection hosts to honor the lease. Existing shared transaction fencing plus first-hop confirmation is proportionate if its caller census is complete.",
+    "best_alternative": "Single fresh publication subprocess with an exclusive repository writer lease and immutable contract token; benefits and costs described in strongest_alternative.",
+    "primer_questions": [
+      "Which caller owns final commit for each joined writer_transaction path, and where does that owner recheck runtime identity after prepared work and before publication?",
+      "Can same-schema upgrade retries or package relocation clear the pre-extraction old-host obligation, and what exact limit remains for hosts discovery cannot observe?"
+    ],
+    "consequence_of_current_path": "Safety depends on complete caller integration and explicit host confirmation for discovery gaps; future direct writers must use the shared transaction guard.",
+    "recommendation": "Council seats should answer the two ownership questions from current sources; no repair justified by the selected executed probes.",
+    "confidence": "high",
+    "findings": [],
+    "finding_status": "No grounded defect established within the selected bounded scope; not a universal safety claim.",
+    "evidence_basis": [
+      "index_compatibility.writer_transaction",
+      "index_compatibility.check_connection",
+      "index_compatibility.register_loaded_source",
+      "upgrade_extensions._capture_index_guard_handoff",
+      "upgrade_extensions.enforce_index_guard_handoff",
+      "upgrade_extensions._validate_index_guard_handoff",
+      "test_index_compatibility.ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+      "test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation"
+    ],
+    "probes": [
+      {
+        "public_path": "IndexStateStore opening/direct semantic/FTS/epoch methods and GraphPublication.apply; real SQLite and two-process barrier",
+        "command_or_fixture": "python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_index_compatibility.py",
+        "expected": "Newer graph/version refusals preserve snapshots; prepared stale worker refuses; fresh opaque-model runtime succeeds; omitted publication fence commits and changes snapshot.",
+        "observed": "16 tests ran, 0 skips, OK in 3.515 seconds. Embedded two-process mutant committed and downgraded builder; guarded worker returned index_version_newer with identical snapshot."
+      },
+      {
+        "public_path": "Upgrade registered pre_extract/pre_index_update/pre_index_rebuild hooks; temporary checkpoints, package bytes and simulated discovery",
+        "command_or_fixture": "PYTHONPATH=.wavefoundry/framework/scripts python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p test_index_upgrade_guard.py",
+        "expected": "Old coordinator/known-live hosts refuse; checkpoint/package mismatch refuses; identical relocated package accepted; confirmed fresh coordinator proceeds.",
+        "observed": "15 tests ran, 0 skips, OK in 0.118 seconds."
+      }
+    ],
+    "mutation_table": [
+      {
+        "mutation": "Child-process check_connection replaced by no-op after preparation",
+        "targeted_test": "ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+        "result": "killed: stale commit and changed snapshot observed; old builder overwritten",
+        "whole_file_survivor_sweep": "not needed"
+      },
+      {
+        "mutation": "Runtime check_ordered replaced by no-op",
+        "targeted_test": "CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths",
+        "result": "killed: 2 assertion failures, 0 errors; expected typed exception absent and preserved snapshot changed",
+        "whole_file_survivor_sweep": "not needed"
+      },
+      {
+        "mutation": "Runtime enforce_index_guard_handoff replaced by no-op",
+        "targeted_test": "IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation",
+        "result": "killed: SystemExit not raised; 1 assertion failure, 0 errors",
+        "whole_file_survivor_sweep": "not needed"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Focused in-memory guard omissions at real store/publication and registered upgrade hook boundaries; actual typed-refusal and state-preservation assertions fail. Child-process graph publication mutant demonstrates stale commit and downgraded builder."
+    },
+    "source_integrity": {
+      "fingerprint_file": "/tmp/1xxc9-delivery-fingerprint.json",
+      "paths_checked": 49,
+      "git_hash_object_matches": true,
+      "changed_paths": []
+    },
+    "limitations": [
+      "No whole-system universal writer census or independent native Windows/Linux execution claimed. Upgrade host discovery is stubbed; real process graph publication exercised locally.",
+      "Initial upgrade-test invocation lacked PYTHONPATH and failed import; corrected invocation ran all 15 tests successfully.",
+      "An initial ordered-field mutant using the all-field fixture cascaded StorageRecoveryRequired errors after the first schema mutation; excluded as proof and replaced with isolated direct-writer test producing assertion failures without errors.",
+      "Required orientation output was truncated; targeted plan, red-team contract, seed209 executable contract, and relevant source reads supplied working evidence.",
+      "No lifecycle events, repository code or docs were mutated."
+    ],
+    "safety_and_authorization": "Local read-only review plus temporary SQLite/process fixtures and runtime monkeypatch mutations authorized by requested delivery review. No real host shutdown, extraction or external writes.",
+    "universal_claim": false
+  },
+  "code_qa": {
+    "wave": "1xxc9",
+    "context_id": "close-code-qa-fresh-20260912",
+    "fresh_context": true,
+    "independent": true,
+    "honest_declaration": "Code and QA are separate judgments from one actual fresh agent context, not two independent agents. Prior implementation artifact/status summaries were read as orientation, not proof; conclusions are based on current source, independently read AC, and newly executed tests.",
+    "findings": [],
+    "ac_evidence": {
+      "AC-1": {
+        "status": "supported",
+        "evidence": "Admitted Concrete Compatibility Design matrix reconciled with index_compatibility.SUPPORTED, _SOURCE_NAMES, check_connection; writer seams in IndexStateStore._open, begin_build_epoch, finalizers, GraphPublication.apply and upgrade handoff."
+      },
+      "AC-2": {
+        "status": "verified",
+        "evidence": "CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves traversed all nine ordered participants; decimal/malformed, legacy-empty, direct semantic/FTS/epoch/graph, finalizer, and completed-provenance tests passed. Eight numerical omission mutants lose refusal; storage omission loses typed error."
+      },
+      "AC-3": {
+        "status": "verified",
+        "evidence": "Both ProcessBarrierTests preparation and publication two-process barriers executed; publication no-op mutant committed downgraded metadata while guarded process preserved the complete compared snapshot."
+      },
+      "AC-4": {
+        "status": "verified",
+        "evidence": "SQLiteServingTests registered error mapping, stale coordinator double-attempt, graph snapshot and query rebuild suppression tests passed; spawn not called and typed restart diagnostics retained."
+      },
+      "AC-5": {
+        "status": "verified within specified source-fingerprint policy",
+        "evidence": "same-stat model source replacement and compiled-old-module tests refused stale runtime; explicit opaque model selection test accepts z-model then a-model; malformed lexical tokenizer refuses and preserves state. Runtime hash omission returns accepted and fails regression."
+      },
+      "AC-6": {
+        "status": "verified at faithful local boundaries",
+        "evidence": "First-hop hooks refuse old loaded context, require confirmation, retain storage action, and refuse known live associated host. SchemaEightKindTests schema-seven rename/conversion and graph rebuilt-from-source tests independently passed; retained source, published schema, nonempty graph, receipt cleanup asserted."
+      },
+      "AC-7": {
+        "status": "supported; coordinator docs check outstanding",
+        "evidence": "25 newly executed tests passed without skips; README recovery guidance distinguishes first-hop handoff and native execution qualifications. Full suite receipt supplied by coordinator; this lane does not claim to have run full docs validation."
+      }
+    },
+    "mutation_table": [
+      {
+        "mechanism": "store_schema_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 0,
+        "errors": 1,
+        "output": "E\n======================================================================\nERROR: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='store_schema_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 84, in test_each_ordered_participant_refuses_open_and_preserves\n    iss.IndexStateStore(self.index_dir)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/index_state_store.py\", line 395, in __init__\n    self._conn = self._open()\n                 ~~~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/index_state_store.py\", line 406, in _open\n    raise sqlite_runtime.StorageRecoveryRequired(\n        f\"Index schema {version!r} requires explicit migration/rebuild; \"\n        f\"preserving {self.path}. Run the standard wf upgrade/setup recovery path.\")\nsqlite_runtime.StorageRecoveryRequired: Index schema ('9',) requires explicit migration/rebuild; preserving /var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpovluqly6/.wavefoundry/index/index.sqlite. Run the standard wf upgrade/setup recovery path.\n\n----------------------------------------------------------------------\nRan 1 test in 0.085s\n\nFAILED (errors=1)\n",
+        "status": "KILLED",
+        "interpretation": "Typed-refusal regression: generic StorageRecoveryRequired replaces IndexCompatibilityError; preservation still enforced by older schema check. Not a data-loss demonstration."
+      },
+      {
+        "mechanism": "graph:store_schema_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:store_schema_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "graph:schema_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:schema_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "graph:builder_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:builder_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.027s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "graph:walker_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:walker_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "graph:chunker_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:chunker_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.027s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "walker_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='walker_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.026s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "chunker_version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='chunker_version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "lexical_statistics.version",
+        "mutation": "index_compatibility.check_ordered bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='lexical_statistics.version')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.029s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "missing completed provenance",
+        "mutation": "index_compatibility.check_connection bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_complete_text_only_provenance_is_required_before_repair",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_complete_text_only_provenance_is_required_before_repair (test_index_compatibility.CompatibilityTests.test_complete_text_only_provenance_is_required_before_repair)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 168, in test_complete_text_only_provenance_is_required_before_repair\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.015s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "first-hop handoff",
+        "mutation": "upgrade_extensions.enforce_index_guard_handoff bypass",
+        "test": "test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_same_schema_old_host_requires_new_coordinator_and_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 62, in test_same_schema_old_host_requires_new_coordinator_and_confirmation\n    result = self.refuse(lambda: hooks.pre_index_update(old))\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 49, in refuse\n    with self.assertRaises(SystemExit) as caught:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: SystemExit not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.004s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "final epoch fence",
+        "mutation": "index_compatibility.check_connection bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_finalizer_refuses_newer_statistics_before_generation_change",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_finalizer_refuses_newer_statistics_before_generation_change (test_index_compatibility.CompatibilityTests.test_finalizer_refuses_newer_statistics_before_generation_change)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 127, in test_finalizer_refuses_newer_statistics_before_generation_change\n    with self.assertRaises(ic.IndexCompatibilityError):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.017s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "FTS maintenance fence",
+        "mutation": "index_compatibility.check_connection bypass",
+        "test": "test_index_compatibility.CompatibilityTests.test_fts_maintenance_refuses_newer_statistics_without_mutation",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_fts_maintenance_refuses_newer_statistics_without_mutation (test_index_compatibility.CompatibilityTests.test_fts_maintenance_refuses_newer_statistics_without_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 134, in test_fts_maintenance_refuses_newer_statistics_without_mutation\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: IndexCompatibilityError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "runtime source hash",
+        "mutation": "test_index_compatibility.ProcessBarrierTests.child bypass",
+        "test": "test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement",
+        "killed": true,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement (test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\", line 350, in test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement\n    self.assertEqual(_line(process),'index_runtime_stale')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'accepted' != 'index_runtime_stale'\n- accepted\n+ index_runtime_stale\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.445s\n\nFAILED (failures=1)\n",
+        "status": "KILLED"
+      },
+      {
+        "mechanism": "graph publication transaction fence",
+        "mutation": "child replaces check_connection with no-op after preparation barrier",
+        "test": "ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+        "status": "KILLED",
+        "observed": "guarded child refuses index_version_newer with identical snapshot; mutant commits and overwrites builder revision, invalidating preservation oracle"
+      }
+    ],
+    "sweep_rule": "targeted tests per mutant; no survivors requiring whole-file rerun",
+    "time_budget": "6 minutes",
+    "lanes": {
+      "code-reviewer": {
+        "recommendation": "approve",
+        "findings": [],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        },
+        "expected": "Newer or unproven persisted contracts and stale executing source refuse before mutation/publication; compatible controls proceed and public diagnostics request restart.",
+        "observed": "25 selected tests passed, no skips. Fourteen isolated targeted mutation variants were detected (13 assertion failures plus one expected typed-error regression); embedded graph-publication mutant visibly downgraded state while guarded control preserved it.",
+        "artifact_or_test_id": [
+          "/tmp/1xxc9-close-code-qa-tests.log",
+          "/tmp/1xxc9-close-code-qa-public.log",
+          "/tmp/1xxc9-close-code-qa-migration.log",
+          "/tmp/1xxc9-close-mutations.json"
+        ],
+        "reference": "Independently read admitted AC-2/AC-3/AC-4/AC-6 and monotonic-generation/state-preservation invariant; fixture version+1 is a reachable newer producer contract. Common-mode limit: targeted repository tests share current producer constants; future fixture injects raw metadata explicitly to avoid guard preventing setup.",
+        "limitations": [
+          "macOS execution only; native Windows/Linux not run.",
+          "Full 8976-test suite not rerun; existing receipt is coordinator evidence, not this reviewer execution.",
+          "Bounded six-minute review; did not individually mutate each duplicated writer callsite, every checkpoint validator member, source compiled-code registration, import-loader repair, tokenizer comparison, or each diagnostic mapping. Existing independent barrier and targeted tests were run for these selected areas; no claim of exhaustive mutation coverage.",
+          "No live host termination, network model download, real project index mutation, or installed external release rehearsal. Host discovery is mocked in first-hop fixtures; combined schema-7/graph migration uses real local disposable stores.",
+          "No full docs validation run by this lane; coordinator must complete the explicit docs validation boundary.",
+          "Code and QA are separate judgments from one actual fresh agent context, not two independent agents. Prior implementation artifact/status summaries were read as orientation, not proof; conclusions are based on current source, independently read AC, and newly executed tests."
+        ],
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "close-code-qa-fresh-20260912",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      "qa-reviewer": {
+        "recommendation": "approve",
+        "findings": [],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        },
+        "expected": "Newer or unproven persisted contracts and stale executing source refuse before mutation/publication; compatible controls proceed and public diagnostics request restart.",
+        "observed": "25 selected tests passed, no skips. Fourteen isolated targeted mutation variants were detected (13 assertion failures plus one expected typed-error regression); embedded graph-publication mutant visibly downgraded state while guarded control preserved it.",
+        "artifact_or_test_id": [
+          "/tmp/1xxc9-close-code-qa-tests.log",
+          "/tmp/1xxc9-close-code-qa-public.log",
+          "/tmp/1xxc9-close-code-qa-migration.log",
+          "/tmp/1xxc9-close-mutations.json"
+        ],
+        "reference": "Independently read admitted AC-2/AC-3/AC-4/AC-6 and monotonic-generation/state-preservation invariant; fixture version+1 is a reachable newer producer contract. Common-mode limit: targeted repository tests share current producer constants; future fixture injects raw metadata explicitly to avoid guard preventing setup.",
+        "limitations": [
+          "macOS execution only; native Windows/Linux not run.",
+          "Full 8976-test suite not rerun; existing receipt is coordinator evidence, not this reviewer execution.",
+          "Bounded six-minute review; did not individually mutate each duplicated writer callsite, every checkpoint validator member, source compiled-code registration, import-loader repair, tokenizer comparison, or each diagnostic mapping. Existing independent barrier and targeted tests were run for these selected areas; no claim of exhaustive mutation coverage.",
+          "No live host termination, network model download, real project index mutation, or installed external release rehearsal. Host discovery is mocked in first-hop fixtures; combined schema-7/graph migration uses real local disposable stores.",
+          "No full docs validation run by this lane; coordinator must complete the explicit docs validation boundary.",
+          "Code and QA are separate judgments from one actual fresh agent context, not two independent agents. Prior implementation artifact/status summaries were read as orientation, not proof; conclusions are based on current source, independently read AC, and newly executed tests."
+        ],
+        "verification_context": {
+          "actor": "qa-reviewer",
+          "context_id": "close-code-qa-fresh-20260912",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    },
+    "fingerprint_mismatches": []
+  },
+  "architecture_security": {
+    "wave_id": "1xxc9 monotonic-index-version-protection",
+    "change_ids": [
+      "1xwi1-bug prevent-stale-index-writer-downgrades"
+    ],
+    "phase": "delivery",
+    "sweep_rule": "targeted tests per mutant; whole-file only survivors",
+    "fresh_context_disclosure": "Both lanes share this one fresh reviewer context; they are independent of implementation, not independent of each other.",
+    "fingerprint": {
+      "count": 49,
+      "moved": {}
+    },
+    "lanes": [
+      {
+        "verdict": "approved",
+        "approval_recommendation": "approved",
+        "approval_phase": "delivery",
+        "expected": "Refuse unsupported/newer producers before state mutation; preserve caller transaction ownership and checkpoint recovery authority; permit valid equal/older/fresh controls.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        },
+        "limitations": [
+          "Executed on macOS ARM64 only; native Windows/Linux/Intel and full installer subprocess lifecycle were not run.",
+          "Host discovery was patched at its discovery boundary; real same-process PID liveness was exercised. Discovery remains explicitly best effort with operator confirmation.",
+          "Both lanes share this one fresh reviewer context; they are independent of implementation, not independent of each other.",
+          "Mutation sweep was risk-selected: seven added omission mutants plus prepared-graph built-in mutant. No full-suite repeat or exhaustive writer-site census; no universal correctness claim.",
+          "Mandatory orientation disclosed prior status but earlier evidence/verdict artifacts were not used as proof. MCP keyword output was capped at 35 matches; no exhaustive claim derives from that search."
+        ],
+        "findings": [],
+        "artifact_or_test_id": [
+          "/tmp/1xxc9-arch-security-probe.py",
+          "/tmp/1xxc9-arch-security-probe-results.json",
+          "/tmp/1xxc9-arch-security-schema.json",
+          "test_index_upgrade_guard.IndexUpgradeGuardTests",
+          "test_index_compatibility.CompatibilityTests",
+          "test_index_compatibility.ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+          "test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement",
+          "test_index_compatibility.ProcessBarrierTests.test_compiled_old_module_cannot_capture_new_installed_bytes"
+        ],
+        "safety_and_authorization": "Read-only source review; actual writes restricted to disposable temporary stores/checkpoints, monkeypatch mutants process-local. No source, docs, lifecycle, commit or deployment mutation.",
+        "execution_status": "executed",
+        "universal_claim": false,
+        "lane": "architecture-reviewer",
+        "claim_id": "approval:architecture-reviewer",
+        "verification_context": {
+          "actor": "architecture-reviewer",
+          "context_id": "close_arch_security-1xxc9-fresh-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "observed": "29 selected tests completed, 0 skips. New independent AC-derived probe demonstrated nested writer keeps caller transaction open, caller ROLLBACK restores exact metadata, and own-transaction exception rolls back. Future schema rejects DELETE; omitted check allowed DELETE and changed metadata. Prepared graph barrier rejected publication following newer concurrent generation and caught its built-in mutant. Runtime source replacement tests refused same-stat changed files and already-compiled old source. Actual six-table sqlite_schema inspection verified metadata PKs, singleton build_state/CHECKs, canonical chunk identity and vector FK/width. Shared compatibility module owns classification only, IndexStateStore owns connections, graph/vector helpers join publication, indexer retains epoch/CAS ownership. Layering/data-flow docs describe the new ownership and separate upgrade checkpoint.",
+        "public_path": "IndexStateStore construction; begin/finalize epoch, apply/rebuild chunk index, graph publication apply, vector delete, FTS maintenance, upgrade phase_index_update/rebuild/parent_owned entries; writer_transaction faithful store boundary.",
+        "boundaries_touched": [
+          "producer source identity -> immutable runtime contract",
+          "shared SQLite writer transaction -> graph/semantic/FTS participants",
+          "upgrade checkpoint -> first-hop publication permission"
+        ],
+        "required_doc_updates": [],
+        "mutation_table": [
+          {
+            "mechanism": "live-host refusal",
+            "baseline": {
+              "test": "test_known_live_host_refuses_even_with_confirmation",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_known_live_host_refuses_even_with_confirmation",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_known_live_host_refuses_even_with_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_known_live_host_refuses_even_with_confirmation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 78, in test_known_live_host_refuses_even_with_confirmation\n    result = self.refuse(lambda: hooks.pre_index_rebuild(self.ctx))\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 49, in refuse\n    with self.assertRaises(SystemExit) as caught:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: SystemExit not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "checkpoint root binding",
+            "baseline": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "E\n======================================================================\nERROR: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority) (field='root')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 108, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\n    hooks.pre_index_update(self.ctx)\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 1509, in pre_index_update\n    enforce_index_guard_handoff(ctx)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 819, in enforce_index_guard_handoff\n    raise pause\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.018s\n\nFAILED (errors=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "checkpoint package digest",
+            "baseline": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 111, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\n    with self.assertRaisesRegex(ValueError, 'index_guard_package_changed'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.014s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "path link refusal",
+            "baseline": {
+              "test": "test_linked_source_refused_before_read",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_linked_source_refused_before_read",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_linked_source_refused_before_read (test_index_upgrade_guard.IndexUpgradeGuardTests.test_linked_source_refused_before_read)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 215, in test_linked_source_refused_before_read\n    with self.assertRaisesRegex(ValueError, 'linked recovery/source path'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "invocation binding",
+            "baseline": {
+              "test": "test_structured_action_reader_binds_invocation_and_checkpoint",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_structured_action_reader_binds_invocation_and_checkpoint",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_structured_action_reader_binds_invocation_and_checkpoint (test_index_upgrade_guard.IndexUpgradeGuardTests.test_structured_action_reader_binds_invocation_and_checkpoint)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 204, in test_structured_action_reader_binds_invocation_and_checkpoint\n    self.assertIsNone(hooks.read_index_guard_action(self.root, 3, 'other-invocation'))\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'status': 'action_required', 'code': 'index_guard_restart_required', 'reason': 'index_guard_hosts_confirmation_required', 'kind': 'index_guard_handoff', 'token': '99aa1d19fa71441b896f1c5e48aecbcb', 'invocation_token': 'this-invocation', 'command_argv': ['/opt/homebrew/opt/python@3.13/bin/python3.13', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py', '--root', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren', '--pack', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip', '--yes', '--confirm-hosts-stopped'], 'command': '/opt/homebrew/opt/python@3.13/bin/python3.13 /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren --pack /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip --yes --confirm-hosts-stopped', 'command_shell': 'POSIX shell', 'old_hosts': [], 'discovery_limits': ['discovery is best effort'], 'message': \"Stop this repository's Wavefoundry hosts, including hosts discovery cannot observe, then run the retained command in an external terminal. Keep the checkpoint and original package. No index publication is permitted before confirmation.\"} is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "first-hop phase fence",
+            "baseline": {
+              "test": "test_each_actual_phase_refuses_before_child_or_store_access",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_each_actual_phase_refuses_before_child_or_store_access",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "FFF\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42ca0>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                          ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2374, in phase_index_update\n    migration_state = sqlite_storage_migration.detect(root / \".wavefoundry/index\")\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: storage reached before guard\n\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f41e40>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2597, in phase_index_rebuild\n    result = subprocess_util.isolated_run(\n        [_preferred_python(), str(setup_script), \"--root\", str(root), \"--full\"],\n    ...<2 lines>...\n        env=blocking_env,\n    )\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: child reached before guard\n\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42f20>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                                                                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2556, in phase_index_update_parent_owned\n    phase_index_update(root)\n    ~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2374, in phase_index_update\n    migration_state = sqlite_storage_migration.detect(root / \".wavefoundry/index\")\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: storage reached before guard\n\n----------------------------------------------------------------------\nRan 1 test in 0.013s\n\nFAILED (failures=3)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "transaction-bound compatibility and ownership",
+            "baseline": "nested rollback and own-error rollback preserved exact metadata; newer generation refused before DELETE",
+            "mutant": "check_connection omitted, DELETE changed all metadata",
+            "detected": true
+          }
+        ]
+      },
+      {
+        "verdict": "approved",
+        "approval_recommendation": "approved",
+        "approval_phase": "delivery",
+        "expected": "Refuse unsupported/newer producers before state mutation; preserve caller transaction ownership and checkpoint recovery authority; permit valid equal/older/fresh controls.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        },
+        "limitations": [
+          "Executed on macOS ARM64 only; native Windows/Linux/Intel and full installer subprocess lifecycle were not run.",
+          "Host discovery was patched at its discovery boundary; real same-process PID liveness was exercised. Discovery remains explicitly best effort with operator confirmation.",
+          "Both lanes share this one fresh reviewer context; they are independent of implementation, not independent of each other.",
+          "Mutation sweep was risk-selected: seven added omission mutants plus prepared-graph built-in mutant. No full-suite repeat or exhaustive writer-site census; no universal correctness claim.",
+          "Mandatory orientation disclosed prior status but earlier evidence/verdict artifacts were not used as proof. MCP keyword output was capped at 35 matches; no exhaustive claim derives from that search."
+        ],
+        "findings": [],
+        "artifact_or_test_id": [
+          "/tmp/1xxc9-arch-security-probe.py",
+          "/tmp/1xxc9-arch-security-probe-results.json",
+          "/tmp/1xxc9-arch-security-schema.json",
+          "test_index_upgrade_guard.IndexUpgradeGuardTests",
+          "test_index_compatibility.CompatibilityTests",
+          "test_index_compatibility.ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+          "test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement",
+          "test_index_compatibility.ProcessBarrierTests.test_compiled_old_module_cannot_capture_new_installed_bytes"
+        ],
+        "safety_and_authorization": "Read-only source review; actual writes restricted to disposable temporary stores/checkpoints, monkeypatch mutants process-local. No source, docs, lifecycle, commit or deployment mutation.",
+        "execution_status": "executed",
+        "universal_claim": false,
+        "lane": "security-reviewer",
+        "claim_id": "approval:security-reviewer",
+        "verification_context": {
+          "actor": "security-reviewer",
+          "context_id": "close_arch_security-1xxc9-fresh-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "overall_severity": "none",
+        "observed": "29 selected tests completed, 0 skips. All six upgrade omission mutants were caught: live-host refusal, checkpoint root binding, package digest binding, static symlink refusal, invocation-token binding, phase pre-publication fence. Unmodified negative controls refused before child/store access and retained original checkpoint; positive controls accepted fresh/protected installs and byte-identical package relocation. Restart guidance preserves argv elements and explicit confirmation. Current same-user operator threat model retained; stale hosts are integrity/correctness actors, no new less-trusted controlling actor or authority delta evidenced. No exploit chain identified.",
+        "public_path": "Incoming pre_extract/post_extract/pre_index_update/pre_index_rebuild hooks, actual upgrade phase_index_update/rebuild/parent_owned entries, structured action readback with invocation binding.",
+        "confinement": "Static linked checkpoint/source paths rejected; checkpoint root string plus filesystem identity bound. Source regex uses fixed patterns; no new untrusted dynamic regex interpolation requiring re.escape. Restart commands retain structured argv.",
+        "exploit_chains": [],
+        "mutation_table": [
+          {
+            "mechanism": "live-host refusal",
+            "baseline": {
+              "test": "test_known_live_host_refuses_even_with_confirmation",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_known_live_host_refuses_even_with_confirmation",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_known_live_host_refuses_even_with_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_known_live_host_refuses_even_with_confirmation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 78, in test_known_live_host_refuses_even_with_confirmation\n    result = self.refuse(lambda: hooks.pre_index_rebuild(self.ctx))\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 49, in refuse\n    with self.assertRaises(SystemExit) as caught:\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: SystemExit not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "checkpoint root binding",
+            "baseline": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "E\n======================================================================\nERROR: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority) (field='root')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 108, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\n    hooks.pre_index_update(self.ctx)\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 1509, in pre_index_update\n    enforce_index_guard_handoff(ctx)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 819, in enforce_index_guard_handoff\n    raise pause\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.018s\n\nFAILED (errors=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "checkpoint package digest",
+            "baseline": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_altered_checkpoint_or_package_refuses_without_replacing_authority",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 111, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\n    with self.assertRaisesRegex(ValueError, 'index_guard_package_changed'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.014s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "path link refusal",
+            "baseline": {
+              "test": "test_linked_source_refused_before_read",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_linked_source_refused_before_read",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_linked_source_refused_before_read (test_index_upgrade_guard.IndexUpgradeGuardTests.test_linked_source_refused_before_read)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 215, in test_linked_source_refused_before_read\n    with self.assertRaisesRegex(ValueError, 'linked recovery/source path'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "invocation binding",
+            "baseline": {
+              "test": "test_structured_action_reader_binds_invocation_and_checkpoint",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_structured_action_reader_binds_invocation_and_checkpoint",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "F\n======================================================================\nFAIL: test_structured_action_reader_binds_invocation_and_checkpoint (test_index_upgrade_guard.IndexUpgradeGuardTests.test_structured_action_reader_binds_invocation_and_checkpoint)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 204, in test_structured_action_reader_binds_invocation_and_checkpoint\n    self.assertIsNone(hooks.read_index_guard_action(self.root, 3, 'other-invocation'))\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'status': 'action_required', 'code': 'index_guard_restart_required', 'reason': 'index_guard_hosts_confirmation_required', 'kind': 'index_guard_handoff', 'token': '99aa1d19fa71441b896f1c5e48aecbcb', 'invocation_token': 'this-invocation', 'command_argv': ['/opt/homebrew/opt/python@3.13/bin/python3.13', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py', '--root', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren', '--pack', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip', '--yes', '--confirm-hosts-stopped'], 'command': '/opt/homebrew/opt/python@3.13/bin/python3.13 /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren --pack /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip --yes --confirm-hosts-stopped', 'command_shell': 'POSIX shell', 'old_hosts': [], 'discovery_limits': ['discovery is best effort'], 'message': \"Stop this repository's Wavefoundry hosts, including hosts discovery cannot observe, then run the retained command in an external terminal. Keep the checkpoint and original package. No index publication is permitted before confirmation.\"} is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n"
+            },
+            "detected": true
+          },
+          {
+            "mechanism": "first-hop phase fence",
+            "baseline": {
+              "test": "test_each_actual_phase_refuses_before_child_or_store_access",
+              "ok": true,
+              "run": 1,
+              "skips": 0,
+              "failures": ""
+            },
+            "mutant": {
+              "test": "test_each_actual_phase_refuses_before_child_or_store_access",
+              "ok": false,
+              "run": 1,
+              "skips": 0,
+              "failures": "FFF\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42ca0>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                          ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2374, in phase_index_update\n    migration_state = sqlite_storage_migration.detect(root / \".wavefoundry/index\")\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: storage reached before guard\n\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f41e40>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2597, in phase_index_rebuild\n    result = subprocess_util.isolated_run(\n        [_preferred_python(), str(setup_script), \"--root\", str(root), \"--full\"],\n    ...<2 lines>...\n        env=blocking_env,\n    )\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: child reached before guard\n\n======================================================================\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42f20>)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\n    self.refuse(phase)\n    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 50, in refuse\n    callback()\n    ~~~~~~~~^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 161, in <lambda>\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\n                                                                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2556, in phase_index_update_parent_owned\n    phase_index_update(root)\n    ~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", line 2374, in phase_index_update\n    migration_state = sqlite_storage_migration.detect(root / \".wavefoundry/index\")\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1169, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: storage reached before guard\n\n----------------------------------------------------------------------\nRan 1 test in 0.013s\n\nFAILED (failures=3)\n"
+            },
+            "detected": true
+          }
+        ]
+      }
+    ]
+  },
+  "docs_release_performance": {
+    "wave": "1xxc9",
+    "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+    "fresh_independent_declaration": "Fresh review worker with no implementation/recheck history; independently inspected current source and executed selected probes. Three lanes and council seat are disclosed lenses of this same actual context.",
+    "lanes": {
+      "docs-contract-reviewer": {
+        "verdict": "approve",
+        "findings": [],
+        "execution_status": "executed",
+        "fresh_context": true,
+        "independent": true,
+        "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+        "limitations": [
+          "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+          "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+          "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+          "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+          "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+        ],
+        "universal_claim": false,
+        "safety_and_authorization": "Read-only review plus temporary SQLite/process fixtures, in-memory omission controls and read-only pack enumeration; no lifecycle/source/docs edits.",
+        "actor": "docs-contract-reviewer",
+        "proposition": "Current operator guidance matches protected publication refusal and first-hop restart recovery at selected exercised seams.",
+        "public_path": "GraphPublication.apply; IndexStateStore direct epoch/semantic/FTS writes; registered upgrade hooks",
+        "expected": "Newer builder preserves snapshot with typed refusal; old coordinator requires fresh CLI and confirmation; fresh opaque-model runtime succeeds.",
+        "observed": "17 process/upgrade tests and 1 direct-writer baseline ran with zero skips; stale publication refused and snapshot stayed equal, fresh opaque runtime adopted replacement. Ordered-check omission generated 2 assertion failures and zero errors.",
+        "artifact_or_test_id": [
+          "test_index_compatibility.ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+          "test_index_compatibility.CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths",
+          "test_index_upgrade_guard.IndexUpgradeGuardTests",
+          "/tmp/1xxc9-close-docs-release-perf-probes.json"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: check_ordered no-op invalidated refusal and state-preservation assertions; independently executed process omission committed stale graph."
+        },
+        "affected_contract_surfaces": [
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "docs/prompts/upgrade-wavefoundry.prompt.md",
+          ".wavefoundry/framework/README.md",
+          "docs/RELIABILITY.md",
+          "docs/specs/mcp-tool-surface.md",
+          "docs/architecture/data-and-control-flow.md",
+          "docs/architecture/layering-rules.md",
+          "CHANGELOG.md"
+        ],
+        "confirmed_alignment": "Canonical and rendered upgrade guidance preserve index/checkpoint/archive, require fresh CLI and explicit confirmation, distinguish opaque identities from ordered versions, retain forward-only storage recovery and explicitly deny retroactive old-host protection. Changelog short headline is qualified immediately by protected-writer and first-hop wording."
+      },
+      "release-reviewer": {
+        "verdict": "approve",
+        "findings": [],
+        "execution_status": "executed",
+        "fresh_context": true,
+        "independent": true,
+        "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+        "limitations": [
+          "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+          "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+          "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+          "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+          "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+        ],
+        "universal_claim": false,
+        "safety_and_authorization": "Read-only review plus temporary SQLite/process fixtures, in-memory omission controls and read-only pack enumeration; no lifecycle/source/docs edits.",
+        "actor": "release-reviewer",
+        "proposition": "The protected source bundle has required runtime members and first-hop upgrade checkpoint authority survives retry and package relocation.",
+        "public_path": "build_pack.collect_files; UpgradeContext registered pre_extract/pre_index_update/pre_index_rebuild hooks and actual phase entries",
+        "expected": "12 runtime members included; identical relocated pack resumes, changed pack or old coordinator refuses, known-live hosts remain blockers.",
+        "observed": "All 15 upgrade tests passed within the 17-test selection; removal of enforce_index_guard_handoff yielded SystemExit-not-raised failure, zero errors. Read-only collect_files includes all 12 required guard/producer/runtime/upgrade members and excludes tests/index. VERSION and manifest both 1.24.0+ppjy; existing stamp predates this wave and no new package produced.",
+        "artifact_or_test_id": [
+          "test_index_upgrade_guard.IndexUpgradeGuardTests",
+          "build_pack.collect_files",
+          "/tmp/1xxc9-close-docs-release-perf-probes.json"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: enforce_index_guard_handoff no-op made same-schema old-coordinator refusal assertion fail."
+        }
+      },
+      "performance-reviewer": {
+        "verdict": "approve",
+        "findings": [],
+        "execution_status": "executed",
+        "fresh_context": true,
+        "independent": true,
+        "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+        "limitations": [
+          "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+          "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+          "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+          "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+          "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+        ],
+        "universal_claim": false,
+        "safety_and_authorization": "Read-only review plus temporary SQLite/process fixtures, in-memory omission controls and read-only pack enumeration; no lifecycle/source/docs edits.",
+        "actor": "performance-reviewer",
+        "proposition": "Shared transaction enrollment deduplicates source checking across nested writer batches while retaining entry and final ownership checks.",
+        "public_path": "index_compatibility.writer_transaction with real SQLite owner and 100 nested write batches; current indexer main publication source validation",
+        "expected": "Exactly 2 complete source verifications for owned transaction regardless of 100 nested batches; removing membership deduplication violates bound.",
+        "observed": "100 rows committed with exactly 2 source verifications over 7 files/1823051 bytes; measured [1.210707938298583, 1.0233749635517597] ms. No-deduplication control made 102 checks. Main indexer enrolls its BEGIN IMMEDIATE transaction and explicitly checks runtime immediately before COMMIT.",
+        "artifact_or_test_id": [
+          "index_compatibility.writer_transaction",
+          "indexer._build_index_locked publication block",
+          "/tmp/1xxc9-close-docs-release-perf-probes.json"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "injected-old-behavior: replace active-writer membership with always-empty set; measured 102 source checks versus required 2."
+        }
+      }
+    },
+    "council_seat": {
+      "verdict": "approve",
+      "findings": [],
+      "execution_status": "executed",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+      "limitations": [
+        "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+        "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+        "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+        "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+        "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+      ],
+      "universal_claim": false,
+      "safety_and_authorization": "Read-only review plus temporary SQLite/process fixtures, in-memory omission controls and read-only pack enumeration; no lifecycle/source/docs edits.",
+      "actor": "docs-contract-reviewer",
+      "seat": "docs-contract",
+      "phases": [
+        "readiness",
+        "delivery"
+      ],
+      "depth": "standard",
+      "receipt": "review-policy-d22c5b5080174b2184e9",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation and readiness-safe-control: omission of final publication/first-hop ownership contradicts current admitted plan and is refuted by executed omission failures."
+      },
+      "strongest_challenge_response": "Agreed that preflight alone is insufficient. writer_transaction owns BEGIN IMMEDIATE and final source check when autocommit; nested callers join without committing. The main indexer is an explicit transaction owner, enrolls before prepared.apply and checks ensure_runtime_current after semantic/graph application immediately before COMMIT, with rollback on error. GraphPublication and direct writers use shared ownership when standalone. This answers the selected current owner seams, not a universal unknown-caller guarantee.",
+      "alternative_response": "A single fresh publication subprocess plus exclusive writer lease could centralize ownership but adds orchestration/migration and cannot retrofit old hosts. Current shared fence plus retained first-hop confirmation is proportionate for admitted scope; no new architecture decision needed.",
+      "primer_questions_answers": [
+        "Final commit belongs to writer_transaction for standalone participants; main indexer owns its already-open transaction and explicitly verifies runtime at the trailing commit seam. Context enrollment avoids redundant nested guards without removing this owner check.",
+        "Retry preserves captured pre-extraction capability. Package relocation is accepted only with identical recorded SHA-256 and updates locator without clearing obligation. Old coordinator remains ineligible even after marker installation. Discovery cannot prove undiscovered hosts stopped; explicit confirmation carries that duty and identified live hosts still block."
+      ],
+      "readiness_refresh": "approve: Current admitted comparison matrix, explicit first-hop protocol and caller integration census include graph_query repair and upgrade_lib checkpoint retention, within the same behavioral boundary. Refuted readiness-safe bad claim: installed capability marker or same-schema retry can clear an already-loaded old coordinator obligation; current test_installed_marker_does_not_bless_already_loaded_old_context and retry fixture reject it. Receipt policy-digest refresh does not require a redesign."
+    },
+    "mutation_table": [
+      {
+        "mutation": "check_ordered no-op",
+        "targeted_test": "CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths",
+        "result": "killed: 2 assertion failures, 0 errors",
+        "whole_file_survivor_sweep": "not needed"
+      },
+      {
+        "mutation": "enforce_index_guard_handoff no-op",
+        "targeted_test": "IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation",
+        "result": "killed: 1 assertion failure, 0 errors",
+        "whole_file_survivor_sweep": "not needed"
+      },
+      {
+        "mutation": "_ACTIVE_WRITERS always empty",
+        "targeted_test": "100 nested SQLite writer transactions",
+        "result": "killed: 102 source checks vs expected 2",
+        "whole_file_survivor_sweep": "not needed"
+      },
+      {
+        "mutation": "process publication check_connection no-op",
+        "targeted_test": "ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+        "result": "killed: stale commit/downgrade and changed snapshot",
+        "whole_file_survivor_sweep": "not needed"
+      }
+    ],
+    "source_integrity": {
+      "paths_checked": 49,
+      "changed_paths": [],
+      "git_hash_object_matches": true
+    },
+    "limitations": [
+      "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+      "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+      "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+      "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+      "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+    ]
+  },
+  "durable_probe_sources": {
+    "/tmp/1xxc9-arch-security-probe.py": "import sys, json, unittest, io, inspect, tempfile, contextlib\nfrom pathlib import Path\nfrom unittest.mock import patch\nsys.path[:0]=['.wavefoundry/framework/scripts','.wavefoundry/framework/scripts/tests']\nimport index_compatibility as ic, index_state_store as iss, upgrade_extensions as hooks, sqlite_storage_migration as migration\nimport test_index_upgrade_guard as ut\nresults=[]\ndef run_case(name, mutation=None):\n    case=ut.IndexUpgradeGuardTests(name)\n    stream=io.StringIO()\n    with (mutation or contextlib.nullcontext()):\n        r=unittest.TextTestRunner(stream=stream).run(case)\n    return {'test':name,'ok':r.wasSuccessful(),'run':r.testsRun,'skips':len(r.skipped),'failures':stream.getvalue() if not r.wasSuccessful() else ''}\ndef modified(name, old, new):\n    f=getattr(hooks,name); source=inspect.getsource(f); assert old in source\n    namespace=dict(f.__globals__); exec(compile(source.replace(old,new,1),f.__code__.co_filename,'exec'),namespace)\n    return patch.object(hooks,name,namespace[name])\nmutants=[\n('live-host refusal','test_known_live_host_refuses_even_with_confirmation',patch.object(migration,'_hosts_gone',return_value=None)),\n('checkpoint root binding','test_altered_checkpoint_or_package_refuses_without_replacing_authority',modified('_validate_index_guard_handoff','or record.get(\"root\") != str(root)','or False')),\n('checkpoint package digest','test_altered_checkpoint_or_package_refuses_without_replacing_authority',modified('_validate_index_guard_handoff','or _pack_sha256(Path(package)) != expected','or False')),\n('path link refusal','test_linked_source_refused_before_read',patch.object(hooks,'_guard_owned_path',side_effect=lambda root,path:path)),\n('invocation binding','test_structured_action_reader_binds_invocation_and_checkpoint',modified('read_index_guard_action','or (invocation_token is not None and action.get(\"invocation_token\") != invocation_token)','or False')),\n('first-hop phase fence','test_each_actual_phase_refuses_before_child_or_store_access',patch.object(hooks,'enforce_index_guard_handoff',return_value=None)),\n]\nfor mechanism,name,mutant in mutants:\n    good=run_case(name); bad=run_case(name,mutant)\n    results.append({'mechanism':mechanism,'baseline':good,'mutant':bad,'detected':good['ok'] and not bad['ok']})\n# Independent AC-derived transaction metamorphic invariant: nested owner must leave\n# the outer transaction pending; rollback restores exact rows. Fault rolls back owned txn.\nwith tempfile.TemporaryDirectory() as td:\n    directory=Path(td)/'index'; store=iss.IndexStateStore(directory); conn=store._conn\n    before=list(conn.execute('SELECT * FROM meta ORDER BY key'))\n    conn.execute('BEGIN IMMEDIATE')\n    with ic.writer_transaction(conn): conn.execute(\"INSERT INTO meta VALUES ('review_probe','sentinel')\")\n    assert not conn.get_autocommit(), 'nested writer committed caller state'\n    conn.execute('ROLLBACK'); assert list(conn.execute('SELECT * FROM meta ORDER BY key'))==before\n    try:\n        with ic.writer_transaction(conn):\n            conn.execute(\"INSERT INTO meta VALUES ('review_probe','sentinel')\")\n            raise RuntimeError('injected failure')\n    except RuntimeError: pass\n    assert conn.get_autocommit(); assert list(conn.execute('SELECT * FROM meta ORDER BY key'))==before\n    # A future stored revision must block an existing connection before mutation.\n    with conn: conn.execute(\"UPDATE meta SET value=? WHERE key='store_schema_version'\",(str(int(ic.SUPPORTED['store_schema_version'])+1),))\n    preserved=list(conn.execute('SELECT * FROM meta ORDER BY key'))\n    try:\n        with ic.writer_transaction(conn): conn.execute(\"DELETE FROM meta\")\n    except ic.IndexCompatibilityError as e: assert e.code=='index_version_newer'\n    else: raise AssertionError('newer generation accepted')\n    assert list(conn.execute('SELECT * FROM meta ORDER BY key'))==preserved\n    with patch.object(ic,'check_connection',return_value=None):\n        with ic.writer_transaction(conn): conn.execute('DELETE FROM meta')\n    assert list(conn.execute('SELECT * FROM meta ORDER BY key'))!=preserved\n    results.append({'mechanism':'transaction-bound compatibility and ownership','baseline':'nested rollback and own-error rollback preserved exact metadata; newer generation refused before DELETE','mutant':'check_connection omitted, DELETE changed all metadata','detected':True})\n    store.close()\nPath('/tmp/1xxc9-arch-security-probe-results.json').write_text(json.dumps(results,indent=2))\nprint(json.dumps([{'mechanism':r['mechanism'],'detected':r['detected']} for r in results],indent=2))\nassert all(r['detected'] for r in results)\n",
+    "/tmp/1xxc9-arch-security-probe-results.json": "[\n  {\n    \"mechanism\": \"live-host refusal\",\n    \"baseline\": {\n      \"test\": \"test_known_live_host_refuses_even_with_confirmation\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_known_live_host_refuses_even_with_confirmation\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"F\\n======================================================================\\nFAIL: test_known_live_host_refuses_even_with_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_known_live_host_refuses_even_with_confirmation)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 78, in test_known_live_host_refuses_even_with_confirmation\\n    result = self.refuse(lambda: hooks.pre_index_rebuild(self.ctx))\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 49, in refuse\\n    with self.assertRaises(SystemExit) as caught:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\\nAssertionError: SystemExit not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.009s\\n\\nFAILED (failures=1)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"checkpoint root binding\",\n    \"baseline\": {\n      \"test\": \"test_altered_checkpoint_or_package_refuses_without_replacing_authority\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_altered_checkpoint_or_package_refuses_without_replacing_authority\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"E\\n======================================================================\\nERROR: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority) (field='root')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 108, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\\n    hooks.pre_index_update(self.ctx)\\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\\\", line 1509, in pre_index_update\\n    enforce_index_guard_handoff(ctx)\\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py\\\", line 819, in enforce_index_guard_handoff\\n    raise pause\\nSystemExit: 3\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.018s\\n\\nFAILED (errors=1)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"checkpoint package digest\",\n    \"baseline\": {\n      \"test\": \"test_altered_checkpoint_or_package_refuses_without_replacing_authority\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_altered_checkpoint_or_package_refuses_without_replacing_authority\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"F\\n======================================================================\\nFAIL: test_altered_checkpoint_or_package_refuses_without_replacing_authority (test_index_upgrade_guard.IndexUpgradeGuardTests.test_altered_checkpoint_or_package_refuses_without_replacing_authority)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 111, in test_altered_checkpoint_or_package_refuses_without_replacing_authority\\n    with self.assertRaisesRegex(ValueError, 'index_guard_package_changed'):\\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: ValueError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.014s\\n\\nFAILED (failures=1)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"path link refusal\",\n    \"baseline\": {\n      \"test\": \"test_linked_source_refused_before_read\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_linked_source_refused_before_read\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"F\\n======================================================================\\nFAIL: test_linked_source_refused_before_read (test_index_upgrade_guard.IndexUpgradeGuardTests.test_linked_source_refused_before_read)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 215, in test_linked_source_refused_before_read\\n    with self.assertRaisesRegex(ValueError, 'linked recovery/source path'):\\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: ValueError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.009s\\n\\nFAILED (failures=1)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"invocation binding\",\n    \"baseline\": {\n      \"test\": \"test_structured_action_reader_binds_invocation_and_checkpoint\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_structured_action_reader_binds_invocation_and_checkpoint\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"F\\n======================================================================\\nFAIL: test_structured_action_reader_binds_invocation_and_checkpoint (test_index_upgrade_guard.IndexUpgradeGuardTests.test_structured_action_reader_binds_invocation_and_checkpoint)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 204, in test_structured_action_reader_binds_invocation_and_checkpoint\\n    self.assertIsNone(hooks.read_index_guard_action(self.root, 3, 'other-invocation'))\\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: {'status': 'action_required', 'code': 'index_guard_restart_required', 'reason': 'index_guard_hosts_confirmation_required', 'kind': 'index_guard_handoff', 'token': '99aa1d19fa71441b896f1c5e48aecbcb', 'invocation_token': 'this-invocation', 'command_argv': ['/opt/homebrew/opt/python@3.13/bin/python3.13', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py', '--root', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren', '--pack', '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip', '--yes', '--confirm-hosts-stopped'], 'command': '/opt/homebrew/opt/python@3.13/bin/python3.13 /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren --pack /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkge2rren/release.zip --yes --confirm-hosts-stopped', 'command_shell': 'POSIX shell', 'old_hosts': [], 'discovery_limits': ['discovery is best effort'], 'message': \\\"Stop this repository's Wavefoundry hosts, including hosts discovery cannot observe, then run the retained command in an external terminal. Keep the checkpoint and original package. No index publication is permitted before confirmation.\\\"} is not None\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.010s\\n\\nFAILED (failures=1)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"first-hop phase fence\",\n    \"baseline\": {\n      \"test\": \"test_each_actual_phase_refuses_before_child_or_store_access\",\n      \"ok\": true,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"\"\n    },\n    \"mutant\": {\n      \"test\": \"test_each_actual_phase_refuses_before_child_or_store_access\",\n      \"ok\": false,\n      \"run\": 1,\n      \"skips\": 0,\n      \"failures\": \"FFF\\n======================================================================\\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42ca0>)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\\n    self.refuse(phase)\\n    ~~~~~~~~~~~^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 50, in refuse\\n    callback()\\n    ~~~~~~~~^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 161, in <lambda>\\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\\n                          ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\\\", line 2374, in phase_index_update\\n    migration_state = sqlite_storage_migration.detect(root / \\\".wavefoundry/index\\\")\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1169, in __call__\\n    return self._mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1173, in _mock_call\\n    return self._execute_mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1228, in _execute_mock_call\\n    raise effect\\nAssertionError: storage reached before guard\\n\\n======================================================================\\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f41e40>)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\\n    self.refuse(phase)\\n    ~~~~~~~~~~~^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 50, in refuse\\n    callback()\\n    ~~~~~~~~^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 161, in <lambda>\\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\\n                                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\\\", line 2597, in phase_index_rebuild\\n    result = subprocess_util.isolated_run(\\n        [_preferred_python(), str(setup_script), \\\"--root\\\", str(root), \\\"--full\\\"],\\n    ...<2 lines>...\\n        env=blocking_env,\\n    )\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1169, in __call__\\n    return self._mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1173, in _mock_call\\n    return self._execute_mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1228, in _execute_mock_call\\n    raise effect\\nAssertionError: child reached before guard\\n\\n======================================================================\\nFAIL: test_each_actual_phase_refuses_before_child_or_store_access (test_index_upgrade_guard.IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access) (phase=<function IndexUpgradeGuardTests.test_each_actual_phase_refuses_before_child_or_store_access.<locals>.<lambda> at 0x108f42f20>)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 164, in test_each_actual_phase_refuses_before_child_or_store_access\\n    self.refuse(phase)\\n    ~~~~~~~~~~~^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 50, in refuse\\n    callback()\\n    ~~~~~~~~^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 161, in <lambda>\\n    for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):\\n                                                                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\\\", line 2556, in phase_index_update_parent_owned\\n    phase_index_update(root)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\\\", line 2374, in phase_index_update\\n    migration_state = sqlite_storage_migration.detect(root / \\\".wavefoundry/index\\\")\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1169, in __call__\\n    return self._mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1173, in _mock_call\\n    return self._execute_mock_call(*args, **kwargs)\\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\\n  File \\\"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\\\", line 1228, in _execute_mock_call\\n    raise effect\\nAssertionError: storage reached before guard\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.013s\\n\\nFAILED (failures=3)\\n\"\n    },\n    \"detected\": true\n  },\n  {\n    \"mechanism\": \"transaction-bound compatibility and ownership\",\n    \"baseline\": \"nested rollback and own-error rollback preserved exact metadata; newer generation refused before DELETE\",\n    \"mutant\": \"check_connection omitted, DELETE changed all metadata\",\n    \"detected\": true\n  }\n]",
+    "/tmp/1xxc9-arch-security-schema.json": "[\n  [\n    \"meta\",\n    \"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)\"\n  ],\n  [\n    \"build_layer_meta\",\n    \"CREATE TABLE build_layer_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)\"\n  ],\n  [\n    \"chunks_docs\",\n    \"CREATE TABLE chunks_docs (\\n            id INTEGER PRIMARY KEY, chunk_id TEXT NOT NULL UNIQUE,\\n            path TEXT NOT NULL, kind TEXT NOT NULL, language TEXT NOT NULL,\\n            tags TEXT NOT NULL, start_line INTEGER, end_line INTEGER,\\n            text TEXT NOT NULL, payload TEXT NOT NULL, text_present INTEGER NOT NULL)\"\n  ],\n  [\n    \"vectors_docs\",\n    \"CREATE TABLE vectors_docs (\\n            chunk_id INTEGER PRIMARY KEY REFERENCES chunks_docs(id) ON DELETE CASCADE,\\n            embedding BLOB NOT NULL CHECK(length(embedding)=1536))\"\n  ],\n  [\n    \"graph_nodes\",\n    \"CREATE TABLE graph_nodes (\\n        row_id INTEGER PRIMARY KEY,\\n        node_id TEXT NOT NULL UNIQUE,\\n        label TEXT NOT NULL DEFAULT '',\\n        kind TEXT NOT NULL DEFAULT '',\\n        source_file TEXT NOT NULL DEFAULT '',\\n        source_location TEXT NOT NULL DEFAULT '',\\n        layer TEXT NOT NULL DEFAULT '',\\n        external INTEGER NOT NULL DEFAULT 0,\\n        attributes TEXT NOT NULL DEFAULT '{}')\"\n  ],\n  [\n    \"build_state\",\n    \"CREATE TABLE build_state (id INTEGER PRIMARY KEY CHECK (id = 1), attempt_id TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'uninitialized' CHECK (status IN ('uninitialized', 'building', 'complete')), generation INTEGER NOT NULL DEFAULT 0, started_at REAL, completed_at REAL)\"\n  ]\n]",
+    "/tmp/1xxc9-close-mutations.json": "[\n  {\n    \"mechanism\": \"store_schema_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 0,\n    \"errors\": 1,\n    \"output\": \"E\\n======================================================================\\nERROR: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='store_schema_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 84, in test_each_ordered_participant_refuses_open_and_preserves\\n    iss.IndexStateStore(self.index_dir)\\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/index_state_store.py\\\", line 395, in __init__\\n    self._conn = self._open()\\n                 ~~~~~~~~~~^^\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/index_state_store.py\\\", line 406, in _open\\n    raise sqlite_runtime.StorageRecoveryRequired(\\n        f\\\"Index schema {version!r} requires explicit migration/rebuild; \\\"\\n        f\\\"preserving {self.path}. Run the standard wf upgrade/setup recovery path.\\\")\\nsqlite_runtime.StorageRecoveryRequired: Index schema ('9',) requires explicit migration/rebuild; preserving /var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpovluqly6/.wavefoundry/index/index.sqlite. Run the standard wf upgrade/setup recovery path.\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.085s\\n\\nFAILED (errors=1)\\n\"\n  },\n  {\n    \"mechanism\": \"graph:store_schema_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:store_schema_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.028s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"graph:schema_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:schema_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.028s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"graph:builder_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:builder_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.027s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"graph:walker_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:walker_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.028s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"graph:chunker_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='graph:chunker_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.027s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"walker_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='walker_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.026s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"chunker_version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='chunker_version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.028s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"lexical_statistics.version\",\n    \"mutation\": \"index_compatibility.check_ordered bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_each_ordered_participant_refuses_open_and_preserves (test_index_compatibility.CompatibilityTests.test_each_ordered_participant_refuses_open_and_preserves) (key='lexical_statistics.version')\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 83, in test_each_ordered_participant_refuses_open_and_preserves\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.029s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"missing completed provenance\",\n    \"mutation\": \"index_compatibility.check_connection bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_complete_text_only_provenance_is_required_before_repair\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_complete_text_only_provenance_is_required_before_repair (test_index_compatibility.CompatibilityTests.test_complete_text_only_provenance_is_required_before_repair)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 168, in test_complete_text_only_provenance_is_required_before_repair\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.015s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"first-hop handoff\",\n    \"mutation\": \"upgrade_extensions.enforce_index_guard_handoff bypass\",\n    \"test\": \"test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_same_schema_old_host_requires_new_coordinator_and_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 62, in test_same_schema_old_host_requires_new_coordinator_and_confirmation\\n    result = self.refuse(lambda: hooks.pre_index_update(old))\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 49, in refuse\\n    with self.assertRaises(SystemExit) as caught:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\\nAssertionError: SystemExit not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.004s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"final epoch fence\",\n    \"mutation\": \"index_compatibility.check_connection bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_finalizer_refuses_newer_statistics_before_generation_change\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_finalizer_refuses_newer_statistics_before_generation_change (test_index_compatibility.CompatibilityTests.test_finalizer_refuses_newer_statistics_before_generation_change)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 127, in test_finalizer_refuses_newer_statistics_before_generation_change\\n    with self.assertRaises(ic.IndexCompatibilityError):\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.017s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"FTS maintenance fence\",\n    \"mutation\": \"index_compatibility.check_connection bypass\",\n    \"test\": \"test_index_compatibility.CompatibilityTests.test_fts_maintenance_refuses_newer_statistics_without_mutation\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_fts_maintenance_refuses_newer_statistics_without_mutation (test_index_compatibility.CompatibilityTests.test_fts_maintenance_refuses_newer_statistics_without_mutation)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 134, in test_fts_maintenance_refuses_newer_statistics_without_mutation\\n    with self.assertRaises(ic.IndexCompatibilityError) as raised:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.011s\\n\\nFAILED (failures=1)\\n\"\n  },\n  {\n    \"mechanism\": \"runtime source hash\",\n    \"mutation\": \"test_index_compatibility.ProcessBarrierTests.child bypass\",\n    \"test\": \"test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement\",\n    \"killed\": true,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"output\": \"F\\n======================================================================\\nFAIL: test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement (test_index_compatibility.ProcessBarrierTests.test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 350, in test_loaded_model_and_lazy_producer_refuse_same_stat_source_replacement\\n    self.assertEqual(_line(process),'index_runtime_stale')\\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: 'accepted' != 'index_runtime_stale'\\n- accepted\\n+ index_runtime_stale\\n\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.445s\\n\\nFAILED (failures=1)\\n\"\n  }\n]",
+    "/tmp/1xxc9-close-docs-release-perf-probes.json": "{\n  \"docs\": {\n    \"tests\": 1,\n    \"failures\": 2,\n    \"errors\": 0,\n    \"skips\": 0,\n    \"killed\": true,\n    \"log\": \"FF\\n======================================================================\\nFAIL: test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths (test_index_compatibility.CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths) (operation=<function CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths.<locals>.<lambda> at 0x1066c0fe0>)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 119, in test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths\\n    with self.subTest(operation=operation), self.assertRaises(ic.IndexCompatibilityError):\\n                                            ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: IndexCompatibilityError not raised\\n\\n======================================================================\\nFAIL: test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths (test_index_compatibility.CompatibilityTests.test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_compatibility.py\\\", line 121, in test_newer_graph_blocks_direct_semantic_fts_epoch_and_graph_paths\\n    self.assertEqual(self.snapshot(), before)\\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError: {'met[465 chars](1, '848f20975dcc4286acb5cec755a186f3', 'all',[164 chars]: []} != {'met[465 chars](1, '', '', 'uninitialized', 0, None, None)], [122 chars]: []}\\nDiff is 1028 characters long. Set self.maxDiff to None to see it.\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.069s\\n\\nFAILED (failures=2)\\n\"\n  },\n  \"release\": {\n    \"tests\": 1,\n    \"failures\": 1,\n    \"errors\": 0,\n    \"skips\": 0,\n    \"killed\": true,\n    \"log\": \"F\\n======================================================================\\nFAIL: test_same_schema_old_host_requires_new_coordinator_and_confirmation (test_index_upgrade_guard.IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 62, in test_same_schema_old_host_requires_new_coordinator_and_confirmation\\n    result = self.refuse(lambda: hooks.pre_index_update(old))\\n  File \\\"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\\\", line 49, in refuse\\n    with self.assertRaises(SystemExit) as caught:\\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\\nAssertionError: SystemExit not raised\\n\\n----------------------------------------------------------------------\\nRan 1 test in 0.004s\\n\\nFAILED (failures=1)\\n\"\n  },\n  \"performance\": {\n    \"source_checks\": 2,\n    \"nested_batches\": 100,\n    \"source_bytes\": 1823051,\n    \"verification_ms\": [\n      1.210707938298583,\n      1.0233749635517597\n    ],\n    \"source_files\": 7\n  },\n  \"performance_mutant\": {\n    \"observed_source_checks\": 102,\n    \"expected_max\": 2,\n    \"killed\": true\n  },\n  \"fingerprint\": {\n    \"paths_checked\": 49,\n    \"changed_paths\": [],\n    \"git_hash_object_matches\": true\n  }\n}",
+    "/tmp/1xxc9-close-council-probes.json": "{\n  \"readiness_census_control\": {\n    \"sites\": [\n      \"graph_query.py\",\n      \"upgrade_lib.py\",\n      \"scan_secrets.py\"\n    ],\n    \"baseline_in_current_plan\": true,\n    \"omitted_graph_query_detected\": true,\n    \"claim\": \"Current plan names the two added direct reader/checkpoint seams, not an exhaustive writer census.\",\n    \"synchronized_loader_probe\": \"test_optional_store_loaders_wait_for_complete_canonical_import: 1 test OK in .890s; 0 skips\"\n  },\n  \"fingerprint\": {\n    \"checked\": 49,\n    \"moved\": []\n  }\n}"
+  },
+  "council": {
+    "wave_id": "1xxc9 monotonic-index-version-protection",
+    "change_ids": [
+      "1xwi1-bug prevent-stale-index-writer-downgrades"
+    ],
+    "policy_receipt": "review-policy-d22c5b5080174b2184e9",
+    "depth": "standard",
+    "depth_basis": "Current targeted policy receipt supplied by coordinator; existing same-user integrity boundary, no new authority crossing. Scope is guard hunks in 49 fingerprinted paths.",
+    "context_id": "close-council-fresh-20260912",
+    "fresh_context": true,
+    "independent": true,
+    "independence_disclosure": "Fresh moderator received task/primer and mandatory orientation status, not implementation or repair context. Current code/AC assessment and own executable probes preceded reliance on specialist verdicts. Specialist pairs share reviewer contexts as disclosed; they are not extra council seats.",
+    "roster": {
+      "primer": "red-team",
+      "fixed_seats": [],
+      "rotating_seat": "docs-contract-reviewer",
+      "basis": "Targeted standard roster from pinned policy; no invented fixed seats."
+    },
+    "primer_answers": [
+      {
+        "question": "Who owns final commit for joined transactions and rechecks identity?",
+        "answer": "writer_transaction owns BEGIN IMMEDIATE/COMMIT and trailing ensure_runtime_current only when connection was autocommit. Nested writes retain caller ownership. indexer main publication explicitly begins its transaction, joins the guard, validates attempt/CAS and sources, applies graph, checks ensure_runtime_current, then commits; exceptions roll back. Direct GraphPublication.apply enters the shared guard. This is validated for selected paths, not a universal future-caller assertion."
+      },
+      {
+        "question": "Can same-schema retry or relocation clear old-host obligation; what discovery limit remains?",
+        "answer": "enforce_index_guard_handoff validates retained record before honoring required flag, merges discovered hosts into prior hosts, requires capable fresh coordinator and explicit confirmation, then rejects still-live hosts. Legacy checkpoint absent capture conservatively reconstructs required=true. Retry test preserves original obligation; separate specialist relocation fixture permits identical package bytes, not changed digest. Undiscoverable hosts remain the operator confirmation obligation."
+      }
+    ],
+    "own_probes": [
+      {
+        "test": "ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+        "observed": "Real child prepares; parent publishes builder+1 and retained graph row/generation. Guarded child returns index_version_newer and full snapshot unchanged. Injected check_connection no-op commits, changes snapshot, restores old builder. No skips."
+      },
+      {
+        "test": "IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation; test_retry_before_and_after_extraction_preserves_original_decision",
+        "observed": "Both selected tests executed successfully. First-hop old/new coordinator and confirmation controls, retry before/after extraction preservation. These plus graph process test: 3 tests in 1.147 seconds, no skips."
+      },
+      {
+        "test": "ProcessBarrierTests.test_optional_store_loaders_wait_for_complete_canonical_import",
+        "observed": "1 test in .890 seconds, no skips; synchronized scanner/indexer loader barrier completed."
+      }
+    ],
+    "probe_budget_note": "Three selected mechanisms: process publication, first-hop upgrade/retry parameterized cells, and added synchronized-loader caller feasibility. No full-suite repeat or survivor whole-file sweep was needed.",
+    "findings": [],
+    "finding_synthesis": [],
+    "review_run": {
+      "candidate_set": [],
+      "sealed": true,
+      "red_team_reconciliation": "Primer establishes no grounded finding; no candidate rows to reconcile. Specialist null findings retained with lane attribution."
+    },
+    "improvements_recommended": [
+      "Retain the explicit final-commit ownership answer and the three late caller additions in closure evidence; this improves future writer integration review without adding a second authority or backlog."
+    ],
+    "limitations": [
+      "No exhaustive writer census or universal correctness claim. Readiness census control is limited to graph_query.py, upgrade_lib.py, scan_secrets.py named in current plan.",
+      "macOS ARM64 executable evidence only; no native Windows/Linux/Intel run, external installation, live host shutdown or full suite by moderator.",
+      "Upgrade discovery uses disposable fixtures; actual undiscovered-host obligation remains operator confirmation.",
+      "Initial orientation output and large specialist reports were truncated; targeted code/plan and extracted lane summaries supplied load-bearing evidence. An initial guessed seed209 filename and nonexistent per-area AGENTS read failed; canonical seed209 and codebase map were read subsequently.",
+      "Repository tests share producer constants; independent reference is the admitted monotonic state-preservation and explicit first-hop requirements, exercised with future raw metadata and a destructive known-bad omission in disposable storage."
+    ],
+    "source_integrity": {
+      "paths_checked": 49,
+      "hashes_match": true,
+      "changed_paths": []
+    },
+    "universal_claim": false,
+    "status": "complete",
+    "seat_summary": {
+      "verdict": "approve",
+      "findings": [],
+      "execution_status": "executed",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "1xxc9-close-docs-release-perf-fresh-20260912",
+      "limitations": [
+        "All three lane lenses and the rotating council seat share this one actual fresh context; they are not four independent reviewers. No implementation or repair was performed by this reviewer.",
+        "Native execution is local macOS only; Windows/Linux/Intel qualification is not claimed. Host discovery is simulated by the upgrade fixtures; no real hosts were stopped and no package was extracted.",
+        "Full suite receipt was supplied by coordinator and not rerun; selected tests were independently executed. Some broad orientation/retrieval outputs truncated; focused current-source reads are the basis of these bounded verdicts.",
+        "No universal complete caller census is claimed. Readiness refresh reviews the current implemented admitted plan, not a claim that implementation was unimplemented. Existing evidence and primer were context, not accepted as proof.",
+        "Performance timing is a local seven-source verification microprobe, not an end-to-end corpus benchmark. The first timing serialization reused a mutable list; excluded and rerun with copied timings before reporting."
+      ],
+      "universal_claim": false,
+      "safety_and_authorization": "Read-only review plus temporary SQLite/process fixtures, in-memory omission controls and read-only pack enumeration; no lifecycle/source/docs edits.",
+      "actor": "docs-contract-reviewer",
+      "seat": "docs-contract",
+      "phases": [
+        "readiness",
+        "delivery"
+      ],
+      "depth": "standard",
+      "receipt": "review-policy-d22c5b5080174b2184e9",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation and readiness-safe-control: omission of final publication/first-hop ownership contradicts current admitted plan and is refuted by executed omission failures."
+      },
+      "strongest_challenge_response": "Agreed that preflight alone is insufficient. writer_transaction owns BEGIN IMMEDIATE and final source check when autocommit; nested callers join without committing. The main indexer is an explicit transaction owner, enrolls before prepared.apply and checks ensure_runtime_current after semantic/graph application immediately before COMMIT, with rollback on error. GraphPublication and direct writers use shared ownership when standalone. This answers the selected current owner seams, not a universal unknown-caller guarantee.",
+      "alternative_response": "A single fresh publication subprocess plus exclusive writer lease could centralize ownership but adds orchestration/migration and cannot retrofit old hosts. Current shared fence plus retained first-hop confirmation is proportionate for admitted scope; no new architecture decision needed.",
+      "primer_questions_answers": [
+        "Final commit belongs to writer_transaction for standalone participants; main indexer owns its already-open transaction and explicitly verifies runtime at the trailing commit seam. Context enrollment avoids redundant nested guards without removing this owner check.",
+        "Retry preserves captured pre-extraction capability. Package relocation is accepted only with identical recorded SHA-256 and updates locator without clearing obligation. Old coordinator remains ineligible even after marker installation. Discovery cannot prove undiscovered hosts stopped; explicit confirmation carries that duty and identified live hosts still block."
+      ],
+      "readiness_refresh": "approve: Current admitted comparison matrix, explicit first-hop protocol and caller integration census include graph_query repair and upgrade_lib checkpoint retention, within the same behavioral boundary. Refuted readiness-safe bad claim: installed capability marker or same-schema retry can clear an already-loaded old coordinator obligation; current test_installed_marker_does_not_bless_already_loaded_old_context and retry fixture reject it. Receipt policy-digest refresh does not require a redesign."
+    },
+    "merit_first_synthesis": {
+      "method": "Reviewed identity-stripped rotating output as Seat 1 before attaching roster identity; single rotating seat means no ordering ambiguity. Primer remains attributed. Required specialist findings retain lane authority.",
+      "assessment": "Seat 1 evidence resolves final-commit ownership and retry capability questions with current source and executable controls. Alternative subprocess architecture has real centralization benefits but does not remove pre-protection host obligation and adds migration work. No grounded defect emerged.",
+      "identity_reattached": "Seat 1 = docs-contract-reviewer rotating best-alternative seat. No fixed seats required or invented."
+    },
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "disagreements": [],
+    "challenge_round": "not triggered: no split or high/critical disputed blocker",
+    "correlation_notice": "Primer and rotating seat both highlight trailing commit ownership; shared primer is intentional, not two independent discoveries. Paired specialist lanes and rotating docs lane share their declared contexts and are not extra votes.",
+    "strongest_alternative": "One fresh publication subprocess with exclusive writer lease could centralize commit ownership. Current shared transaction fence is proportionate because it preserves existing atomic participant ownership and avoids migrating direct callers; the alternative still cannot retroactively fence pre-protection loaded code.",
+    "specialist_evidence": {
+      "code-reviewer": "approve; 25 selected tests and omission controls; /tmp/1xxc9-close-code-qa.json",
+      "qa-reviewer": "approve; same actual context as code reviewer, no additional independent vote",
+      "architecture-reviewer": "approve; selected transaction/state-schema evidence; /tmp/1xxc9-close-arch-security.json",
+      "security-reviewer": "approve; same actual context as architecture reviewer, explicit host/checkpoint binding controls",
+      "docs-contract-reviewer": "approve; guidance and refusal controls; /tmp/1xxc9-close-docs-release-perf.json",
+      "release-reviewer": "approve; read-only pack membership and first-hop controls, no release qualification claim",
+      "performance-reviewer": "approve; two source checks for 100 nested mutations vs 102 without dedup; microprobe only"
+    },
+    "readiness": {
+      "recommendation": "approve",
+      "verdict": "approve",
+      "execution_status": "executed",
+      "universal_claim": false,
+      "safety_and_authorization": "Authorized read-only review; executable writes confined to disposable SQLite/checkpoint fixtures. No code, docs or canonical event writes.",
+      "limitations": [
+        "No exhaustive writer census or universal correctness claim. Readiness census control is limited to graph_query.py, upgrade_lib.py, scan_secrets.py named in current plan.",
+        "macOS ARM64 executable evidence only; no native Windows/Linux/Intel run, external installation, live host shutdown or full suite by moderator.",
+        "Upgrade discovery uses disposable fixtures; actual undiscovered-host obligation remains operator confirmation.",
+        "Initial orientation output and large specialist reports were truncated; targeted code/plan and extracted lane summaries supplied load-bearing evidence. An initial guessed seed209 filename and nonexistent per-area AGENTS read failed; canonical seed209 and codebase map were read subsequently.",
+        "Repository tests share producer constants; independent reference is the admitted monotonic state-preservation and explicit first-hop requirements, exercised with future raw metadata and a destructive known-bad omission in disposable storage."
+      ],
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "close-council-fresh-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "approval_phase": "readiness",
+      "claim_id": "approval:wave-council-readiness",
+      "proposition": "Current admitted plan and the three late caller additions remain feasible and inside the established publication/checkpoint boundary.",
+      "public_path": "Current admitted change document, current source ownership and executable optional-store loader/import boundary.",
+      "expected": "graph_query, upgrade_lib and scan_secrets additions are named in current plan; removing a known required seam invalidates selected census control; synchronized loaders remain feasible.",
+      "observed": "Current plan explicitly names graph_query.py, upgrade_lib.py and scan_secrets.py. Removing graph_query from the temporary plan string is detected. Current scanner source uses synchronized import; its real barrier regression passed (1 test, 0 skips). Matrix distinguishes ordered revisions from opaque identities and retains first-hop confirmation. This refresh binds current plan/caller scope to policy receipt d22c5b5080174b2184e9; no prior stale approval is used as authority.",
+      "artifact_or_test_id": [
+        "/tmp/1xxc9-close-council-probes.json",
+        "scan_secrets._load_state_store",
+        "ProcessBarrierTests.test_optional_store_loaders_wait_for_complete_canonical_import",
+        "docs/waves/1xxc9 monotonic-index-version-protection/1xwi1-bug prevent-stale-index-writer-downgrades.md"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "readiness-safe-control: deliberately omit graph_query.py from current plan census and detect the missing required seam"
+      }
+    },
+    "delivery": {
+      "recommendation": "approve",
+      "verdict": "approve",
+      "execution_status": "executed",
+      "universal_claim": false,
+      "safety_and_authorization": "Authorized read-only review; executable writes confined to disposable SQLite/checkpoint fixtures. No code, docs or canonical event writes.",
+      "limitations": [
+        "No exhaustive writer census or universal correctness claim. Readiness census control is limited to graph_query.py, upgrade_lib.py, scan_secrets.py named in current plan.",
+        "macOS ARM64 executable evidence only; no native Windows/Linux/Intel run, external installation, live host shutdown or full suite by moderator.",
+        "Upgrade discovery uses disposable fixtures; actual undiscovered-host obligation remains operator confirmation.",
+        "Initial orientation output and large specialist reports were truncated; targeted code/plan and extracted lane summaries supplied load-bearing evidence. An initial guessed seed209 filename and nonexistent per-area AGENTS read failed; canonical seed209 and codebase map were read subsequently.",
+        "Repository tests share producer constants; independent reference is the admitted monotonic state-preservation and explicit first-hop requirements, exercised with future raw metadata and a destructive known-bad omission in disposable storage."
+      ],
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "close-council-fresh-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "approval_phase": "delivery",
+      "claim_id": "approval:wave-council-delivery",
+      "proposition": "Selected shared-publication and first-hop retry paths enforce the admitted monotonic state preservation and explicit old-host handoff contracts.",
+      "public_path": "GraphPublication.apply real two-process publication; registered upgrade pre_index_update/pre_extract hooks in disposable checkpoint fixture.",
+      "expected": "Stale prepared worker refuses without changing snapshot; no-op fence control commits and changes snapshot; first-hop old coordinator and missing confirmation refuse; retry preserves original obligation.",
+      "observed": "Own selected 3 tests completed in 1.147 seconds with zero skips. Prepared stale worker returned index_version_newer and preserved full snapshot; fence omission committed and rewrote builder, making preservation oracle false. Same-schema handoff and before/after-extraction retry controls passed. Current indexer source rechecks runtime immediately before caller-owned COMMIT. Seven required specialist recommendations contain no blocker; rotating seat agrees with this bounded assessment.",
+      "artifact_or_test_id": [
+        "ProcessBarrierTests.test_prepared_graph_worker_rechecks_publication_and_mutant_is_killed",
+        "IndexUpgradeGuardTests.test_same_schema_old_host_requires_new_coordinator_and_confirmation",
+        "IndexUpgradeGuardTests.test_retry_before_and_after_extraction_preserves_original_decision",
+        "indexer.build_index",
+        "index_compatibility.writer_transaction",
+        "/tmp/1xxc9-close-council.json"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      }
+    },
+    "falsification_check": {
+      "working_verdict": "Approve readiness refresh and delivery separately for the selected current scope.",
+      "strongest_argument_against": "A forgotten caller can bypass joined-transaction trailing validation, while an undiscovered pre-protection host ignores all new guards.",
+      "why_verdict_holds": "Current main owner explicitly rechecks runtime before COMMIT, selected direct publication omission is caught, and current plan includes late caller seams. First-hop unknown hosts remain explicit confirmation duty, not an automatic guarantee. Neither moderator nor specialist outputs claims a universal unknown-caller or process-discovery proof."
+    },
+    "required_follow_through": "Coordinator records phase-specific approvals and performs remaining lifecycle/documentation/test-receipt gates; these recommendations do not themselves close or package the wave."
+  },
+  "closure": {
+    "tool": "wf_close_wave",
+    "status": "ok",
+    "transitioned_to_closed": true,
+    "framework_test_receipt": "proven",
+    "test_count": 8976,
+    "docs_lint": "clean",
+    "scanner_classification": "1xuz7-sec verified false-positive Git content fingerprint"
+  }
+}

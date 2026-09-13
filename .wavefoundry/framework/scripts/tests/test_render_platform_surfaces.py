@@ -27,6 +27,124 @@ def _load_render_module():
     return mod
 
 
+class TrackedRuntimeDiagnosticsTests(unittest.TestCase):
+    """Real Git validates pattern semantics and the non-mutating boundary."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.git("init", "-q")
+
+    def git(self, *args, root=None):
+        return subprocess.run(["git", "-C", str(root or self.root), *args],
+                              check=True, capture_output=True)
+
+    def populate(self, root):
+        names = [".wavefoundry/guard-overrides.json", ".wavefoundry/dashboard-server.json",
+                 ".wavefoundry/upgrade-in-progress.json", ".wavefoundry/deep/active.lock",
+                 ".wavefoundry/locks/pid", ".wavefoundry/logs/space name",
+                 ".wavefoundry/index/index.sqlite", ".wavefoundry/framework/index/old.db",
+                 ".wavefoundry/upgrade-assets/backup", ".wavefoundry/framework.rollback-1/source",
+                 "wavefoundry-local.zip"]
+        # Windows filenames cannot contain control characters.
+        if os.name != "nt":
+            names.append(".wavefoundry/logs/new\nline")
+        for name in names + ["project-only.txt", "global-only.txt"]:
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"preserved content")
+        (root / ".gitignore").write_text("project-only.txt\n", encoding="utf-8")
+        global_ignore = self.root / "global-ignore"
+        global_ignore.write_text("global-only.txt\n", encoding="utf-8")
+        self.git("config", "core.excludesFile", str(global_ignore))
+        self.git("add", "-f", "--", ".", root=root)
+        (root / ".wavefoundry/logs/untracked").write_bytes(b"not tracked")
+        return names
+
+    def assert_census(self, root, names):
+        index = Path(os.fsdecode(self.git("rev-parse", "--git-path", "index", root=root).stdout).strip())
+        if not index.is_absolute():
+            index = root / index
+        before = index.read_bytes()
+        files = {name: (root / name).read_bytes() for name in names}
+        first = self.mod.tracked_runtime_diagnostics(root)
+        self.assertEqual({r["file"] for r in first}, set(names))
+        self.assertTrue(all(r["channel"] == "tracked-runtime" for r in first))
+        self.assertEqual(first, self.mod.tracked_runtime_diagnostics(root))
+        self.assertEqual(index.read_bytes(), before)
+        self.assertEqual(files, {name: (root / name).read_bytes() for name in names})
+        for row in first:
+            self.assertNotIn("\n", row["detail"])
+            self.assertIn("operator approval", row["detail"])
+        return first
+
+    def test_canonical_rules_only_and_no_tracking_or_content_mutation(self):
+        self.assert_census(self.root, self.populate(self.root))
+
+    def test_nested_root_with_literal_glob_characters_excludes_sibling(self):
+        root = self.root / "nested[1]" / "project"
+        root.mkdir(parents=True)
+        names = self.populate(root)
+        sibling = self.root / ".wavefoundry/guard-overrides.json"
+        sibling.parent.mkdir()
+        sibling.write_text("sibling")
+        self.git("add", "-f", "--", str(sibling))
+        self.assert_census(root, names)
+
+    def test_linked_worktree_git_file(self):
+        # Fixture-only commit object avoids depending on a configured identity.
+        tree = self.git("write-tree").stdout.strip().decode()
+        commit = self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                          "commit-tree", tree, "-m", "Fixture").stdout.strip().decode()
+        root = self.root / "linked"
+        self.git("worktree", "add", "--detach", str(root), commit)
+        self.assertTrue((root / ".git").is_file())
+        self.assert_census(root, self.populate(root))
+
+    def test_failures_are_advisory_and_nonrepo_is_harmless(self):
+        for failure in (FileNotFoundError("git"), subprocess.TimeoutExpired("git", 5)):
+            with self.subTest(failure=type(failure).__name__), \
+                 patch.object(self.mod.subprocess, "run", side_effect=failure):
+                rows = self.mod.tracked_runtime_diagnostics(self.root)
+                self.assertEqual(rows[0]["channel"], "tracked-runtime-inspection")
+                self.assertIn("unavailable", rows[0]["detail"])
+        with tempfile.TemporaryDirectory() as outside:
+            self.assertEqual(self.mod.tracked_runtime_diagnostics(Path(outside)), [])
+        for phase in ("discovery", "census"):
+            failed = subprocess.CompletedProcess([], 128, b"", b"access refused")
+            replies = [failed] if phase == "discovery" else [
+                subprocess.CompletedProcess([], 0, b"\n", b""), failed]
+            with patch.object(self.mod.subprocess, "run", side_effect=replies):
+                self.assertEqual(self.mod.tracked_runtime_diagnostics(self.root)[0]["channel"],
+                                 "tracked-runtime-inspection")
+
+    def test_display_cap_reports_omitted_count(self):
+        folder = self.root / ".wavefoundry/logs"
+        folder.mkdir(parents=True)
+        for i in range(53):
+            (folder / str(i)).write_text("x")
+        self.git("add", "--", ".")
+        rows = self.mod.tracked_runtime_diagnostics(self.root)
+        self.assertEqual(len(rows), 51)
+        self.assertEqual(rows[-1]["omitted_count"], 3)
+
+    def test_public_render_warns_but_permissions_only_does_not_inspect(self):
+        import io
+        from contextlib import redirect_stderr
+        names = self.populate(self.root)
+        output = io.StringIO()
+        before = (self.root / ".git/index").read_bytes()
+        with redirect_stderr(output):
+            self.assertEqual(self.mod.main(["--repo-root", str(self.root), "--platform", "claude"]), 0)
+        for name in names:
+            self.assertIn(json.dumps(name, ensure_ascii=True), output.getvalue())
+        self.assertEqual((self.root / ".git/index").read_bytes(), before)
+        with patch.object(self.mod, "tracked_runtime_diagnostics", side_effect=AssertionError("wrong scope")):
+            self.assertEqual(self.mod.main(["--repo-root", str(self.root), "--permissions-only"]), 0)
+
+
 class CodexPlatformOwnershipTests(unittest.TestCase):
     """1tjjj: the platform renderer owns Codex MCP config unconditionally."""
 

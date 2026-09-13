@@ -1,0 +1,2078 @@
+{
+  "change": "1xs59",
+  "readiness": {
+    "council": {
+      "role": "wave-council",
+      "approval_phase": "readiness",
+      "verdict": "approve",
+      "final_verdict": "pass",
+      "wave_id": "1xq4f",
+      "change_ids": [
+        "1xs59"
+      ],
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "1xs59-readiness-council-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "primer_depth": "standard",
+      "seats": [
+        "red-team",
+        "docs-contract-reviewer",
+        "wave-council"
+      ],
+      "red_team_primer_summary": "The old installing process must receive incoming exclusion before extraction, including absence of an existing installer. Both reviewer and moderator confirmed the plan explicitly requires this and rejects unknown extraction interfaces before mutation. Native Git nested-root matching and preserved upgrade warnings are the other material boundaries.",
+      "primer_questions": [
+        "Which supported old extractor honors the patched member allowlist, and how does an unknown interface refuse before mutation?",
+        "How are canonical Git rules rebased and root-bounded, with truthful nonfatal diagnostics retained in the installing upgrade log?"
+      ],
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none"
+      },
+      "anonymized_synthesis": "Compared the no-finding judgments as Seat 1 and Seat 2 before reattaching roles. Both independently demonstrated raw nested-root excludes fail and native Git prefix rebasing succeeds. Extraction root-cause reproduction strengthens the contract review; neither report contains a blocking finding to waive.",
+      "strongest_points_of_agreement": [
+        "All five ACs explicitly required; archive inventory and upgrade selection remain distinct.",
+        "Exclude before first archive write, including absent bootstrap, and suppress legacy cleanup; no recovery receipt needed.",
+        "Use native Git canonical-only matching, prefix rebasing and -- .; diagnostics preserve files, guard state and Git ownership.",
+        "Installing-hop logging and read-only structured rescan must share semantics, with nonfatal inspection failures distinguished from clean census."
+      ],
+      "material_disagreements": [],
+      "strongest_alternative": "A persisted ownership receipt could permit cleanup after restart, but exclusion is stronger for this scope because it avoids creating the artifact and new recovery state. Broad standard-ignore scanning is shorter but violates canonical-only matching and is not stronger.",
+      "improvements_recommended": [
+        "Pin frozen supported-old-runner absent/present bootstrap extraction and legacy-cleanup controls, including post_extract restart/resume.",
+        "Use rev-parse --show-prefix for configured roots nested within Git, prefix canonical patterns and terminate census with -- .; explicitly encode unusual names for display.",
+        "Keep the scanner read-only and invoke it after the permissions-only return; reuse it in _run_renderer_warning_scan without converting faults into an asserted clean census.",
+        "Update summary headings currently specific to malformed review markers so tracked-runtime warnings receive accurate operator guidance."
+      ],
+      "findings": [],
+      "proposition": "The admitted bootstrap and tracked-runtime plan is implementable at existing extension/renderer boundaries without broadening runtime or Git mutation authority.",
+      "public_path": "Readiness-safe native Git ls-files cached/ignored NUL boundary over disposable nested project root, plus MCP code_ask orientation, outline and targeted current-source validation.",
+      "command_or_fixture": "python3 -B inline disposable nested-Git fixture; exact expected set and unchanged .git/index bytes asserted; /tmp/1xs59-readiness-council-probe.json",
+      "expected": "Unprefixed canonical excludes miss nested runtime paths; prefix-rebased canonical excludes return precisely the configured project guard, newline log and root package ZIP; sibling project and project-only tracked file absent; Git index unchanged.",
+      "observed": "Executed with zero unintended skips. Known-bad unprefixed excludes returned []; corrected feasibility control returned exactly .wavefoundry/guard-overrides.json, .wavefoundry/logs/new\\nline log and wavefoundry-test.zip. Index bytes unchanged. Current source confirms existing bootstrap guard returns early for absent file, feature extractor creates bootstrap, warning rescan currently handles review markers only, permissions-only returns before normal rendering.",
+      "artifact_or_test_id": "/tmp/1xs59-readiness-council-probe.json; /tmp/1xs59-readiness-red.json; /tmp/1xs59-readiness-docs.json",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "readiness-safe-control: native Git unprefixed canonical exclusions in a nested project produced empty output, failing independently enumerated expected paths; prefix rebasing passed exact path-set and index-byte invariants"
+      },
+      "limitations": [
+        "Readiness only; unimplemented behavior has not been approved for delivery.",
+        "Worktree, timeout/missing-Git, full frozen-runner restart/resume and native platform executions remain delivery obligations.",
+        "Existing three changes were not re-reviewed; this scope introduces no additional runtime changes beyond admitted 1xs59.",
+        "Git feasibility reference uses actual native Git and independently enumerated expected paths; it does not prove every possible prefix or pathname."
+      ],
+      "safety_and_authorization": "No repository code, lifecycle or Git edits. Fixture-only writes under temporary root; Git staging solely populated the disposable fixture before read-only assertions.",
+      "plan_sha256": "0e36e23cf29298616af1695137b8628dfe4bfab655e7014032a9a21266d8659a",
+      "citations": [
+        "upgrade_extensions._protect_existing_root_bootstrap",
+        "upgrade_extensions.pre_extract",
+        "upgrade_wavefoundry._extract_feature_members",
+        "upgrade_wavefoundry._run_renderer_warning_scan",
+        "render_platform_surfaces._GITIGNORE_BLOCK",
+        "render_platform_surfaces.main permissions_only early return"
+      ],
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "execution_status": "executed"
+    },
+    "red": {
+      "role": "red-team",
+      "approval_phase": "readiness",
+      "verdict": "approve",
+      "scope": "1xs59 new scope and interaction with dashboard lifecycle; no delivery approval claimed",
+      "primer": {
+        "strongest_challenge": "A fix in the new extractor misses the old installing process and post_extract restart; protection must precede first extraction.",
+        "alternative": "Exclude the root bootstrap at archive selection instead of receipt-based cleanup.",
+        "questions": [
+          "Which supported old extractor honors the patched member allowlist, and how does an unknown interface refuse before mutation?",
+          "How are canonical rules rebased and bounded for nested configured Git roots?",
+          "How does the captured upgrade log retain nonfatal warning and inspection failures?"
+        ]
+      },
+      "observed": "Readiness probe completed with no skipped assertions. Existing incoming helper is a no-op for absent root installer; current extractor creates it and simulated restart receipt loss leaves it. This confirms the planned root cause at the faithful extraction/cleanup boundary. Real Git canonical-only enumeration returned exactly eight intended runtime/package paths, preserving newline/space bytes and Git index. Standard-excludes known-bad control returned project-only instead. Raw excludes under nested project missed the tracked runtime file; prefix-rebased excludes plus -- . found exactly the configured nested path. Parent confirmed these two boundaries are in implementation scope.",
+      "artifact_or_test_id": "/tmp/1xs59-readiness-red-probe.py",
+      "command_or_fixture": "python3 -B /tmp/1xs59-readiness-red-probe.py",
+      "expected": "Current baseline reproduces installer ownership-loss; canonical-only Git census matches explicit expected set, preserves index, and rebased nested census remains scoped.",
+      "limitations": "Readiness only: no future implementation executed, no full upgrade/restart process launched, no native Windows qualification. Restart simulated by clearing process-local creation map before cleanup. Worktree/failure/timeout/frozen-old-runner delivery tests remain required by ACs.",
+      "citations": [
+        "upgrade_extensions.py:_protect_existing_root_bootstrap lines 619-638",
+        "upgrade_extensions.py:pre_extract lines 641-647",
+        "upgrade_wavefoundry.py:_extract_feature_members lines 923-947",
+        "upgrade_wavefoundry.py:main lines 5595-5625",
+        "render_platform_surfaces.py:_GITIGNORE_BLOCK lines 1950-1973",
+        "render_platform_surfaces.py:main lines 2233-2240"
+      ],
+      "safety_and_authorization": "Read-only repository imports with -B; all probe writes confined to new temporary directories. Temporary Git index populated solely for fixture and byte-checked unchanged during inspection. No target repository mutation or lifecycle edit.",
+      "probe_class": "local_safe",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "readiness-safe-control: current absent-file extraction followed by process ownership reset reproduces leftover; wrong standard-only Git census and unrebased nested patterns rejected by explicit expected-set assertions"
+      },
+      "findings": [],
+      "implementation_constraints": [
+        "Patch supported old-runner allowlist before pre_extract mutating siblings; reject unknown interfaces.",
+        "Rebase canonical patterns to Git prefix and bound pathspec to configured root; do not enable standard excludes.",
+        "Preserve existing bootstrap files and old cleanup suppression; do not globally change FEATURE_ROOT_MEMBERS shared with fresh-install inventory."
+      ]
+    },
+    "docs": {
+      "seat": "docs-contract-reviewer",
+      "phase": "readiness",
+      "wave_id": "1xq4f",
+      "change_ids": [
+        "1xs59"
+      ],
+      "verdict": "approve",
+      "findings": [],
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "1xs59-readiness-docs-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "readiness-safe-control"
+      },
+      "proposition": "The planned canonical-only tracked-runtime diagnostic has a feasible native Git implementation scoped to a nested project root, and required ACs preserve the incoming-upgrade and operator-owned Git contracts.",
+      "counterexample_or_failure_condition": "Canonical matching cannot isolate the nested root, silently misses package/runtime paths, includes project-only rules, or changes the Git index.",
+      "execution_status": "executed",
+      "public_path": "Real Git subprocess: git ls-files --cached --ignored -z --exclude=<prefixed canonical pattern> -- .",
+      "command_or_fixture": "python3 -B /tmp/1xs59-docs-probe.py",
+      "artifact_or_test_id": "/tmp/1xs59-docs-probe.py; /tmp/1xs59-docs-probe-result.json; render_platform_surfaces._GITIGNORE_BLOCK; upgrade_wavefoundry.phase_surface_rendering; upgrade_wavefoundry._run_renderer_warning_scan",
+      "expected": "Eight tracked canonical runtime paths, including package ZIP and space/newline log names; project-only ignored path excluded; no index or byte changes. Unprefixed nested-root control must fail exact expected set.",
+      "observed": {
+        "expected": [
+          ".wavefoundry/a/b.lock",
+          ".wavefoundry/framework.rollback-1/state",
+          ".wavefoundry/guard-overrides.json",
+          ".wavefoundry/index/index.sqlite",
+          ".wavefoundry/locks/pid",
+          ".wavefoundry/logs/new\nline",
+          ".wavefoundry/logs/space name",
+          "wavefoundry-test.zip"
+        ],
+        "observed": [
+          ".wavefoundry/a/b.lock",
+          ".wavefoundry/framework.rollback-1/state",
+          ".wavefoundry/guard-overrides.json",
+          ".wavefoundry/index/index.sqlite",
+          ".wavefoundry/locks/pid",
+          ".wavefoundry/logs/new\nline",
+          ".wavefoundry/logs/space name",
+          "wavefoundry-test.zip"
+        ],
+        "known_bad_unprefixed": [],
+        "index_unchanged": true,
+        "files_unchanged": true,
+        "prefix": "nested/"
+      },
+      "adjacent_controls": [
+        "Tracked project-only ignore rule excluded",
+        "Index stage records identical before/after",
+        "All tracked file bytes unchanged",
+        "Known-bad unprefixed patterns yielded empty set"
+      ],
+      "challenge_response": "An incoming hook that only changes newly installed extractor code is insufficient: AC-1 and requirement 1 explicitly require changing the supported older active runner before extraction or restart, refusing unknown interfaces. Native Git root-relative matching also requires the Git prefix when the project root is nested; the executed control disproved naive unprefixed exclusions. Requirement 5 and AC-5 require renderer warning retention on the installing hop; summary rederivation may supplement this and must not replace visible failure diagnostics with an empty clean result.",
+      "strongest_alternative": "Persisted bootstrap creation receipts could span restart and permit cleanup, but exclusion avoids newly created ownership state while preserving preexisting files. A broad git ignored scan is simpler but includes intentionally tracked files matched by unrelated project/global rules; canonical-only Git matching is a feasible narrower contract.",
+      "contract_assessment": {
+        "scope": "New integration only; delivered prior changes remain frozen. Archive installer inventory remains separate from upgrade selection. No automatic leftover deletion or untracking.",
+        "ac_priority": "All five ACs explicitly required and trace requirements; no optional downgrades.",
+        "producer_consumer": "Incoming pre_extract produces active-runner exclusion before archive writes; renderer produces diagnostics consumed on upgrade logging path. phase_surface_rendering currently launches the renderer with inherited output, while _run_renderer_warning_scan rederives only review-protocol diagnostics. New integration must preserve installing-hop logs.",
+        "documentation_targets": [
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "CHANGELOG.md",
+          "docs/architecture/data-and-control-flow.md"
+        ]
+      },
+      "limitations": [
+        "Readiness approval does not attest unimplemented behavior.",
+        "No actual package upgrade, supported frozen-old-runner restart/resume, worktree, missing-Git/timeout, or native Windows execution in this seat; those are explicit delivery obligations.",
+        "Temporary probe files must be incorporated or preserved durably by coordinator when recording evidence.",
+        "Briefing did not provide a tree_fingerprint; this report fingerprints the exact reviewed plan rather than claiming full frozen-source census."
+      ],
+      "safety_and_authorization": "Read-only repository inspection and task-authorized disposable local Git fixture under /tmp; no project Git changes or lifecycle mutation.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "plan_sha256": "0e36e23cf29298616af1695137b8628dfe4bfab655e7014032a9a21266d8659a"
+    }
+  },
+  "prepare": {
+    "docs-contract-reviewer": {
+      "seat": "docs-contract-reviewer",
+      "phase": "readiness",
+      "wave_id": "1xq4f",
+      "change_ids": [
+        "1xs59"
+      ],
+      "verdict": "approve",
+      "findings": [],
+      "verification_context": {
+        "actor": "docs-contract-reviewer",
+        "context_id": "1xs59-prepare-docs-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "readiness-safe-control"
+      },
+      "proposition": "The admitted plan specifies a feasible, complete docs-contract correction before implementation: upgrade exclusion preserves preexisting root files, tracked-runtime warnings remain advisory and operator-owned, and seed/rendered guidance must match.",
+      "counterexample_or_failure_condition": "Canonical matching cannot isolate the nested root, silently misses package/runtime paths, includes project-only rules, or changes the Git index.",
+      "execution_status": "executed",
+      "public_path": "Real Git subprocess: git ls-files --cached --ignored -z --exclude=<prefixed canonical pattern> -- .",
+      "command_or_fixture": "python3 -B /tmp/1xs59-docs-probe.py",
+      "artifact_or_test_id": "/tmp/1xs59-docs-probe.py; /tmp/1xs59-docs-probe-result.json; render_platform_surfaces._GITIGNORE_BLOCK; upgrade_wavefoundry.phase_surface_rendering; upgrade_wavefoundry._run_renderer_warning_scan",
+      "expected": "Eight tracked canonical runtime paths, including package ZIP and space/newline log names; project-only ignored path excluded; no index or byte changes. Unprefixed nested-root control must fail exact expected set.",
+      "observed": {
+        "expected": [
+          ".wavefoundry/a/b.lock",
+          ".wavefoundry/framework.rollback-1/state",
+          ".wavefoundry/guard-overrides.json",
+          ".wavefoundry/index/index.sqlite",
+          ".wavefoundry/locks/pid",
+          ".wavefoundry/logs/new\nline",
+          ".wavefoundry/logs/space name",
+          "wavefoundry-test.zip"
+        ],
+        "observed": [
+          ".wavefoundry/a/b.lock",
+          ".wavefoundry/framework.rollback-1/state",
+          ".wavefoundry/guard-overrides.json",
+          ".wavefoundry/index/index.sqlite",
+          ".wavefoundry/locks/pid",
+          ".wavefoundry/logs/new\nline",
+          ".wavefoundry/logs/space name",
+          "wavefoundry-test.zip"
+        ],
+        "known_bad_unprefixed": [],
+        "index_unchanged": true,
+        "files_unchanged": true,
+        "prefix": "nested/"
+      },
+      "adjacent_controls": [
+        "Tracked project-only ignore rule excluded",
+        "Index stage records identical before/after",
+        "All tracked file bytes unchanged",
+        "Known-bad unprefixed patterns yielded empty set"
+      ],
+      "challenge_response": "An incoming hook that only changes newly installed extractor code is insufficient: AC-1 and requirement 1 explicitly require changing the supported older active runner before extraction or restart, refusing unknown interfaces. Native Git root-relative matching also requires the Git prefix when the project root is nested; the executed control disproved naive unprefixed exclusions. Requirement 5 and AC-5 require renderer warning retention on the installing hop; summary rederivation may supplement this and must not replace visible failure diagnostics with an empty clean result.",
+      "strongest_alternative": "Persisted bootstrap creation receipts could span restart and permit cleanup, but exclusion avoids newly created ownership state while preserving preexisting files. A broad git ignored scan is simpler but includes intentionally tracked files matched by unrelated project/global rules; canonical-only Git matching is a feasible narrower contract.",
+      "contract_assessment": {
+        "scope": "New integration only; delivered prior changes remain frozen. Archive installer inventory remains separate from upgrade selection. No automatic leftover deletion or untracking.",
+        "ac_priority": "All five ACs explicitly required and trace requirements; no optional downgrades.",
+        "producer_consumer": "Incoming pre_extract produces active-runner exclusion before archive writes; renderer produces diagnostics consumed on upgrade logging path. phase_surface_rendering currently launches the renderer with inherited output, while _run_renderer_warning_scan rederives only review-protocol diagnostics. New integration must preserve installing-hop logs.",
+        "documentation_targets": [
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "CHANGELOG.md",
+          "docs/architecture/data-and-control-flow.md"
+        ],
+        "current_doc_corrections_covered_by_AC5": [
+          "seed160 manual Remove any re-dropped bootstrap block contains unconditional rm -f and claims automatic cleanup; replace with exclusion/preservation contract.",
+          "seed160 .gitignore runtime file contract mandates git rm --cached for every match; replace with review guidance and canonical warning, preserving operator authority.",
+          "Rendered upgrade Step 0 claims automatic bootstrap removal and advises unconditional rm -f; reconcile to canonical new behavior."
+        ]
+      },
+      "limitations": [
+        "Readiness approval does not attest unimplemented behavior.",
+        "No actual package upgrade, supported frozen-old-runner restart/resume, worktree, missing-Git/timeout, or native Windows execution in this seat; those are explicit delivery obligations.",
+        "Temporary probe files must be incorporated or preserved durably by coordinator when recording evidence.",
+        "Approval is prepare/readiness only: existing old prose is explicitly scheduled for AC-5 correction; no delivered-behavior or completed AC claim."
+      ],
+      "safety_and_authorization": "Read-only repository inspection and task-authorized disposable local Git fixture under /tmp; no project Git changes or lifecycle mutation.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "plan_sha256": "0e36e23cf29298616af1695137b8628dfe4bfab655e7014032a9a21266d8659a",
+      "policy_receipt_id": "review-policy-185d9fcb88a165adb54f",
+      "claim_id": "approval:docs-contract-reviewer",
+      "claim_kind": "approval",
+      "required_for_approval": true,
+      "context_disclosure": "Same independent reviewer retained readiness investigation context, no implementation or repair/recheck context retained. Reviewed current plan/docs and reran own feasibility probe for this prepare specialist approval.",
+      "mutation_table": [
+        {
+          "control": "unprefixed native Git canonical exclusions inside nested project",
+          "expected": "fails exact expected runtime set",
+          "observed": "zero matches versus eight expected",
+          "classification": "readiness-safe-control"
+        }
+      ],
+      "reviewed_paths_fingerprint": {
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "22cf4227f8e6a43f3d75ae651d4a51297e0636d4",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "dbb0a6bbc17bdae763319cd1f11cdfb361f9d695",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4"
+      }
+    },
+    "other_lanes": {
+      "code-reviewer": {
+        "role": "code-reviewer",
+        "signoff_key": "code-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "1xs59-prepare-code-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "Current extraction and incoming compatibility helper expose the exact planned defect and bounded repair seam. Probe reproduced absent-installer receipt-loss leftover while regular and dangling symlink identities survived; unrelated feature extraction and runner exclusion also held. Existing tests pin old equality/zero-skip assumptions and are already named as change targets.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "Remove the absent-file early return and suppress bootstrap from upgrade selection before mutation; preserve old cleanup suppression; revise equality and skip-count tests to encode intentional package/extractor divergence."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      },
+      "qa-reviewer": {
+        "role": "qa-reviewer",
+        "signoff_key": "qa-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "qa-reviewer",
+          "context_id": "1xs59-prepare-qa-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "All AC-1 through AC-5 are explicitly required, unchecked, and covered by the declared delivery matrix. Executed baseline extraction/restart-loss reproduction, adjacent regular/dangling-link controls, canonical-Git exact expected set/repetition/index-byte invariants, and real subprocess timeout control make that matrix feasible. No unimplemented AC is declared complete.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "AC-1 frozen older runner + restart/resume; AC-2 package inventory and unrelated extraction; AC-3 all canonical runtime categories, unusual names/worktrees; AC-4 bytes/index/guard invariants plus missing/failing/timeout Git and permissions-only; AC-5 installing-hop logging and accurate instructions."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      },
+      "architecture-reviewer": {
+        "role": "architecture-reviewer",
+        "signoff_key": "architecture-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "architecture-reviewer",
+          "context_id": "1xs59-prepare-architecture-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "Existing pre_extract active-runner adaptation and renderer warning rederivation are appropriate owners under scripts-layer rules. Package inventory remains with upgrade_bundle; upgrade-only extraction narrows independently. Actual Git root-scoped census preserved ownership and omitted sibling project files. No schema, database, publication-lock or dashboard runtime redesign is admitted.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "Update data-and-control-flow.md for bootstrap exclusion and diagnostics; use one read-only diagnostic helper from renderer and summary. Keep primary/cleanup new-code summary ownership and existing migration receipt protocol."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      },
+      "release-reviewer": {
+        "role": "release-reviewer",
+        "signoff_key": "release-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "release-reviewer",
+          "context_id": "1xs59-prepare-release-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "FEATURE_ROOT_MEMBERS currently retains install-wavefoundry.md as archive inventory. Actual ZIP fixture retained ordinary framework extraction while excluding __main__.py; root package ZIP appeared in canonical-Git census. Plan AC-2 correctly preserves fresh-install inventory while changing upgrade extraction. VERSION stamping and native qualification are unchanged in scope.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "Do not empty upgrade_bundle.FEATURE_ROOT_MEMBERS to satisfy an old equality test. Replace the pin with the intended subset relation, preserve inventory tests, and distinguish local tests from native package qualification."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      },
+      "performance-reviewer": {
+        "role": "performance-reviewer",
+        "signoff_key": "performance-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "performance-reviewer",
+          "context_id": "1xs59-prepare-performance-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "New work sits in setup/render/upgrade diagnostics rather than semantic query or index publication hot paths. Native Git can perform the canonical-only tracked census in one bounded invocation after prefix discovery; two disposable-fixture scans completed in 0.0273 seconds. Actual sleeping child was terminated by a subprocess deadline. This establishes bounded-call feasibility, not a large-repository performance guarantee.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "Use fixed subprocess timeouts and an explicit omission count when display is capped; avoid per-path subprocesses and adding this census to query-time or docs-lint hot paths. Large-index memory/runtime remains a delivery consideration, not demonstrated here."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      },
+      "security-reviewer": {
+        "role": "security-reviewer",
+        "signoff_key": "security-reviewer",
+        "approval_phase": "readiness",
+        "verdict": "approve",
+        "verification_context": {
+          "actor": "security-reviewer",
+          "context_id": "1xs59-prepare-security-reviewer-20260912",
+          "fresh_context": true,
+          "independent": true
+        },
+        "review_context_provenance": "Six sequential role lenses in one reviewer session, sharing executable fixture and earlier council-readiness context. Independent of the author/implementer; not six isolated agents and not independent replications of one another. No code repair authored by reviewer. Distinct context IDs label role passes, not separate model sessions.",
+        "observed": "Under the documented operator-owned repository/trusted distribution model, this scope introduces no less-trusted actor or authority delta. Actual diagnostic feasibility scans preserved all tracked bytes and index bytes, isolated configured root, and preserved regular/dangling bootstrap identities. Canonical guard-overrides and package ignore patterns were exercised; warning must remain path-only, no guard content or automatic Git mutation.",
+        "artifact_or_test_id": "/tmp/1xs59-prepare-lanes-probe.py; /tmp/1xs59-prepare-lanes-probe-result.json",
+        "command_or_fixture": "python3 -B /tmp/1xs59-prepare-lanes-probe.py",
+        "public_path": "Readiness current extraction/cleanup faithful boundary and native Git subprocess boundary; disposable roots only.",
+        "expected": "Baseline absent-file extraction followed by receipt-loss cleanup leaves installer; regular/link state preserved. Canonical-only prefixed Git census matches independently enumerated expected paths with repeat and immutable-byte invariants. Timeout is observable.",
+        "execution_status": "executed",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safety_and_authorization": "Only disposable fixture writes and read-only repository inspection; no repository source, lifecycle, Git index or guard mutation.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: actual pre-fix extractor plus cleared process receipt reproduced leftover; unprefixed native-Git excludes failed independently enumerated expected set; corrected feasibility census passed repeat and byte invariants"
+        },
+        "findings": [],
+        "improvements_recommended": [
+          "Use argv subprocess calls, NUL records and safely encoded display. Keep permissions-only return ahead of diagnostic integration; no automatic untracking, deletions or new sensor gate. Native Git handles pattern syntax; avoid hand-written regex matchers."
+        ],
+        "mutation_table": [
+          {
+            "mechanism": "installing-upgrade bootstrap ownership",
+            "mutation": "current pre-fix absent-file extraction followed by process receipt loss",
+            "failing_property": "no new root installer after restart",
+            "observed": "known-bad leftover reproduced"
+          },
+          {
+            "mechanism": "configured-root canonical Git census",
+            "mutation": "omit Git prefix rebasing",
+            "failing_property": "exact expected set of guard/log/package paths",
+            "observed": "known-bad returned only package path and missed runtime state"
+          },
+          {
+            "mechanism": "bounded process wait",
+            "mutation": "sleeping child exceeds deadline",
+            "failing_property": "inspection cannot wait indefinitely",
+            "observed": "TimeoutExpired observed"
+          }
+        ],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+          ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+          ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+          ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+          ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+          ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+          ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+          "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+        },
+        "tree_unchanged": true,
+        "time_budget": "bounded prepare pass; three parameterized local probes; no full delivery suite",
+        "sweep_rule": "targeted negative controls only; no whole-file runs absent a survivor",
+        "independent_reference": "Independently read required ACs plus native Git matching and metamorphic repeat/index-byte invariance; original defect state reproduced through current extraction boundary.",
+        "limitations": [
+          "Readiness only; does not approve unimplemented delivery behavior.",
+          "Existing three implementation changes remain outside this delta review; their prior delivery evidence is not relabeled as fresh execution.",
+          "No full upgrade restart process, new-code failure handling, worktree, missing executable, or native Windows/Linux/Intel qualification was executed.",
+          "Shared fixture observations are correlated across these six role lenses; fixture timing does not establish scaling.",
+          "Freshness is relative to implementation/repair context: this reviewer retained its prior council readiness review and had not implemented any proposed fix."
+        ]
+      }
+    },
+    "shared_probe_result": {
+      "git": {
+        "known_bad_raw": [
+          "wavefoundry-a.zip"
+        ],
+        "scoped_actual": [
+          ".wavefoundry/guard-overrides.json",
+          ".wavefoundry/logs/space\nand newline",
+          "wavefoundry-a.zip"
+        ],
+        "repeat_equal": true,
+        "file_and_index_bytes_unchanged": true,
+        "two_scan_seconds": 0.02727812505327165,
+        "timeout_bound_seconds": 5
+      },
+      "extraction": {
+        "pre_fix_absent_restart_leftover_detected": true,
+        "regular_and_dangling_identity_preserved": true,
+        "unrelated_feature_extracts": true,
+        "runner_excluded": true,
+        "bootstrap_inventory_retained": true
+      },
+      "timeout": {
+        "child_deadline_enforced": true,
+        "nonrepository_exit_code": 128
+      },
+      "tree_fingerprint": {
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "aa5d44b9fc4915623c14f3b76aab412edc7f9b4d",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "e4d0572c99f3ddc7d00d8337042146aaf50863d4",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "b002052c0118ddab83e3e6b5d3db86eb1d79f771",
+        ".wavefoundry/framework/scripts/upgrade_bundle.py": "2ec80817c3c39505e65a3bcd3b84f819b2cdfbb8",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "2d7b31920a897e911fd138110722f48498005ee7",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "5a51375959a65cc53a6462b3f645b54422ac3ae8",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "304073691bd81f67be90737807e9c42108f871d5",
+        ".wavefoundry/framework/scripts/tests/test_build_pack.py": "4079094c266ee97828ddc42f0514425cbbf5326a",
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1x81v-debt files-seam-deletes-unlisted-rows.md": "ab3cc98b9d9ddc17ce7aef06283d69fc0b0e6a37",
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1xpo1-bug dashboard-process-identity-and-lifecycle-honesty.md": "1a3c08bb545a8d5df7fe9999fb5a4f5e1d33365e",
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1xs59-bug upgrade-bootstrap-and-tracked-ignore-hygiene.md": "87e0663268b5171871c5cec0753150a1b1b7ebd6",
+        "docs/waves/1xq4f dashboard-lifecycle-integrity/1xoye-bug unified-index-compatibility-and-recovery.md": "0a13526abaf505f4da24a7df04c7a56882f7fbe7"
+      },
+      "tree_unchanged": true,
+      "unintended_skips": 0
+    }
+  },
+  "implementation": {
+    "mutations": [
+      {
+        "mutation": "remove current bootstrap exclusion",
+        "failing_test": "ExtractFeatureMembersTests.test_feature_members_extract_without_fresh_install_bootstrap",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_feature_members_extract_without_fresh_install_bootstrap (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_feature_members_extract_without_fresh_install_bootstrap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5730, in test_feature_members_extract_without_fresh_install_bootstrap\n    self.assertFalse((self.proj / \"install-wavefoundry.md\").exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "remove installing old-runner exclusion",
+        "failing_test": "RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_old_runner_excludes_before_pause_and_fresh_process_resume (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5596, in test_old_runner_excludes_before_pause_and_fresh_process_resume\n    self.assertFalse(bootstrap.exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.025s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "remove legacy cleanup preservation",
+        "failing_test": "RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup",
+        "run": 1,
+        "failures": 0,
+        "errors": 1,
+        "output": "E\n======================================================================\nERROR: test_existing_file_survives_current_and_repeated_legacy_cleanup (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5622, in test_existing_file_survives_current_and_repeated_legacy_cleanup\n    self.assertEqual(bootstrap.read_bytes(), b\"project instructions, locally modified\")\n                     ~~~~~~~~~~~~~~~~~~~~^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_abc.py\", line 625, in read_bytes\n    with self.open(mode='rb') as f:\n         ~~~~~~~~~^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py\", line 537, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpeqkquhd6/install-wavefoundry.md'\n\n----------------------------------------------------------------------\nRan 1 test in 0.069s\n\nFAILED (errors=1)\n"
+      },
+      {
+        "mutation": "accept unknown active extractor",
+        "failing_test": "RootBootstrapUpgradeTests.test_unknown_active_extractor_refuses_before_archive_write",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_unknown_active_extractor_refuses_before_archive_write (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_unknown_active_extractor_refuses_before_archive_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5662, in test_unknown_active_extractor_refuses_before_archive_write\n    with self.assertRaisesRegex(RuntimeError, \"cannot exclude\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: RuntimeError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.024s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "use project/global ignores",
+        "failing_test": "TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_canonical_rules_only_and_no_tracking_or_content_mutation (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 84, in test_canonical_rules_only_and_no_tracking_or_content_mutation\n    self.assert_census(self.root, self.populate(self.root))\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the first set but not the second:\n'global-only.txt'\n'project-only.txt'\nItems in the second set but not the first:\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework.rollback-1/source'\n'.wavefoundry/logs/space name'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/logs/new\\nline'\n'.wavefoundry/upgrade-assets/backup'\n'wavefoundry-local.zip'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/upgrade-in-progress.json'\n'.wavefoundry/locks/pid'\n'.wavefoundry/framework/index/old.db'\n\n----------------------------------------------------------------------\nRan 1 test in 0.111s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "omit nested Git prefix",
+        "failing_test": "TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_nested_root_with_literal_glob_characters_excludes_sibling (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 94, in test_nested_root_with_literal_glob_characters_excludes_sibling\n    self.assert_census(root, names)\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework.rollback-1/source'\n'.wavefoundry/logs/space name'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/logs/new\\nline'\n'.wavefoundry/upgrade-assets/backup'\n'wavefoundry-local.zip'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/upgrade-in-progress.json'\n'.wavefoundry/locks/pid'\n'.wavefoundry/framework/index/old.db'\n\n----------------------------------------------------------------------\nRan 1 test in 0.128s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "hide timeout as clean",
+        "failing_test": "TrackedRuntimeDiagnosticsTests.test_failures_are_advisory_and_nonrepo_is_harmless",
+        "run": 1,
+        "failures": 0,
+        "errors": 1,
+        "output": "E\n======================================================================\nERROR: test_failures_are_advisory_and_nonrepo_is_harmless (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_failures_are_advisory_and_nonrepo_is_harmless) (failure='TimeoutExpired')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 111, in test_failures_are_advisory_and_nonrepo_is_harmless\n    self.assertEqual(rows[0][\"channel\"], \"tracked-runtime-inspection\")\n                     ~~~~^^^\nIndexError: list index out of range\n\n----------------------------------------------------------------------\nRan 1 test in 0.040s\n\nFAILED (errors=1)\n"
+      },
+      {
+        "mutation": "remove diagnostic display bound",
+        "failing_test": "TrackedRuntimeDiagnosticsTests.test_display_cap_reports_omitted_count",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_display_cap_reports_omitted_count (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_display_cap_reports_omitted_count)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 130, in test_display_cap_reports_omitted_count\n    self.assertEqual(len(rows), 51)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\nAssertionError: 54 != 51\n\n----------------------------------------------------------------------\nRan 1 test in 0.085s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutation": "drop upgrade summary warning",
+        "failing_test": "TrackedRuntimeUpgradeWarningTests.test_real_upgrade_render_output_and_summary_preserve_tracking",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_real_upgrade_render_output_and_summary_preserve_tracking (test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests.test_real_upgrade_render_output_and_summary_preserve_tracking)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5533, in test_real_upgrade_render_output_and_summary_preserve_tracking\n    self.assertEqual([r[\"file\"] for r in rows], [\".wavefoundry/guard-overrides.json\"])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['.wavefoundry/guard-overrides.json']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'.wavefoundry/guard-overrides.json'\n\n- []\n+ ['.wavefoundry/guard-overrides.json']\n\n----------------------------------------------------------------------\nRan 1 test in 0.505s\n\nFAILED (failures=1)\n"
+      }
+    ],
+    "mutation_harness": "import contextlib,inspect,io,json,sys,unittest\nfrom pathlib import Path\nfrom unittest.mock import patch\nscripts=Path('.wavefoundry/framework/scripts').resolve()\nsys.path[:0]=[str(scripts/'tests'),str(scripts)]\nimport test_upgrade_wavefoundry as u\nimport test_render_platform_surfaces as r\nresults=[]\ndef check(label,module,loader,mod,function,old,new,test):\n    source=inspect.getsource(getattr(mod,function))\n    assert old in source,(label,old)\n    exec(compile(source.replace(old,new),'<controlled-mutant>','exec'),mod.__dict__)\n    suite=unittest.defaultTestLoader.loadTestsFromName(test,module)\n    output=io.StringIO()\n    with patch.object(module,loader,return_value=mod), contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):\n        result=unittest.TextTestRunner(stream=output).run(suite)\n    assert not result.wasSuccessful() and not result.skipped,(label,output.getvalue())\n    results.append({'mutation':label,'failing_test':test,'run':result.testsRun,'failures':len(result.failures),'errors':len(result.errors),'output':output.getvalue()[-2000:]})\ncheck('remove current bootstrap exclusion',u,'load_upgrade_module',u.load_upgrade_module(),'_extract_feature_members','        if name != _ROOT_BOOTSTRAP_FILENAME\\n','', 'ExtractFeatureMembersTests.test_feature_members_extract_without_fresh_install_bootstrap')\ncheck('remove installing old-runner exclusion',u,'_load_upgrade_extensions',u._load_upgrade_extensions(),'_protect_existing_root_bootstrap','    parent._EXTRACT_ROOT_MEMBERS = frozenset(members) - {path.name}','    pass','RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume')\ncheck('remove legacy cleanup preservation',u,'_load_upgrade_extensions',u._load_upgrade_extensions(),'_protect_existing_root_bootstrap','        parent._remove_root_bootstrap_file = preserve_existing','        pass','RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup')\ncheck('accept unknown active extractor',u,'_load_upgrade_extensions',u._load_upgrade_extensions(),'_protect_existing_root_bootstrap','        raise RuntimeError(\"upgrade_root_installer_unowned: cannot exclude install-wavefoundry.md from the old runner before extraction\")','        return','RootBootstrapUpgradeTests.test_unknown_active_extractor_refuses_before_archive_write')\ncheck('use project/global ignores',r,'_load_render_module',r._load_render_module(),'tracked_runtime_diagnostics','\"-z\", *exclusions, \"--\", \".\"','\"-z\", \"--exclude-standard\", \"--\", \".\"','TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation')\ncheck('omit nested Git prefix',r,'_load_render_module',r._load_render_module(),'tracked_runtime_diagnostics','\"--exclude=/\" + prefix + line.lstrip(\"/\")','\"--exclude=/\" + line.lstrip(\"/\")','TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling')\ncheck('hide timeout as clean',r,'_load_render_module',r._load_render_module(),'tracked_runtime_diagnostics','return unavailable(\"Git inspection timed out\")','return []','TrackedRuntimeDiagnosticsTests.test_failures_are_advisory_and_nonrepo_is_harmless')\ncheck('remove diagnostic display bound',r,'_load_render_module',r._load_render_module(),'tracked_runtime_diagnostics','paths[:50]','paths','TrackedRuntimeDiagnosticsTests.test_display_cap_reports_omitted_count')\ncheck('drop upgrade summary warning',u,'load_upgrade_module',u.load_upgrade_module(),'_run_renderer_warning_scan','warnings.extend(render_platform_surfaces.tracked_runtime_diagnostics(root))','pass','TrackedRuntimeUpgradeWarningTests.test_real_upgrade_render_output_and_summary_preserve_tracking')\nPath('/tmp/1xs59-mutants.json').write_text(json.dumps(results,indent=2)+'\\n')\nprint(f'{len(results)} known-bad mutations detected by named tests; repository source unchanged')\n",
+    "independent": false,
+    "focused_tests": {
+      "renderer": {
+        "tests": 102,
+        "skips": 0,
+        "result": "ok"
+      },
+      "upgrade_protocol_migration_pack": {
+        "tests": 781,
+        "skips": 2,
+        "result": "ok"
+      },
+      "summary": {
+        "tests": 2,
+        "skips": 0,
+        "result": "ok"
+      },
+      "limitations": "Executed on macOS ARM64. Frozen older extraction boundary and fresh subprocess tested; no destination package upgrade or native Windows/Linux execution in this effort.",
+      "post_isolation_repair": {
+        "tests": 124,
+        "skips": 0,
+        "result": "ok",
+        "covers": "Renderer, framework-wide subprocess isolation, bootstrap boundary and upgrade summary."
+      }
+    },
+    "repository_smoke": {
+      "result": "ok",
+      "diagnostics": [],
+      "elapsed_ms": 42.4,
+      "note": "Single read-only canonical Git census on the source repository, not a performance benchmark."
+    },
+    "first_full_run": {
+      "result": "failed",
+      "tests": 8902,
+      "skips": 21,
+      "test_modules": [
+        "test_dashboard_server.py",
+        "test_server_tools.py"
+      ],
+      "causes": [
+        "Native dashboard process inspection blocked by sandbox (ps returns operation not permitted); host-capable rerun required.",
+        "New raw Git subprocess violated existing stdin/window-isolation and captured-encoding guards. Repaired by using subprocess_util.isolated_run(text=False), retaining NUL-delimited bytes."
+      ],
+      "log_tail": "t_every_framework_spawn_isolates_stdin_and_suppresses_window (test_server_tools.FrameworkWideSubprocessIsolationGuard.test_every_framework_spawn_isolates_stdin_and_suppresses_window)\nAST-scoped guard: every raw subprocess spawn (in ANY form \u2014 aliased, from-import,\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools.py\", line 264, in test_every_framework_spawn_isolates_stdin_and_suppresses_window\n    self.assertEqual(\n    ~~~~~~~~~~~~~~~~^\n        stdin_offenders, [],\n        ^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        + \"\\n\".join(stdin_offenders),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: Lists differ: ['render_platform_surfaces.py:1999: return[50 chars]s],'] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n'render_platform_surfaces.py:1999: return subprocess.run([\"git\", \"-C\", str(repo_root), *args],'\n\n+ []\n- ['render_platform_surfaces.py:1999: return subprocess.run([\"git\", \"-C\", '\n-  'str(repo_root), *args],'] : framework subprocess spawns must isolate stdin via their own kwargs (route through subprocess_util.isolated_run/isolated_popen, or pass stdin=subprocess.DEVNULL / input=):\nrender_platform_surfaces.py:1999: return subprocess.run([\"git\", \"-C\", str(repo_root), *args],\n\n----------------------------------------------------------------------\nRan 343 tests in 154.497s\n\nFAILED (failures=2)\n\n----------------------------------------------------------------------\nSlowest files (top 10 of 86):\n  test_indexer.py                                206.109s  (366 tests)\n  test_secrets_prefix_collapse.py                184.660s  (17 tests)\n  test_docs_lint.py                              176.868s  (1096 tests)\n  test_server_tools.py                           154.748s  (343 tests)\n  test_server_tools_lifecycle.py                 148.642s  (541 tests)\n  test_server_tools_retrieval.py                  88.790s  (1034 tests)\n  test_graph_indexer.py                           68.607s  (549 tests)\n  test_setup_index.py                             44.879s  (163 tests)\n  test_chunker.py                                 34.703s  (579 tests)\n  test_dashboard_server.py                        28.452s  (207 tests)\nWorker service time: 1409.700s across 86 files; skipped 21 tests\nFAILED (test_dashboard_server.py, test_server_tools.py)\nRan 8902 tests across 86 files in 242.044s\n"
+    },
+    "full_suite": {
+      "inputs_hash": "4e2d7fb1281d0a5f0ffbff9ab1cb6aaef994e5a0658447df5d2bdf60e8aac3b9",
+      "ran_at": "2026-09-12T03:56:57.398855+00:00",
+      "test_count": 8902,
+      "result": "ok",
+      "skipped": 21,
+      "hash_recomputed_matches": true,
+      "command": "python3 -B .wavefoundry/framework/scripts/run_tests.py",
+      "host_access": true,
+      "receipt_override": false,
+      "log_tail": "tor_backend_eval.py \u2014 7 tests ok (0.2s)\n  [76/86] test_vector_public_compare.py \u2014 7 tests ok (0.1s)\n  [77/86] test_vector_public_eval.py \u2014 2 tests ok (0.1s)\n  [78/86] test_vector_public_filter_smoke.py \u2014 2 tests ok (0.1s)\n  [79/86] test_venv_bootstrap.py \u2014 33 tests ok (2.2s)\n  [80/86] test_wave_gate.py \u2014 14 tests ok (0.1s)\n  [81/86] test_wf_cli.py \u2014 51 tests ok (2.0s)\n  [82/86] test_secrets_prefix_collapse.py \u2014 17 tests ok (176.9s)\n  [83/86] test_indexer.py \u2014 366 tests ok (209.9s)\n  [84/86] test_storage_upgrade_resume.py \u2014 11 tests ok (36.2s)\n  [85/86] test_upgrade_wavefoundry.py \u2014 530 tests ok (23.9s)\n  [86/86] test_sqlite_storage_migration.py \u2014 108 tests ok (83.0s)\n\n----------------------------------------------------------------------\nSlowest files (top 10 of 86):\n  test_indexer.py                                209.920s  (366 tests)\n  test_secrets_prefix_collapse.py                176.879s  (17 tests)\n  test_docs_lint.py                              161.176s  (1096 tests)\n  test_server_tools_lifecycle.py                 149.549s  (541 tests)\n  test_server_tools.py                           142.380s  (343 tests)\n  test_server_tools_retrieval.py                  94.658s  (1034 tests)\n  test_sqlite_storage_migration.py                83.031s  (108 tests)\n  test_graph_indexer.py                           76.146s  (549 tests)\n  test_setup_index.py                             55.739s  (163 tests)\n  test_chunker.py                                 38.043s  (579 tests)\nWorker service time: 1496.250s across 86 files; skipped 21 tests\nRan 8902 tests across 86 files in 280.133s\nOK\n"
+    }
+  },
+  "local_package": {
+    "package": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.24.0.ppdh.zip",
+    "version": "1.24.0+ppdh",
+    "source_framework_members_verified": 194,
+    "generated": [
+      ".wavefoundry/framework/UPGRADE-PROTOCOL.json",
+      ".wavefoundry/framework/MANIFEST"
+    ],
+    "bytes": 7308630,
+    "sha256": "3b3530fac14b7028edc28e757cd1784922455158fef2ce27871da1e143356824",
+    "archive_integrity": "ok",
+    "changelog": "matches",
+    "manifest": "matches",
+    "fresh_install_bootstrap": "present",
+    "advisory_sensor_decision": {
+      "ac_asserts_repository_state": "Remains advisory (introducing wave 1wur7); no release-day polarity change."
+    }
+  },
+  "destination_test_ppdh": {
+    "source": "Operator-provided destination upgrade and post-reconnect report; not independently executed here.",
+    "from_version": "1.23.0+powy",
+    "to_version": "1.24.0+ppdh",
+    "migration": {
+      "state": "complete",
+      "kind": "index_sqlite_schema8",
+      "receipt_version": 2,
+      "embeddings": "preserved",
+      "retired_files": "removed after fresh-process verification"
+    },
+    "health": {
+      "schema": 8,
+      "generation": 150,
+      "semantic_ready": true,
+      "stale_paths": 0,
+      "docs_rows": 3265,
+      "code_rows": 2931,
+      "missing_vectors": 0,
+      "orphan_vectors": 0,
+      "fts": "live, digest ok"
+    },
+    "graph": {
+      "component": ".wavefoundry/index/index.sqlite#graph",
+      "nodes": 5331,
+      "edges": 20489,
+      "probes": [
+        "code_impact JSON.writeObject: 9 affected, 7 files, 56 edges",
+        "code_callhierarchy: 22 outgoing, 2 incoming",
+        "wf_graph_report: betweenness/community artifacts served"
+      ]
+    },
+    "upgrade_hygiene": "Root installer preservation and tracked-runtime advisory observed.",
+    "limitations": [
+      "Schema-pin guidance added to source after ppdh is not covered by this destination execution.",
+      "Preexisting Java receiver-collision artifacts remain outside this wave.",
+      "One-edge count increase cannot be causally attributed from counts alone."
+    ]
+  },
+  "final_delivery": {
+    "red": {
+      "role": "red-team",
+      "phase": "council-adversarial-primer",
+      "primer_depth": "standard",
+      "verdict": "approve",
+      "findings": [],
+      "verification_context": {
+        "actor": "upgrade_final_red",
+        "context_id": "1xs59-final-red-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "primer": {
+        "questions": [
+          "Does incoming pre_extract exclude root installer before any old-runner extraction/restart and suppress legacy deletion of preexisting files?",
+          "Does census use canonical-only rules scoped to configured root and preserve Git index/file bytes while exposing inspection failures?"
+        ],
+        "strongest_challenge": "Current extractor correctness alone misses old installing process and restart ownership loss.",
+        "alternative": "Exclude at both extraction boundaries without cleanup receipts; use native Git canonical-pattern read-only advisories."
+      },
+      "mutation_table": [
+        {
+          "mutation": "old installing allowlist exclusion removed",
+          "test": "RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume",
+          "result": "killed",
+          "runs": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "evidence": "F\n======================================================================\nFAIL: test_old_runner_excludes_before_pause_and_fresh_process_resume (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5596, in test_old_runner_excludes_before_pause_and_fresh_process_resume\n    self.assertFalse(bootstrap.exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n"
+        },
+        {
+          "mutation": "canonical census replaced with project/global rules",
+          "test": "TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation",
+          "result": "killed",
+          "runs": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "evidence": "F\n======================================================================\nFAIL: test_canonical_rules_only_and_no_tracking_or_content_mutation (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 84, in test_canonical_rules_only_and_no_tracking_or_content_mutation\n    self.assert_census(self.root, self.populate(self.root))\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the first set but not the second:\n'global-only.txt'\n'project-only.txt'\nItems in the second set but not the first:\n'.wavefoundry/locks/pid'\n'.wavefoundry/upgrade-assets/backup'\n'.wavefoundry/logs/space name'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/logs/new\\nline'\n'wavefoundry-local.zip'\n'.wavefoundry/upgrade-in-progress.json'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/framework/index/old.db'\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework.rollback-1/source'\n\n----------------------------------------------------------------------\nRan 1 test in 0.102s\n\nFAILED (failures=1)\n"
+        }
+      ],
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "1abe25647d8c0a4c9796ada988fe82a933fb8e03",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e1c2936c45ea4c376ee9ef04918f88a8bd12a090"
+      },
+      "tree_unchanged": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Two independently executed in-memory mutants each fail the named behavioral assertion with zero errors/skips; absent-bootstrap old-runner extraction and real Git canonical-only census."
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "execution_status": "executed",
+      "command_or_fixture": "python3 -B /tmp/1xs59-final-red-probe.py",
+      "expected": "Mutated exclusion creates forbidden installer; mutated Git scan omits canonical paths or includes project-only paths. Both must fail named assertions.",
+      "observed": "Both controls killed, exact fingerprints unchanged before and after.",
+      "limitations": [
+        "Focused tests reuse existing fixtures but execute in fresh independent context.",
+        "No broad suite, native Windows/Linux execution or fresh packaged destination upgrade performed.",
+        "Schema-pin paragraph reviewed in current source; post-ppdh paragraph is not covered by destination ppdh report."
+      ],
+      "citations": [
+        "upgrade_extensions.py:619-646",
+        "render_platform_surfaces.py:1980-2034",
+        "seeds/160-upgrade-wavefoundry.prompt.md:109-118"
+      ],
+      "focused_tests": {
+        "command": "PYTHONPATH=.wavefoundry/framework/scripts/tests:.wavefoundry/framework/scripts python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests",
+        "tests": 13,
+        "skips": 0,
+        "result": "ok"
+      },
+      "schema_paragraph_review_limit": "Own source review confirmed docs-constants owner only; docs-contract seat subsequently established editing-window claim is false. Red-team code-boundary approval does not override that blocking finding."
+    },
+    "docs": {
+      "context_id": "1xs59-final-docs-architecture-20260912-reviewer",
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "1abe25647d8c0a4c9796ada988fe82a933fb8e03",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e1c2936c45ea4c376ee9ef04918f88a8bd12a090"
+      },
+      "tree_moved_under_review": [],
+      "provenance": "Fresh reviewer task context forked from parent; both role judgments share this same reviewer context. Did not implement source. Parent primer and required historical evidence supplied hypotheses, not proof.",
+      "verification_context": {
+        "actor": "docs-contract-reviewer",
+        "context_id": "1xs59-final-docs-architecture-20260912-reviewer",
+        "fresh_context": true,
+        "independent": true
+      },
+      "roles": {
+        "docs-contract-reviewer": {
+          "verdict": "changes_requested",
+          "finding_ids": [
+            "schema-guidance-promises-unavailable-edit-window"
+          ]
+        },
+        "architecture-reviewer": {
+          "verdict": "approve",
+          "scope": "bootstrap exclusion and root-scoped read-only census",
+          "verification_context": {
+            "actor": "architecture-reviewer",
+            "context_id": "1xs59-final-docs-architecture-20260912-reviewer",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "focused-mutation"
+          }
+        }
+      },
+      "findings": [
+        {
+          "finding_id": "schema-guidance-promises-unavailable-edit-window",
+          "severity": "medium",
+          "blocking_required_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "low",
+          "containment": "none",
+          "fix_risk": "low",
+          "optional_value": "material",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "benefit_exceeds_risk",
+          "rejection_basis": "none",
+          "proposition": "New schema paragraph promises a before-first-gate editing window and overstates required manual edits.",
+          "failure_condition": "Supported ordinary upgrade from an exactly code-matched schema6 claim to schema7.",
+          "public_path": "upgrade_wavefoundry.main primary phase; incoming upgrade_extensions.pre_extract/pre_docs_gate",
+          "command_or_fixture": "python3 -B /tmp/1xs59-final-docs-probe.py",
+          "expected": "Guidance describes automatic reconciliation and actionable recovery when a claim cannot be reconciled.",
+          "observed": "Five tests passed without skips; pre_extract/new-schema/pre_docs_gate advanced claim6 to7 without agent edit. Disabling reconciliation in memory made exact assertion fail. main directly invokes pre_docs_gate then phase_docs_gate before returning.",
+          "artifact_or_test_id": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store; upgrade_wavefoundry.main Phase3; seed160 Reconcile documented state-store schema version paragraph",
+          "limitations": "No full end-to-end upgrade launched; bounded registered-hook fixture plus direct main ordering inspection. Shared fork includes task briefing/history; own source/test conclusions, not prior verdicts.",
+          "safety_and_authorization": "Temporary fixture roots and in-memory mutation only; no project source edits.",
+          "disposition_rationale": "do_now: small truthful rewrite in both matching paragraphs; audit automatic exact-match update, explicitly recover from actual docs-gate stop for missing/customized claim, no promise of a primary-call editing pause.",
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "focused-mutation"
+          },
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "none"
+          },
+          "disposition": "do_now",
+          "source_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "docs-contract-reviewer",
+            "wave-council-delivery"
+          ],
+          "evidence": {
+            "proposition": "New schema paragraph promises a before-first-gate editing window and overstates required manual edits.",
+            "failure_condition": "Supported ordinary upgrade from an exactly code-matched schema6 claim to schema7.",
+            "public_path": "upgrade_wavefoundry.main primary phase; incoming upgrade_extensions.pre_extract/pre_docs_gate",
+            "command_or_fixture": "python3 -B /tmp/1xs59-final-docs-probe.py",
+            "expected": "Guidance describes automatic reconciliation and actionable recovery when a claim cannot be reconciled.",
+            "observed": "Five tests passed without skips; pre_extract/new-schema/pre_docs_gate advanced claim6 to7 without agent edit. Disabling reconciliation in memory made exact assertion fail. main directly invokes pre_docs_gate then phase_docs_gate before returning.",
+            "artifact_or_test_id": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store; upgrade_wavefoundry.main Phase3; seed160 Reconcile documented state-store schema version paragraph",
+            "limitations": "No full end-to-end upgrade launched; bounded registered-hook fixture plus direct main ordering inspection. Shared fork includes task briefing/history; own source/test conclusions, not prior verdicts.",
+            "safety_and_authorization": "Temporary fixture roots and in-memory mutation only; no project source edits.",
+            "disposition_rationale": "do_now: small truthful rewrite in both matching paragraphs; audit automatic exact-match update, explicitly recover from actual docs-gate stop for missing/customized claim, no promise of a primary-call editing pause.",
+            "integrity_checks": {
+              "test_ran_without_unintended_skip": true,
+              "public_path_reached": true,
+              "boundary_values_realistic": true,
+              "assertions_non_vacuous": true,
+              "known_bad_detected": true,
+              "known_bad_detection_method": "focused-mutation"
+            },
+            "verification_context": {
+              "actor": "docs-contract-reviewer",
+              "context_id": "1xs59-final-docs-architecture-20260912-reviewer",
+              "fresh_context": true,
+              "independent": true
+            }
+          }
+        }
+      ],
+      "primer_answers": {
+        "Q1": "Incoming pre_extract patches live old-runner allowlist before first extraction and suppresses same-root legacy cleanup. Two focused tests verify absence at pause/fresh-process resume and preservation across repeated legacy cleanup. Exclusion is stronger than another ownership receipt.",
+        "Q2": "Native Git rules use only canonical exclusions, rebased escaped prefix and -- . pathspec; environment index overrides removed; failure branches report unavailable. Native root/nested tests preserve index bytes and content, exclude project/global rules and siblings. Failure branch source verified, not separately rerun."
+      },
+      "mutation_table": [
+        {
+          "mechanism": "automatic state-store doc reconciliation",
+          "mutation": "in-memory _reconcile_graph_builder_doc_claim no-op",
+          "failing_test": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store",
+          "result": "KILLED exact schema7 assertion"
+        },
+        {
+          "mechanism": "bootstrap and Git census",
+          "mutation": "not rerun in this lane; bounded baseline plus independent preservation/native-Git reference",
+          "result": "NOT RUN; other lane mutation results not claimed"
+        }
+      ],
+      "tests": "5 executed green, 0 skips; one focused mutant killed",
+      "not_run": [
+        "Full suite",
+        "Full upgrade process",
+        "Windows native execution",
+        "Separate bootstrap/Git mutants in this lane"
+      ],
+      "new_paragraph_alignment": "Seed and local paragraph identical. Missing RELIABILITY scope matches validator, constant binding real. Timing/manual-edit claim inaccurate.",
+      "architecture_sources": [
+        "docs/architecture/data-and-control-flow.md",
+        "upgrade_extensions._protect_existing_root_bootstrap",
+        "render_platform_surfaces.tracked_runtime_diagnostics"
+      ],
+      "source_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "approval_recheck_lanes": [
+        "docs-contract-reviewer",
+        "wave-council-delivery"
+      ],
+      "proposed_rewrite_assessment": "Correct with final sentence limited to repositories without that document. Omit or claim: an existing RELIABILITY document lacking the required claim produces a docs-constants missing-claim error. This is wording assessment, not post-repair verification."
+    },
+    "code": {
+      "scope": "1xs59 final delta only; prior three changes unchanged and not re-reviewed",
+      "time_budget": "5 minutes",
+      "sweep_rule": "Targeted tests per mutant; no survivors and no whole-suite rerun",
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "1abe25647d8c0a4c9796ada988fe82a933fb8e03",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e1c2936c45ea4c376ee9ef04918f88a8bd12a090"
+      },
+      "fingerprint_recheck": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "1abe25647d8c0a4c9796ada988fe82a933fb8e03",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e1c2936c45ea4c376ee9ef04918f88a8bd12a090"
+      },
+      "tree_moved_under_review": false,
+      "primer_answers": {
+        "Q1": "pre_extract calls protection first; loaded context module root allowlist drops bootstrap before extractall, cleanup override persists for same root; unknown interface refuses. Absent-file pause/fresh-process and preexisting tracked/link repeated-cleanup tests passed; removing either guard detected.",
+        "Q2": "Only canonical _GITIGNORE_BLOCK exclusions, escaped rev-parse prefix, Git -C configured root and -- . scope; cached ignored NUL records and JSON-safe display. Actual nested/sibling/worktree/control sets exact, index and bytes stable, nonrepo/failures distinguished and summary retained."
+      },
+      "best_alternative": "Exclusion is preferable to persistent cleanup receipts because it avoids creating ownership state across restart.",
+      "lanes": [
+        {
+          "verification_context": {
+            "actor": "upgrade-final-code-reviewer",
+            "context_id": "1xs59-final-code-independent-20260912",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Independent in-memory incoming exclusion, nested-prefix and repeated-cleanup mutations; two assertion failures plus expected missing-file error after destructive legacy cleanup, all zero skips."
+          },
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "execution_status": "executed",
+          "public_path": "upgrade pre_extract through _run_hook; extraction selection with frozen older runner and fresh current interpreter; renderer main; phase_render_platform_surfaces and operator summary; native Git linked worktree and nested configured root.",
+          "command_or_fixture": "PYTHONPATH=.. python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_upgrade_wavefoundry.ExtractFeatureMembersTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests -v",
+          "expected": "No new installer before pause or after resume; old cleanup preserves bytes/identity/index; canonical runtime set exact; unusual names safe; failures explicit; warnings reach upgrade log and summary.",
+          "observed": "21 tests passed in 1.809 seconds with zero skips. Three independent mutants detected. Real root census returned no tracked runtime warnings in 39.7 ms. Initial invocation missing scripts PYTHONPATH failed imports and was corrected before evidence run.",
+          "artifact_or_test_id": "/tmp/1xs59-final-code-tests.log; /tmp/1xs59-final-code-mutations.json",
+          "reference": "Independently read AC1-5, enumerated fixture path set, native Git canonical pattern semantics and unchanged-index/file-byte metamorphic invariants.",
+          "common_mode_limitations": "Repository tests authored by implementer, independently executed and challenged with in-memory mutants; no full historical runner or native cross-platform E2E.",
+          "role": "code-reviewer",
+          "verdict": "approve",
+          "findings": [],
+          "proposition": "Incoming exclusion is installed before extraction and suppresses repeated old cleanup; current extractor skips installer without ownership receipts.",
+          "limitations": [
+            "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+            "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+            "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+            "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+            "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+          ]
+        },
+        {
+          "verification_context": {
+            "actor": "upgrade-final-code-reviewer",
+            "context_id": "1xs59-final-code-independent-20260912",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Independent in-memory incoming exclusion, nested-prefix and repeated-cleanup mutations; two assertion failures plus expected missing-file error after destructive legacy cleanup, all zero skips."
+          },
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "execution_status": "executed",
+          "public_path": "upgrade pre_extract through _run_hook; extraction selection with frozen older runner and fresh current interpreter; renderer main; phase_render_platform_surfaces and operator summary; native Git linked worktree and nested configured root.",
+          "command_or_fixture": "PYTHONPATH=.. python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_upgrade_wavefoundry.ExtractFeatureMembersTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests -v",
+          "expected": "No new installer before pause or after resume; old cleanup preserves bytes/identity/index; canonical runtime set exact; unusual names safe; failures explicit; warnings reach upgrade log and summary.",
+          "observed": "21 tests passed in 1.809 seconds with zero skips. Three independent mutants detected. Real root census returned no tracked runtime warnings in 39.7 ms. Initial invocation missing scripts PYTHONPATH failed imports and was corrected before evidence run.",
+          "artifact_or_test_id": "/tmp/1xs59-final-code-tests.log; /tmp/1xs59-final-code-mutations.json",
+          "reference": "Independently read AC1-5, enumerated fixture path set, native Git canonical pattern semantics and unchanged-index/file-byte metamorphic invariants.",
+          "common_mode_limitations": "Repository tests authored by implementer, independently executed and challenged with in-memory mutants; no full historical runner or native cross-platform E2E.",
+          "role": "qa-reviewer",
+          "verdict": "approve",
+          "findings": [],
+          "proposition": "All five required ACs have behavioral evidence; no deferred ACs. AC1 old/current pause and links; AC2 extraction inventory; AC3 real Git controls; AC4 failures/permissions-only and invariants; AC5 real renderer/summary.",
+          "limitations": [
+            "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+            "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+            "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+            "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+            "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+          ]
+        },
+        {
+          "verification_context": {
+            "actor": "upgrade-final-code-reviewer",
+            "context_id": "1xs59-final-code-independent-20260912",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Independent in-memory incoming exclusion, nested-prefix and repeated-cleanup mutations; two assertion failures plus expected missing-file error after destructive legacy cleanup, all zero skips."
+          },
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "execution_status": "executed",
+          "public_path": "upgrade pre_extract through _run_hook; extraction selection with frozen older runner and fresh current interpreter; renderer main; phase_render_platform_surfaces and operator summary; native Git linked worktree and nested configured root.",
+          "command_or_fixture": "PYTHONPATH=.. python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_upgrade_wavefoundry.ExtractFeatureMembersTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests -v",
+          "expected": "No new installer before pause or after resume; old cleanup preserves bytes/identity/index; canonical runtime set exact; unusual names safe; failures explicit; warnings reach upgrade log and summary.",
+          "observed": "21 tests passed in 1.809 seconds with zero skips. Three independent mutants detected. Real root census returned no tracked runtime warnings in 39.7 ms. Initial invocation missing scripts PYTHONPATH failed imports and was corrected before evidence run.",
+          "artifact_or_test_id": "/tmp/1xs59-final-code-tests.log; /tmp/1xs59-final-code-mutations.json",
+          "reference": "Independently read AC1-5, enumerated fixture path set, native Git canonical pattern semantics and unchanged-index/file-byte metamorphic invariants.",
+          "common_mode_limitations": "Repository tests authored by implementer, independently executed and challenged with in-memory mutants; no full historical runner or native cross-platform E2E.",
+          "role": "security-reviewer",
+          "verdict": "approve",
+          "findings": [],
+          "proposition": "Operator-trusted package/repository model unchanged. Root-scoped census executes argv without shell, sanitizes ambient Git root/index overrides, preserves index and content. No less-trusted actor authority delta or exploit chain identified. Existing archive path validation unchanged; literal prefix glob escaping verified.",
+          "limitations": [
+            "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+            "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+            "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+            "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+            "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+          ]
+        },
+        {
+          "verification_context": {
+            "actor": "upgrade-final-code-reviewer",
+            "context_id": "1xs59-final-code-independent-20260912",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Independent in-memory incoming exclusion, nested-prefix and repeated-cleanup mutations; two assertion failures plus expected missing-file error after destructive legacy cleanup, all zero skips."
+          },
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "execution_status": "executed",
+          "public_path": "upgrade pre_extract through _run_hook; extraction selection with frozen older runner and fresh current interpreter; renderer main; phase_render_platform_surfaces and operator summary; native Git linked worktree and nested configured root.",
+          "command_or_fixture": "PYTHONPATH=.. python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_upgrade_wavefoundry.ExtractFeatureMembersTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests -v",
+          "expected": "No new installer before pause or after resume; old cleanup preserves bytes/identity/index; canonical runtime set exact; unusual names safe; failures explicit; warnings reach upgrade log and summary.",
+          "observed": "21 tests passed in 1.809 seconds with zero skips. Three independent mutants detected. Real root census returned no tracked runtime warnings in 39.7 ms. Initial invocation missing scripts PYTHONPATH failed imports and was corrected before evidence run.",
+          "artifact_or_test_id": "/tmp/1xs59-final-code-tests.log; /tmp/1xs59-final-code-mutations.json",
+          "reference": "Independently read AC1-5, enumerated fixture path set, native Git canonical pattern semantics and unchanged-index/file-byte metamorphic invariants.",
+          "common_mode_limitations": "Repository tests authored by implementer, independently executed and challenged with in-memory mutants; no full historical runner or native cross-platform E2E.",
+          "role": "performance-reviewer",
+          "verdict": "approve",
+          "findings": [],
+          "proposition": "Two bounded-time local Git queries with explicit 50-path display cap; one 39.7 ms source census, no new background or indexed service work.",
+          "limitations": [
+            "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+            "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+            "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+            "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+            "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+          ]
+        },
+        {
+          "verification_context": {
+            "actor": "upgrade-final-code-reviewer",
+            "context_id": "1xs59-final-code-independent-20260912",
+            "fresh_context": true,
+            "independent": true
+          },
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Independent in-memory incoming exclusion, nested-prefix and repeated-cleanup mutations; two assertion failures plus expected missing-file error after destructive legacy cleanup, all zero skips."
+          },
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "execution_status": "executed",
+          "public_path": "upgrade pre_extract through _run_hook; extraction selection with frozen older runner and fresh current interpreter; renderer main; phase_render_platform_surfaces and operator summary; native Git linked worktree and nested configured root.",
+          "command_or_fixture": "PYTHONPATH=.. python3 -B -m unittest test_upgrade_wavefoundry.RootBootstrapUpgradeTests test_upgrade_wavefoundry.ExtractFeatureMembersTests test_upgrade_wavefoundry.TrackedRuntimeUpgradeWarningTests test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests -v",
+          "expected": "No new installer before pause or after resume; old cleanup preserves bytes/identity/index; canonical runtime set exact; unusual names safe; failures explicit; warnings reach upgrade log and summary.",
+          "observed": "21 tests passed in 1.809 seconds with zero skips. Three independent mutants detected. Real root census returned no tracked runtime warnings in 39.7 ms. Initial invocation missing scripts PYTHONPATH failed imports and was corrected before evidence run.",
+          "artifact_or_test_id": "/tmp/1xs59-final-code-tests.log; /tmp/1xs59-final-code-mutations.json",
+          "reference": "Independently read AC1-5, enumerated fixture path set, native Git canonical pattern semantics and unchanged-index/file-byte metamorphic invariants.",
+          "common_mode_limitations": "Repository tests authored by implementer, independently executed and challenged with in-memory mutants; no full historical runner or native cross-platform E2E.",
+          "role": "release-reviewer",
+          "verdict": "approve",
+          "findings": [],
+          "proposition": "Bootstrap remains package inventory for fresh installs and withheld during upgrades; package member exclusions preserved. Package build/ppdh field record supplied; focused inventory test independently executed.",
+          "limitations": [
+            "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+            "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+            "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+            "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+            "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+          ]
+        }
+      ],
+      "mutation_table": [
+        {
+          "mutation": "remove incoming exclusion",
+          "test": "RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume",
+          "testsRun": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true,
+          "output": "F\n======================================================================\nFAIL: test_old_runner_excludes_before_pause_and_fresh_process_resume (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5596, in test_old_runner_excludes_before_pause_and_fresh_process_resume\n    self.assertFalse(bootstrap.exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.038s\n\nFAILED (failures=1)\n"
+        },
+        {
+          "mutation": "remove nested prefix",
+          "test": "TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling",
+          "testsRun": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "detected": true,
+          "output": "F\n======================================================================\nFAIL: test_nested_root_with_literal_glob_characters_excludes_sibling (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 94, in test_nested_root_with_literal_glob_characters_excludes_sibling\n    self.assert_census(root, names)\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'.wavefoundry/framework.rollback-1/source'\n'.wavefoundry/locks/pid'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework/index/old.db'\n'.wavefoundry/upgrade-assets/backup'\n'.wavefoundry/logs/new\\nline'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/logs/space name'\n'wavefoundry-local.zip'\n'.wavefoundry/upgrade-in-progress.json'\n\n----------------------------------------------------------------------\nRan 1 test in 0.144s\n\nFAILED (failures=1)\n"
+        },
+        {
+          "mutation": "restore one-use cleanup",
+          "test": "RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup",
+          "testsRun": 1,
+          "failures": 0,
+          "errors": 1,
+          "skips": 0,
+          "detected": true,
+          "output": "E\n======================================================================\nERROR: test_existing_file_survives_current_and_repeated_legacy_cleanup (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5622, in test_existing_file_survives_current_and_repeated_legacy_cleanup\n    self.assertEqual(bootstrap.read_bytes(), b\"project instructions, locally modified\")\n                     ~~~~~~~~~~~~~~~~~~~~^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_abc.py\", line 625, in read_bytes\n    with self.open(mode='rb') as f:\n         ~~~~~~~~~^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py\", line 537, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpztsjey1f/install-wavefoundry.md'\n\n----------------------------------------------------------------------\nRan 1 test in 0.075s\n\nFAILED (errors=1)\n"
+        }
+      ],
+      "limitations": [
+        "One fresh reviewer context applies five specialist lenses; these are not five independent reviewers. Independent of implementing coordinator, not independent across lenses.",
+        "Executed on macOS only; no native Windows/Linux/WSL qualification. Frozen legacy extraction ABI plus real fresh-interpreter current extraction exercises pause/resume boundary, not a full historical destination installation.",
+        "Full suite is supplied implementer evidence, not independently rerun; source tree fingerprint checked. Destination ppdh success is supplied field evidence, not independently reproduced.",
+        "Performance is a single 39.7 ms local census observation; display bounded to 50 paths with omitted count, census remains linear in tracked files and each of two Git calls has five-second timeout. No large-index benchmark.",
+        "Documentation schema guidance reviewed for scope only; detailed source-of-truth wording is docs seat responsibility."
+      ],
+      "findings": []
+    },
+    "council": {
+      "role": "wave-council",
+      "phase": "delivery",
+      "scope": "Targeted final 1xs59 delta; prior three wave changes not re-reviewed",
+      "verdict": "changes_requested",
+      "delivery_held": true,
+      "primer_depth": "standard",
+      "seat_roster": [
+        "red-team",
+        "docs-contract-reviewer"
+      ],
+      "rotating_fifth_seat": "Not convened in this explicitly targeted two-seat pass; no full-council claim.",
+      "supporting_lanes": [
+        "code-reviewer",
+        "qa-reviewer",
+        "security-reviewer",
+        "performance-reviewer",
+        "release-reviewer",
+        "architecture-reviewer"
+      ],
+      "moderator_provenance": "Same agent/session as red-team primer and probe; not an additional independent reviewer. Docs/architecture share one separate fresh context; five implementation specialist lenses share another separate fresh context. All independent of source implementer.",
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "1xs59-final-red-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "1abe25647d8c0a4c9796ada988fe82a933fb8e03",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e1c2936c45ea4c376ee9ef04918f88a8bd12a090"
+      },
+      "tree_unchanged": true,
+      "reports": {
+        "red": "/tmp/1xs59-final-red.json",
+        "docs": "/tmp/1xs59-final-docs.json",
+        "code": "/tmp/1xs59-final-code.json"
+      },
+      "findings": [
+        {
+          "finding_id": "schema-guidance-promises-unavailable-edit-window",
+          "severity": "medium",
+          "blocking_required_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "validation_status": "validated",
+          "scope_relation": "in_scope",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "direct",
+          "supported_reachability": "supported",
+          "attacker_reachability": "not_applicable",
+          "authority_domain": "operator upgrade guidance",
+          "authority_delta": "none",
+          "observable_impact": "Agent cannot perform the prescribed edit before first docs gate through the default primary wf_upgrade invocation; ordinary exact claims already auto-reconcile, so predicted inevitable gate failure is false.",
+          "containment": "Seed160 and corresponding local prompt new schema paragraph only",
+          "fix_risk": "low",
+          "optional_value": "material",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "benefit_exceeds_risk",
+          "rejection_basis": "none",
+          "proposition": "New schema paragraph promises a before-first-gate editing window and overstates required manual edits.",
+          "failure_condition": "Supported ordinary upgrade from an exactly code-matched schema6 claim to schema7.",
+          "public_path": "upgrade_wavefoundry.main primary phase; incoming upgrade_extensions.pre_extract/pre_docs_gate",
+          "command_or_fixture": "python3 -B /tmp/1xs59-final-docs-probe.py",
+          "expected": "Guidance describes automatic reconciliation and actionable recovery when a claim cannot be reconciled.",
+          "observed": "Five tests passed without skips; pre_extract/new-schema/pre_docs_gate advanced claim6 to7 without agent edit. Disabling reconciliation in memory made exact assertion fail. main directly invokes pre_docs_gate then phase_docs_gate before returning.",
+          "artifact_or_test_id": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store; upgrade_wavefoundry.main Phase3; seed160 Reconcile documented state-store schema version paragraph",
+          "limitations": "No full end-to-end upgrade launched; bounded registered-hook fixture plus direct main ordering inspection. Shared fork includes task briefing/history; own source/test conclusions, not prior verdicts.",
+          "safety_and_authorization": "Temporary fixture roots and in-memory mutation only; no project source edits.",
+          "disposition_rationale": "do_now: small truthful rewrite in both matching paragraphs; audit automatic exact-match update, explicitly recover from actual docs-gate stop for missing/customized claim, no promise of a primary-call editing pause.",
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "focused-mutation"
+          }
+        }
+      ],
+      "reasoning": "Bootstrap extraction and read-only Git census survived independent targeted tests and known-bad controls. Documentation seat established that new schema-pin guidance falsely promises an edit window before the first docs gate: supported primary upgrade automatically reconciles exact-match claims in pre_docs_gate then runs the gate before returning. This correctness defect blocks docs-contract-reviewer and therefore delivery approval.",
+      "material_disagreements": "No unresolved disagreement: red-team own schema read established constant binding only, which does not validate timing. Moderator accepts docs timing finding; code-boundary approvals remain scoped.",
+      "primer_answers": {
+        "Q1": "Incoming pre_extract patches live old-runner allowlist before first extraction and suppresses same-root legacy cleanup. Two focused tests verify absence at pause/fresh-process resume and preservation across repeated legacy cleanup. Exclusion is stronger than another ownership receipt.",
+        "Q2": "Native Git rules use only canonical exclusions, rebased escaped prefix and -- . pathspec; environment index overrides removed; failure branches report unavailable. Native root/nested tests preserve index bytes and content, exclude project/global rules and siblings. Failure branch source verified, not separately rerun."
+      },
+      "strongest_alternative": "Preserve extraction exclusion and read-only canonical Git advisory. Rewrite guidance to audit automatic reconciliation and handle actual reported docs-gate stops, then resume.",
+      "next_action": "do_now: coordinator repair matching seed/local paragraphs after all frozen lanes complete; re-snapshot; fresh docs/architecture targeted reverification and council recheck. No broad suite or code re-review needed solely for this prose repair unless behavior changes.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Two independently executed in-memory mutants each fail the named behavioral assertion with zero errors/skips; absent-bootstrap old-runner extraction and real Git canonical-only census."
+      },
+      "mutation_table": {
+        "red": [
+          {
+            "mutation": "old installing allowlist exclusion removed",
+            "test": "RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume",
+            "result": "killed",
+            "runs": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "evidence": "F\n======================================================================\nFAIL: test_old_runner_excludes_before_pause_and_fresh_process_resume (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5596, in test_old_runner_excludes_before_pause_and_fresh_process_resume\n    self.assertFalse(bootstrap.exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nFAILED (failures=1)\n"
+          },
+          {
+            "mutation": "canonical census replaced with project/global rules",
+            "test": "TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation",
+            "result": "killed",
+            "runs": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "evidence": "F\n======================================================================\nFAIL: test_canonical_rules_only_and_no_tracking_or_content_mutation (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_canonical_rules_only_and_no_tracking_or_content_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 84, in test_canonical_rules_only_and_no_tracking_or_content_mutation\n    self.assert_census(self.root, self.populate(self.root))\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the first set but not the second:\n'global-only.txt'\n'project-only.txt'\nItems in the second set but not the first:\n'.wavefoundry/locks/pid'\n'.wavefoundry/upgrade-assets/backup'\n'.wavefoundry/logs/space name'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/logs/new\\nline'\n'wavefoundry-local.zip'\n'.wavefoundry/upgrade-in-progress.json'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/framework/index/old.db'\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework.rollback-1/source'\n\n----------------------------------------------------------------------\nRan 1 test in 0.102s\n\nFAILED (failures=1)\n"
+          }
+        ],
+        "docs": [
+          {
+            "mechanism": "automatic state-store doc reconciliation",
+            "mutation": "in-memory _reconcile_graph_builder_doc_claim no-op",
+            "failing_test": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store",
+            "result": "KILLED exact schema7 assertion"
+          },
+          {
+            "mechanism": "bootstrap and Git census",
+            "mutation": "not rerun in this lane; bounded baseline plus independent preservation/native-Git reference",
+            "result": "NOT RUN; other lane mutation results not claimed"
+          }
+        ],
+        "code": [
+          {
+            "mutation": "remove incoming exclusion",
+            "test": "RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume",
+            "testsRun": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "detected": true,
+            "output": "F\n======================================================================\nFAIL: test_old_runner_excludes_before_pause_and_fresh_process_resume (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_old_runner_excludes_before_pause_and_fresh_process_resume)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5596, in test_old_runner_excludes_before_pause_and_fresh_process_resume\n    self.assertFalse(bootstrap.exists())\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.038s\n\nFAILED (failures=1)\n"
+          },
+          {
+            "mutation": "remove nested prefix",
+            "test": "TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling",
+            "testsRun": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "detected": true,
+            "output": "F\n======================================================================\nFAIL: test_nested_root_with_literal_glob_characters_excludes_sibling (test_render_platform_surfaces.TrackedRuntimeDiagnosticsTests.test_nested_root_with_literal_glob_characters_excludes_sibling)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 94, in test_nested_root_with_literal_glob_characters_excludes_sibling\n    self.assert_census(root, names)\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py\", line 73, in assert_census\n    self.assertEqual({r[\"file\"] for r in first}, set(names))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'.wavefoundry/framework.rollback-1/source'\n'.wavefoundry/locks/pid'\n'.wavefoundry/dashboard-server.json'\n'.wavefoundry/deep/active.lock'\n'.wavefoundry/framework/index/old.db'\n'.wavefoundry/upgrade-assets/backup'\n'.wavefoundry/logs/new\\nline'\n'.wavefoundry/index/index.sqlite'\n'.wavefoundry/guard-overrides.json'\n'.wavefoundry/logs/space name'\n'wavefoundry-local.zip'\n'.wavefoundry/upgrade-in-progress.json'\n\n----------------------------------------------------------------------\nRan 1 test in 0.144s\n\nFAILED (failures=1)\n"
+          },
+          {
+            "mutation": "restore one-use cleanup",
+            "test": "RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup",
+            "testsRun": 1,
+            "failures": 0,
+            "errors": 1,
+            "skips": 0,
+            "detected": true,
+            "output": "E\n======================================================================\nERROR: test_existing_file_survives_current_and_repeated_legacy_cleanup (test_upgrade_wavefoundry.RootBootstrapUpgradeTests.test_existing_file_survives_current_and_repeated_legacy_cleanup)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 5622, in test_existing_file_survives_current_and_repeated_legacy_cleanup\n    self.assertEqual(bootstrap.read_bytes(), b\"project instructions, locally modified\")\n                     ~~~~~~~~~~~~~~~~~~~~^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_abc.py\", line 625, in read_bytes\n    with self.open(mode='rb') as f:\n         ~~~~~~~~~^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/pathlib/_local.py\", line 537, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpztsjey1f/install-wavefoundry.md'\n\n----------------------------------------------------------------------\nRan 1 test in 0.075s\n\nFAILED (errors=1)\n"
+          }
+        ]
+      },
+      "limitations": [
+        "Council synthesis did not execute additional probes beyond own red-team work.",
+        "No full-suite rerun, full destination upgrade, native Windows/Linux/Intel qualification or performance benchmark.",
+        "Post-ppdh schema paragraph not covered by operator destination report."
+      ]
+    },
+    "repair": {
+      "cycle": 2,
+      "finding": "schema-guidance-promises-unavailable-edit-window",
+      "change": "Replaced both paragraphs with actual automatic reconciliation and docs-gate recovery guidance; no runtime edits.",
+      "implementer_context": "1xs59-schema-guidance-repair-root-20260912",
+      "probe_rerun": "python3 -B /tmp/1xs59-final-docs-probe.py succeeded before repair",
+      "independent": false
+    },
+    "docs_reverification": {
+      "actor": "docs-contract-reviewer",
+      "context_id": "1xs59-schema-docs-reverify-independent-20260912",
+      "fresh_context": true,
+      "independent": true,
+      "cycle": 2,
+      "finding_id": "schema-guidance-promises-unavailable-edit-window",
+      "run_kind": "reverification",
+      "judgment": {
+        "validation_status": "validated",
+        "scope_relation": "in_scope",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "direct",
+        "supported_reachability": "supported",
+        "attacker_reachability": "not_applicable",
+        "authority_domain": "operator upgrade guidance",
+        "authority_delta": "none",
+        "observable_impact": "Agent cannot perform the prescribed edit before first docs gate through the default primary wf_upgrade invocation; ordinary exact claims already auto-reconcile, so predicted inevitable gate failure is false.",
+        "containment": "Seed160 and corresponding local prompt new schema paragraph only",
+        "fix_risk": "low",
+        "optional_value": "material",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "benefit_exceeds_risk",
+        "rejection_basis": "none",
+        "disposition": "do_now",
+        "repair_state": "verified",
+        "verification_outcome": "passed"
+      },
+      "evidence": {
+        "proposition": "Repaired schema guidance matches automatic reconciliation and actual docs-gate recovery timing.",
+        "failure_condition": "Exact pre-extraction schema6 claim upgrades to schema7, or existing RELIABILITY document lacks required claim.",
+        "public_path": "upgrade_extensions.pre_extract/pre_docs_gate; main phase3 ordering inspected; check_docs_constants executed",
+        "command_or_fixture": "Existing HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store plus in-memory no-op mutant and temporary missing-document/missing-claim validator probes",
+        "expected": "Exact claim automatically advances; no manual pause before first gate; absent document is exempt while missing required claim is diagnosed.",
+        "observed": "One targeted test passed without skips; no-op mutant failed exact schema7 assertion. Validator accepts absent document and diagnoses missing schema claim in existing document. Both paragraphs match; primary main immediately runs phase_docs_gate after pre_docs_gate and clears prior failure after successful retry.",
+        "artifact_or_test_id": "/tmp/1xs59-docs-reverify-probe.json; upgrade_extensions.py:482,640,1125; upgrade_wavefoundry.py:5727; docs_constants_validators.py:109",
+        "known_bad_detection_method": "focused-mutation",
+        "limitations": "No full end-to-end upgrade or full suite rerun. Recovery continuation verified by source ordering, not independent full destination replay. ppdh supplied external field evidence only.",
+        "safety_and_authorization": "Temporary fixture roots and in-memory mutation only; root runtime and repository sources untouched.",
+        "disposition_rationale": "Original real correctness defect repaired in matching canonical/local guidance; docs lane clears."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      },
+      "source_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "blocking_required_lanes": [],
+      "approval_recheck_lanes": [
+        "docs-contract-reviewer",
+        "wave-council-delivery"
+      ],
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "2707fd2a67868bc10cd6debdd2eecf539335c87b",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e92f9a0b452d70f8a16871ab76bfdaeaf48eb919"
+      },
+      "tree_unchanged": true,
+      "mutation_table": [
+        {
+          "mutation": "in-memory reconciliation no-op",
+          "test": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store",
+          "result": "killed",
+          "failure": "'state-store schema version `7`' not found in '# Reliability\\n\\n- state-store schema version `6`\\n- graph builder version `45`\\n'",
+          "errors": 0,
+          "skips": 0
+        }
+      ],
+      "baseline": "test_scalar_doc_reconciliation_advances_models_chunker_and_state_store (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.041s\n\nOK\n",
+      "docs_delivery_approval": {
+        "signoff_key": "docs-contract-reviewer",
+        "approval_phase": "delivery",
+        "verdict": "approved",
+        "evidence": {
+          "proposition": "Repaired schema guidance matches automatic reconciliation and actual docs-gate recovery timing.",
+          "failure_condition": "Exact pre-extraction schema6 claim upgrades to schema7, or existing RELIABILITY document lacks required claim.",
+          "public_path": "upgrade_extensions.pre_extract/pre_docs_gate; main phase3 ordering inspected; check_docs_constants executed",
+          "command_or_fixture": "Existing HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store plus in-memory no-op mutant and temporary missing-document/missing-claim validator probes",
+          "expected": "Exact claim automatically advances; no manual pause before first gate; absent document is exempt while missing required claim is diagnosed.",
+          "observed": "One targeted test passed without skips; no-op mutant failed exact schema7 assertion. Validator accepts absent document and diagnoses missing schema claim in existing document. Both paragraphs match; primary main immediately runs phase_docs_gate after pre_docs_gate and clears prior failure after successful retry.",
+          "artifact_or_test_id": "/tmp/1xs59-docs-reverify-probe.json; upgrade_extensions.py:482,640,1125; upgrade_wavefoundry.py:5727; docs_constants_validators.py:109",
+          "known_bad_detection_method": "focused-mutation",
+          "limitations": "No full end-to-end upgrade or full suite rerun. Recovery continuation verified by source ordering, not independent full destination replay. ppdh supplied external field evidence only.",
+          "safety_and_authorization": "Temporary fixture roots and in-memory mutation only; root runtime and repository sources untouched.",
+          "disposition_rationale": "Original real correctness defect repaired in matching canonical/local guidance; docs lane clears."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        }
+      },
+      "enum_note": "Coordinator should validate repair_state and verification_outcome vocabulary with typed tool before recording; no ledger writes by this reviewer."
+    },
+    "council_reverification": {
+      "role": "wave-council",
+      "signoff_key": "wave-council-delivery",
+      "approval_phase": "delivery",
+      "verdict": "approved",
+      "scope": "Bounded 1xs59 schema guidance repair; standing final code/red/architecture approvals retained over unchanged code paths. Prior three changes not re-reviewed.",
+      "primer_depth": "standard",
+      "seat_roster": [
+        "red-team",
+        "docs-contract-reviewer"
+      ],
+      "rotating_fifth_seat": "Not convened for expressly targeted delta pass; no full council claim.",
+      "verification_context": {
+        "actor": "wave-council",
+        "context_id": "1xs59-final-red-independent-20260912",
+        "fresh_context": true,
+        "independent": true
+      },
+      "provenance": "Moderator retains the same session/context as original red-team primer and hold synthesis, independent of implementing coordinator; not a newly spawned independent reviewer for this delta. Fresh schema reverification belongs to docs context 1xs59-schema-docs-reverify-independent-20260912. Five implementation lenses share one other context; docs/architecture standing review shares one context.",
+      "source_reports": [
+        "/tmp/1xs59-final-red.json",
+        "/tmp/1xs59-final-code.json",
+        "/tmp/1xs59-final-docs.json",
+        "/tmp/1xs59-final-council.json",
+        "/tmp/1xs59-docs-reverify.json"
+      ],
+      "tree_fingerprint": {
+        ".wavefoundry/framework/VERSION": "17199b344b8920941334acc88c4ef4737e4c09e7",
+        ".wavefoundry/framework/scripts/render_platform_surfaces.py": "eb93109f20db9b61247a598df5d0364b1c66c42c",
+        ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "e87a2b33bf3e564a959f155faf70d84c6cdbbe8b",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "99ac11005c3b0795f570779321b09bcc675143aa",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "bd9a49361555cc774c07af38b57fb7c957d87721",
+        ".wavefoundry/framework/scripts/upgrade_wavefoundry.py": "839b1e746ca25e7de26c50467de2b4d25b79e8bf",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "2707fd2a67868bc10cd6debdd2eecf539335c87b",
+        "CHANGELOG.md": "cf8523846ed86b3d8f259c2b9daef664729b4488",
+        "docs/architecture/data-and-control-flow.md": "e6bae1a478675ec53e15ae247ad13e948bc2a471",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "e92f9a0b452d70f8a16871ab76bfdaeaf48eb919"
+      },
+      "tree_unchanged": true,
+      "changed_paths": [
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+        "docs/prompts/upgrade-wavefoundry.prompt.md"
+      ],
+      "finding_reconciliation": {
+        "schema-guidance-promises-unavailable-edit-window": "verified repaired by fresh docs context; no blocking lanes remain"
+      },
+      "findings": [],
+      "reasoning": "Only matching canonical/local schema paragraphs changed. Guidance now states automatic exact-claim reconciliation, actual docs-gate stop recovery and absent-document versus missing-claim behavior. Fresh docs reverification executes schema6-to7 hook test, detects no-op mutant and proves missing-document/missing-claim validator distinction. Moderator independently reads repaired paragraph, verifies paragraph equality and hashes; unchanged code evidence remains applicable.",
+      "material_disagreements": "Original timing disagreement resolved in favor of executable docs finding and now repaired; no unresolved dissent.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      },
+      "integrity_provenance": "Inherited executable delta checks from cited fresh docs report, supplemented by own exact hash/paragraph checks; moderator does not claim separately running those tests. Standing own red-team probes remain unchanged.",
+      "mutation_table": [
+        {
+          "mutation": "in-memory reconciliation no-op",
+          "test": "HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store",
+          "result": "killed",
+          "failure": "'state-store schema version `7`' not found in '# Reliability\\n\\n- state-store schema version `6`\\n- graph builder version `45`\\n'",
+          "errors": 0,
+          "skips": 0
+        }
+      ],
+      "evidence": {
+        "proposition": "The narrow repaired guidance matches the supported upgrade flow and no reviewed implementation boundary changed.",
+        "failure_condition": "Guidance again promises a pre-first-gate editing pause, auto-reconciliation proof fails, absent document requires edit, or code hashes differ.",
+        "public_path": "upgrade_extensions.pre_extract/pre_docs_gate; main phase3 ordering inspected; check_docs_constants executed",
+        "command_or_fixture": "Moderator exact git hash-object checks on all ten paths; canonical/local paragraph equality; fresh docs probe reported at /tmp/1xs59-docs-reverify.json",
+        "expected": "Only two paragraph paths differ; repaired guidance accurate; independent docs blocker cleared.",
+        "observed": "Exact hashes matched snapshot; two paragraph paths alone changed; paragraphs identical; fresh docs proof passed and known-bad control failed exact schema assertion.",
+        "artifact_or_test_id": "/tmp/1xs59-council-reverify.json; /tmp/1xs59-docs-reverify.json",
+        "limitations": "No new moderator executable mutation, broad full review, full suite or packaged destination replay. Full-suite result remains coordinator-owned; ppdh predates repaired prose.",
+        "safety_and_authorization": "Read-only source and Git hashing; report written only under /tmp."
+      },
+      "limitations": [
+        "Same-session retained moderator review explicitly declared; fresh_context means independent of repair implementer, not a new moderator context.",
+        "No broad suite or native platform qualification performed by council."
+      ]
+    },
+    "full_suite_first_attempt": {
+      "result": "failed",
+      "tests": 8902,
+      "skips": 12,
+      "duration_seconds": 277.117,
+      "failure": "TechDocs segment-local path timing: 0.1540195001 seconds versus 0.15 threshold under parallel suite load",
+      "isolated_recheck": "86 tests passed in 10.020 seconds; no source or threshold changes",
+      "log_tail": "nent shape exceeds the worker budget. ... ok\ntest_the_bounded_runner_returns_a_timeout_report_and_isolates_the_worker (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_bounded_runner_returns_a_timeout_report_and_isolates_the_worker)\nAC-10: timeout is a normal degraded report, not an exception or hang. ... ok\ntest_the_realpath_backstop_refuses_a_docs_root_that_escapes (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_realpath_backstop_refuses_a_docs_root_that_escapes)\nIsolates the SECOND containment guard, which nothing else reaches. ... ok\ntest_the_symlink_matrix_matches_mkdocs_except_where_containment_refuses (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_symlink_matrix_matches_mkdocs_except_where_containment_refuses)\nEnumeration must walk the way MkDocs walks, and stop where we differ. ... ok\ntest_the_two_boundary_details_name_which_side_the_target_is_on (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_two_boundary_details_name_which_side_the_target_is_on)\nOne finding code, two causes, and only the detail tells them apart. ... ok\ntest_the_walk_never_descends_outside_the_root (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_the_walk_never_descends_outside_the_root)\nAC-3 says the walk must REFUSE TO DESCEND, and no test could see descent. ... ok\ntest_unmodelled_nav_syntax_and_second_section_depth_degrade (test_techdocs_audit_lib.TechdocsAuditDegradeTests.test_unmodelled_nav_syntax_and_second_section_depth_degrade)\nA naive ``.+`` tail/flattening repair cannot pass this negative matrix. ... ok\ntest_a_malformed_verified_against_stamp_is_the_second_metadata_injection (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_malformed_verified_against_stamp_is_the_second_metadata_injection)\nAC-1's other named metadata case, distinct from a missing block. ... ok\ntest_a_nav_entry_that_escapes_docs_dir_is_reported_and_never_stat_ed (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_nav_entry_that_escapes_docs_dir_is_reported_and_never_stat_ed)\n`docs_root / \"/etc/passwd\"` IS `/etc/passwd`. ... ok\ntest_a_nav_symlink_escaping_the_root_degrades_before_is_file (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_a_nav_symlink_escaping_the_root_degrades_before_is_file)\nAC-9: enumeration and nav scoring must agree on an escaping symlink. ... ok\ntest_boundary_repairs_change_only_the_inputs_that_define_publication (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_boundary_repairs_change_only_the_inputs_that_define_publication) ... ok\ntest_canonical_order_is_the_code_sequence_not_alphabetical (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_canonical_order_is_the_code_sequence_not_alphabetical) ... ok\ntest_clean_tree_produces_no_finding (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_clean_tree_produces_no_finding) ... ok\ntest_link_codes_and_their_precedence (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_link_codes_and_their_precedence) ... ok\ntest_links_inside_code_fences_are_not_findings (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_links_inside_code_fences_are_not_findings) ... ok\ntest_metadata_incomplete_fires_on_a_survivor (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_metadata_incomplete_fires_on_a_survivor) ... ok\ntest_module_overview_states_the_publication_boundary (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_module_overview_states_the_publication_boundary) ... ok\ntest_nav_target_missing_and_excluded_are_distinct (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_nav_target_missing_and_excluded_are_distinct) ... ok\ntest_percent_encoded_href_resolves (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_percent_encoded_href_resolves)\nWithout the shared unquote this reads as a dangling link. ... ok\ntest_spaced_nav_targets_flow_through_raw_and_worker_audits (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_spaced_nav_targets_flow_through_raw_and_worker_audits) ... ok\ntest_trio_partial_is_one_record_and_index_generated_is_independent (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_trio_partial_is_one_record_and_index_generated_is_independent) ... ok\ntest_unmodelled_yaml_indicator_nav_values_degrade_through_public_paths (test_techdocs_audit_lib.TechdocsAuditFindingMatrixTests.test_unmodelled_yaml_indicator_nav_values_degrade_through_public_paths) ... ok\n\n======================================================================\nFAIL: test_a_segment_local_pattern_skips_the_ancestor_walk (test_techdocs_audit_lib.TechdocsAuditBoundaryAgreementTests.test_a_segment_local_pattern_skips_the_ancestor_walk)\nThe length caps alone left the walk's cost unbounded, and a count cap was wrong.\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_techdocs_audit_lib.py\", line 748, in test_a_segment_local_pattern_skips_the_ancestor_walk\n    self.assertLess(time.monotonic() - started, 0.15,\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                    \"a segment-local pattern must not walk 1900 ancestors\")\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0.15401950012892485 not less than 0.15 : a segment-local pattern must not walk 1900 ancestors\n\n----------------------------------------------------------------------\nRan 86 tests in 20.665s\n\nFAILED (failures=1)\n\n----------------------------------------------------------------------\nSlowest files (top 10 of 86):\n  test_indexer.py                                206.623s  (366 tests)\n  test_secrets_prefix_collapse.py                176.469s  (17 tests)\n  test_docs_lint.py                              150.512s  (1096 tests)\n  test_server_tools.py                           130.022s  (343 tests)\n  test_server_tools_lifecycle.py                 128.732s  (541 tests)\n  test_server_tools_retrieval.py                 100.953s  (1034 tests)\n  test_sqlite_storage_migration.py                85.539s  (108 tests)\n  test_graph_indexer.py                           69.417s  (549 tests)\n  test_setup_index.py                             59.212s  (163 tests)\n  test_storage_upgrade_resume.py                  46.894s  (11 tests)\nWorker service time: 1454.292s across 86 files; skipped 12 tests\nFAILED (test_techdocs_audit_lib.py)\nRan 8902 tests across 86 files in 277.117s\n"
+    },
+    "memory_checkpoint": {
+      "records_proposed": 0,
+      "records_written": 0,
+      "result": "no_material_evidence",
+      "retrospective": "Prevent root bootstrap extraction before writes, including old active runners; use native Git canonical matching without changing ownership. Upgrade schema claims reconcile automatically before docs gate; manual repair belongs at an actual reported gate stop. These lessons are in canonical implementation and seed160; no additional durable candidate warranted."
+    },
+    "operator_authorization": {
+      "request": "finish it",
+      "scope": "Finish final review, required checks and close wave; no commit, package or release",
+      "basis": "Current request follows closure-readiness discussion and operator supplied destination verification."
+    },
+    "full_suite_final": {
+      "receipt": {
+        "inputs_hash": "a645db9620f49df2e25b8f878be22d9da5e75fd3f25ef6a3d67f36fd7d9fd056",
+        "ran_at": "2026-09-12T15:35:17.408882+00:00",
+        "test_count": 8902,
+        "result": "ok",
+        "durations_s": {
+          "test_accel_embedder.py": 0.855,
+          "test_agent_surface_integrity.py": 1.04,
+          "test_ann_reference_eval.py": 0.236,
+          "test_build_pack.py": 9.917,
+          "test_check_version.py": 0.061,
+          "test_chunker.py": 33.533,
+          "test_cli_stdio.py": 0.084,
+          "test_commit_provenance.py": 4.333,
+          "test_context_efficiency.py": 0.95,
+          "test_dashboard_server.py": 29.25,
+          "test_design_system_backfill.py": 0.133,
+          "test_design_system_governance_validators.py": 0.218,
+          "test_design_system_surface_validators.py": 0.235,
+          "test_design_system_validators.py": 0.444,
+          "test_design_token_build.py": 0.41,
+          "test_doc_drift.py": 25.5,
+          "test_docs_constants_lint.py": 2.913,
+          "test_docs_gardener.py": 0.286,
+          "test_docs_lint.py": 147.902,
+          "test_events_only_residue_census.py": 0.719,
+          "test_fts_lexical_layer.py": 3.546,
+          "test_fts_query_honesty.py": 4.876,
+          "test_gen_codebase_map.py": 3.536,
+          "test_graph_cluster.py": 0.81,
+          "test_graph_incremental_merge.py": 12.769,
+          "test_graph_indexer.py": 67.334,
+          "test_graph_quality_eval.py": 1.379,
+          "test_graph_query.py": 4.134,
+          "test_graph_snapshot_readers.py": 12.334,
+          "test_index_state_store.py": 9.144,
+          "test_indexer.py": 202.049,
+          "test_indexer_secrets_scope.py": 3.69,
+          "test_install_log_lib.py": 0.492,
+          "test_lexical_ranking_eval.py": 0.698,
+          "test_lifecycle_id.py": 0.682,
+          "test_lifecycle_mutation_lock.py": 1.13,
+          "test_memory_backfill.py": 3.683,
+          "test_memory_eval.py": 3.037,
+          "test_memory_records.py": 8.707,
+          "test_model_bundle.py": 0.866,
+          "test_per_area_agents_context.py": 0.973,
+          "test_perf_budget_policy.py": 0.05,
+          "test_prune_framework.py": 0.085,
+          "test_python_parse_diagnostics.py": 2.643,
+          "test_reconcile_scan.py": 1.605,
+          "test_render_agent_surfaces.py": 2.59,
+          "test_render_platform_surfaces.py": 4.464,
+          "test_retrieval_candidate_generation.py": 4.857,
+          "test_retrieval_eval.py": 2.546,
+          "test_review_evidence.py": 1.457,
+          "test_review_policy.py": 4.022,
+          "test_run_tests_cache.py": 0.605,
+          "test_run_tests_lock.py": 1.003,
+          "test_runtime_lock.py": 0.24,
+          "test_scan_secrets.py": 0.133,
+          "test_scanner_skips.py": 0.113,
+          "test_secret_scan_cache.py": 2.589,
+          "test_secrets_prefix_collapse.py": 173.572,
+          "test_secrets_validators.py": 6.196,
+          "test_server_context_efficiency.py": 3.608,
+          "test_server_startup_guards.py": 0.301,
+          "test_server_stdout_isolation.py": 0.09,
+          "test_server_tools.py": 129.47,
+          "test_server_tools_lifecycle.py": 142.243,
+          "test_server_tools_retrieval.py": 104.929,
+          "test_setup_index.py": 59.747,
+          "test_setup_wavefoundry.py": 2.746,
+          "test_shipped_reference_docs.py": 0.762,
+          "test_sqlite_event_eval.py": 0.184,
+          "test_sqlite_publication.py": 1.161,
+          "test_sqlite_publication_optimization.py": 0.567,
+          "test_sqlite_serving.py": 6.004,
+          "test_sqlite_storage_migration.py": 84.98,
+          "test_storage_upgrade_resume.py": 41.8,
+          "test_subprocess_util.py": 0.321,
+          "test_techdocs_audit_lib.py": 13.145,
+          "test_tree_sitter_cache.py": 0.073,
+          "test_upgrade_protocol.py": 7.611,
+          "test_upgrade_wavefoundry.py": 23.558,
+          "test_vector_backend_eval.py": 0.137,
+          "test_vector_public_compare.py": 0.091,
+          "test_vector_public_eval.py": 0.065,
+          "test_vector_public_filter_smoke.py": 0.071,
+          "test_venv_bootstrap.py": 2.054,
+          "test_wave_gate.py": 0.075,
+          "test_wf_cli.py": 2.116
+        }
+      },
+      "hash_recomputed_matches": true,
+      "tests": 8902,
+      "skips": 12,
+      "duration_seconds": 276.165,
+      "result": "ok",
+      "source_and_threshold_unchanged": true
+    }
+  }
+}

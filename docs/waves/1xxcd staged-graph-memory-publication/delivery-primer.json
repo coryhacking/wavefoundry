@@ -1,0 +1,29 @@
+{
+  "wave": "1xxcd",
+  "phase": "delivery",
+  "mode": "council-adversarial-primer",
+  "primer_depth": "standard",
+  "thinking_stances_applied": {
+    "adversarial": "Challenge candidate scope as a reusable live bypass and repair as a package/receipt-authority shortcut. Actual scope binds current receipt, PID, work/directory/database identity; mismatched index uses ordinary guarded path; matching replaced candidate refuses. Repair pins original archive, runner, two runtime payloads, source/schema/state and live memory run, with explicit host confirmation.",
+    "constructive": "A full subprocess boundary would make context separation more obvious but adds process/environment protocol and does not itself preserve receipt identity. Existing narrow ContextVar adapter leaves real producer and parent publication paths intact; independent mutation evidence covers its principal failure modes.",
+    "simplicity": "Root-only memory redirect is smaller but wrong: it authorizes live memory and writes a parent receipt for an unfinished candidate. Clearing process environment is also smaller but couples sibling writers. Retain the identity-bound context adapter and two-file repair rather than add a general bypass."
+  },
+  "strongest_challenge": "Recovery success can be overstated if candidate completion or exit0 is equated with full upgrade cleanup. Composed proof records receipt verified, not complete; its returned cleanup command intentionally remains after project editing/docs gate. The council must separate proved repair/publication from pending operator reconciliation and final cleanup.",
+  "best_alternative": "Keep the implemented candidate adapter and pinned repair, but make handoff evidence explicitly report verified versus complete and preserve both returned continuation and post-edit cleanup argv. This is better than a generic rebuild or package substitution because the already-staged receipt retains its source/package authority while normal parent publication checks still execute.",
+  "consequence_of_current_path": "No new blocker identified in inspected code. Misdescribing verified as complete could encourage reconnect/cleanup at the wrong point; the generated two-stage command contract already supports the correct sequence and should be reflected by the delivery report.",
+  "primer_questions": [
+    "Does the final report distinguish candidate completion, live parent memory publication, fresh verification, and post-edit cleanup, and does its recovery instruction use the exact returned argv without re-extraction or receipt/package substitution?",
+    "Do the final evidence and docs preserve the boundary between disposable staging memory-cache tables and historical-backfill authority, and state that native qualification is macOS ARM64 while explicit host confirmation remains mandatory when process discovery is incomplete?"
+  ],
+  "evidence_basis": [
+    "MCP inspected sqlite_storage_migration._candidate_build_scope and is_unpublished_candidate: exact owned identity/PID/receipt binding, finally reset, mismatch retains default publication.",
+    "MCP inspected index_state_store.finalize_build_epoch: candidate masks inherited values only in local variables; ordinary checkpoint/CAS remain.",
+    "MCP inspected repair_ppol_memory_staging.inspect/apply_repair: original and retained feature hashes, ready_for_index run, checkpoint phases, source ownership, backups-before-replacement and two returned CLI argv.",
+    "Read core-review.json: independent native tests and ten killed mutants reported by code/security/release reviewer. Independently recomputed all five recorded source hashes; all match current tree.",
+    "Read /tmp/1xxcd-composed-proof.json: original failure exit1 unknown memory run; actual repair applied; returned fresh CLI exits0; receipt verified schema8 with fresh PID; original feature SHA retained. Host discovery limitation explicit."
+  ],
+  "recommendation": "Proceed to council synthesis after QA; retain the named evidence limitations and two-stage operator recovery handoff. No additional implementation change requested.",
+  "blockers": [],
+  "confidence": "high",
+  "limitations": "Read-only independent adversarial code/artifact inspection; no new execution of product tests or repair. Native test and mutation results attributed to their recorded reviewer. No Windows/Linux native qualification claimed; no specialist signoff replaced."
+}

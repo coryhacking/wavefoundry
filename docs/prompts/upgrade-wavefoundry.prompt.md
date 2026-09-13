@@ -2,9 +2,52 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-13
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
+
+## Index writer compatibility and first protected upgrade
+
+Protected index writers check persisted ordered revisions and their loaded producer
+source contract before preparation and inside publication. A newer revision,
+malformed or unproven populated identity, or changed installed producer contract
+refuses with `index_version_newer`, `index_compatibility_unproven`, or
+`index_runtime_stale`. Preserve the index; reload/restart the affected host and
+resume the ordinary setup, upgrade or index command. Do not delete metadata,
+force an older rebuild, or repeatedly retry through the same stale process.
+Equal revisions retain incremental updates; a current runtime can rebuild older
+supported revisions and apply supported model changes. Model names, tokenizer
+identities and source hashes are compatibility identities, not ordered versions.
+
+The first protected upgrade cannot retrofit checks into already-loaded older
+hosts. It therefore retains `index_guard_handoff` in the ordinary upgrade
+checkpoint and pauses with `index_guard_restart_required` before publication,
+including same-schema upgrades. Capture the response's exact `command_argv`,
+stop this repository's Wavefoundry MCP/dashboard hosts (including the invoking
+host), then run that command through the ordinary non-MCP shell in a fresh CLI
+process. It retains the selected `--pack` and `--confirm-hosts-stopped`; the
+checkpoint verifies the package's SHA-256 identity on resume. Keep the checkpoint
+and original archive; do not substitute a newer package or edit recovery data.
+Confirmation asserts that undiscovered hosts have also stopped: discovery is
+best effort, and positively identified live hosts still block. No unrelated
+repository host is stopped automatically. Reconnect MCP only when CLI recovery
+permits it. Fresh installs with no former runtime are exempt.
+
+A validated pause returns outer `status: "action_required"`, without a true
+`isError`, and `failed_phase: null`. This also covers the pre-guard ppjy MCP
+wrapper when it first loads the incoming restart-action reader after extraction.
+A host that already cached an older reader may still label the outer response
+an error. In that case, follow the validated `index_guard_restart_required`
+checkpoint and its exact captured CLI command; an exit code alone is not proof
+of an expected pause. The presentation fix does not remove the host-stop or
+confirmation requirement and does not create a storage-migration receipt.
+
+This checkpoint records the pre-extraction capability and survives extraction
+and retries. It is independent of `sqlite-migration.json`: same-schema handoff
+creates no fictitious storage conversion, while actual format migrations retain
+their existing receipt and forward-only recovery. The handoff is rechecked
+before index children run; a post-upgrade reload alone is insufficient for this
+first protected release.
 
 ## Local semantic storage conversion (wave 1xjmm)
 
@@ -96,6 +139,23 @@ no backward rollback to the previous runner, and the retained rollback copy is
 never read back into service. Never delete the receipt or the retained source
 to force progress.
 
+When historical memory backfill overlaps this conversion, the unpublished
+graph candidate completes independently of the live memory run. Only ordinary
+live index publication may advance that run. Continue through the standard
+upgrade flow and its retained CLI command after any required host-stop
+checkpoint. Never copy the memory database into staging, edit recovery
+receipts, or substitute a different package while a receipt is pending.
+
+**Audit the documented state-store schema version.** The ordinary upgrade
+snapshots supported docs-constants claims before extraction and reconciles exact,
+unchanged claims against newly installed constants before its docs gate. Verify
+the `state-store schema version` claim in `docs/RELIABILITY.md` during the editing
+pass. If a customized claim or unavailable snapshot leaves a mismatch, correct
+the named claim from the installed code at the reported docs-gate stop, then
+resume the ordinary upgrade. There is no separate manual editing checkpoint
+before the first gate. Repositories without that document need no edit; an
+existing document with a missing required claim must be corrected.
+
 **Rebuild legacy semantic storage from current sources.** If faithful transfer
 refuses historical duplicate or missing chunk IDs, or legacy vectors cannot be
 read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuation
@@ -174,7 +234,7 @@ The expected operator flow is:
    - The upgrade's final phase updates **both** the semantic indexes and the graph, each version-aware: an incremental update normally, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s). You do **not** run a separate index command for a normal upgrade.
    - A manual `index_build(...)` / `--update-index` call is only for re-running after the agent editing pass or recovering a backgrounded code build (see the Verification Checklist).
    - So a graph-builder bump materializes **during the upgrade**, symmetric with the semantic indexes — no manual step. (The first-query in-process auto-rebuild remains a safety net.) **1.8.1** bumps `GRAPH_BUILDER_VERSION` only (32→35) → a graph-only re-extract (no re-embed) carrying the new edges/nodes: cross-language confidence promotion, `reads_config`, `instruments`, `.properties`/`.yml` config-key nodes.
-   - **Mandatory reload after a `GRAPH_BUILDER_VERSION` bump — a non-reloaded server DOWNGRADES the graph.** An already-running MCP server keeps the pre-upgrade graph extractor in memory for its whole lifetime. Phase 4b re-extracts the graph at the new version during the upgrade, but the first graph query on a still-stale server re-extracts it back DOWN to the old version using its in-memory extractor — silently reverting the upgrade's graph work. `wf_reload_mcp()` (or a host restart) loads the new extractor first, so the safety-net auto-rebuild can never invert into a downgrade.
+   - **Index writer compatibility:** protected runtimes refuse stale writes with restart guidance and preserve newer graph, semantic, lexical and chunker/walker state. The first upgrade from an unprotected host requires the confirmed fresh-CLI handoff above before publication, even when the schema is unchanged; reloading afterward cannot retroactively protect it.
 
 What this prompt is not:
 
@@ -218,7 +278,9 @@ What this prompt is not:
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wf_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
-**Step 0 (optional zip adoption):** If a `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` is in the repository root, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, the upgrade seed stages the selected pack under `.wavefoundry/framework/`, runs `wf render-surfaces`, and continues full reconciliation. Non-matching filenames are skipped. Native Windows, WSL2, macOS, and Linux use the same MCP/dispatcher flow with host-appropriate command rendering. The zip root also carries the pack's zipapp installer members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) and the single-use bootstrap `install-wavefoundry.md`; the script/MCP path extracts through an allowlist so none of the runner members reach the project root, and removes the bootstrap automatically (the one exception: the upgrade run that first installs the allowlist still extracts with the pre-upgrade code, so the debris lands one final time on that transition run — positively identify it first: untracked, byte-identical to the corresponding zip member, and named in the zip's `payload/*.json` installer manifest or among the fixed zip-root runner names; once every criterion holds, removal is safe. Every later upgrade extracts scoped). If you run a fully-manual unzip, scope it (`unzip -o <zip> '.wavefoundry/*' -d .`) rather than extracting the whole archive — an unscoped `unzip -o` dumps the runner members into the repository root and can overwrite same-named project files — and delete any previously re-dropped bootstrap after pruning (`rm -f install-wavefoundry.md`).
+**Step 0 (optional zip adoption):** The ordinary upgrade selects a matching package from the supported discovery paths, extracts framework members and continues full reconciliation. Native Windows, WSL2, macOS and Linux use the same MCP/dispatcher flow. The package retains `install-wavefoundry.md` for fresh installs; upgrades exclude it before extraction, including the installing hop under a supported older runner. Zipapp runner members also stay out of the project root. For fully manual unpack, scope extraction: `unzip -o <zip> '.wavefoundry/*' -d .`. Existing root installers and older leftovers remain untouched. Do not infer ownership from the filename, matching bytes or untracked status; removal requires provenance review and operator authorization.
+
+**Tracked runtime files:** Surface rendering refreshes the managed `.gitignore` block and warns about tracked guards, locks, logs, indexes, recovery assets and package archives matching its rules. Ignore rules do not untrack files. Review each reported path; with operator authorization, `git rm --cached -- <path>` stops tracking while retaining the local file. Do not automatically untrack files or alter guards. An unavailable inspection is not a clean result: resolve Git access and rerun `wf render-surfaces`. During upgrades, reconcile this guidance and the installer preservation rule into customized prompts outside renderer-owned marker regions.
 
 **Full reconciliation:**
 1. Inventory current state (seed-030 in targeted mode)

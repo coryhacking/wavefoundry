@@ -131,15 +131,13 @@ def _load_state_store():
     """Load index_state_store (wave 1rsh9) — cached, optional (None if absent)."""
     global _state_store_mod
     if _state_store_mod is None:
-        import importlib.util
+        import importlib
         store_path = Path(__file__).resolve().parent / "index_state_store.py"
         if not store_path.exists():
             return None
-        spec = importlib.util.spec_from_file_location("index_state_store", store_path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules.setdefault("index_state_store", mod)
-        spec.loader.exec_module(mod)
-        _state_store_mod = mod
+        # Use Python's module lock so concurrent readers cannot observe a
+        # partially initialized store, and all callers share its identity.
+        _state_store_mod = importlib.import_module("index_state_store")
     return _state_store_mod
 
 

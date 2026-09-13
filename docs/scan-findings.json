@@ -18,5 +18,25 @@
         "confirmed_at": "2026-09-09T10:09:54.160045+00:00"
       }
     ]
+  },
+  {
+    "id": "1xuz7-sec",
+    "file": "docs/waves/1xxc9 monotonic-index-version-protection/delivery-review.json",
+    "line": 17,
+    "line_hash": "afdbccf519af",
+    "context_hash": "b8c5c5728d65",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan****877\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Verified source provenance: the delivery-review.json fingerprint value exactly equals git hash-object -- .wavefoundry/framework/scripts/scan_secrets.py (5fd141be782d5fe3c2161a9f88006b985f442877). This is a Git blob content fingerprint generated for the frozen delivery review, not a credential. Independently reverified by the security-reviewer during authorized closure scanner classification.",
+        "confirmed_at": "2026-09-13T04:32:09.702513+00:00"
+      }
+    ]
   }
 ]

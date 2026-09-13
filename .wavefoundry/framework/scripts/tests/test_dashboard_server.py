@@ -231,6 +231,7 @@ def _seed_index_store(root: Path, payload: dict, *, complete: bool = True) -> No
 
 
 def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None = None, code_chunks: list[dict] | None = None) -> None:
+    import index_compatibility
     index_dir = root / ".wavefoundry" / "index"
     index_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, object] = {
@@ -238,6 +239,9 @@ def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None =
         "model_versions": {"docs": "Snowflake/snowflake-arctic-embed-s", "code": "Snowflake/snowflake-arctic-embed-s"},
         "content": [],
         "file_meta": {},
+        "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+        "chunker_versions": {layer: str(index_compatibility.SUPPORTED["chunker_version"])
+                             for layer in ("docs", "code")},
     }
     if docs_chunks is not None:
         meta["content"].append("docs")
@@ -3707,7 +3711,13 @@ class LexicalDashboardTests(unittest.TestCase):
 
     def test_snapshot_publishes_real_cached_lexical_counts_and_hides_incomplete_build(self):
         import index_state_store as iss
+        import index_compatibility
         index_dir = self.root / ".wavefoundry" / "index"
+        iss.write_build_bookkeeping(index_dir, {
+            "walker_version": str(index_compatibility.SUPPORTED["walker_version"]),
+            "chunker_versions": {layer: str(index_compatibility.SUPPORTED["chunker_version"])
+                                 for layer in ("docs", "code")},
+        })
         attempt = iss.begin_build_epoch(index_dir, "docs")
         iss.rebuild_chunk_index(index_dir, "docs", [
             {"id": "a", "path": "docs/a.md", "text": "alpha alpha beta"},

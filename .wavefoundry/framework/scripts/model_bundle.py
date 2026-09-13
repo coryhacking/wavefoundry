@@ -6,6 +6,9 @@ the target cache therefore remains usable on hosts where links are unavailable.
 """
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 import hashlib
 import json
 import os

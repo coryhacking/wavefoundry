@@ -18,6 +18,9 @@ whole-file erasure.
 """
 from __future__ import annotations
 
+import index_compatibility
+index_compatibility.register_loaded_source()
+
 import hashlib
 import json
 import os
@@ -394,19 +397,20 @@ class IndexStateStore:
     def _open(self):
         conn = sqlite_runtime.connect(self.path)
         try:
-            has_meta = conn.execute("SELECT 1 FROM sqlite_schema WHERE name='meta'").fetchone()
-            if has_meta:
-                version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
-                if version != (STATE_STORE_SCHEMA_VERSION,):
-                    if not self._migration or version is None or version[0] not in LEGACY_SCHEMA_VERSIONS:
-                        raise sqlite_runtime.StorageRecoveryRequired(
-                            f"Index schema {version!r} requires explicit migration/rebuild; "
-                            f"preserving {self.path}. Run the standard wf upgrade/setup recovery path.")
-                    # Explicit migration is restricted to an unpublished staging copy.
-                    self._migrate_resident_schema(conn, str(version[0]))
-            elif conn.execute("SELECT 1 FROM sqlite_schema WHERE type='table' LIMIT 1").fetchone():
-                raise sqlite_runtime.StorageRecoveryRequired("Unrecognized index schema; file preserved.")
-            self._create_tables(conn)
+            with index_compatibility.writer_transaction(conn):
+                has_meta = conn.execute("SELECT 1 FROM sqlite_schema WHERE name='meta'").fetchone()
+                if has_meta:
+                    version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+                    if version != (STATE_STORE_SCHEMA_VERSION,):
+                        if not self._migration or version is None or version[0] not in LEGACY_SCHEMA_VERSIONS:
+                            raise sqlite_runtime.StorageRecoveryRequired(
+                                f"Index schema {version!r} requires explicit migration/rebuild; "
+                                f"preserving {self.path}. Run the standard wf upgrade/setup recovery path.")
+                        # Explicit migration is restricted to an unpublished staging copy.
+                        self._migrate_resident_schema(conn, str(version[0]))
+                elif conn.execute("SELECT 1 FROM sqlite_schema WHERE type='table' LIMIT 1").fetchone():
+                    raise sqlite_runtime.StorageRecoveryRequired("Unrecognized index schema; file preserved.")
+                self._create_tables(conn)
         except BaseException:
             conn.close()
             raise
@@ -436,7 +440,7 @@ class IndexStateStore:
             raise sqlite_runtime.StorageRecoveryRequired(
                 f"Index schema {from_version!r} is listed as migratable but has no "
                 f"migration arm; preserving {self.path}.")
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             if from_version in LEGACY_SCHEMA_FTS_RESET_VERSIONS:
                 for table in FTS_TABLES.values():
                     conn.execute(f"DROP TABLE IF EXISTS {table}")
@@ -448,7 +452,7 @@ class IndexStateStore:
                          (STATE_STORE_SCHEMA_VERSION,))
 
     def _create_tables(self, conn: "sqlite3.Connection") -> None:
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
             )
@@ -686,7 +690,9 @@ class IndexStateStore:
 
     def ensure_current(self) -> bool:
         """Never erase canonical vectors or an in-flight fence on a version mismatch."""
-        if not self.versions_current():
+        current = self.versions_current()
+        index_compatibility.check_connection(self._conn)
+        if not current:
             raise sqlite_runtime.StorageRecoveryRequired(
                 f"Index schema mismatch at {self.path}; preserve it and run explicit migration/rebuild.")
         return True
@@ -702,7 +708,7 @@ class IndexStateStore:
         return self._get_meta(self._conn, key)
 
     def set_meta(self, updates: dict[str, str]) -> None:
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             for key, value in updates.items():
                 self._conn.execute(
                     "INSERT INTO meta (key, value) VALUES (?, ?) "
@@ -714,7 +720,7 @@ class IndexStateStore:
         """Remove the given meta keys (absent keys are a no-op). Wave 1x6ti
         (1x551): the reap-state record is REMOVED, not blanked, when neither
         map applies, so readers never see an empty placeholder."""
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             for key in keys:
                 self._conn.execute("DELETE FROM meta WHERE key = ?", (key,))
 
@@ -736,7 +742,7 @@ class IndexStateStore:
         commits atomically or not at all.
         """
         now = int(time.time())
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             self._conn.execute("DELETE FROM file_freshness")
             self._conn.execute("DELETE FROM file_commits")
             self._conn.executemany(
@@ -777,7 +783,7 @@ class IndexStateStore:
         change_files: Iterable[tuple[str, str]],
     ) -> None:
         """Replace wave→landing-commit and wave→change-set rows (one transaction)."""
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             self._conn.execute("DELETE FROM wave_landing")
             self._conn.execute("DELETE FROM wave_change_files")
             self._conn.executemany(
@@ -793,7 +799,7 @@ class IndexStateStore:
     def upsert_doc_drift(self, entries: dict[str, dict[str, Any]]) -> None:
         """Upsert per-doc drift summaries (one transaction)."""
         now = int(time.time())
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             self._conn.executemany(
                 "INSERT INTO doc_drift "
                 "(path, drifted, drift_refs, commits_since, anchor_kind, historical, "
@@ -828,7 +834,7 @@ class IndexStateStore:
         targeted single-doc refreshes.
         """
         now = int(time.time())
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             self._conn.execute("DELETE FROM doc_drift")
             self._conn.executemany(
                 "INSERT INTO doc_drift "
@@ -872,7 +878,7 @@ class IndexStateStore:
         the whole drift/attribution state advances together or none of it does.
         """
         now = int(time.time())
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             self._conn.execute("DELETE FROM wave_landing")
             self._conn.execute("DELETE FROM wave_change_files")
             self._conn.executemany(
@@ -920,7 +926,7 @@ class IndexStateStore:
         serving stale git-derived drift/attribution). Idempotent: returns the
         total number of rows/fingerprints removed (0 when already clean, so the
         caller can skip re-clearing every non-git build)."""
-        with self._conn:
+        with index_compatibility.writer_transaction(self._conn):
             n_land = self._conn.execute("SELECT COUNT(*) FROM wave_landing").fetchone()[0]
             n_files = self._conn.execute("SELECT COUNT(*) FROM wave_change_files").fetchone()[0]
             n_drift = self._conn.execute("SELECT COUNT(*) FROM doc_drift").fetchone()[0]
@@ -992,6 +998,8 @@ def open_read_only(index_dir: Path) -> Optional["sqlite3.Connection"]:
     try:
         conn = sqlite_runtime.connect(path, read_only=True)
         version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+        if version is not None:
+            index_compatibility.check_ordered("store_schema_version", version[0], STATE_STORE_SCHEMA_VERSION)
         if version != (STATE_STORE_SCHEMA_VERSION,):
             conn.close()
             return None
@@ -1635,7 +1643,7 @@ def _apply_chunk_deltas_locked(
     rows = list({str(r.get("id") or ""): r for r in add_rows}.values())
     conn = store._conn
     churn = len(delete_ids) + len(delete_paths) + len(rows)
-    with conn:
+    with index_compatibility.writer_transaction(conn):
         if churn and fts_name is not None:
             conn.execute("DELETE FROM meta WHERE key = ?", (META_LEXICAL_STATISTICS,))
         # 1wpag: maintain the keyed payload digest in O(delta) INSIDE this
@@ -1780,7 +1788,7 @@ def rebuild_chunk_index(index_dir: Path, table_name: str, rows: Iterable[dict[st
     deduped = {str(r.get("id") or ""): r for r in raw_rows}
     store = IndexStateStore(index_dir)
     try:
-        with store._conn:
+        with index_compatibility.writer_transaction(store._conn):
             conn = store._conn
             fts_name = FTS_TABLES[table_name]
             # Repair the external index BEFORE canonical triggers can touch
@@ -1919,7 +1927,7 @@ def update_layer_hashes(
     try:
         store.ensure_current()
         conn = store._conn
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             if remove_list:
                 conn.executemany(
                     "DELETE FROM layer_path_state WHERE layer = ? AND path = ?",
@@ -1941,7 +1949,7 @@ def replace_layer_hashes(index_dir: Path, layer: str, hashes: dict[str, str]) ->
     try:
         store.ensure_current()
         conn = store._conn
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             conn.execute("DELETE FROM layer_path_state WHERE layer = ?", (layer,))
             conn.executemany(
                 "INSERT INTO layer_path_state (layer, path, hash) VALUES (?, ?, ?)",
@@ -2081,7 +2089,7 @@ def remove_sidecar_paths(
     try:
         store.ensure_current()
         conn = store._conn
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             for table, path_list in (
                 ("file_freshness", fresh_list),
                 ("file_commits", fresh_list),
@@ -2497,7 +2505,7 @@ def _record_fts_payload_digest(index_dir: Path, table_name: str) -> Optional[str
         store = IndexStateStore(index_dir)
         try:
             conn = store._conn
-            with conn:
+            with index_compatibility.writer_transaction(conn):
                 acc = _fts_table_digest(conn, fts_name)
                 _write_fts_digest_meta(conn, table_name, acc)
             return _fts_digest_hex(acc)
@@ -2942,7 +2950,13 @@ def secret_scan_filter(
     """
     rel_list = [str(p) for p in rel_paths]
     hashes: dict[str, str] = {}
-    conn = open_read_only(index_dir)
+    try:
+        conn = open_read_only(index_dir)
+    except index_compatibility.IndexCompatibilityError as exc:
+        # The optional secret cache never suppresses a security scan. Its
+        # independent full scan may proceed; guarded cache writes still refuse.
+        print(f"secret-scan-cache: {exc} — scanning all candidates", file=sys.stderr, flush=True)
+        return rel_list, 0, hashes
     if conn is None:
         return rel_list, 0, hashes
     try:
@@ -3021,7 +3035,7 @@ def secret_scan_record(
         try:
             store.ensure_current()
             conn = store._conn
-            with conn:
+            with index_compatibility.writer_transaction(conn):
                 conn.executemany(
                     "INSERT INTO secret_scan_cache "
                     "(path, content_hash, rules_fingerprint, scanned_at, clean, finding_refs) "
@@ -3160,7 +3174,7 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
     attempt_id = uuid.uuid4().hex
     conn = _full_durable_connection(index_dir)
     try:
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             conn.execute(
                 "UPDATE build_state SET attempt_id = ?, scope = ?, status = 'building', "
                 "started_at = ?, completed_at = NULL WHERE id = 1",
@@ -3179,10 +3193,18 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
     attempt) — the caller must treat that as a failed publication, never as
     success. Only this function may advance `generation`.
     """
-    backfill_run_id = os.environ.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "").strip()
-    parent_receipt_path = os.environ.get(
-        "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", ""
-    ).strip()
+    import sqlite_storage_migration
+
+    # A graph rebuild in a receipt-owned migration candidate completes only
+    # that candidate's epoch. Live memory authorization and the parent receipt
+    # belong to the later publication pass against the repository's index.
+    if sqlite_storage_migration.is_unpublished_candidate(index_dir):
+        backfill_run_id = parent_receipt_path = ""
+    else:
+        backfill_run_id = os.environ.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "").strip()
+        parent_receipt_path = os.environ.get(
+            "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", ""
+        ).strip()
     import publication_control
 
     root = index_dir.parent.parent
@@ -3283,7 +3305,7 @@ def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
                 authorized = True
         conn = _full_durable_connection(index_dir)
         try:
-            with conn:
+            with index_compatibility.writer_transaction(conn):
                 cur = conn.execute(
                     "UPDATE build_state SET status = 'complete', generation = generation + 1, "
                     "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
@@ -3340,7 +3362,7 @@ def finalize_staged_build_epoch(
         return False
     conn = _full_durable_connection(index_dir)
     try:
-        with conn:
+        with index_compatibility.writer_transaction(conn):
             cur = conn.execute(
                 "UPDATE build_state SET status = 'complete', generation = generation + 1, "
                 "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
@@ -3385,6 +3407,7 @@ def write_build_layer_state_locked(conn, layers: Mapping[str, str], *,
     in ``layers``; every other layer's row is left exactly as it was, which is
     how a layer keeps the generation it was really published under.
     """
+    index_compatibility.check_connection(conn)
     if not layers:
         return
     row = conn.execute("SELECT generation FROM build_state WHERE id = 1").fetchone()
@@ -3504,6 +3527,7 @@ def _publish_lexical_statistics(conn: sqlite3.Connection) -> None:
     scan. A savepoint isolates observational failures from index publication;
     any surviving old cache has the wrong generation and is never served.
     """
+    index_compatibility.check_connection(conn)
     conn.execute("SAVEPOINT lexical_statistics_publish")
     try:
         previous = _decode_lexical_statistics(
@@ -3611,6 +3635,7 @@ def build_epoch_token(index_dir: Path) -> Optional[tuple[str, int]]:
 
 def write_build_bookkeeping_locked(conn, meta: dict[str, Any]) -> None:
     """Write bookkeeping inside the semantic publication transaction."""
+    index_compatibility.check_connection(conn)
     file_meta = meta.get("file_meta") or {}
     conn.execute("DELETE FROM build_file_meta")
     conn.executemany(
@@ -3647,7 +3672,7 @@ def write_build_bookkeeping_locked(conn, meta: dict[str, Any]) -> None:
 def write_build_bookkeeping(index_dir: Path, meta: dict[str, Any]) -> None:
     store = IndexStateStore(index_dir)
     try:
-        with store._conn:
+        with index_compatibility.writer_transaction(store._conn):
             write_build_bookkeeping_locked(store._conn, meta)
     finally:
         store.close()
@@ -5399,15 +5424,22 @@ def sqlite_store_maintenance(
             # plus the full segment-merge 'optimize' — this is the on-demand
             # arm of the FTS maintenance (the in-build arm is threshold-gated
             # in apply_chunk_deltas). Skipped naturally when no fts5 tables.
-            for fts_name in _fts5_table_names(conn):
-                stage = "fts_integrity_check"
-                conn.execute(
-                    f"INSERT INTO {fts_name}({fts_name},rank) VALUES('integrity-check',1)"
-                )
-                stage = "fts_optimize"
-                conn.execute(f"INSERT INTO {fts_name}({fts_name}) VALUES('optimize')")
-                if path.name != STATE_STORE_FILENAME:
-                    conn.commit()
+            # Only the canonical shared index participates in compatibility
+            # fencing; the separately owned memory SQLite file retains its
+            # existing maintenance behavior. Check even an empty FTS census.
+            from contextlib import nullcontext
+            maintenance_transaction = (index_compatibility.writer_transaction(conn)
+                                       if path.name == STATE_STORE_FILENAME else nullcontext())
+            with maintenance_transaction:
+                for fts_name in _fts5_table_names(conn):
+                    stage = "fts_integrity_check"
+                    conn.execute(
+                        f"INSERT INTO {fts_name}({fts_name},rank) VALUES('integrity-check',1)"
+                    )
+                    stage = "fts_optimize"
+                    conn.execute(f"INSERT INTO {fts_name}({fts_name}) VALUES('optimize')")
+                    if path.name != STATE_STORE_FILENAME:
+                        conn.commit()
             stage = "checkpoint"
             result["checkpoint"] = _passive_checkpoint(conn)
             stage = "vacuum_policy"

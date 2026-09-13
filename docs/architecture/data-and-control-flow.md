@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-13
 
 ## Primary Control Paths
 
@@ -36,7 +36,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 2. Before cleanup or the first write, the orchestration layer resolves every selected platform write root (`.claude`, `.cursor`, `.github`, `.junie`, `.windsurf`, `.agents` as applicable), unconditional launcher/ignore roots, every registered review carrier, and every enabled native/Guru destination against the resolved repository root. Any pre-existing/static final, parent, or common-ancestor symlink escape in the repository state presented to the command returns nonzero with no platform/agent mutation; fresh `wf setup` therefore stops before `setup_index.py`, and upgrade stops before pruning, the docs gate, and index update. Rendering assumes exclusive control of these path namespaces for the duration of the command; concurrent local filesystem substitution after preflight is outside the supported threat model and is not claimed race-safe
 3. After the complete preflight passes, the platform renderer generates enabled platform entrypoints and merged configuration, including `.claude/hooks/*`, `.cursor/hooks/*`, `.github/hooks/*`, `.claude/settings.json`, `.mcp.json`, and `.junie/mcp/mcp.json`
 4. It then calls `render_agent_surfaces`; before that function's Guru-availability guard, the agent renderer materializes missing-only lifecycle prompt baselines and reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged. The exact upgrade-prompt destination joins the complete preflight. After Phase 0c may have run the old in-process lifecycle reconciler, Phase 1's freshly extracted renderer replays only the shared `UPGRADE_POLICY_BLOCK` marker through `review_policy_reconcile.py`; the lifecycle reconciler remains primary owner, surrounding project prose is preserved, and no other lifecycle carrier moves into renderer ownership
-5. The renderer finishes the remaining bin-launcher, ignore/attributes, and cleanup work only after agent-surface reconciliation succeeds
+5. The renderer finishes the remaining bin-launcher, ignore/attributes, and cleanup work only after agent-surface reconciliation succeeds. It reports tracked paths matching only the canonical runtime ignore rules, using a read-only, project-scoped Git census. Failures are advisory and explicit; Git tracking and runtime files are never modified by the census
 
 **State read:** `.wavefoundry/framework/scripts/` (templates), `.wavefoundry/framework/install/` (missing-only baseline templates), registered carrier seeds and enabled target files
 **State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`, and the missing-only whole-file baselines it materializes when absent (`docs/plans/plan-template.md`, the lifecycle prompt baselines under `docs/prompts/`, the pointer-form review carriers), each stamped `Last verified` on write and never rewritten afterwards
@@ -564,6 +564,8 @@ it exists, except `memory_backfill` and `memory_validate` at the exact
 `awaiting_memory_validation` pause. Resume reacquires both locks and repeats
 the complete read-only preflight before publication.
 
+Upgrade extraction excludes the root fresh-install bootstrap as well as zipapp runner members. The incoming pre-extraction hook applies that exclusion to supported older active runners before any archive write; pre-existing root installers remain untouched across restarts.
+
 Pack protocol 2 validates mandatory metadata before extraction. A protocol-1
 runner receives one builder-produced stdlib zipapp containing the framework-only
 bridge archive, canonical bootstrap, hash-bound selection, and exact feature
@@ -613,3 +615,37 @@ owned `docs.lance/`, `code.lance/`, `__manifest/` and recorded staging/rollback
 artifacts. The receipt records progress; it never substitutes for a complete
 published build token. Failure preserves actionable recovery evidence and the
 remaining coherent stores.
+
+The schema-8 graph rebuild completes an unpublished candidate epoch before
+cutover. Its context-local scope is bound to the receipt-owned staging directory
+and filesystem identity; it ignores inherited live memory-run and parent-receipt
+context only for that candidate. It neither creates historical-backfill tables
+in staging nor authorizes the live memory run. The graph walk may still create
+its existing disposable memory-cache fence there; that cache is never published.
+Ordinary epoch and compatibility checks remain
+in force. After cutover, the live parent publication still checks memory
+validation and child outcomes, completes the authoritative epoch, and verifies
+the store in a fresh process before cleanup (wave `1xxcd`).
+
+## Monotonic index publication and first-hop handoff (wave 1xxc9)
+
+The first producer import captures the installed producer source contract.
+Later producer imports and publication verify that capture; adopting changed
+producer code requires a fresh runtime. Storage initialization, build-epoch
+creation, semantic/graph publication, FTS delta/heal/rebuild and completion
+owners check persisted compatibility before mutation. The main publication
+rechecks within `BEGIN IMMEDIATE`; direct writer transactions guard their stable
+write snapshot too. A prepared stale worker cannot use a successful earlier
+preflight as authority to replace newer committed revisions. Refusal retains
+published participant rows and metadata, subject to the existing diagnostic and
+build-epoch bookkeeping contract.
+
+Upgrade captures the old runtime/coordinator capability before extraction in
+`index_guard_handoff` in `.wavefoundry/upgrade-in-progress.json`. An unprotected
+source pauses with `index_guard_restart_required`, even for a same-schema
+upgrade. The fresh installed CLI resumes with the returned exact argv, the
+selected package's recorded SHA-256 identity and `--confirm-hosts-stopped`.
+Repository host discovery and confirmation are checked again before index
+children. Actual storage conversion continues through its separate migration
+receipt. Existing recovery files remain authoritative across retries; extraction
+cannot erase the obligation by making installed source appear protected.

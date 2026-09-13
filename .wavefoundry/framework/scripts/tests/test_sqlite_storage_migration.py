@@ -779,6 +779,20 @@ class NativeMigrationTests(unittest.TestCase):
                 scope = "graph" if "--graph-only" in argv else "all"
                 with patch.dict(os.environ, kwargs.get("env", {})):
                     attempt = state.begin_build_epoch(self.index, scope)
+                    if scope == "all":
+                        # The model-heavy child seam must publish the provenance
+                        # a real all-layer builder writes before completing its epoch.
+                        import indexer
+                        import chunker
+                        import index_compatibility
+                        with contextlib.closing(state.IndexStateStore(self.index)) as store:
+                            with index_compatibility.writer_transaction(store._conn):
+                                state.write_build_bookkeeping_locked(store._conn, {
+                                    "walker_version": indexer.WALKER_VERSION,
+                                    "chunker_versions": {layer: chunker.CHUNKER_VERSION for layer in ("docs", "code")},
+                                    "model_versions": {layer: f"{model}@full@{indexer._identity_fingerprint_for_class('full')}"
+                                                       for layer, model in (("docs", indexer.DOCS_MODEL), ("code", indexer.CODE_MODEL))},
+                                })
                     self.assertTrue(state.finalize_build_epoch(self.index, attempt))
                 observed.append((scope, state.read_build_state(self.index)["status"]))
                 return subprocess.CompletedProcess(argv, 0)
@@ -793,6 +807,8 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "ready_for_index")
         return run_id, memory_backfill.index_publication_scope(run_id)
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_parent_owned_native_epoch_is_published_before_fresh_storage_verifier(self):
         import upgrade_wavefoundry as upgrade
         import memory_backfill
@@ -807,6 +823,8 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
         self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_normal_native_phase_still_verifies_its_completed_epoch(self):
         import upgrade_wavefoundry as upgrade
         self.convert()
@@ -817,6 +835,8 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")])
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_recovered_native_staging_receipt_requires_child_outcomes_and_fresh_verification(self):
         import upgrade_wavefoundry as upgrade
         import index_state_store as state
@@ -836,6 +856,8 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertFalse(receipt_path.exists())
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_unobserved_child_exit_cannot_be_inferred_from_native_staging_receipt(self):
         import upgrade_wavefoundry as upgrade
         self.convert()
@@ -854,6 +876,8 @@ class NativeMigrationTests(unittest.TestCase):
                                     ("all", "building"), ("graph", "building"), ("verify", "complete")])
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_standard_memory_reconciliation_restages_before_parent_cas(self):
         import upgrade_wavefoundry as upgrade
         import memory_backfill
@@ -878,6 +902,8 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "indexed")
         self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_graph_failure_cannot_verify_or_clean_up_migration(self):
         import upgrade_wavefoundry as upgrade
         self.convert()
@@ -1068,6 +1094,8 @@ class NativeMigrationTests(unittest.TestCase):
                 finally:
                     conn.close()
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_schema_only_phase_does_not_provision_legacy_reader(self):
         import setup_index
         import upgrade_wavefoundry as upgrade
@@ -1173,6 +1201,8 @@ class NativeMigrationTests(unittest.TestCase):
                 migration.verify_migration(self.root)
         self.assertTrue((self.index / "docs.lance/data").exists())
 
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
     def test_semantic_failure_stops_before_graph_during_migration(self):
         import upgrade_wavefoundry as upgrade
         self.convert()
@@ -1354,11 +1384,23 @@ class SchemaEightKindTests(unittest.TestCase):
 
     # --- fixtures -------------------------------------------------------
 
-    def _seed(self, schema="7", name=None):
+    def _seed(self, schema="7", name=None, rows=()):
         """A real store produced by the canonical creator, marked at `schema`."""
         import index_state_store
         import graph_store
         store = index_state_store.IndexStateStore(self.index)
+        if rows:
+            index_state_store.apply_chunk_deltas(self.index, "docs", add_rows=rows)
+            import indexer
+            import chunker
+            # This fixture represents unchanged embeddings. The canonical
+            # suite selects CPU/int8 while a local run may select full precision.
+            precision = indexer._predicted_precision_class(indexer.DOCS_MODEL, indexer._onnx_providers())
+            index_state_store.write_build_bookkeeping(self.index, {
+                "content": ["docs"], "walker_version": indexer.WALKER_VERSION,
+                "chunker_versions": {"docs": chunker.CHUNKER_VERSION},
+                "model_versions": {"docs": f"{indexer.DOCS_MODEL}@{precision}@{indexer._identity_fingerprint_for_class(precision)}"},
+            })
         conn = store._conn
         with conn:
             if schema != migration.SCHEMA_VERSION:
@@ -1398,6 +1440,160 @@ class SchemaEightKindTests(unittest.TestCase):
         return json.loads(child.stdout)
 
     # --- populations ----------------------------------------------------
+
+    def test_schema8_staging_does_not_consume_live_memory_publication(self):
+        import memory_backfill
+        import index_state_store as state
+        self._seed("7")
+        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "ready_for_index")
+        parent = self.index / "upgrade-index-staging-receipt.json"
+        with memory_backfill.index_publication_scope(run_id), patch.dict(os.environ, {
+                "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
+            receipt = self._run()
+        self.assertEqual(receipt["state"], "published")
+        self.assertEqual(memory_backfill.run_state(self.root, run_id), "ready_for_index")
+        self.assertFalse(parent.exists())
+        staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+        self.assertFalse((staging / "memory-state.sqlite").exists())
+        self.assertEqual(state.read_build_state(self.index)["status"], "complete")
+
+    _native_phase_children = NativeMigrationTests._native_phase_children
+    _native_memory_scope = NativeMigrationTests._native_memory_scope
+
+    @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
+    @patch.object(migration, "discover_hosts", new=lambda root: ([], []))
+    def test_schema8_parent_publication_retries_staged_with_live_memory(self):
+        import upgrade_wavefoundry as upgrade
+        import setup_index
+        import indexer
+        import memory_backfill
+        import sqlite_vector_store as vectors
+        rows = [{"id": "docs-a", "path": "src/m.py", "kind": "docs",
+                 "text": "retained semantic payload", "tags": [], "start_line": 1,
+                 "end_line": 1, "vector": [1.0] + [0.0] * 383}]
+        self._seed("7", rows=rows)
+        migration.prepare_upgrade(self.ctx)
+        run_id, scope = self._native_memory_scope()
+        parent = self.index / "upgrade-index-staging-receipt.json"
+        original = indexer._build_index_locked
+        def fail_after_build(*args, **kwargs):
+            result = original(*args, **kwargs)
+            self.assertFalse(result.get("failed"), result)
+            self.assertEqual(memory_backfill.run_state(self.root, run_id), "ready_for_index")
+            self.assertFalse(parent.exists())
+            raise RuntimeError("injected after candidate completion")
+        observed = []
+        with scope, patch.object(setup_index, "ensure_deps"), \
+                patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(indexer, "_build_index_locked", side_effect=fail_after_build):
+                with self.assertRaisesRegex(RuntimeError, "injected after candidate"):
+                    upgrade.phase_index_update_parent_owned(self.root, run_id)
+            receipt = migration.read_receipt(self.index)
+            self.assertEqual(receipt["state"], "staged")
+            self.assertTrue(self.legacy.exists())
+            self.assertFalse(self.current.exists())
+            staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+            self.assertFalse((staging / "memory-state.sqlite").exists())
+            upgrade.phase_index_update_parent_owned(self.root, run_id)
+        self.assertEqual(observed, [("all", "building"), ("graph", "building"), ("verify", "complete")])
+        self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
+        self.assertEqual(vectors.payload_rows(self.index, "docs", include_vector=True), rows)
+        self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+
+    def test_candidate_scope_is_exact_thread_local_and_exception_safe(self):
+        import indexer
+        import index_state_store as state
+        import threading
+        self._seed("7")
+        original = indexer._build_index_locked
+        def inspect(*args, **kwargs):
+            staging = kwargs["index_dir"]
+            self.assertTrue(migration.is_unpublished_candidate(staging))
+            self.assertFalse(migration.is_unpublished_candidate(self.index))
+            self.assertFalse(migration.is_unpublished_candidate(staging / "other"))
+            outcomes = []
+            thread = threading.Thread(target=lambda: outcomes.append(migration.is_unpublished_candidate(staging)))
+            thread.start()
+            thread.join()
+            self.assertEqual(outcomes, [False])
+            result = original(*args, **kwargs)
+            # The scope cannot turn a stale candidate CAS into success.
+            self.assertFalse(state.finalize_build_epoch(staging, "stale-attempt"))
+            # Nor can it authorize another index's unknown memory run.
+            other = self.root / "other/.wavefoundry/index"
+            with contextlib.closing(state.IndexStateStore(other)):
+                pass
+            attempt = state.begin_build_epoch(other, "graph")
+            parent = other / "parent.json"
+            with patch.dict(os.environ, {
+                    "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID": "unknown-run",
+                    "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
+                with self.assertRaisesRegex(ValueError, "unknown memory backfill run"):
+                    state.finalize_build_epoch(other, attempt)
+            self.assertEqual(state.read_build_state(other)["status"], "building")
+            self.assertFalse(parent.exists())
+            import memory_backfill
+            wave = other.parent.parent / "docs/waves/1aaaa closed"
+            wave.mkdir(parents=True)
+            (wave / "wave.md").write_text(
+                "# Wave\n\nStatus: closed\n\nChange ID: `1aaab-enh historical`\n", encoding="utf-8")
+            (wave / "1aaab-enh historical.md").write_text(
+                "# Change\n\n## Decision Log\n\n"
+                "| Date | Decision | Reason | Alternatives |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 2026-01-01 | Keep local | Offline use | Remote |\n", encoding="utf-8")
+            pending = memory_backfill.ensure_run(other.parent.parent, "upgrade")
+            self.assertEqual(memory_backfill.sync_inventory(other.parent.parent, pending)["state"], "awaiting_validation")
+            with memory_backfill.index_publication_scope(pending), patch.dict(os.environ, {
+                    "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
+                self.assertFalse(state.finalize_build_epoch(other, attempt))
+            self.assertEqual(state.read_build_state(other)["status"], "building")
+            self.assertFalse(parent.exists())
+            moved = staging.with_name("replaced-index")
+            staging.rename(moved)
+            staging.mkdir()
+            try:
+                with self.assertRaisesRegex(migration.MigrationRequired, "storage_staging_identity_changed"):
+                    migration.is_unpublished_candidate(staging)
+            finally:
+                staging.rmdir()
+                moved.rename(staging)
+            raise RuntimeError("scope exception")
+        with patch.object(indexer, "_build_index_locked", side_effect=inspect):
+            with self.assertRaisesRegex(RuntimeError, "scope exception"):
+                self._run()
+        receipt = migration.read_receipt(self.index)
+        staging = migration._staging_index_dir(self.index / receipt["work_dir"])
+        self.assertFalse(migration.is_unpublished_candidate(staging))
+        self.assertEqual(self._run()["state"], "published")
+
+    def test_candidate_binding_refuses_replaced_file_and_changed_receipt(self):
+        import indexer
+        self._seed("7")
+        def inspect(*args, **kwargs):
+            staging = kwargs["index_dir"]
+            candidate = migration.staged_database_path(staging)
+            retained = candidate.with_name("candidate-retained.sqlite")
+            candidate.rename(retained)
+            candidate.write_bytes(retained.read_bytes())
+            try:
+                with self.assertRaisesRegex(migration.MigrationRequired, "storage_staging_identity_changed"):
+                    migration.is_unpublished_candidate(staging)
+            finally:
+                candidate.unlink()
+                retained.rename(candidate)
+            receipt = migration.read_receipt(self.index)
+            receipt["state"] = "validated"
+            migration._write(self.index, receipt)
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_staging_identity_changed"):
+                migration.is_unpublished_candidate(staging)
+            raise RuntimeError("binding checks complete")
+        with patch.object(indexer, "_build_index_locked", side_effect=inspect):
+            with self.assertRaisesRegex(RuntimeError, "binding checks complete"):
+                self._run()
 
     def test_receiptless_schema_seven_store_requires_the_kind_and_is_renamed(self):
         source = self._seed("7")
@@ -1646,12 +1842,16 @@ class SchemaEightKindTests(unittest.TestCase):
                          "'deleted.py','1','project',0,'{}')")
             conn.execute("INSERT INTO graph_file_state (path,layer,source_hash,record,extracted_at) "
                          "VALUES ('deleted.py','project','stale',NULL,0)")
-            # Stamp the CURRENT builder version, so the ordinary builder sees no
-            # version mismatch and would keep these rows. Only the migration's
-            # own empty start drops them.
-            conn.execute("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)",
-                         (graph_indexer.GRAPH_META_PREFIX + "builder_version",
-                          str(graph_indexer.GRAPH_BUILDER_VERSION)))
+            # Complete current graph provenance keeps this fixture compatible;
+            # only the migration's own empty start should drop its stale rows.
+            import indexer
+            import chunker
+            versions = graph_indexer.GraphStateStore(
+                conn, layer="project", walker_version=indexer.WALKER_VERSION,
+                chunker_version=chunker.CHUNKER_VERSION)._expected_versions()
+            conn.executemany("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)",
+                             ((graph_indexer.GRAPH_META_PREFIX + key, str(value))
+                              for key, value in versions.items()))
         self.assertTrue(migration.detect(self.index)["kind_required"])
         import indexer
         at_entry = {}
