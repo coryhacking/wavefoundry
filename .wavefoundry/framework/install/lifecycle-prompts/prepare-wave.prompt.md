@@ -6,6 +6,10 @@ Last verified: {{generated_at}}
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
+## Host-neutral orchestration
+
+Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+
 ## Purpose
 
 Confirm that an admitted wave is implementable before the first code edit.

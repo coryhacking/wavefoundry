@@ -552,5 +552,166 @@
       "CHANGELOG.md": "39b58979b6f10a27acded89c216e7cb19b1ebf76"
     },
     "fingerprint_matches": true
+  },
+  "closure_verification_20260914": {
+    "model_pilot": {
+      "coordinator": "gpt-6-astra",
+      "qa": "gpt-5.6-luna max",
+      "independent_review": "gpt-6-astra high"
+    },
+    "independent_review": {
+      "verdict": "approve",
+      "roles": [
+        "code-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "findings": [],
+      "fresh_context": true,
+      "independent": true,
+      "tree_moved_under_review": false,
+      "fingerprints_sha256": {
+        ".wavefoundry/framework/scripts/server_impl.py": "4cf791c2eb05fd5ec534ac80ab129c4c0b9668a3eea7ff662df84bec9ce5d84c",
+        ".wavefoundry/framework/scripts/sqlite_storage_migration.py": "22633fdbde308be031a45db038e349e3788449ea00fed58648e6b4ac6e1e8bbc",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "80ac6e2ec79fb6361d8d8dcf3eb9b1c5288cdbd5a0260d36223adc0f5345e839",
+        ".wavefoundry/framework/scripts/tests/test_server_tools.py": "03ad21978e63faa37ec8ba1757152ee7fb92e307cf9b845a3a1185182d9b1fe6",
+        ".wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py": "3133f9405f4417d0ffe14cf96cdf05c8dfa8563333cef1a8bee51b0bb426dcee",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "efcb25820e2255eea7d2fa134d60af51808b33cdbfdd2cb75a9ed3068f49700d",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "df605368f1de44a474407d20e1c933da8897e6af12a9be3b901735243461d080",
+        "docs/specs/mcp-tool-surface.md": "62b41dd5f0c0fb020816281be1a871c767184e89fc926ecad97c99b539b4a4e8",
+        "CHANGELOG.md": "eab787f0117a867b87d13df99bcc978af254a85852e82066d08e001d9e31ccd1"
+      },
+      "execution": {
+        "control": {
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "mutations": [
+          {
+            "mutation": "normalizer omission",
+            "test": "test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation",
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_text": [
+              "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 281, in test_legacy_wrapper_corrects_outer_status_and_retains_exact_continuation\n    self.assertEqual(result['status'], 'action_required')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'ok' != 'action_required'\n- ok\n+ action_required\n\n"
+            ]
+          },
+          {
+            "mutation": "action equality removed",
+            "test": "test_legacy_adapter_rejects_changed_action_and_strips_internal_proof",
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_text": [
+              "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_index_upgrade_guard.py\", line 402, in test_legacy_adapter_rejects_changed_action_and_strips_internal_proof\n    self.assertEqual(result['status'], 'error')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'action_required' != 'error'\n- action_required\n+ error\n\n"
+            ]
+          }
+        ]
+      },
+      "forged_json_proof_controls": 4,
+      "docs_block_equal": true,
+      "historical_replay": {
+        "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.24.0.ppjy.zip",
+        "archive_sha256": "386b085776b3533d9d42e429d322c0dda3b858aac7afddf80d5d521eee367fa7",
+        "source_member": ".wavefoundry/framework/scripts/server_impl.py",
+        "source_sha256": "6ad2bad13fd5a2ed70481b73cdce50e6025a63a577ba304a92d837540f3a1a81",
+        "historical_functions": [
+          "_bounded_upgrade_response_envelope",
+          "wf_upgrade_response"
+        ],
+        "tests": [
+          "test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli",
+          "test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses",
+          "test_storage_pause_carries_external_continuation_and_rejects_stale_action"
+        ],
+        "ran": 3,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "passed": true,
+        "limitations": "Actual archived wrapper and final bounder in current server test harness; child returns a real hook-generated checkpoint in a disposable root. No target project mutation or native platform migration."
+      },
+      "delta": "Matched prior sqlite_storage_migration.py Git blob 5e02e8e62c8fb955bd9e41e68a4f819077c7ef4f from ppol ZIP; read_restart_action unchanged; later changed symbols _candidate_build_scope/_migrate_schema8/is_unpublished_candidate. Matched prior seed160 Git blob from same ZIP: only added separate historical memory publication paragraph. Current server_impl, upgrade_extensions, test_server_tools, test_index_upgrade_guard and MCP spec match prior blob fingerprints. Current seed/local envelope paragraphs byte-equal. Changelog now consolidated and omits prior wave-specific envelope bullet; no conflicting envelope claim.",
+      "limitations": [
+        "No complete external target upgrade; actual archived wrapper and original bounder execute in current server test harness with subprocess mocked and real disposable checkpoint.",
+        "No native Windows/Linux qualification.",
+        "No full suite; coordinator owns current receipt and lifecycle gates.",
+        "Two targeted mutants only; prior idempotence/current-wrapper/caller-identity mutants retained against unchanged source; not every validation conjunct mutated."
+      ],
+      "targeted_council_delta": {
+        "verdict": "approve targeted continuation",
+        "depth": "targeted",
+        "primer_tier": "standard",
+        "prior_seats": [
+          "red-team",
+          "docs-contract-reviewer"
+        ],
+        "strongest_challenge": "The old wrapper hardcodes status ok and storage identity after the incoming reader; only final bounder adaptation repairs the installing hop. Broad action matching or pending global state could relabel forged or concurrent responses.",
+        "evidence": "Current adapter unchanged; independent actual ppjy wrapper plus original bounder 3/3; current public controls 3/3; legacy invalid/concurrent/changed action controls 6/6; equality and omitted-normalizer mutants killed; four JSON-shaped fake capabilities rejected; exact seed/local reader-limit block equality.",
+        "no_new_boundary": "Reader and normalizer seams unchanged since prior delivery review. Later storage candidate-publication delta is outside this envelope wave and read_restart_action is byte-identical to the matched old blob. No reason identified to escalate this closure delta to full council.",
+        "limitations": "This is independent targeted delta synthesis on prior seat evidence, not a newly convened multi-seat council."
+      },
+      "commands": {
+        "public_controls": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests python3 -B -m unittest test_server_tools.WaveUpgradeMcpToolTests.test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli test_server_tools.WaveUpgradeMcpToolTests.test_unbound_storage_exit_and_dry_run_do_not_become_expected_pauses test_server_tools.WaveUpgradeMcpToolTests.test_storage_pause_carries_external_continuation_and_rejects_stale_action",
+        "historical": "python3 -B heredoc: prepend scripts and scripts/tests to sys.path; exec /tmp/1xxcb-ppjy-replay.py after replacing output path with /tmp/1xxcb-astra-archived.json (source and executed fixture retained).",
+        "mutation": "python3 -B heredoc: unittest suite of exact named test under patch.object(hooks, _normalize_legacy_index_guard_envelope, mutant); omission mutant lambda response: response; equality mutant inspect.getsource(fn).replace(action == expected and response.get, True and response.get), compile+exec in copied globals. One named test per mutant."
+      }
+    },
+    "framework_receipt": {
+      "result": "ok",
+      "test_count": 9008,
+      "inputs_hash": "e93ffd69905569097c61198cf6e040b61800d000d41ac3314814d2b85d191524",
+      "recomputed_match": true
+    },
+    "close_dry_run": "passed; all bounded verification complete",
+    "qa": {
+      "actor": "qa-reviewer",
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "context_id": "/root/envelope_verification",
+      "verdict": "approve",
+      "findings": [],
+      "test_count": 32,
+      "tests": [
+        "IndexUpgradeGuardTests 23/23",
+        "WaveUpgradeMcpToolTests 5 focused controls",
+        "ReceiptTests 4 reader/host controls"
+      ],
+      "acs": {
+        "AC-1": "Current public wrapper validated exact invocation/action envelope",
+        "AC-2": "Installed reader and faithful pre-guard fixture; actual archive replay independently supplied by Astra",
+        "AC-3": "Negative/storage/concurrency/host caps/output bounds controls pass",
+        "AC-4": "Seed/prompt/spec aligned; omission and capability controls detect wrong behavior"
+      },
+      "mutation_table": [
+        {
+          "mutant": "legacy_index_guard_restart_action returns None",
+          "observed": "old outer error detected"
+        },
+        {
+          "mutant": "normalizer identity",
+          "observed": "false storage code/receipt guidance detected"
+        },
+        {
+          "control": "corrupt command_argv",
+          "observed": "unproven rejection; internal proof stripped"
+        },
+        {
+          "control": "interleave two roots",
+          "observed": "exact actions retained"
+        }
+      ],
+      "fingerprint_before_after": "six scoped source/test Git blobs identical",
+      "limitations": [
+        "macOS only; no Windows/Linux native execution",
+        "No actual archived wrapper replay by Luna; Astra supplies independent12test evidence",
+        "No full suite rerun; current9008 receipt independently verified"
+      ]
+    },
+    "memory_proposal": "zero candidates; canonical guidance already owns cached-reader and CLI lessons"
   }
 }

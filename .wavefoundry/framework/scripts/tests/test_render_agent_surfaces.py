@@ -265,6 +265,205 @@ class BriefingLoopCarrierTests(unittest.TestCase):
                 self.assertEqual(target.read_bytes(), expected)
 
 
+class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
+    """Carrier and authored-merge fixtures, never native-host or agent-adherence proof."""
+
+    ROOT = PROJECT_ROOT.parent
+    OWNER = "180-implement-feature.prompt.md"
+    PHASES = ("prepare-wave", "implement-wave", "review-wave", "close-wave")
+    POLICY_HEADING = "## Host-neutral orchestration"
+    # AC-derived obligations, independently asserted rather than copy equality.
+    POLICY_CLAUSES = (
+        "throughout Prepare, plan review, implementation, verification, delivery review and Close",
+        "responsibilities, not fixed model tiers",
+        "use a lighter model only when it meets the same quality bar for that task",
+        "Optimize total verified effort, including retries, rework and integration",
+        "If model selection is unavailable, use the current model and state the limitation",
+        "relevant ACs, dependencies, owned and forbidden paths, interface constraints",
+        "weigh briefing, waiting and integration overhead against the expected benefit",
+        "keep small, tightly coupled work with the coordinator when delegation would cost more than it helps",
+        "Set an early, task-sized checkpoint for a useful draft, finding or executed test",
+        "without creating another artifact or approval gate",
+        "promptly rebrief, change the model when available, or reclaim the task",
+        "do not keep waiting merely because the worker is still running",
+        "Serialize overlapping writes",
+        "perform implementation tasks sequentially and state that choice",
+        "Parent MCP access does not prove worker MCP access",
+        "Worker completion is not wave completion",
+        "a fresh independent context, on the same host or another",
+        "required review remains pending",
+        "reviewed revision or tree fingerprint",
+        "a moved tree requires affected evidence to be refreshed",
+    )
+    UPGRADE_HEADING = "## Host-neutral orchestration reconciliation"
+    UPGRADE_CLAUSES = (
+        "during the same upgrade editing pass",
+        "preserve project additions, metadata and renderer-owned regions",
+        "merge only the changed authored clauses at a unique location",
+        "present the conflict instead of overwriting it",
+        "Missing-only rendering preserves existing prose and is not proof that this merge happened",
+        "prepare-wave, implement-feature, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency",
+        "AGENTS.md and docs/agents/wave-coordinator.md",
+        "a repeat merge makes no further changes",
+        "not an automatic prose migration claim",
+    )
+
+    def _assert_block(self, text: str, heading: str, clauses: tuple[str, ...]) -> str:
+        self.assertEqual(text.count(heading), 1)
+        block = text.split(heading, 1)[1].split("\n## ", 1)[0]
+        if heading == self.POLICY_HEADING:
+            block = block.split("\nWave orchestration contract:", 1)[0]
+        for clause in clauses:
+            self.assertIn(clause, block)
+        return block
+
+    def _assert_phase_pointer(self, text: str) -> None:
+        paragraphs = [p for p in text.split("\n\n") if self.OWNER in p]
+        self.assertEqual(len(paragraphs), 1)
+        for clause in ("Host-neutral orchestration", "Use only available host capabilities",
+                       "sequential implementation does not satisfy required independent review"):
+            self.assertIn(clause, paragraphs[0])
+
+    def test_canonical_contract_and_each_propagation_carrier(self) -> None:
+        policy = (self.ROOT / ".wavefoundry/framework/seeds" / self.OWNER).read_text()
+        self._assert_block(policy, self.POLICY_HEADING, self.POLICY_CLAUSES)
+        for relative in (".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+                         "docs/prompts/upgrade-wavefoundry.prompt.md"):
+            self._assert_block((self.ROOT / relative).read_text(), self.UPGRADE_HEADING, self.UPGRADE_CLAUSES)
+        for phase in (*self.PHASES, "implement-feature", "pause-wave", "agent-routing-concurrency"):
+            self._assert_phase_pointer((self.ROOT / f"docs/prompts/{phase}.prompt.md").read_text())
+        bootstrap = (self.ROOT / ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text()
+        self.assertIn("Seed 180 owns **Host-neutral orchestration** throughout Prepare-to-Close", bootstrap)
+        for phase in self.PHASES:
+            self.assertIn(phase, bootstrap.split("## Host-neutral orchestration carriers", 1)[1])
+        for relative in ("AGENTS.md", ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md"):
+            text = (self.ROOT / relative).read_text()
+            self.assertIn("actual tools and allowlist rather than assuming inherited MCP access", text)
+            self.assertNotIn("subagents without an explicit `tools:` allowlist inherit the parent's MCP tools", text)
+        for relative in ("docs/agents/wave-coordinator.md", "docs/contributing/agent-team-workflow.md",
+                         "docs/agents/platform-mapping.md"):
+            text = (self.ROOT / relative).read_text()
+            self.assertIn(self.OWNER, text)
+            self.assertIn("Check actual worker capabilities rather than assuming inherited tools", text)
+
+    def test_deleted_and_reversed_semantic_obligations_are_detected(self) -> None:
+        for relative, heading, clauses, reversals in (
+            (".wavefoundry/framework/seeds/" + self.OWNER, self.POLICY_HEADING, self.POLICY_CLAUSES, (
+                ("not fixed model tiers", "fixed model tiers"),
+                ("does not prove worker MCP access", "proves worker MCP access"),
+                ("required review remains pending", "required review is satisfied by the implementer"),
+            )),
+            (".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md", self.UPGRADE_HEADING, self.UPGRADE_CLAUSES, (
+                ("present the conflict instead of overwriting it", "overwrite the conflicting local policy"),
+                ("not an automatic prose migration claim", "an automatic prose migration guarantee"),
+            )),
+        ):
+            original = (self.ROOT / relative).read_text()
+            block = self._assert_block(original, heading, clauses)
+            mutants = [original.replace(heading, "", 1), original.replace(block, "", 1)]
+            mutants.extend(original.replace(block, block.replace(clause, "", 1), 1) for clause in clauses)
+            mutants.extend(original.replace(block, block.replace(old, new, 1), 1) for old, new in reversals)
+            for index, mutant in enumerate(mutants):
+                with self.subTest(path=relative, mutant=index):
+                    self.assertNotEqual(mutant, original)
+                    with self.assertRaises(AssertionError):
+                        self._assert_block(mutant, heading, clauses)
+        for phase in self.PHASES:
+            text = (self.ROOT / f"docs/prompts/{phase}.prompt.md").read_text()
+            self._assert_phase_pointer(text)
+            for old, new in ((self.OWNER, "missing-owner.md"),
+                             ("does not satisfy required independent review", "satisfies required independent review")):
+                with self.subTest(phase=phase, mutation=old):
+                    mutant = text.replace(old, new, 1)
+                    self.assertNotEqual(mutant, text)
+                    with self.assertRaises(AssertionError):
+                        self._assert_phase_pointer(mutant)
+
+    def test_public_fresh_render_delivers_every_lifecycle_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            written = ras.render_agent_surfaces(root)
+            snapshots = {}
+            for phase in self.PHASES:
+                relative = f"docs/prompts/{phase}.prompt.md"
+                self.assertIn(relative, written)
+                target = root / relative
+                self._assert_phase_pointer(target.read_text())
+                self.assertNotIn("{{generated_at}}", target.read_text())
+                snapshots[target] = target.read_bytes()
+            ras.render_agent_surfaces(root)
+            for target, expected in snapshots.items():
+                self.assertEqual(target.read_bytes(), expected)
+
+    def test_four_host_entry_paths_reach_shared_phase_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for host in (".codex", ".claude", ".agents", ".github"):
+                (root / host).mkdir()
+            (root / "docs/agents").mkdir(parents=True)
+            (root / "docs/agents/guru.md").write_text(GURU_STUB)
+            # Entry documents are agent-authored input, not renderer outputs.
+            (root / "AGENTS.md").write_text(
+                "# Project instructions\n\n" + "\n".join(
+                    f"Read docs/prompts/{phase}.prompt.md." for phase in self.PHASES
+                ) + "\n"
+            )
+            (root / "CLAUDE.md").write_text("# Claude\n\n## Startup Order\n\n1. AGENTS.md\n")
+            (root / ".github/copilot-instructions.md").write_text(
+                "# Copilot\n\nRead AGENTS.md.\n\n## Key Guardrails\n"
+            )
+            for platform in ("codex", "claude", "antigravity", "copilot"):
+                rps.render_platform_entrypoints(root, platform)
+            ras.render_agent_surfaces(root)
+            for host in (".codex", ".claude", ".agents"):
+                for phase in self.PHASES:
+                    skill = root / host / "skills" / f"wf-{phase}" / "SKILL.md"
+                    text = skill.read_text()
+                    self.assertIn(f"docs/prompts/{phase}.prompt.md", text)
+                    # The wrapper routes; the policy stays in the shared owner.
+                    self.assertNotIn(self.POLICY_HEADING, text)
+                    self.assertNotIn(self.POLICY_CLAUSES[3], text)
+            self.assertIn("@AGENTS.md", (root / "CLAUDE.md").read_text())
+            self.assertIn("AGENTS.md", (root / ".github/copilot-instructions.md").read_text())
+            for phase in self.PHASES:
+                self._assert_phase_pointer((root / f"docs/prompts/{phase}.prompt.md").read_text())
+
+    def test_customized_prompts_require_authored_merge_then_converge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs/prompts").mkdir(parents=True)
+            stale = "Every child agent always inherits the parent's MCP tools."
+            prefix = "# Local workflow\n\nOwner: Local team\nStatus: active\nLast verified: 2026-01-01\n\n"
+            suffix = "\n\nKeep project-specific output conventions and the local release checklist.\n"
+            for phase in self.PHASES:
+                (root / f"docs/prompts/{phase}.prompt.md").write_text(prefix + stale + suffix)
+            ras.render_agent_surfaces(root)
+            before = {}
+            for phase in self.PHASES:
+                target = root / f"docs/prompts/{phase}.prompt.md"
+                text = target.read_text()
+                self.assertTrue(text.startswith(prefix + stale + suffix))
+                before[target] = text
+            # Deliberate test-side agent editing step, NOT upgrader automation.
+            # Only the known authored stale clause is replaced; all renderer-owned
+            # regions and unrelated project text retain their exact bytes.
+            for target, original in before.items():
+                baseline = self.ROOT / ".wavefoundry/framework/install/lifecycle-prompts" / target.name
+                paragraphs = [p for p in baseline.read_text().split("\n\n") if self.OWNER in p]
+                self.assertEqual(len(paragraphs), 1, target.name)
+                self.assertEqual(original.count(stale), 1)
+                merged = original.replace(stale, paragraphs[0], 1)
+                target.write_text(merged)
+                self.assertEqual(merged.replace(paragraphs[0], stale, 1), original)
+                self._assert_phase_pointer(merged)
+                self.assertNotIn(stale, merged)
+            snapshots = {target: target.read_bytes() for target in before}
+            for _ in range(2):
+                ras.render_agent_surfaces(root)
+                for target, expected in snapshots.items():
+                    self.assertEqual(target.read_bytes(), expected)
+
+
 class MemoryReviewPromptTests(unittest.TestCase):
     def test_prompt_contract_and_known_bad_controls(self) -> None:
         prompt = (

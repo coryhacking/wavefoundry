@@ -2406,5 +2406,303 @@
     "version": "1.24.0+ppjy",
     "embedded_bridge_integrity": "ok",
     "post_review_doc_change": "Packaging gardener refreshed layering-rules.md Last verified date only."
+  },
+  "closure_verification_20260914": {
+    "independent_review": {
+      "wave": "1xtnr call-edge-target-integrity",
+      "verdict": "approve closure delta; retain prior independent lane and targeted council authority",
+      "actor": "independent closure delta reviewer",
+      "context_id": "1xtnr-astra-closure-delta-20260914",
+      "fresh_context": true,
+      "independent": true,
+      "findings": [],
+      "tree_moved_under_review": false,
+      "fingerprints_sha256": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "5418aa17e7904991d433dd14e81e522f6d6edb6c73d9e44ed26e8deecc99a18f",
+        ".wavefoundry/framework/scripts/indexer.py": "8fda57aded4476b23b052f6f166f055a987831dfc80acab79db5737d860b60f6",
+        ".wavefoundry/framework/scripts/server_impl.py": "4cf791c2eb05fd5ec534ac80ab129c4c0b9668a3eea7ff662df84bec9ce5d84c",
+        ".wavefoundry/framework/scripts/graph_call_census.py": "0ac42a832bdb96b8e213b4c9d159a3099a676838f248bdda009b78b144d439d4",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_integrity.py": "77b9805d5cc0416de7301531c31f0e5782dfdb347c44f8a8a26089788b0a0cfa",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_census.py": "4896b6a688838a6c4c2dc897491da60fc5065011c3907c00b6c8395a1ab15610",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "48bf8ca308fd9ea8011f7735521675813e5faa01670321f63d6035410db5f64f",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "6efae17d6d8f8aa2338c0c0080edd38be36ee56042fb285ed338f4b395faa16b",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "5454b2749fb36526420ed1abfffff7e88d801d21a4d3a3f0d433adadb4690e66",
+        ".wavefoundry/framework/scripts/tests/test_server_context_efficiency.py": "789740888483c56f77a2ec6192da5872819d3ae1d9e8f50553827c2319832a10",
+        ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "f64d3dd8a61d89b687bfc46d0123ca2e635002458d1f80f545e03c921dc96168",
+        "docs/architecture/graph-index-system.md": "cd76e37e05d244b35467314899b67fdbcd3c150e54e73b0198c0a7d03738e020",
+        "docs/specs/mcp-tool-surface.md": "62b41dd5f0c0fb020816281be1a871c767184e89fc926ecad97c99b539b4a4e8",
+        "docs/RELIABILITY.md": "c0e544d65ffac328a2ae78ca2179a6359f791541c8e69de05e614e24612bda15",
+        "docs/waves/1xtnr call-edge-target-integrity/1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers.md": "5bda824ffeb61c61a088872b5aa3bb261d2376052bc14c926d84adda57166cd1",
+        "docs/waves/1xtnr call-edge-target-integrity/1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity.md": "9b64941aef3525808f7d67947b6db328a92c24aabab0096eb9774f53bb345fc1"
+      },
+      "symbol_deltas": {
+        "graph_indexer.py": {
+          "changed_symbols": [
+            "GraphCommunityPublication",
+            "GraphCommunityPublication.apply",
+            "GraphPublication",
+            "GraphPublication.apply",
+            "GraphStateStore",
+            "GraphStateStore.ensure_current"
+          ],
+          "same_scope": {
+            "_merge_call_evidence": "3259325d9ad3e0087481e7562f730fc5978a256a8b637c4e48873666cd8c6009",
+            "_search_java_declarations_in_scope": "027ba07cd9f0ac9f8b1621059349b83e63033143d4769459614e55f0a2edafdd",
+            "_ts_call_has_receiver": "324b69686a3a53591360689f622b6c50f74d687451c12c379c62ec57acf959be",
+            "_ts_pure_callee_path": "6d166c08de2bcb915b66a246d33f1b7b639e1d7cbc95b0e8168d97f5b90c3f60",
+            "_ts_callee_leaf": "cfa39a9c6d150ac809e056fb5cbfbb3a11469ee1882321563200e5f38540396f",
+            "_ts_code_call_candidates": "062f4494203e96de7719cccb9621ee945b00aa4b1d2bd595b3d2e24866803ac6",
+            "_resolve_external_call_target": "d864e33ca3de7bd50fd1d1fada66cb88c08e9db2a5b26bdab57fb85174ad0118",
+            "_raw_fragment_edge": "65f2210be85cccf20c2104bea400a32480889d76ce4a3ff703ff3e2d890052dc",
+            "_output_fragment_edge": "07e03a3d9db005af507468824de55a3a43add8158a8b9039692c3215e50ca890",
+            "_downgrade_unresolved_typed_calls": "72a85df6ba43ba435cdbe70a7367d04f79a960d06d487b5cc705c001bd5153fb",
+            "_resolve_fragment_edge": "7fe2a7b59427fc93fe7efa9aab3df671b889e42b1706b0721979ca061dd7e8b6",
+            "GraphIndexSession._extract_tree_sitter_artifact": "5504ca23f1ef030172ee3e7745a95f94ae0a8e9df48db2ef14dd9518945a8e62"
+          }
+        },
+        "indexer.py": {
+          "changed_symbols": [
+            "_build_index_locked",
+            "_build_secrets_artifacts",
+            "_cleanup_layer_state_for_reaped",
+            "_close_owned_build_store",
+            "_execute_orphan_store_reconcile",
+            "_get_embedder",
+            "_get_index_state_store",
+            "_index_build_lock",
+            "_index_build_lock_held",
+            "_load_meta",
+            "_plan_orphan_store_reconcile",
+            "_process_cmdline",
+            "_process_is_zombie",
+            "_reap_stranded_vector_rows",
+            "_record_reap_state",
+            "_remove_legacy_meta_json",
+            "_store_log_safe",
+            "_sync_chunk_derived_state",
+            "_test_run_lock_held",
+            "_text_embedding_cached_first",
+            "docs_lint_hook_timeout_seconds",
+            "main",
+            "project_index_inputs_stale",
+            "project_layer_freshness"
+          ],
+          "same_scope": {
+            "_build_graph_artifacts": "60a709ace91883d63f8fbae79e242301621f432664b9d240b41bbd02081d86ce"
+          }
+        },
+        "server_impl.py": {
+          "changed_symbols": [
+            "WaveIndex",
+            "WaveIndex.docs_health",
+            "_check_index_writer_current",
+            "_index_runtime_failure_response",
+            "_maybe_refresh_if_stale",
+            "_start_background_index_refresh",
+            "index_build_response",
+            "index_health_response",
+            "run_index_rebuild",
+            "wf_upgrade_response"
+          ],
+          "same_scope": {
+            "code_callhierarchy_response": "a828ea87ec5ff43aa4ac6df51865a6a0b416e489fcd0efbf32e20102d3960887",
+            "_search_java_declarations_in_scope": "c775c9547d0ecae5e6c884a77503df553494766c94e2a3bb91177022f6acd0b0",
+            "_context_source_paths": "d1a3fe1c26fac9b5c5deea9ba0407b0f2519aeee1b541f398fc5600398db9c7e"
+          }
+        }
+      },
+      "executed": {
+        "controls": {
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "graph_tests": [
+            "test_pure_path_literals_and_positional_controls",
+            "test_complex_callee_leaf_matrix",
+            "test_opaque_callees_and_parenthesized_members_keep_their_boundary",
+            "test_callable_wins_both_constant_orders_and_field_orders",
+            "test_enhanced_for_iterable_uses_outer_receiver",
+            "test_unknown_receiver_cross_file_and_incremental_ceiling",
+            "test_extraction_and_fragment_promotion_sites_respect_ceiling",
+            "test_receiver_provenance_dedup_and_roundtrip",
+            "test_guess_kind_gate_and_relation_exceptions",
+            "test_callable_python_constant_is_counted_and_kept"
+          ],
+          "public_hierarchy_tests": [
+            "test_cross_file_definition_and_call_site_bounds",
+            "test_outgoing_missing_and_external_locations_stay_null"
+          ],
+          "census_test": "test_existing_nonempty_wal_latest_commit_is_visible_without_data_writes"
+        },
+        "mutants": [
+          {
+            "mechanism": "receiver classification",
+            "mutation": "_ts_call_has_receiver returns False",
+            "test": "test_unknown_receiver_cross_file_and_incremental_ceiling",
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_text": [
+              "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_call_integrity.py\", line 333, in test_unknown_receiver_cross_file_and_incremental_ceiling\n    check(payload)\n    ~~~~~^^^^^^^^^\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_call_integrity.py\", line 331, in check\n    self.assertEqual(edges[0]['confidence'],'EXTRACTED')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'RECEIVER_RESOLVED' != 'EXTRACTED'\n- RECEIVER_RESOLVED\n+ EXTRACTED\n\n"
+            ]
+          },
+          {
+            "mechanism": "non-callable kind gate",
+            "mutation": "_is_non_callable_call_target returns False",
+            "test": "test_guess_kind_gate_and_relation_exceptions",
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_text": [
+              "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_call_integrity.py\", line 374, in test_guess_kind_gate_and_relation_exceptions\n    self.assertEqual(self.g._resolve_external_call_target('B.java::B.run','hit','EXTRACTED',**kwargs),(None,False))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('A.java::A.hit', True) != (None, False)\n\nFirst differing element 0:\n'A.java::A.hit'\nNone\n\n- ('A.java::A.hit', True)\n+ (None, False)\n"
+            ]
+          }
+        ],
+        "harness_correction": "Initial mutant suite reran setUpClass and reloaded the module, bypassing the patch; not counted as a semantic survivor. Corrected direct TestCase.run retains the patched current module and asserts patched identity."
+      },
+      "prior_evidence": "Read current delivery-review.json including completed CODE-DEL-1/QA-DEL-1 and ARCH-DEL-1 repair/reverification chains and receipt-selected targeted council. Initial source fingerprint is superseded by repair1.source_fingerprint for repaired test/architecture surface. Current test_graph_call_integrity.py exactly matches repair1 Git blob a162460d807507389bb318166ad5bfab340e9673.",
+      "production_comparison": "Archive ppjy matches original reviewed graph_indexer/indexer/server_impl Git blobs. Compared functions/classes by AST ranges: callable identity/extraction, receiver classifier, Java lexical declarations, both guessing gates, fragment/provenance and finalization helpers, public hierarchy handler/context attribution, and merge diagnostics builder unchanged. Later graph deltas are GraphPublication.apply, GraphCommunityPublication.apply, GraphStateStore.ensure_current; indexer/server changes concern runtime currentness, index publication and upgrade handling. graph_call_census.py byte-identical to prior review.",
+      "lane_delta_synthesis": {
+        "code": "No call-target or citation seam change since approved repair; named positive and negative controls pass.",
+        "architecture": "Persisted receiver_unknown ceiling, callable identity before guess-only gates, and read-only census ownership remain aligned with graph-index-system/layering-rules. No new integration edge in this wave delta.",
+        "docs_contract": "Current graph architecture and MCP spec still distinguish callee definition from nested caller call_site; metadata alone receives no caller content credit. Existing repaired census SQLite ownership exception remains explicit.",
+        "performance": "Scoped graph extraction/finalization, batch call-site scanning and census SQL unchanged. WAL latest-commit control passes. Retain prior linear/local overhead assessment; no new timing benchmark claim.",
+        "targeted_council": "Prior standard primer strongest challenge remains precision-by-deletion/false-confidence. Paired callable-positive and kind-negative tests, unchanged-file incremental ceiling, opaque/pure-path controls and public attribution controls rebut it. No changed wave boundary identified that requires reconvening council."
+      },
+      "consumer_evidence": {
+        "attribution": "operator-reported; not independently measured by this reviewer",
+        "reported": "127 non-callable targets to 0; children/getKey/isPrimitive false targets gone; isArray EXTRACTED; corrected citations; builder52 graph 19790 edges",
+        "assessment": "Supports reported defect resolution without substituting for independent local paired controls."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation: disable receiver classification and kind predicate independently; exact named assertion fails; unchanged prior stronger mutants remain corroborating evidence."
+      },
+      "limitations": [
+        "No full suite rerun; coordinator independently verified existing 9008-test receipt current.",
+        "No native Windows/Linux qualification or consumer project execution.",
+        "Targeted current delta synthesis preserves prior approved lanes and targeted council; this is not a newly convened multi-seat council.",
+        "Only two current mutants executed; prior unchanged guards/validations not all remutated. No broader sweep needed after correcting patch setup and observing both intended mutants fail.",
+        "MCP code_ask first call returned index_not_ready; used MCP structural outline/definition/targeted live reads and known artifacts, without claiming semantic answer coverage."
+      ]
+    },
+    "framework_receipt": {
+      "result": "ok",
+      "test_count": 9008,
+      "inputs_hash": "e93ffd69905569097c61198cf6e040b61800d000d41ac3314814d2b85d191524",
+      "recomputed_match": true
+    },
+    "consumer_evidence": {
+      "source": "operator-provided local upgrade reports in this conversation",
+      "verified_by_current_session": false,
+      "result": "127 non-callable call targets reduced to0; false children/getKey/isPrimitive bindings removed; isArray retained only as EXTRACTED; callee location/call_site corrected",
+      "status": "received as operator report; consumer raw database/census was not independently rerun here"
+    },
+    "memory_proposal": "zero new candidates; one prior disposition retained",
+    "qa": {
+      "wave": "1xtnr",
+      "changes": {
+        "1xtnq": {
+          "acs": 9,
+          "bounded_result": "pass_with_limits"
+        },
+        "1xtns": {
+          "acs": 7,
+          "bounded_result": "pass_with_limits"
+        }
+      },
+      "tests": [
+        {
+          "command": "PYTHONPATH=.:.. python3 -B -m unittest -v test_graph_call_integrity.CallIntegrityTests test_graph_call_census.GraphCallCensusTests test_graph_incremental_merge.VersionAndMigrationTests test_graph_incremental_merge.BuildLogInstrumentationTests test_graph_incremental_merge.DeltaCostTests test_server_tools_retrieval.TestCodeCallhierarchy test_server_context_efficiency.ContextEfficiencyServerIntegrationTests.test_content_source_census_is_explicit_and_graph_metadata_is_inert",
+          "result": "ok",
+          "count": 60,
+          "elapsed_seconds": 6.473
+        },
+        {
+          "command": "PYTHONPATH=.:.. python3 -B -m unittest -v test_graph_indexer.GraphBuilderVersionTests",
+          "result": "ok",
+          "count": 1,
+          "elapsed_seconds": 0.354
+        }
+      ],
+      "mutation_controls": [
+        {
+          "test": "CallIntegrityTests.test_legacy_arrow_candidate_is_dropped_and_counted",
+          "mutant": "text-derived arrow callee candidate",
+          "expected": "malformed_external_call_targets_dropped=1 and no malformed edge",
+          "result": "pass"
+        },
+        {
+          "test": "CallIntegrityTests.test_finalize_counts_data_edge_but_drops_malformed",
+          "mutant": "inject non-callable variable target plus malformed external target",
+          "expected": "non_callable=1, malformed=1, data edge retained once",
+          "result": "pass"
+        },
+        {
+          "test": "CallIntegrityTests.test_callable_wins_both_constant_orders_and_field_orders",
+          "mutant": "callable/data collision ordering",
+          "expected": "callable target wins and collision is counted",
+          "result": "pass"
+        }
+      ],
+      "hashes_before": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "d6199980afb7473362964b846a49ad1b28342d61",
+        ".wavefoundry/framework/scripts/indexer.py": "aea1cc8ec5bf73ef56ee75de1b7eed733e5c0b6b",
+        ".wavefoundry/framework/scripts/server_impl.py": "9ff701fb35877b2f07a134acc575f6240ce39ea5",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_integrity.py": "a162460d807507389bb318166ad5bfab340e9673",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_census.py": "495752bdfb3937daf2e4c8e79811a349fada8898",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "c1433b40006b508162cb3eea7bfd42695a1a4ee0",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "af7cc318e0ea5816950d9a9ea6f3e20eb111c22d",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "f8cdbec4564a359326ed9b8219df95cd0203ba2a",
+        ".wavefoundry/framework/scripts/tests/test_server_context_efficiency.py": "3d3ecd27172d96e61c87159bb2ef6ab0d5a04c5e",
+        "docs/architecture/graph-index-system.md": "9ff3147c762a31f1e6dee40518c567183746e028",
+        "docs/specs/mcp-tool-surface.md": "7cfa77d2de460d36d290dc314e42392c687a81fd",
+        "docs/RELIABILITY.md": "415871e14c98bf4e75a6d1c0783a487605b1ad37",
+        "CHANGELOG.md": "c288aedd9b54ab1abb1be0cd3cce70eaea3d6a39"
+      },
+      "hashes_after": {
+        ".wavefoundry/framework/scripts/graph_indexer.py": "d6199980afb7473362964b846a49ad1b28342d61",
+        ".wavefoundry/framework/scripts/indexer.py": "aea1cc8ec5bf73ef56ee75de1b7eed733e5c0b6b",
+        ".wavefoundry/framework/scripts/server_impl.py": "9ff701fb35877b2f07a134acc575f6240ce39ea5",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_integrity.py": "a162460d807507389bb318166ad5bfab340e9673",
+        ".wavefoundry/framework/scripts/tests/test_graph_call_census.py": "495752bdfb3937daf2e4c8e79811a349fada8898",
+        ".wavefoundry/framework/scripts/tests/test_graph_incremental_merge.py": "c1433b40006b508162cb3eea7bfd42695a1a4ee0",
+        ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "af7cc318e0ea5816950d9a9ea6f3e20eb111c22d",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "f8cdbec4564a359326ed9b8219df95cd0203ba2a",
+        ".wavefoundry/framework/scripts/tests/test_server_context_efficiency.py": "3d3ecd27172d96e61c87159bb2ef6ab0d5a04c5e",
+        "docs/architecture/graph-index-system.md": "9ff3147c762a31f1e6dee40518c567183746e028",
+        "docs/specs/mcp-tool-surface.md": "7cfa77d2de460d36d290dc314e42392c687a81fd",
+        "docs/RELIABILITY.md": "415871e14c98bf4e75a6d1c0783a487605b1ad37",
+        "CHANGELOG.md": "c288aedd9b90f36dd501266e6551884b979b2e93"
+      },
+      "limits": [
+        "No native Windows/Linux/Intel-mac execution.",
+        "The reported 127/57 consumer census and 15-profile full census were not independently rerun here.",
+        "No full suite or live packaged/stdio consumer run; relied on current receipt and prior approved lanes for those surfaces.",
+        "One existing ResourceWarning was emitted by test_unknown_symbol_returns_empty_lists; the test passed."
+      ],
+      "changelog_reconciliation": {
+        "captured_before_hash": "c288aedd9b54ab1abb1be0cd3cce70eaea3d6a39",
+        "captured_after_hash": "c288aedd9b90f36dd501266e6551884b979b2e93",
+        "current_hash_first_check": "c288aedd9b90f36dd501266e6551884b979b2e93",
+        "current_hash_second_check": "c288aedd9b90f36dd501266e6551884b979b2e93",
+        "head_blob": "c288aedd9b90f36dd501266e6551884b979b2e93",
+        "before_hash_recoverable": false,
+        "before_hash_git_object": false,
+        "history_match_for_before_hash": false,
+        "current_worktree_diff": false,
+        "classification": "unreproducible stale/malformed snapshot or capture typo; actual Changelog movement is not established"
+      },
+      "source_unchanged": true,
+      "docs_fingerprint_note": "All inspected source/test/spec files stayed byte-identical. The prior Changelog before-hash cannot be recovered from Git (hash-object does not persist blobs), while the current Changelog hash was independently repeated and matches HEAD with no worktree diff. The overall tree remains dirty in wave/docs files, so no tree-clean claim is made."
+    },
+    "docs_gate": "wf_validate_docs passed 2026-09-14 with zero errors/warnings; includes staged1y0zw"
   }
 }

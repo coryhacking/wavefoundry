@@ -2,27 +2,20 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-13
+Last verified: 2026-09-15
 
 ## Current Session
 
 **Active wave:** *(none)*
-**Status:** wave work idle; operator authorized committing the release changes and publishing official 1.24.0.
+**Status:** idle; wave closed after current readiness and independent delivery approvals. Full suite: 9,013 tests passed (12 skips); docs gate clean; framework receipt current; edit gates closed.
 
-**Last closed wave:** `1xxcd staged-graph-memory-publication` — candidate graph builds remain separate from live memory publication; standard upgrades preserve memory and reclaim superseded storage after verification.
+**Last closed wave:** `1y3hb host-neutral-wave-orchestration` — task-fit model and reasoning allocation across Prepare-to-Close, capability-aware delegation, overhead checks, early useful-output checkpoints and independent review handoffs through existing artifacts.
 
-All five ACs and tasks completed. Required specialist and targeted Council approvals are current, and closure passed with a proven framework receipt: 9,008 tests, 12 skips, input hash `e93ffd69905569097c61198cf6e040b61800d000d41ac3314814d2b85d191524`. The complete suite ran with two workers outside the sandbox; before/after source inventories match. Memory proposal returned zero candidates. Framework/seed edit gates are closed.
+All five ACs and six tasks completed with no wave deferrals. Final readiness delta and delivery evidence are recorded in the wave and change; carrier tests establish guidance propagation, not native-host adherence or measured savings. Closure records for `1xtnr` and `1xxcb` are included with this work. The operator authorized commit and push on 2026-09-15; no package or release requested.
 
-Permanent tests cover fresh conversion and interrupted retries with outer/feature retained archives through live publication and cleanup. Local field upgrades completed and matched package bytes. The one-off ppol repair ZIPs were deleted at operator request; its source/tests remain here but the utility is excluded from future distributions. Detailed evidence is retained in the wave reports.
+## Release
 
-## Paused waves
-
-- `1xxcb index-restart-envelope`: implemented and reviewed; closure still operator-owned. Its behavior is included in 1.24.0.
-- `1xtnr call-edge-target-integrity`: both changes implemented and reviewed; closure still operator-owned. Builder 52 and call-site citations are included in 1.24.0. Original review evidence and follow-ups remain in that wave.
-
-## Release follow-through
-
-Commit the reviewed pending 1.24.0 changes, then run `build_pack.py --version 1.24.0 --with-models --release`. Verify the published feature/model assets and tag. Changelog is dated and emphasizes user benefits; local-testing repair history is omitted. Sensor `ac_asserts_repository_state` (wave `1wur7`) remains advisory.
+Official 1.24.0+ppq7 published on 2026-09-13; tag v1.24.0 and framework/model asset hashes verified. Source commit 3433fb03; release stamp f8e4732e. Host-neutral orchestration is subsequent source work, not a new packaged release.
 
 ## Open questions / Deferred decisions
 

@@ -6,6 +6,10 @@ Last verified: 2026-09-08
 
 Shortcut: **`Implement feature`**
 
+## Host-neutral orchestration
+
+Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort per implementation or verification task; accept changes only after coordinator integration checks. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+
 ## Purpose
 
 Single-change docs-first implementation path. Use when one admitted change needs implementation without multi-workstream coordination.

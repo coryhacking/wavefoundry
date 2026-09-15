@@ -6,6 +6,10 @@ Last verified: 2026-09-02
 
 Shortcut: **`Close wave`**
 
+## Host-neutral orchestration
+
+Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+
 ## Purpose
 
 Finalize and archive the wave. Closure requires full reconciliation — not just a status flip.

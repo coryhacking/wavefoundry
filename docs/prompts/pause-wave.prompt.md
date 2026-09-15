@@ -6,6 +6,10 @@ Last verified: 2026-07-22
 
 Shortcut: **`Pause wave`**
 
+## Host-neutral orchestration
+
+Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Record scope and ACs, revision or tree fingerprint, changed paths, commands/results, unresolved findings and next action in the existing handoff and wave records. The receiving context checks the current tree before resuming. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+
 ## Purpose
 
 Park current session state and transition the wave to `paused` when work must be interrupted. Enables safe resumption in a new session and frees the OPEN slot so another wave can be **opened** (wave 1p45l). Planning, admitting, and fully **readying** other waves needs no pause — only opening (activating) one does.

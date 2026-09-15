@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-09-12
 review-evidence-source: events.jsonl
 
@@ -16,10 +16,10 @@ A name-guessed `calls` edge never targets a data-only variable or constant node;
 ## Changes
 
 Change ID: `1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity`
-Change Status: `implemented`
+Change Status: `complete`
 
 Change ID: `1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers`
-Change Status: `implemented`
+Change Status: `complete`
 
 ## Participants
 
@@ -28,10 +28,16 @@ Change Status: `implemented`
 - Requested review lanes: performance-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, performance-reviewer
 
+Completed At: 2026-09-14
+
 ## Wave Summary
 
-Repair the language-generic call fallback in the graph builder (receiver expressions are no longer callee candidates, a named callable-target predicate at both binding choke points, a finalize invariant, and a promotion gate), fill the Java scope-walk gap for enhanced-for, catch, resource and typed-lambda receivers, give `code_callhierarchy` entries a nested `call_site` so file and line always agree, and derive callee names from the AST member leaf so chained, arrow, optional-chain and non-null receivers no longer lose the outer call or mint garbage external targets. Two changes, one shared bump of the graph builder to version 52.
+Wave `1xtnr` (Call Edge Target Integrity) delivered two changes: Call Edges Bind Only Callable Targets; Call-Hierarchy Lines Stay Inside Their File and Callee Names Come From the AST Leaf, Not the Callee Text. Notable adjustments during implementation: Call Edges Bind Only Callable Targets; Call-Hierarchy Lines Stay Inside Their File: Readback and Observe: operator authorized resuming shipped work for verification and closure. Luna passed 61 focused tests; independent Astra passed 13 controls and killed receiver/kind-gate mutants. Call/citation seams unchanged from prior approved delivery. Consumer 127/57 follow-up received through operator reports: non-callable targets 127 to zero; false receiver binds removed or explicitly EXTRACTED; correct call_site locations. This is reported evidence, not a fresh consumer run.; Call Edges Bind Only Callable Targets; Call-Hierarchy Lines Stay Inside Their File: Final census: all 15 profiles pass; all nine pure paths and seven opaque/parenthesized-call controls pass. Duplicate inner emissions removed in eight profiles; fixture reads/defines unchanged. Live builder 52 has zero non-callable/malformed targets; callable-target edges 20,223 to 20,301. All 39 removed edges are attributed (one helper call moved into its nested declared function; 38 external hints follow changed candidates in unchanged JS). Consumer 127/57 re-derivation remains pending. Candidate helper benchmark: 2.933 us before, 2.646 us after; this is not whole-build timing.; Call Edges Bind Only Callable Targets; Call-Hierarchy Lines Stay Inside Their File: Independent checkpoint found a valid Java colon-switch scope regression: a local declared in an earlier case group remains visible in later groups, but lookup escaped to an outer field. Thought: model the shared colon-switch scope while retaining separate arrow/block scopes; add the javac-verified fixture.
 
+**Changes delivered:**
+
+- **Call Edges Bind Only Callable Targets; Call-Hierarchy Lines Stay Inside Their File** (`1xtnq-bug call-edge-callable-targets-and-callhierarchy-line-integrity`) — 9 ACs completed. Key decisions: Repair the fallback (no receiver candidates, kind gate, promotion gate) and fill the Java scope-walk gap; do not extend receiver typing to chained or subscript receivers.; Fix node identity (callable-wins) before gating on kind, and make the finalize invariant count rather than drop.
+- **Callee Names Come From the AST Leaf, Not the Callee Text** (`1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers`) — 7 ACs completed. Key decisions: Derive the callee from the member-name field only when a non-identifier segment intervenes; keep the text path for pure identifier paths.; Share the `52` builder bump with `1xtnq` rather than bump separately.
 ## Watchpoints
 
 - Single-OPEN guard: `1xq4f dashboard-lifecycle-integrity` is closed; the OPEN slot is available.
@@ -84,7 +90,7 @@ Repair the language-generic call fallback in the graph builder (receiver express
 | architecture-reviewer | approved | current executed approval follows every affected repair | none |
 | docs-contract-reviewer | approved | current executed approval follows every affected repair | none |
 | performance-reviewer | approved | current executed approval follows every affected repair | none |
-| operator-signoff | withheld | repaired findings require fresh approval: CODE-DEL-1, ARCH-DEL-1 | record a fresh independent approval for operator-signoff |
+| operator-signoff | approved | current executed approval follows every affected repair | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -103,10 +109,10 @@ Estimated token savings use phase-unique returned source versions and mapped wor
 | --- | ---: | ---: |
 | plan | 153 | 4,255,602 |
 | implement | 280 | 5,755,695 |
-| review | 125 | 3,383,951 |
-| **Total** | **558** | **13,395,248** |
+| review | 192 | 117,996,725 |
+| **Total** | **625** | **128,008,022** |
 
-<!-- wave:context-efficiency-state {"generation":514,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":280,"content_source_credit":6589836,"derived_artifact_credit":275,"direct_net":5755695,"estimated_tokens_saved":5755695,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9750,"response_debit":827633,"source_credit_count":66,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2967},"plan":{"calls":153,"content_source_credit":4905280,"derived_artifact_credit":5066,"direct_net":4255602,"estimated_tokens_saved":4255602,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16127,"response_debit":646503,"source_credit_count":301,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7886},"review":{"calls":125,"content_source_credit":3673004,"derived_artifact_credit":2716,"direct_net":3383951,"estimated_tokens_saved":3383951,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":13461,"response_debit":278308,"source_credit_count":71,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":558,"content_source_credit":15168120,"derived_artifact_credit":8057,"direct_net":13395248,"estimated_tokens_saved":13395248,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":39338,"response_debit":1752444,"source_credit_count":438,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10853},"wave_id":"1xtnr call-edge-target-integrity"} -->
+<!-- wave:context-efficiency-state {"generation":585,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":280,"content_source_credit":6589836,"derived_artifact_credit":275,"direct_net":5755695,"estimated_tokens_saved":5755695,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9750,"response_debit":827633,"source_credit_count":66,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2967},"plan":{"calls":153,"content_source_credit":4905280,"derived_artifact_credit":5066,"direct_net":4255602,"estimated_tokens_saved":4255602,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16127,"response_debit":646503,"source_credit_count":301,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7886},"review":{"calls":192,"content_source_credit":118498937,"derived_artifact_credit":4297,"direct_net":117996725,"estimated_tokens_saved":117996725,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":17076,"response_debit":491322,"source_credit_count":102,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1889}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":625,"content_source_credit":129994053,"derived_artifact_credit":9638,"direct_net":128008022,"estimated_tokens_saved":128008022,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":42953,"response_debit":1965458,"source_credit_count":469,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12742},"wave_id":"1xtnr call-edge-target-integrity"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -117,9 +123,22 @@ This is a bounded estimate from exact-match memory advisories. It is not added t
 
 | Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
 | ---: | ---: | ---: | ---: |
-| 25 | 0 | 16 | 14,367,734 |
+| 29 | 0 | 16 | 16,994,362 |
 
 estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
 
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":16,"estimated_exploration_avoided":14367734,"surfaced_events":25} -->
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":16,"estimated_exploration_avoided":16994362,"surfaced_events":29} -->
 <!-- wave:exploration-avoided end -->
+## Closure Reconciliation
+
+- Both admitted changes complete: 1xtnq AC-1–9 and 1xtns AC-1–7, all tasks checked; no intentionally deferred ACs.
+- All five required specialist approvals and current typed readiness/delivery council remain valid; independent closure delta confirms unchanged call/citation boundaries and repaired tests.
+- Docs-contract review performed: graph architecture and MCP spec agree with caller/callee locations and confidence semantics; release notes describe end-user value.
+- Chronology reconciled to complete; closure tool owns final wave status/date. Historical no-close instructions are superseded by the current operator authorization.
+- Consumer census follow-up received as operator-reported evidence (127 non-callable targets to zero, named false binds removed/demoted, corrected locations); no independent consumer rerun claimed. Native Windows/Linux qualification remains unproven.
+- Retrospective: preserve paired positive controls so precision repairs do not delete valid callables; maintain the receiver confidence ceiling through incremental resolution. Prior repair evidence and canonical docs already retain these lessons.
+- Memory proposal returned zero new candidates and retained one prior disposition; no new promotion needed.
+- Handoff will be idle after closure, retaining pending decisions and the separate staged host-neutral orchestration change.
+- No silent unchecked or deferred AC/task remains. Existing council follow-up suggestions remain outside this delivered scope.
+- Full framework receipt remains current: 9,008 tests, no framework source edits in this closure pass.
+- Operator approved sequential reopening, review and closure of both paused waves on 2026-09-14; no commit or new package requested.

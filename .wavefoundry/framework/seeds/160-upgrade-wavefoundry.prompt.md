@@ -779,3 +779,16 @@ Guardrails:
 - It does not fetch a newer framework release on its own (step 0 only unpacks zips already present at the repository root).
 - Step 0 is never a terminal success condition by itself; unpacking without the subsequent reconciliation and verification steps is an incomplete upgrade.
 - Upgrade is incomplete if required repo-local outputs are still missing after the run.
+
+## Host-neutral orchestration reconciliation
+
+When seeds 050, 100 or 180 or their lifecycle templates change, reconcile the host-neutral orchestration contract during the same upgrade editing pass. Seed 180 remains the policy owner; preserve project additions, metadata and renderer-owned regions. Compare each destination with its source and merge only the changed authored clauses at a unique location; if local intent conflicts or placement is ambiguous, present the conflict instead of overwriting it. Missing-only rendering preserves existing prose and is not proof that this merge happened.
+
+| Source | Existing project destinations |
+| --- | --- |
+| Seed 180, via seed 100 | prepare-wave, implement-feature, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency under docs/prompts/; phase-specific pointers cover task-fit model selection throughout Prepare-to-Close, honest fallbacks, integration and independent handoff. |
+| Missing-only lifecycle templates | Corresponding prepare-wave, implement-wave, review-wave and close-wave prompts; compare changed authored clauses even when the destination already exists. |
+| Seed 050 entry/coordinator clauses | AGENTS.md and docs/agents/wave-coordinator.md; replace presumed child MCP inheritance with actual receiving-worker capability and the seed 180 fallback. |
+| Seed 100 operating guidance | docs/contributing/agent-team-workflow.md and docs/agents/platform-mapping.md; concise pointers, not separate vendor policies. |
+
+Verify the policy reaches each applicable destination, stale inheritance claims are removed from touched guidance, customization survives and a repeat merge makes no further changes. Run `wf render-surfaces` afterward for its managed regions, then the docs gate. Do not rewrite native host configs or create a model registry. This is an agent editing obligation, not an automatic prose migration claim.

@@ -6,6 +6,10 @@ Last verified: 2026-08-23
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
+## Host-neutral orchestration
+
+Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Check actual worker capabilities rather than assuming inherited tools.
+
 ## Auto-Guru routing (code and documentation Q&A)
 
 **Canonical (all hosts):** `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** + `docs/agents/guru.md`.

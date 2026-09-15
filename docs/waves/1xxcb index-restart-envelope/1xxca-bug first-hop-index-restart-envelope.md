@@ -1,10 +1,10 @@
 # First-hop index restart envelope
 
 Change ID: `1xxca-bug first-hop-index-restart-envelope`
-Change Status: `in-progress`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-09-13
+Status: completed
+Last verified: 2026-09-14
 
 ## Rationale
 
@@ -75,6 +75,8 @@ MCP tool surface and upgrade prompt document the response contract. Existing pub
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-09-14 | Observe: all four ACs remain verified in released 1.24.0. Luna passed 32 focused tests; independent Astra passed 12 controls including actual archived ppjy wrapper and killed two in-memory mutants. No source changes or findings. Status reconciled to complete; prior council remains applicable to unchanged boundary. | delivery-review.json closure_verification_20260914; current green 9,008-test receipt. |
+| 2026-09-14 | Readback: resume shipped AC-1–4 for closure verification only. Thought: Luna owns bounded QA checks; independent Astra owns compatibility and docs-contract review; coordinator owns lifecycle bookkeeping. No production edits planned. Operator authorized reopening, review and closure of this wave followed by 1xtnr. | Current operator request; public release 1.24.0+ppq7; framework receipt 9,008 tests, current input hash. |
 | 2026-09-13 | Trace: current wf_upgrade_response recognizes guard action; pre-guard wrapper has only sqlite_storage_migration.read_restart_action and hardcoded storage envelope. The current test exercises the new wrapper, not the reported ppjy wrapper. | server_impl.wf_upgrade_response; sqlite_storage_migration.read_restart_action; WaveUpgradeMcpToolTests.test_index_guard_pause_is_bound_to_invocation_and_uses_external_cli |
 
 | 2026-09-13 | Readback: expected index restart becomes action_required in current and newly loaded ppjy reader paths, preserving exact CLI and genuine errors (AC-1–4). Thought: implement response/reader adapter, run historical and negative controls, then update guidance and full verification. Generic implementer owns scoped writes. Prepare/create opened after clean readiness; wf_implement_wave still requests obsolete extra prepare lanes, so the documented prepare-and-open path was used. | Current typed council approval and successful wf_prepare_wave(mode=create) |

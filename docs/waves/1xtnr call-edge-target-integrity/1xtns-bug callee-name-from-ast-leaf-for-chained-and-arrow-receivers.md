@@ -1,10 +1,10 @@
 # Callee Names Come From the AST Leaf, Not the Callee Text
 
 Change ID: `1xtns-bug callee-name-from-ast-leaf-for-chained-and-arrow-receivers`
-Change Status: `implemented`
+Change Status: `complete`
 Owner: Engineering
-Status: active
-Last verified: 2026-09-12
+Status: completed
+Last verified: 2026-09-14
 Wave: 1xtnr call-edge-target-integrity
 
 ## Rationale
@@ -110,6 +110,7 @@ Local census on this repository (Python and JS): zero `calls` edges target an `e
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-09-14 | Readback and Observe: operator authorized resuming shipped work for verification and closure. Luna passed 61 focused tests; independent Astra passed 13 controls and killed receiver/kind-gate mutants. Call/citation seams unchanged from prior approved delivery. Consumer 127/57 follow-up received through operator reports: non-callable targets 127 to zero; false receiver binds removed or explicitly EXTRACTED; correct call_site locations. This is reported evidence, not a fresh consumer run. | delivery-review.json closure_verification_20260914; current 9,008-test framework receipt. |
 | 2026-09-12 | Implementation complete. Final suite: 8,939 tests, 88 modules, 12 documented skips, 270.943 seconds; green receipt hash independently recomputed and matched. Docs validation and diff whitespace checks pass. Live MCP verifies callee definitions, nested caller snippets and external null values. Graph builder 52 published at generation 1347. Framework edit gate closed; formal delivery review remains next. | implementation-evidence.json final_suite, live_callhierarchy_smoke and final_runtime. |
 | 2026-09-12 | Final census: all 15 profiles pass; all nine pure paths and seven opaque/parenthesized-call controls pass. Duplicate inner emissions removed in eight profiles; fixture reads/defines unchanged. Live builder 52 has zero non-callable/malformed targets; callable-target edges 20,223 to 20,301. All 39 removed edges are attributed (one helper call moved into its nested declared function; 38 external hints follow changed candidates in unchanged JS). Consumer 127/57 re-derivation remains pending. Candidate helper benchmark: 2.933 us before, 2.646 us after; this is not whole-build timing. | implementation-evidence.json census_final, comparison, after, final_dispatch_probes and candidate_hotpath_benchmark. |
 | 2026-09-12 | Observe: full suite passed 8,938 tests with 12 documented skips. Independent live candidate census then caught two additional JavaScript regressions: IIFE body traversal and lost super calls. Thought: confine the new leaf derivation to member expressions and preserve opaque-call behavior, then rerun final validation. | implementation-evidence.json full_suite_before_final_callee_repair; final census repair evidence follows. |
