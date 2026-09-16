@@ -39,29 +39,35 @@ After installing Wave Framework, enable the local MCP server in your agent host 
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
-**Step 1 — Provision dependencies and pass the historical-memory gate:**
+**Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
+reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
+Follow the reported action: plain setup for local preparation, a host restart for
+stale loaded code, or the retained owning command for pending recovery. Do not
+substitute setup for a pending upgrade continuation. The check installs nothing,
+downloads no models and does not repair or rebuild indexes. It is read-only for
+application data; SQLite may create or update normal WAL/SHM coordination files.
+It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
+
+**Step 1 — Make the installed checkout ready:**
 
 ```bash
 wf setup
 ```
 
-For a fresh project with no closed wave history, setup continues directly to
-index publication. For an existing Wavefoundry project, setup may return
-action-required exit 4 with `awaiting_memory_validation` after dependency setup
-and the MCP smoke test but before publishing any index. This is a durable pause,
-not failure or completion:
+Use the same command after a fresh clone or a teammate's framework update.
+Setup provisions dependencies and surfaces, updates compatible indexes, and
+reconciles supported obsolete storage without selecting a ZIP. Pending
+archive-owned recovery stays with its original upgrade continuation. For a
+setup storage handoff, save the exact command, stop the repository's old hosts,
+and continue in an external terminal with explicit host confirmation. Never
+purge local stores or recovery files to bypass a refusal.
 
-1. Reload/restart the MCP host.
-2. Repeatedly call
-   `memory_backfill(mode="create", entry_path="setup")`.
-3. Validate every run-scoped `validation_worklist` item with
-   `memory_validate`.
-4. Rerun ordinary `wf setup`.
-
-The repeated setup invocation reuses the durable run, recomputes the
-authoritative `memory-state.sqlite` pending census, and owns the single index
-publication. There is no setup-memory-specific MCP tool or public resume flag.
-Do not bypass the pause with `index_build`.
+Historical memory validation does not block core search. Setup reports core
+readiness and pending memory adoption separately; candidates keep their status
+and validation labels. Run `memory_backfill(mode="create", entry_path="setup")`,
+validate each run-scoped worklist item with `memory_validate`, then rerun
+ordinary `wf setup`. Only the guarded memory-publication path may mark that
+run indexed. Core readiness alone does not complete historical adoption.
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
@@ -123,13 +129,11 @@ wf dashboard --root . --open
 
 **Step 3 — Restart MCP and verify the setup-owned index:**
 
-After registration, restart the MCP server in your host so the newly installed
-server picks up all rendered surfaces. If setup paused for historical-memory
-validation, complete the run-scoped validation and rerun ordinary `wf setup`
-now. The repeated setup invocation owns the initial semantic and graph index
-publication; do not run `index_build` as a substitute. Use
-`index_health()` and `index_build_status()` to verify the published
-layers.
+After registration, restart the MCP server in your host so it loads the installed
+framework. Use `index_health()` and `index_build_status()` to verify core search
+and graph readiness. If historical memory remains pending, complete its
+run-scoped validation and rerun `wf setup`; no manual index purge or lower-level
+script is needed.
 
 The framework's seeds fold into this project docs index — there is no separate framework index to build.
 

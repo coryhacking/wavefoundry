@@ -126,6 +126,11 @@ def _checkpoint_recovery_tail(checkpoint: dict[str, Any]) -> str:
     treated as a genuine pause (fail safe), because emitting the zero-pending
     sequence there would tell the operator to skip validation.
     """
+    if checkpoint.get("entry_path") == "setup":
+        action = checkpoint.get("action_required") or {}
+        continuation = action.get("command") if isinstance(action, dict) else None
+        return ("resume the recorded wf setup continuation: " + continuation if continuation
+                else "rerun ordinary wf setup to finish installed-checkout reconciliation; retain the checkpoint and index")
     pending: int | None
     try:
         pending = int(checkpoint.get("memory_backfill_pending"))

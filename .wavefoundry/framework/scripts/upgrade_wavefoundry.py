@@ -4719,6 +4719,18 @@ def main(argv: list[str] | None = None) -> int:
     if str(SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(SCRIPTS_DIR))
 
+    # Storage recovery belongs to the initiating lifecycle. A setup receipt
+    # cannot become permission to extract a package or rewrite project docs.
+    if not any((args.dry_run, args.emit_summary, args.detect_zip, args.list_zips)):
+        import upgrade_lib
+        import sqlite_storage_migration
+        checkpoint = upgrade_lib.read_upgrade_lock(root) or {}
+        receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+        if (checkpoint.get("entry_path") == "setup"
+                or (receipt and receipt.get("entry_path") == "setup" and receipt["state"] != "complete")):
+            _err("storage_setup_resume_required: resume the recorded wf setup continuation; upgrade has changed nothing")
+            return 3
+
     # ── Agent-facing zip-discovery helpers ────────────────────────────────
     # Routed before any other phase so they short-circuit without spawning
     # the upgrade pipeline. Both produce stable, machine-readable output for

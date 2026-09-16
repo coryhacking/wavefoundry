@@ -70,7 +70,14 @@ class SQLiteServingTests(unittest.TestCase):
                 return lambda fn: fn
 
         recorder = Recorder()
-        handler = SimpleNamespace(root=self.root, index=self.index, background_monitor_status=lambda: {})
+        handler = SimpleNamespace(
+            root=self.root, index=self.index, background_monitor_status=lambda: {},
+            assess_setup=lambda *, force=False: {
+                "schema_version": 1, "status": "ready", "startup_blocked": False,
+                "signature": "fixture", "reasons": [], "actions": [],
+                "limitations": [], "timings_ms": {},
+            },
+        )
         server.register_mcp_surface(recorder, lambda: handler)
         return recorder._tool_manager._tools
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-13
+Last verified: 2026-09-15
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -46,6 +46,22 @@ codebase-map receipt; wave 1xny6 retired the separate graph database and the `gr
 packaged framework index.
 - Network: not required for normal server operation after dependencies and models
 are present locally.
+
+## Setup readiness notices
+
+The public server startup checks local setup before loading the serving runtime.
+A missing required runtime emits actionable stderr guidance and exits cleanly;
+nonfatal index preparation problems leave usable non-index tools available.
+The existing staleness monitor repeats the same bounded assessment after relevant
+framework, configuration or environment changes and coalesces identical notices.
+Health exposes this setup assessment separately from full search readiness.
+A stale loaded assessor cannot certify the newer checkout: restart the host and
+check again. No automatic setup, dependency install or storage recovery is triggered.
+
+The equivalent shell command is `wf setup --check [--root PATH] [--json]`.
+Statuses are `ready`, `action_required` and `indeterminate`, with exits 0, 1 and 2.
+SQLite coordination sidecars are permitted, but application data remains read-only.
+This check does not validate model execution, full index integrity or query quality.
 
 ## Naming Contract
 

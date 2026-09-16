@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -860,7 +861,7 @@ os._exit(23)
         self.assertEqual(upgrade["next_tools"], ["wf_upgrade"])
         self.assertIn("resume_after_memory", upgrade["usage"])
 
-    def test_setup_pauses_then_ordinary_rerun_owns_first_index_publication(self):
+    def test_setup_publishes_core_then_ordinary_rerun_completes_memory_publication(self):
         self._wave("1aaa closed")
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         config = self.root / "docs" / "workflow-config.json"
@@ -895,14 +896,38 @@ os._exit(23)
             return_value="ok",
         ):
             first = setup_wavefoundry.main(["--root", str(self.root)])
-        self.assertEqual(first, memory_backfill.ACTION_REQUIRED_EXIT)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(first, 0)
+        self.assertEqual(len(calls), 2)
         self.assertIn("--deps-only", calls[0])
+        self.assertEqual(index_state_store.read_build_state(
+            self.root / ".wavefoundry" / "index"
+        )["status"], "complete")
+        run_id = memory_backfill.latest_run_id(self.root, "setup")
+        self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "awaiting_validation")
 
         batch = server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
         candidate = memory_records.load_memory_records(self.root)[0]
+        candidate_path = Path(candidate["path"])
+        before = candidate_path.read_bytes()
+        with mock.patch.object(
+            setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
+        ), mock.patch.object(
+            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
+        ), mock.patch.object(
+            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
+        ), mock.patch.object(
+            setup_wavefoundry.venv_bootstrap, "ensure_python_resolves", return_value="ok"
+        ), mock.patch.dict(os.environ, {memory_backfill.INDEX_PUBLICATION_RUN_ENV: "unrelated-run"}), \
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(setup_wavefoundry.main(["--root", str(self.root)]), 0)
+            self.assertEqual(os.environ[memory_backfill.INDEX_PUBLICATION_RUN_ENV], "unrelated-run")
+        self.assertIn("historical-memory validation remains pending", stdout.getvalue())
+        self.assertNotIn("harness setup complete", stdout.getvalue())
+        self.assertNotIn("mark Phase 1 complete", stdout.getvalue())
+        self.assertEqual(candidate_path.read_bytes(), before)
+        self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "awaiting_validation")
         server_impl.memory_validate_response(
             self.root,
             candidate["memory_id"],
@@ -913,6 +938,7 @@ os._exit(23)
             True,
             "none",
         )
+        inherited_receipt = self.root / "foreign-parent-receipt.json"
         with mock.patch.object(
             setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
         ), mock.patch.object(
@@ -923,15 +949,19 @@ os._exit(23)
             setup_wavefoundry.venv_bootstrap,
             "ensure_python_resolves",
             return_value="ok",
-        ):
+        ), mock.patch.dict(os.environ, {
+            "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(inherited_receipt),
+        }):
             resumed = setup_wavefoundry.main(
                 ["--root", str(self.root), "--background-code"]
             )
+            self.assertEqual(os.environ["WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT"], str(inherited_receipt))
         self.assertEqual(resumed, 0, batch)
-        self.assertEqual(len(calls), 3)
-        self.assertIn("--deps-only", calls[1])
-        self.assertNotIn("--deps-only", calls[2])
-        self.assertNotIn("--background-code", calls[2])
+        self.assertFalse(inherited_receipt.exists())
+        self.assertEqual(len(calls), 6)
+        self.assertIn("--deps-only", calls[4])
+        self.assertNotIn("--deps-only", calls[5])
+        self.assertNotIn("--background-code", calls[5])
         self.assertEqual(
             memory_backfill.latest_run_id(self.root, "setup"),
             batch["data"]["run_id"],
@@ -949,13 +979,13 @@ os._exit(23)
         ):
             unchanged = setup_wavefoundry.main(["--root", str(self.root)])
         self.assertEqual(unchanged, 0)
-        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(calls), 8)
         self.assertEqual(
             memory_backfill.latest_run_id(self.root, "setup"),
             batch["data"]["run_id"],
         )
 
-    def test_setup_retry_recovers_published_epoch_without_second_index_pass(self):
+    def test_setup_retry_recovers_memory_publication_and_refreshes_changed_core(self):
         self._wave("1aaa closed")
         (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
         (self.root / "docs" / "workflow-config.json").write_text(
@@ -964,6 +994,8 @@ os._exit(23)
             encoding="utf-8",
         )
         index_calls = 0
+        indexed_sources = []
+        publication_scopes = []
         server_impl.memory_backfill_response(
             self.root, mode="create", entry_path="setup"
         )
@@ -985,6 +1017,8 @@ os._exit(23)
                 nonlocal index_calls
                 if argv is not None and "--deps-only" not in argv:
                     index_calls += 1
+                    indexed_sources.append(self.root.joinpath("foo.py").read_text())
+                    publication_scopes.append(os.environ.get(memory_backfill.INDEX_PUBLICATION_RUN_ENV, ""))
                     index_dir = self.root / ".wavefoundry" / "index"
                     attempt = index_state_store.begin_build_epoch(index_dir, "all")
                     return 0 if index_state_store.finalize_build_epoch(
@@ -1021,11 +1055,15 @@ os._exit(23)
                 1,
             )
         self.assertEqual(index_calls, 1)
+        self.root.joinpath("foo.py").write_text("VALUE = 2\n", encoding="utf-8")
         self.assertEqual(
             setup_wavefoundry.main(["--root", str(self.root)]),
             0,
         )
-        self.assertEqual(index_calls, 1)
+        self.assertEqual(index_calls, 2)
+        self.assertEqual(indexed_sources, ["VALUE = 1\n", "VALUE = 2\n"])
+        self.assertTrue(publication_scopes[0])
+        self.assertEqual(publication_scopes[1], "")
         run_id = memory_backfill.latest_run_id(self.root, "setup")
         self.assertIsNotNone(run_id)
         self.assertEqual(
@@ -1230,10 +1268,13 @@ os._exit(23)
             "none",
         )
 
+        index_calls = []
+
         class MutatingSetup:
             @staticmethod
             def main(argv=None):
                 if argv is not None and "--deps-only" not in argv:
+                    index_calls.append(os.environ.get(memory_backfill.INDEX_PUBLICATION_RUN_ENV, ""))
                     index_dir = self.root / ".wavefoundry" / "index"
                     attempt = index_state_store.begin_build_epoch(index_dir, "all")
                     wave.joinpath("wave.md").write_text(
@@ -1259,7 +1300,7 @@ os._exit(23)
         ):
             self.assertEqual(
                 setup_wavefoundry.main(["--root", str(self.root)]),
-                memory_backfill.ACTION_REQUIRED_EXIT,
+                0,
             )
         run_id = memory_backfill.latest_run_id(self.root, "setup")
         self.assertIsNotNone(run_id)
@@ -1271,7 +1312,10 @@ os._exit(23)
             self.root / ".wavefoundry" / "index"
         )
         self.assertIsNotNone(state)
-        self.assertNotEqual(state["status"], "complete")
+        self.assertEqual(state["status"], "complete")
+        self.assertEqual(len(index_calls), 2)
+        self.assertTrue(index_calls[0])
+        self.assertEqual(index_calls[1], "")
 
     def test_setup_help_is_observational(self):
         with mock.patch.object(
@@ -1287,7 +1331,7 @@ os._exit(23)
         help_text = stdout.getvalue()
         self.assertIn("show this help without changing the project", help_text)
         self.assertIn(
-            "gate on agent-owned historical-memory validation", help_text
+            "Historical-memory validation remains agent-owned", help_text
         )
         self.assertIn(
             "candidate-bearing historical-memory publication", help_text

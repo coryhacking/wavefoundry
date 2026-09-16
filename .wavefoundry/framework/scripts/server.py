@@ -17,6 +17,39 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+import repo_root
+import setup_readiness
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Wavefoundry MCP server (stdio transport)", allow_abbrev=False)
+    parser.add_argument("--root", default=None, help="Repository root (default: auto-discover)")
+    parser.add_argument("--dry-run", action="store_true", help="Verify server initialization without starting stdio transport.")
+    return parser.parse_args(argv)
+
+
+_SETUP_LOADED_IDENTITY = setup_readiness.capture_loaded_identity()
+_STARTUP_ASSESSMENT: dict[str, Any] | None = None
+_STARTUP_ROOT: Path | None = None
+
+
+def _assess_startup(root: Path) -> dict[str, Any]:
+    result = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
+    if result["status"] != "ready":
+        print(setup_readiness.format_text(result), file=sys.stderr)
+    return result
+
+
+# The supported executable entry assesses before activation (including .pth)
+# and before importing the heavyweight implementation. Legacy import callers
+# intentionally retain their existing facade behavior.
+if __name__ == "__main__":
+    _startup_args = parse_args()
+    _STARTUP_ROOT = repo_root.discover_root(_startup_args.root)
+    _STARTUP_ASSESSMENT = _assess_startup(_STARTUP_ROOT)
+    if _STARTUP_ASSESSMENT.get("startup_blocked"):
+        raise SystemExit(setup_readiness.exit_code(_STARTUP_ASSESSMENT))
+
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). Stdlib-only;
 # no-op when already in the venv or when it does not exist yet (fresh bootstrap). No re-exec/child process.
 import venv_bootstrap
@@ -91,6 +124,14 @@ def _record_runner_identity() -> Optional[str]:
     the returned reason string. Catching only ``TypeError`` here would let those escape and falsify
     the never-raises guarantee at the reload site, leaving the CLOSED pre-reload handler installed.
     """
+    # The runner survives implementation reload; never recapture updated disk
+    # rules as though they were the code with which this process started.
+    try:
+        server_impl._SETUP_LOADED_IDENTITY = _SETUP_LOADED_IDENTITY
+        server_impl._SETUP_STARTUP_ROOT = _STARTUP_ROOT
+        server_impl._SETUP_STARTUP_RESULT = _STARTUP_ASSESSMENT
+    except Exception as exc:
+        return f"could not record setup assessment identity ({type(exc).__name__}: {exc}); restart the host"
     setter = getattr(server_impl, "set_server_runner_version", None)
     if setter is None:
         return (
@@ -650,25 +691,15 @@ def build_server(root: Path):
     return mcp
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Wavefoundry MCP server (stdio transport)")
-    parser.add_argument("--root", default=None, help="Repository root (default: auto-discover)")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help=(
-            "Verify the server can initialize without starting the stdio transport. "
-            "Builds the server (imports, tool registration, framework state) and exits "
-            "0 on success, non-zero on failure. Used by setup_wavefoundry.py as the "
-            "harness installation smoke test."
-        ),
-    )
-    return parser.parse_args(argv)
-
-
 def main(argv: list[str] | None = None) -> int:
+    global _STARTUP_ASSESSMENT, _STARTUP_ROOT
     args = parse_args(argv)
-    root = server_impl._discover_root(args.root)
+    root = repo_root.discover_root(args.root)
+    if _STARTUP_ASSESSMENT is None or _STARTUP_ROOT != root or argv is not None:
+        _STARTUP_ROOT = root
+        _STARTUP_ASSESSMENT = _assess_startup(root)
+    if _STARTUP_ASSESSMENT.get("startup_blocked"):
+        return setup_readiness.exit_code(_STARTUP_ASSESSMENT)
 
     if args.dry_run:
         # Wave 1p35d (1p35f): smoke test invoked by setup_wavefoundry.py during

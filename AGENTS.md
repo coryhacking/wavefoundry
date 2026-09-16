@@ -237,6 +237,30 @@ If `wf setup` fails specifically because a required model cannot be downloaded, 
 
 The project-local index is stored at `.wavefoundry/index/` (gitignored) and is the **only** semantic index: the framework's own seeds/docs fold into each project's docs index at setup/upgrade, so distributions ship framework **source only** — there is no separately packaged `.wavefoundry/framework/index/` "framework layer" (ADR `1p4xx fold-framework-index-into-project-docs`; `build_pack.py` ships source only). The project-local index is refreshed incrementally: post-edit hooks coalesce eligible changes for a turn-end refresh where the host supports it, MCP mutations request best-effort refreshes, and the MCP quiet-period monitor recovers missed triggers. Use `index_health()` to check whether a layer is ready and inspect `data.background_monitors`, `index_build_status(layer?)` to poll background refreshes, and `index_build(content=..., mode=...)` when you need a deterministic update or rebuild. **To check whether a build is currently running, read the `lock` object on `index_build_status` (the `held` boolean) — do NOT read `.wavefoundry/index/index-build.lock` directly.** That lock file persists **by design** as a crash-safe last-owner record and is reclaimed lazily on the next build, so its *presence does not mean a build is running*. `held` is determined by **testing the real OS lock** (not the file), and `ended_at` distinguishes a clean finish from an interrupted build.
 
+### Check readiness after Git changes
+
+After a Git operation that changes local checkout files, call `index_health()`
+before relying on indexed retrieval. This includes pull, merge, rebase,
+switch/checkout, cherry-pick, revert, reset, restore, and stash apply/pop; check
+also when an operation stops with conflicts, since files may already have changed.
+Check once after a related sequence of operations, rather than after every command.
+Read-only commands (status, diff, log), fetch alone, and push do not require this check.
+
+Inspect both index freshness and `data.setup_readiness`, including its reasons
+and recommended actions. If MCP is unavailable, run `wf setup --check --json`
+from the affected repository (native Windows: `.\.wavefoundry\bin\wf.cmd setup --check --json`).
+That fallback checks setup readiness only; it does not establish source freshness.
+Return the status and recommended action to the local agent's workflow; the check
+must not automatically install dependencies, run setup, rebuild, or resume recovery.
+Use the reported remedy under the existing task authorization, and never treat
+`indeterminate` or a failed check as ready. For stale loaded framework code, follow
+the restart guidance before trusting further index operations.
+
+This instruction applies to every agent host through the canonical `AGENTS.md`.
+The MCP startup check and background monitor cover changes made outside the agent;
+they do not replace the explicit post-operation check or guarantee that the agent
+sees stderr notices. No Git hooks are installed by this guidance.
+
 ### MCP / Wavefoundry server — enabling per host
 
 

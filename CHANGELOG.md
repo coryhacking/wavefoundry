@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **One setup command after cloning or pulling updates.** `wf setup` reconciles local dependencies and indexes without an upgrade archive, preserves recovery data until verification, and keeps core search usable while historical memory review remains pending. `wf setup --check` and MCP notices identify when setup, a restart or recovery is needed. Wave `1y3og`.
+
 ## [1.24.0] - 2026-09-13
 
 ### Changed

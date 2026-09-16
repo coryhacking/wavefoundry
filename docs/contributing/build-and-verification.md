@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-15
 
 ## Verification Commands
 
@@ -60,6 +60,32 @@ What this does:
 - rebuilds the project docs index (seeds + docs), semantic code index, and graph index in the foreground
 
 **MCP search is complete when setup returns.** The default setup path treats docs and code the same: both semantic layers build in the foreground.
+
+### Quick local readiness check
+
+```bash
+wf setup --check
+wf setup --check --root /path/to/repo --json
+```
+
+The check reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
+Follow the reported action: plain setup for local preparation, a host restart for
+stale loaded code, or the retained owning command for pending recovery. Do not
+substitute setup for a pending upgrade continuation. The check installs nothing,
+downloads no models and does not repair or rebuild indexes. It is read-only for
+application data; SQLite may create or update normal WAL/SHM coordination files.
+It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
+
+Check mode accepts only `--check`, `--root` and `--json`; it rejects repair or
+build options. Native Windows uses the same arguments through
+`.\.wavefoundry\bin\wf.cmd setup --check`. A missing advisory setup stamp
+causes live assessment, not an automatic rebuild. Ordinary source edits belong
+to normal incremental indexing. Pending historical memory validation remains a
+separate advisory and does not invalidate an otherwise usable core index.
+MCP startup and its existing staleness monitor use the same assessment; startup
+notices use stderr so they cannot corrupt MCP protocol output.
+
+After Git operations that change the checkout, follow `AGENTS.md` **Check readiness after Git changes**: call `index_health()` and inspect both freshness and `data.setup_readiness`. If MCP is unavailable, use `wf setup --check --json`; this fallback does not verify source freshness. The check reports actions without automatically executing repairs.
 
 ### Onboarding
 

@@ -2202,6 +2202,7 @@ class ServerStdioTransportTests(unittest.TestCase):
             return FakeMcp()
 
         with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(self.runner, "_assess_startup", return_value={"status": "ready", "startup_blocked": False}), \
              patch.object(self.runner, "_configure_stdio_for_mcp_transport", side_effect=fake_configure), \
              patch.object(self.runner, "build_server", side_effect=fake_build):
             root = _make_repo(Path(tmp))

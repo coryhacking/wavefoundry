@@ -111,7 +111,7 @@ OLD_MCP_PID_ENV = "WAVEFOUNDRY_STORAGE_OLD_MCP_PID"
 LEGACY_RECOVERY_GUIDANCE = (
     "Original storage, receipt and checkpoint are retained. Stop Wavefoundry hosts; "
     "recover a duplicate with a verified compatible older framework/runtime and its canonical "
-    "wf setup --full before retrying a fresh standard upgrade. Keep the original index and "
+    "wf setup --full before retrying the owning setup or upgrade operation. Keep the original index and "
     "receipts archived, preserve auxiliary state, and never open schema7 with an old runner. "
     "Current wf setup --full cannot bypass this migration receipt. See the Upgrade Wavefoundry "
     "legacy-source recovery instructions; if the compatible recovery inputs are unavailable, leave this paused."
@@ -511,9 +511,10 @@ def require_ready(index_dir: Path, allow_migration: bool = False) -> None:
         raise MigrationRequired(
             state["authority_diagnostic"] + ": both index database names exist and no version-2 "
             "receipt proves which is authority. Both files are preserved; recover the intended "
-            "one with the standard upgrade rather than deleting either.")
+            "one through its owning recovery records rather than deleting either.")
     if state["migration_required"]:
-        raise MigrationRequired("storage_migration_required: run wf_upgrade; restart old hosts and resume the retained checkpoint")
+        command = "wf_upgrade" if receipt and receipt.get("entry_path") != "setup" else "wf setup"
+        raise MigrationRequired(f"storage_migration_required: run {command}; restart old hosts and resume the retained checkpoint")
 
 
 def restore_checkpoint(root: Path) -> dict | None:
@@ -523,12 +524,21 @@ def restore_checkpoint(root: Path) -> dict | None:
     receipt = read_receipt(index_dir)
     if receipt is None or receipt["state"] == "complete":
         return receipt
+    if receipt.get("entry_path") == "setup":
+        from setup_reconciliation import validate_source_binding
+        validate_source_binding(root, receipt)
+        checkpoint = upgrade_lib.read_upgrade_lock(root)
+        if checkpoint is not None and checkpoint.get("entry_path") != "setup":
+            raise MigrationRequired("storage_setup_foreign_upgrade: checkpoint retained")
     if upgrade_lib.read_upgrade_lock(root) is None:
         upgrade_lib.write_upgrade_lock(root, receipt.get("source_version"),
                                        receipt.get("target_version") or "unknown",
                                        Path(receipt["pack_path"]) if receipt.get("pack_path") else None)
     if not upgrade_lib.update_upgrade_lock(root, storage_migration_id=receipt["migration_id"],
-                                           storage_migration_state=receipt["state"]):
+                                           storage_migration_state=receipt["state"],
+                                           **({key: receipt.get(key) for key in
+                                               ("entry_path", "installed_framework_sha256", "setup_args", "root_identity")}
+                                              if receipt.get("entry_path") == "setup" else {})):
         raise MigrationRequired("storage_checkpoint_write_failed")
     return receipt
 
@@ -703,15 +713,26 @@ def _refresh_hosts(root: Path, receipt: dict) -> None:
     _write(Path(root) / ".wavefoundry/index", receipt)
 
 
-def restart_command(root: Path, pack_path: str | None, rebuild_storage: bool = False) -> dict:
+def restart_command(root: Path, pack_path: str | None, rebuild_storage: bool = False,
+                    *, entry_path: str = "upgrade", setup_args: list[str] | None = None) -> dict:
     executable = sys.executable
     console = Path(executable)
     if os.name == "nt" and console.stem.lower() == "pythonw" and console.suffix.lower() == ".exe":
         executable = str(console.with_name(console.stem[:-1] + console.suffix))
-    argv = [executable, str(Path(root).resolve() / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"), "--root", str(Path(root).resolve())]
+    script = "setup_wavefoundry.py" if entry_path == "setup" else "upgrade_wavefoundry.py"
+    argv = [executable, str(Path(root).resolve() / ".wavefoundry/framework/scripts" / script)]
+    if entry_path == "setup":
+        args = iter(setup_args or [])
+        for arg in args:
+            if arg == "--root":
+                next(args, None)
+            elif not arg.startswith("--root=") and arg not in {"--confirm-hosts-stopped", "--rebuild-storage"}:
+                argv.append(arg)
+    argv += ["--root", str(Path(root).resolve())]
     if pack_path:
         argv += ["--pack", pack_path]
-    argv += ["--yes", "--confirm-hosts-stopped"]
+    argv += (["--confirm-hosts-stopped"] if entry_path == "setup"
+             else ["--yes", "--confirm-hosts-stopped"])
     if rebuild_storage:
         argv.append("--rebuild-storage")
     if os.name == "nt":
@@ -745,6 +766,13 @@ def read_restart_action(root: Path, exit_code: int, invocation_token: str) -> di
         action = lock.get("action_required")
         if not receipt or receipt["state"] in READABLE_STATES or not isinstance(action, dict) or action != receipt.get("restart_action"):
             return None
+        if receipt.get("entry_path") == "setup":
+            from setup_reconciliation import validate_source_binding
+            validate_source_binding(root, receipt)
+            if (lock.get("entry_path") != "setup"
+                    or action.get("installed_framework_sha256") != receipt.get("installed_framework_sha256")
+                    or lock.get("installed_framework_sha256") != receipt.get("installed_framework_sha256")):
+                return None
         if (action.get("kind") != "storage_migration" or action.get("state") != "restart_required"
                 or action.get("invocation_token") != invocation_token or action.get("root") != str(root)
                 or action.get("migration_id") != receipt["migration_id"]
@@ -784,7 +812,12 @@ def _pause_for_restart(ctx, receipt: dict) -> None:
               "checkpoint_started_at": lock.get("started_at"), "old_hosts": receipt.get("old_hosts", []),
               "discovery_limits": receipt.get("discovery_limits", []),
               "message": "Save this command, fully stop the listed Wavefoundry MCP/dashboard hosts and confirm any hosts discovery cannot observe, then run it in an external terminal. No storage format change has occurred; extracted framework files and the upgrade checkpoint are retained. Keep the recorded archive until completion. If its path disappears, supply a relocated byte-identical archive with --pack; its recorded SHA-256 must match. Do not edit the receipt.",
-              **restart_command(root, receipt.get("pack_path"), rebuild_requested(receipt))}
+              **restart_command(root, receipt.get("pack_path"), rebuild_requested(receipt),
+                                entry_path=receipt.get("entry_path", "upgrade"),
+                                setup_args=receipt.get("setup_args"))}
+    if receipt.get("entry_path") == "setup":
+        action.update(entry_path="setup", installed_framework_sha256=receipt["installed_framework_sha256"],
+                      message="Save this setup continuation, stop the listed Wavefoundry MCP/dashboard hosts and confirm any hosts discovery cannot observe, then run it in an external terminal. The installed framework, receipt and source storage are retained; restore the recorded framework if its bytes change before retry. Do not edit the receipt.")
     receipt["restart_action"] = action
     _write(root / ".wavefoundry/index", receipt)
     if not upgrade_lib.update_upgrade_lock(root, action_required=action, zip_path=action["consumed_pack_path"], current_phase="storage_restart_required", failed_phase=None, failed_at=None):
@@ -880,6 +913,9 @@ def _new_receipt(ctx, root: Path, index_dir: Path, state: dict,
                "source_database": role,
                "source_sqlite_identity": _identity_if_present(source),
                "artifacts": {name: _identity(index_dir / name) for name in state["legacy"]}}
+    if getattr(ctx, "entry_path", None) == "setup":
+        receipt.update(entry_path="setup", installed_framework_sha256=ctx.installed_framework_sha256,
+                       setup_args=list(ctx.setup_args))
     if kind:
         receipt["kind"] = KIND_SCHEMA8
         if superseded is not None:
@@ -900,6 +936,11 @@ def prepare_upgrade(ctx) -> dict | None:
     index_dir = root / ".wavefoundry" / "index"
     state = detect(index_dir)
     receipt = state["receipt"]
+    if receipt and receipt["state"] != "complete" and receipt.get("entry_path") == "setup":
+        if getattr(ctx, "entry_path", None) != "setup":
+            raise MigrationRequired("storage_setup_resume_required: resume the recorded wf setup continuation")
+        from setup_reconciliation import validate_source_binding
+        validate_source_binding(root, receipt)
     if state["authority_diagnostic"]:
         raise MigrationRequired(
             state["authority_diagnostic"] + ": both index database names exist and no version-2 "
@@ -1221,13 +1262,13 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
         except runtime.RuntimeUnavailable as exc:
             raise MigrationRequired(
                 f"storage_runtime_restart_required: {exc}; start a fresh process and resume "
-                "standard wf_upgrade with confirm_hosts_stopped=True (CLI --confirm-hosts-stopped). "
+                "the recorded owning setup or upgrade continuation with confirm_hosts_stopped=True (CLI --confirm-hosts-stopped). "
                 "Migration paused before staging or cutover; original stores and receipt are retained.") from exc
         except runtime.StorageRecoveryRequired as exc:
             raise MigrationRequired(
                 f"{exc}; storage migration paused before staging or cutover. "
                 "Original stores, candidate and receipt are retained; correct the runtime or "
-                "filesystem requirement and resume standard wf_upgrade.") from exc
+                "filesystem requirement and resume the recorded owning setup or upgrade continuation.") from exc
         if is_kind_receipt(receipt):
             return _migrate_schema8(root, index_dir, receipt, runtime, state_store)
         source_path = source_database_path(index_dir, receipt)
@@ -1241,8 +1282,8 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
             schema = _database_schema(source_path)
             if schema == "runtime_unavailable":
                 raise MigrationRequired(
-                    "storage_runtime_restart_required: run wf setup to provision the pinned native runtime; "
-                    "then start a fresh process and resume ordinary wf_upgrade with confirm_hosts_stopped=True "
+                    "storage_runtime_restart_required: provision the pinned native runtime through the owning operation; "
+                    "then start a fresh process and resume the recorded owning setup or upgrade continuation with confirm_hosts_stopped=True "
                     "(CLI --confirm-hosts-stopped). Installed bindings cannot replace this process's cached "
                     "runtime. The migration receipt and original database are retained.")
             if schema == SCHEMA_VERSION and not receipt["artifacts"]:
@@ -1332,8 +1373,8 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
                         for row in rows:
                             _row_digest(row)
                             if not row.get("id") or row["id"] in seen:
-                                raise MigrationRequired("storage_duplicate_or_missing_chunk_id: retain the receipt and original archive; "
-                                    "if current project sources are available, resume the standard upgrade with --rebuild-storage "
+                                raise MigrationRequired("storage_duplicate_or_missing_chunk_id: retain the receipt, original sources and any recorded archive; "
+                                    "if current project sources are available, resume the owning setup or upgrade continuation with --rebuild-storage "
                                     "to regenerate both semantic layers instead of transferring legacy rows")
                             seen.add(row["id"])
                         state_store._apply_chunk_deltas_locked(store, layer, add_rows=rows)
@@ -1512,7 +1553,7 @@ def _quiesce_source(runtime, source: Path) -> None:
 
 
 def _forward_recovery(source: Path) -> str:
-    return ("Recovery is FORWARD: re-run the standard upgrade from the retained "
+    return ("Recovery is FORWARD: resume the recorded owning setup or upgrade continuation from the retained "
             f"{source.name}; the rollback copy is retained as evidence and is never "
             "returned to service. No backward rollback to the old runner is offered.")
 
@@ -1620,8 +1661,8 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
     schema = _database_schema(source)
     if schema == "runtime_unavailable":
         raise MigrationRequired(
-            "storage_runtime_restart_required: run wf setup to provision the pinned native runtime, "
-            "then resume ordinary wf_upgrade with confirm_hosts_stopped=True. The migration receipt "
+            "storage_runtime_restart_required: provision the pinned native runtime through the owning operation, "
+            "then resume the recorded owning setup or upgrade continuation with confirm_hosts_stopped=True. The migration receipt "
             "and original database are retained.")
     if schema == SCHEMA_VERSION and live == source:
         receipt.update(state="complete", disposition="already_current", reclaimed_bytes=0)
@@ -1701,7 +1742,7 @@ def _published_identity(index_dir: Path, receipt: dict) -> Path:
     if not expected:
         raise MigrationRequired(
             "storage_publication_identity_missing: retained receipt cannot prove the cutover file; "
-            "preserve original stores and staging/rollback files for recovery before resuming upgrade")
+            "preserve original stores and staging/rollback files for recovery before resuming the recorded owning continuation")
     if not live.exists() or _identity(live) != expected:
         raise MigrationRequired("storage_publication_identity_changed: preserve original stores and recover the receipt-owned cutover file")
     return live
@@ -1724,7 +1765,7 @@ def _publish_candidate(root: Path, receipt: dict, staged: Path, live: Path) -> d
             "storage_cutover_io_failed: cannot remove a SQLite sidecar or replace the live database. "
             "Close programs holding the index files, allow transient scanner activity to finish, "
             "and check filesystem permissions. Candidate, rollback and cutover_pending receipt "
-            "are retained; resume standard wf_upgrade after releasing handles or fixing access.") from exc
+            "are retained; resume the recorded owning setup or upgrade continuation after releasing handles or fixing access.") from exc
     _sync_directory(live.parent)
     _published_identity(live.parent, receipt)
     receipt.update(state="published", cutover_pid=os.getpid())
@@ -1778,17 +1819,20 @@ def verify_migration(root: Path) -> dict:
         return {"state": "not_applicable"}
     if receipt["state"] == "complete":
         return receipt
+    if receipt.get("entry_path") == "setup":
+        from setup_reconciliation import validate_source_binding
+        validate_source_binding(root, receipt)
     if is_kind_receipt(receipt):
         # The kind's proof is its OWN validated staged rebuild, not a later
         # coordinator child: the graph was rebuilt and validated before cutover.
         if not isinstance(receipt.get("staged_rebuild"), dict):
-            raise MigrationRequired("storage_staged_rebuild_unverified: resume standard wf_upgrade")
+            raise MigrationRequired("storage_staged_rebuild_unverified: resume the recorded owning setup or upgrade continuation")
         if rebuild_requested(receipt):
             validate_rebuild_publication(root)
     else:
         publication = receipt.get("upgrade_publication", {})
         if publication.get("semantic_exit") != 0 or publication.get("graph_exit") != 0:
-            raise MigrationRequired("storage_all_layer_publication_unverified: resume standard wf_upgrade")
+            raise MigrationRequired("storage_all_layer_publication_unverified: resume the recorded owning setup or upgrade continuation")
         validate_rebuild_publication(root)
     prior_verification = receipt.get("verification", {})
     independently_opened = (prior_verification.get("pid") is not None
@@ -1866,7 +1910,7 @@ def _install_kind_fence(root: Path, index_dir: Path, superseded: dict) -> dict:
     if published is None or published != superseded.get("published_sqlite_identity"):
         raise MigrationRequired(
             "storage_publication_identity_changed: the completed conversion's published database "
-            "is not the current index database; preserve both files and resume standard wf_upgrade")
+            "is not the current index database; preserve both files and resume the recorded owning setup or upgrade continuation")
     legacy = _safe_sqlite(index_paths.legacy_index_database_path(index_dir))
     role = SOURCE_ROLE_LEGACY if legacy.exists() else SOURCE_ROLE_CURRENT
     receipt = dict(superseded)
@@ -1882,6 +1926,10 @@ def _install_kind_fence(root: Path, index_dir: Path, superseded: dict) -> dict:
                                    "at": time.time(), "restaged": False},
                    supersedes=superseded)
     _write(index_dir, receipt)
+    if receipt.get("entry_path") == "setup":
+        # The fence is a new record in the same setup operation. Persist its
+        # identity before retirement so a crash resumes the exact new record.
+        restore_checkpoint(root)
     reclaimed = receipt.get("reclaimed_bytes", 0)
     retired = _retire_source_database(index_dir, receipt) if role == SOURCE_ROLE_LEGACY else 0
     receipt.update(state="complete", reclaimed_bytes=reclaimed + retired,
@@ -1953,7 +2001,7 @@ def _unknown_staging(path: Path) -> MigrationRequired:
         f"storage_cleanup_unknown_staging_artifact: {path}. This entry is inside the "
         "migration's own staging directory but is not something the staged build "
         "produces. Nothing has been deleted. Remove or move the named entry, then "
-        "resume standard wf_upgrade; the retired source database and the receipt are "
+        "resume the recorded owning setup or upgrade continuation; the retired source database and the receipt are "
         "retained.")
 
 
@@ -2104,7 +2152,7 @@ def _apply_retired_graph_directory(root: Path, index_dir: Path, plan: dict) -> i
     if outcome != "removed":
         raise MigrationRequired(
             f"storage_cleanup_removal_failed: {plan['path']} ({outcome}). Release handles or "
-            "correct permissions and resume standard wf_upgrade; receipt and remaining "
+            "correct permissions and resume the recorded owning setup or upgrade continuation; receipt and remaining "
             "sources are retained.")
     return plan["bytes"]
 
@@ -2226,12 +2274,12 @@ def cleanup_legacy(root: Path) -> dict:
                 raise MigrationRequired(
                     "storage_cleanup_path_unowned: an owned index path changed or contains a "
                     f"symlink/junction: {entry['path']}. Restore the receipt-owned directory "
-                    "inside the repository and resume standard wf_upgrade; receipt and remaining "
+                    "inside the repository and resume the recorded owning setup or upgrade continuation; receipt and remaining "
                     "sources are retained.")
             if outcome != "removed":
                 raise MigrationRequired(
                     f"storage_cleanup_removal_failed: {entry['path']} ({outcome}). Release handles "
-                    "or correct permissions and resume standard wf_upgrade; receipt and remaining "
+                    "or correct permissions and resume the recorded owning setup or upgrade continuation; receipt and remaining "
                     "sources are retained.")
         else:
             _safe(Path(entry["path"])).unlink()

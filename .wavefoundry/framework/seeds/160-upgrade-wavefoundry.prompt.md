@@ -16,6 +16,37 @@ The first upgrade into 1.22.0 runs with the installed older runner, so it does n
 
 When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, memory, index, cleanup, and protocol-1 bridge requirements remain unchanged.
 
+**Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
+reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
+Follow the reported action: plain setup for local preparation, a host restart for
+stale loaded code, or the retained owning command for pending recovery. Do not
+substitute setup for a pending upgrade continuation. The check installs nothing,
+downloads no models and does not repair or rebuild indexes. It is read-only for
+application data; SQLite may create or update normal WAL/SHM coordination files.
+It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
+
+## Setup after a clone or pull
+
+`wf upgrade` installs a framework release; `wf setup` makes the framework
+currently checked out usable on this machine. After pulling a teammate's
+committed upgrade, run `wf setup`. It selects no archive and preserves project
+customizations. Missing indexes build, compatible indexes update, and supported
+obsolete storage uses the existing staged migration and verified cleanup.
+
+A pending archive-owned upgrade cannot be adopted by setup: keep its original
+archive and exact continuation. A setup-owned handoff retains the installed
+framework fingerprint and supplies a setup command with explicit host-stop
+confirmation. Stop the repository's hosts and run it from an external terminal.
+If the installed source changes during recovery, restore the recorded framework
+before retrying; never edit receipts or delete the only index copy. Unknown or
+newer storage and ambiguous ownership remain preserved with a refusal.
+
+Setup may report core search ready while historical memory validation is pending.
+Complete the run-scoped memory work and rerun setup to finish adoption; core
+publication never marks unvalidated memories as validated. Reconcile this section
+into customized project setup/upgrade prompts during the ordinary upgrade editing
+pass, preserving local additions and renderer-owned regions.
+
 ## Index writer compatibility and first protected upgrade
 
 Protected index writers check persisted ordered revisions and their loaded producer
@@ -792,3 +823,7 @@ When seeds 050, 100 or 180 or their lifecycle templates change, reconcile the ho
 | Seed 100 operating guidance | docs/contributing/agent-team-workflow.md and docs/agents/platform-mapping.md; concise pointers, not separate vendor policies. |
 
 Verify the policy reaches each applicable destination, stale inheritance claims are removed from touched guidance, customization survives and a repeat merge makes no further changes. Run `wf render-surfaces` afterward for its managed regions, then the docs gate. Do not rewrite native host configs or create a model registry. This is an agent editing obligation, not an automatic prose migration claim.
+
+### Post-Git readiness instruction reconciliation
+
+When seed 050 changes, merge its **Check readiness after Git changes** instruction into root `AGENTS.md`, preserving project-specific guidance. Verify checkout-changing operations and conflict stops require `index_health()`, that both freshness and `data.setup_readiness` are inspected, and that the no-MCP `wf setup --check --json` fallback is described as bounded readiness only. Keep host wrappers as pointers; do not install Git hooks or automatically execute recommended repairs.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-13
+Last verified: 2026-09-15
 
 ## Allowed Dependencies
 
@@ -59,8 +59,19 @@ runtime process. It confines the database and required existing WAL sidecars to
 the selected repository, refuses missing sidecars rather than creating them,
 and closes its connection explicitly. It does not repair, migrate or publish data.
 
-`sqlite_storage_migration` may load the pinned legacy reader only during standard
-upgrade conversion. Its durable receipt records recovery and cleanup progress;
+`setup_readiness.py` is a second diagnostic exception, with a distinct ownership
+contract: the parent uses only stdlib metadata and never imports SQLite or the
+vector runtime. At most one isolated `-I -S -B` child inspects exact relational
+metadata in a read-only, query-only transaction. Normal SQLite WAL/SHM coordination
+is allowed; application-data writes, checkpoints, recovery, migration and explicit
+sidecar cleanup are not. Failed or inconsistent observations are indeterminate.
+The child deadline does not promise a global deadline for parent filesystem reads.
+`setup_requirements.py` owns the shared dependency declarations and setup CLI
+grammar used by setup and the assessor; metadata inspection must not activate the tool environment or execute
+its `.pth` files. Advisory stamps never replace live compatibility and ownership checks.
+
+`sqlite_storage_migration` may load the pinned legacy reader only during supported
+setup- or upgrade-owned conversion. Its durable receipt records recovery and cleanup progress;
 the existing build epoch remains publication authority. Graph participates in the shared publication transaction. Memory retains
 separate persistent ownership.
 

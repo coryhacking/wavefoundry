@@ -181,6 +181,11 @@ file. Every created record remains `candidate` / `Validation: pending` until a
 focused agent follows its evidence and current target and calls
 `memory_validate`.
 
+Plain setup can publish core search while this historical validation remains
+pending. It reports the two outcomes separately and preserves candidate status
+and validation labels. Normal core publication does not grant authority to mark
+the backfill run indexed; this does not introduce a new candidate retrieval filter.
+
 Repeat backfill and validation until the response reports
 `ready_for_index`. Setup and migration resume by rerunning ordinary `wf setup`;
 upgrade uses `wf_upgrade(phase='resume_after_memory')`. The owning lifecycle

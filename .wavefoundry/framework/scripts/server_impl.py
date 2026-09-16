@@ -54,6 +54,13 @@ if str(SCRIPTS_DIR) not in sys.path:
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
+import setup_readiness
+
+# Capture once even when the implementation module is hot-reloaded. The thin
+# runner supplies its earlier pre-import identity when it builds the handler.
+if "_SETUP_LOADED_IDENTITY" not in globals():
+    _SETUP_LOADED_IDENTITY = setup_readiness.capture_loaded_identity()
+
 import context_efficiency
 import lifecycle_lock as _lifecycle_lock_authority
 import publication_control
@@ -30051,11 +30058,31 @@ def version_payload(root: Path, *, server_runner_version: str | None) -> dict[st
     return payload
 
 
+def _setup_notice_key(result: Mapping[str, Any]) -> str:
+    """Coalesce advice, independently of changing database/input generations."""
+    return hashlib.sha256(json.dumps(
+        {key: result.get(key) for key in ("status", "reasons", "actions", "startup_blocked")},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+
+
 class ImplHandler:
     """Owns per-process MCP business state (index, cache, root)."""
 
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
+        self._setup_assessment_lock = threading.Lock()
+        self._setup_loaded_identity = _SETUP_LOADED_IDENTITY
+        self._setup_assessment_result = (
+            globals().get("_SETUP_STARTUP_RESULT")
+            if globals().get("_SETUP_STARTUP_ROOT") == self.root else None
+        )
+        self._setup_assessment_signature = None
+        self._setup_notice_signature = (
+            _setup_notice_key(self._setup_assessment_result)
+            if self._setup_assessment_result is not None
+            and self._setup_assessment_result.get("status") != "ready" else None
+        )
         self.index = WaveIndex(self.root)
         self.cache = McpRepoCache(self.root, index=self.index)
         self.telemetry = context_efficiency.ProcessTelemetry(self.root)
@@ -30083,6 +30110,28 @@ class ImplHandler:
         except Exception:  # noqa: BLE001
             pass
 
+    def assess_setup(self, *, force: bool = False) -> dict[str, Any]:
+        """Share one bounded assessment across monitor and explicit health calls."""
+        with self._setup_assessment_lock:
+            signature = setup_readiness.assessment_signature(self.root)
+            if (force or self._setup_assessment_result is None
+                    or self._setup_assessment_result.get("status") == "indeterminate"
+                    or signature != self._setup_assessment_signature):
+                result = setup_readiness.assess_setup(
+                    self.root, loaded_identity=self._setup_loaded_identity,
+                )
+                # A changed input generation during assessment must be retried on
+                # the next tick, never cached against a later healthy signature.
+                self._setup_assessment_signature = signature
+                self._setup_assessment_result = result
+                notice_signature = _setup_notice_key(result)
+                if result["status"] == "ready":
+                    self._setup_notice_signature = None
+                elif notice_signature != self._setup_notice_signature:
+                    print(setup_readiness.format_text(result), file=sys.stderr)
+                    self._setup_notice_signature = notice_signature
+            return self._setup_assessment_result
+
     def _start_staleness_monitor(self) -> None:
         import threading
 
@@ -30100,6 +30149,7 @@ class ImplHandler:
         def _loop() -> None:
             while not stop_event.wait(interval):
                 try:
+                    self.assess_setup()
                     _maybe_refresh_if_stale(
                         root,
                         observer=lambda value: setattr(
@@ -30156,6 +30206,7 @@ class ImplHandler:
 
     def background_monitor_status(self) -> dict[str, Any]:
         return {
+            "setup_readiness": self._setup_assessment_result,
             "index": {
                 **dict(self._index_monitor_status),
                 "alive": bool(self._monitor_thread and self._monitor_thread.is_alive()),
@@ -33087,10 +33138,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         handler = get_handler()
-        return index_health_response(
+        setup_status = handler.assess_setup(force=True)
+        result = index_health_response(
             handler.index,
             background_monitors=handler.background_monitor_status(),
         )
+        result.setdefault("data", {})["setup_readiness"] = setup_status
+        return result
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_audit(wave_id: str = "", **kwargs: Any) -> dict[str, Any]:

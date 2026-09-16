@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-09
+Last verified: 2026-09-15
 
 ## Domains
 
@@ -28,6 +28,16 @@ Last verified: 2026-09-09
 7. Context-efficiency telemetry writes eligible calls through to SQLite. It can affect the public result only when neither the event nor the durable accounting-gap poison can be persisted; ordinary measurement/projection failures undercount or suppress the headline.
 8. `.wavefoundry/logs/context-efficiency.sqlite` is ignored, host-local, and not an index or review authority. It stores opaque identifiers and accounting values, never paths, queries, returned content, prompts, secrets, or conversations. Public reads distinguish absent, healthy, accounting-gap, and failed state. The marker-owned checkpoint is a portable projection, not a numeric recovery source for lost store identity.
 9. `review_policy.REVIEW_POLICY_CARRIER_REGISTRY` is the review-policy carrier authority. Its owner labels are permissions: `renderer` may replace only registered marker-owned regions; `lifecycle_reconciler` may replace only an exact registered marker or byte-known baseline section after an all-carrier preflight; `direct_docs` is validation-only and never writes a target repository. A destination may therefore have a `direct_docs` validation row and a separate `renderer` companion row whose only authority is the portable marker-bounded baseline; the validation row does not acquire write authority. No owner may broaden another owner's write boundary, and project-authored surrounding prose remains immutable.
+
+## Local setup assessment
+
+`setup_readiness.py` owns the bootstrap-safe assessment contract shared by setup,
+MCP startup, monitoring and health. `setup_requirements.py` owns canonical runtime
+dependency declarations and setup CLI grammar; the assessor validates recorded
+setup continuations with that same bootstrap-safe parser. The assessor reads a fixed, bounded census and at most
+one isolated SQLite metadata snapshot; it owns no index or recovery mutations.
+Only successful ordinary setup writes its advisory stamp. Recovery continuations
+remain owned and fully revalidated by setup or upgrade, never by the check.
 
 ## Interaction Edges
 

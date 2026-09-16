@@ -34,6 +34,32 @@ Canonical role docs should also carry the following structural sharpness when th
 - **Review dimensions or evidence requirements:** when the role reviews work rather than authors it.
 - **Assumption tracking:** what assumptions must be named, tested, or escalated before the role signs off.
 
+Include the following shared readiness instruction in root `AGENTS.md`; keep host entry files as thin pointers rather than duplicating it. Reconcile this section on upgrade as well as initial installation.
+
+### Check readiness after Git changes
+
+After a Git operation that changes local checkout files, call `index_health()`
+before relying on indexed retrieval. This includes pull, merge, rebase,
+switch/checkout, cherry-pick, revert, reset, restore, and stash apply/pop; check
+also when an operation stops with conflicts, since files may already have changed.
+Check once after a related sequence of operations, rather than after every command.
+Read-only commands (status, diff, log), fetch alone, and push do not require this check.
+
+Inspect both index freshness and `data.setup_readiness`, including its reasons
+and recommended actions. If MCP is unavailable, run `wf setup --check --json`
+from the affected repository (native Windows: `.\.wavefoundry\bin\wf.cmd setup --check --json`).
+That fallback checks setup readiness only; it does not establish source freshness.
+Return the status and recommended action to the local agent's workflow; the check
+must not automatically install dependencies, run setup, rebuild, or resume recovery.
+Use the reported remedy under the existing task authorization, and never treat
+`indeterminate` or a failed check as ready. For stale loaded framework code, follow
+the restart guidance before trusting further index operations.
+
+This instruction applies to every agent host through the canonical `AGENTS.md`.
+The MCP startup check and background monitor cover changes made outside the agent;
+they do not replace the explicit post-operation check or guarantee that the agent
+sees stderr notices. No Git hooks are installed by this guidance.
+
 Tasks:
 
 1. Create or update `AGENTS.md` as the canonical entry map. Prefer concise, **non-obvious** routing and guardrails agents would otherwise get wrong; omit trivia they can re-derive from `docs/repo-index.md` or the tree.

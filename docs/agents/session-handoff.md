@@ -7,11 +7,11 @@ Last verified: 2026-09-15
 ## Current Session
 
 **Active wave:** *(none)*
-**Status:** idle; wave closed after current readiness and independent delivery approvals. Full suite: 9,013 tests passed (12 skips); docs gate clean; framework receipt current; edit gates closed.
+**Status:** idle after authorized review/closure. Plain setup reconciliation, read-only setup checks and post-Git index-health guidance shipped in source. All eleven ACs/tasks complete; three delivery defects repaired and independently reverified. Six required lanes and delivery council approved. Full suite passed 9,096 tests (21 intentional skips); receipt matches framework inputs. Gates closed. Changes remain uncommitted; no package/release requested.
 
-**Last closed wave:** `1y3hb host-neutral-wave-orchestration` — task-fit model and reasoning allocation across Prepare-to-Close, capability-aware delegation, overhead checks, early useful-output checkpoints and independent review handoffs through existing artifacts.
+**Last closed wave:** `1y3og setup-local-reconciliation` — setup makes fresh and Git-updated checkouts usable safely; read-only checks surface setup/restart/owning-resume actions without automatic repair.
 
-All five ACs and six tasks completed with no wave deferrals. Final readiness delta and delivery evidence are recorded in the wave and change; carrier tests establish guidance propagation, not native-host adherence or measured savings. Closure records for `1xtnr` and `1xxcb` are included with this work. The operator authorized commit and push on 2026-09-15; no package or release requested.
+Retrospective validated as memory `1y5tz-mem validate-setup-readiness-against-canonical-producers`: test observers with actual producer output and share parser grammar. No wave AC/task deferrals.
 
 ## Release
 

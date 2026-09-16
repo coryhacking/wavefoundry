@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 13682 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 1167 |
-| graph | `.wavefoundry/framework/scripts` | code | 396 |
-| framework/scripts — isolated_run | `.wavefoundry/framework/scripts` | code | 375 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 324 |
-| techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 291 |
-| chunker | `.wavefoundry/framework/scripts` | code | 288 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 244 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 238 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 13804 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 1197 |
+| graph | `.wavefoundry/framework/scripts` | code | 393 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 372 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 362 |
+| chunker | `.wavefoundry/framework/scripts` | code | 283 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 278 |
+| wave_lint_lib/reconcile_scan | `.wavefoundry/framework/scripts` | code | 276 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 259 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 215 |
-| indexer | `.wavefoundry/framework/scripts` | code | 210 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 151 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 138 |
+| indexer | `.wavefoundry/framework/scripts` | code | 174 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 150 |
+| retrieval_eval | `.wavefoundry/framework/scripts` | code | 129 |
+| evidence/build_pack | `.wavefoundry/framework/scripts` | code | 121 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
-| evidence/build_pack | `.wavefoundry/framework/scripts` | code | 86 |
-| reconcile_scan | `.wavefoundry/framework/scripts` | code | 76 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
+| scripts/reconcile_scan | `.wavefoundry/framework/scripts` | code | 23 |
 | ann_reference_eval | `.wavefoundry/framework/scripts` | code | 19 |
-| framework/scripts — provenance_for_sha | `.wavefoundry/framework/scripts` | code | 18 |
+| repair_ppol_memory_staging | `.wavefoundry/framework/scripts` | code | 13 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

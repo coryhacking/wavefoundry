@@ -1151,7 +1151,7 @@ class NativeMigrationTests(unittest.TestCase):
         import sqlite_runtime
         before = self.source.read_bytes()
         with patch.object(sqlite_runtime, "apsw", None):
-            with self.assertRaisesRegex(migration.MigrationRequired, "storage_runtime_restart_required.*fresh process.*wf_upgrade"):
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_runtime_restart_required.*fresh process.*recorded owning setup or upgrade continuation"):
                 migration.migrate_legacy(self.root)
         self.assertEqual(self.source.read_bytes(), before)
         self.assertEqual(migration.read_receipt(self.index)["state"], "quiesced")

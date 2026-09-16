@@ -9,9 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +61,10 @@ def _make_completed_process(returncode: int):
 class SetupWavefoundryTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_setup_wavefoundry()
+        import setup_readiness
+        stamp = patch.object(setup_readiness, "write_setup_stamp")
+        self.write_setup_stamp_mock = stamp.start()
+        self.addCleanup(stamp.stop)
         import memory_backfill
         gate = patch.object(
             memory_backfill,
@@ -117,6 +121,7 @@ class SetupWavefoundryTests(unittest.TestCase):
             result = self.mod.main(["--root", "/tmp/repo", "--full"])
 
         self.assertEqual(result, 0)
+        self.write_setup_stamp_mock.assert_called_once_with(Path("/tmp/repo").resolve())
         self.assertEqual(
             delegated,
             [
@@ -124,6 +129,193 @@ class SetupWavefoundryTests(unittest.TestCase):
                 ["--root", "/tmp/repo", "--full"],
             ],
         )
+
+    def test_setup_consumes_host_confirmation_before_index_arguments(self):
+        delegated = []
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                delegated.append(argv)
+                return 0
+
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0):
+            self.assertEqual(self.mod.main(["--confirm-hosts-stopped"]), 0)
+        self.assertEqual(delegated, [["--deps-only"], []])
+
+    def test_repeated_root_uses_same_last_target_for_every_setup_stage(self):
+        import setup_index
+        import setup_reconciliation
+
+        root = Path.cwd()
+        first = root / "first"
+        target = root / "last"
+        for args in (["--root", str(first), "--root", str(target)],
+                     [f"--root={first}", "--root", str(target)],
+                     ["--root", str(first), f"--root={target}"]):
+            seen = []
+            original_session = setup_reconciliation.session
+
+            def session(bound_root, argv):
+                seen.append(bound_root)
+                return original_session(bound_root, argv)
+
+            class FakeSetupIndex:
+                @staticmethod
+                def main(argv=None):
+                    seen.append(Path(setup_index.parse_args(argv).root).resolve())
+                    return 0
+
+            with self.subTest(args=args), \
+                 patch.object(setup_reconciliation, "session", side_effect=session), \
+                 patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(self.mod, "_run_render_platform_surfaces", side_effect=lambda path: seen.append(path) or 0), \
+                 patch.object(self.mod, "_run_mcp_server_dry_run", side_effect=lambda path: seen.append(path) or 0):
+                self.assertEqual(self.mod.main(args), 0)
+            self.assertEqual(seen, [target.resolve()] * 5)
+            self.assertFalse(first.exists())
+
+    def test_foreign_upgrade_refuses_before_any_setup_write(self):
+        import upgrade_lib
+
+        root = Path.cwd()
+        upgrade_lib.write_upgrade_lock(root, "old", "new", runner_protocol=2)
+        checkpoint = root / ".wavefoundry" / upgrade_lib.UPGRADE_LOCK_FILENAME
+        before = checkpoint.read_bytes()
+        with patch.object(self.mod, "_provision_lifecycle_policy_if_absent") as provision, \
+             patch.object(self.mod, "_run_render_platform_surfaces") as render, \
+             patch.object(self.mod, "_load_setup_index") as load, redirect_stderr(io.StringIO()) as stderr:
+            self.assertNotEqual(self.mod.main([]), 0)
+        provision.assert_not_called()
+        render.assert_not_called()
+        load.assert_not_called()
+        self.assertEqual(checkpoint.read_bytes(), before)
+        self.assertIn("storage_setup_foreign_upgrade", stderr.getvalue())
+
+    def test_abbreviated_or_unknown_options_refuse_before_setup_writes(self):
+        for option in ("--graph", "--deps", "--code-o", "--docs-o", "--not-a-setup-option"):
+            with self.subTest(option=option), \
+                 patch.object(self.mod, "_provision_lifecycle_policy_if_absent") as provision, \
+                 patch.object(self.mod, "_run_render_platform_surfaces") as render, \
+                 patch.object(self.mod, "_load_setup_index") as load, \
+                 redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                self.mod.main([option])
+            self.assertEqual(raised.exception.code, 2)
+            provision.assert_not_called()
+            render.assert_not_called()
+            load.assert_not_called()
+
+    def test_partial_setup_does_not_claim_full_readiness(self):
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        for option in ("--deps-only", "--prewarm-only", "--graph-only", "--docs-only", "--background-code"):
+            with self.subTest(option=option), \
+                 patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+                 patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+                 patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+                 redirect_stdout(io.StringIO()) as stdout:
+                self.assertEqual(self.mod.main([option]), 0)
+            self.assertIn("full core readiness was not verified", stdout.getvalue())
+            self.assertNotIn("harness setup complete", stdout.getvalue())
+            self.assertNotIn("mark Phase 1 complete", stdout.getvalue())
+            self.write_setup_stamp_mock.assert_not_called()
+
+    def test_pending_memory_full_core_still_writes_advisory_stamp(self):
+        import memory_backfill
+
+        summary = {"run_id": "test-run", "state": "awaiting_validation", "eligible_waves": 1}
+        setup_index = Mock()
+        setup_index.main.return_value = 0
+        with patch.object(self.mod, "_load_setup_index", return_value=setup_index), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             patch.object(memory_backfill, "sync_inventory", return_value=summary), \
+             patch.object(memory_backfill, "reconcile_index_publication", return_value=summary), \
+             redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(self.mod.main([]), 0)
+        self.assertIn("historical-memory validation remains pending", stdout.getvalue())
+        self.write_setup_stamp_mock.assert_called_once_with(Path.cwd().resolve())
+
+    def test_advisory_stamp_failure_does_not_fail_successful_setup(self):
+        self.write_setup_stamp_mock.side_effect = OSError("read-only stamp directory")
+        setup_index = Mock()
+        setup_index.main.return_value = 0
+        with patch.object(self.mod, "_load_setup_index", return_value=setup_index), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(self.mod.main([]), 0)
+        self.assertIn("advisory assessment stamp", stderr.getvalue())
+
+    def test_reconciliation_precedes_smoke_and_completes_only_after_index_success(self):
+        import setup_reconciliation
+
+        events = []
+        original_prepare = setup_reconciliation.session.prepare
+        original_complete = setup_reconciliation.session.complete
+
+        def prepare(session):
+            events.append("prepare")
+            original_prepare(session)
+
+        def complete(session):
+            events.append("complete")
+            original_complete(session)
+
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                events.append("deps" if "--deps-only" in argv else "index")
+                return 0
+
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", side_effect=lambda root: events.append("smoke") or 0), \
+             patch.object(setup_reconciliation.session, "prepare", prepare), \
+             patch.object(setup_reconciliation.session, "complete", complete):
+            self.assertEqual(self.mod.main([]), 0)
+        self.assertEqual(events, ["deps", "prepare", "smoke", "index", "complete"])
+
+    def test_storage_verification_requires_index_despite_recovered_memory_receipt(self):
+        import memory_backfill
+        import setup_reconciliation
+
+        reconciliation = Mock(args=[], requires_index=True)
+        reconciliation.index_args.return_value = []
+        reconciliation.publication.return_value = nullcontext()
+        index = Mock()
+        index.main.return_value = 0
+        recovered = {"state": "indexed", "eligible_waves": 1, "publication_recovered": True}
+        with patch.object(setup_reconciliation, "session", return_value=nullcontext(reconciliation)), \
+             patch.object(memory_backfill, "reconcile_index_publication", return_value=recovered), \
+             patch.object(self.mod, "_load_setup_index", return_value=index), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0):
+            self.assertEqual(self.mod.main([]), 0)
+        self.assertEqual(index.main.call_count, 2)
+        reconciliation.complete.assert_called_once()
+
+    def test_index_failure_does_not_complete_storage_or_print_success(self):
+        import setup_reconciliation
+
+        reconciliation = Mock(args=[], requires_index=True)
+        reconciliation.index_args.return_value = []
+        reconciliation.publication.return_value = nullcontext()
+        index = Mock()
+        index.main.side_effect = [0, 9]
+        with patch.object(setup_reconciliation, "session", return_value=nullcontext(reconciliation)), \
+             patch.object(self.mod, "_load_setup_index", return_value=index), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(self.mod.main([]), 9)
+        reconciliation.complete.assert_not_called()
+        self.assertNotIn("setup complete", stdout.getvalue())
 
     def test_step_2_failure_aborts_before_step_3(self):
         class FakeSetupIndex:

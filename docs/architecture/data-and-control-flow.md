@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-13
+Last verified: 2026-09-15
 
 ## Primary Control Paths
 
@@ -303,6 +303,30 @@ finishes the checkpoint without running the index pass again. A changed source
 requeues validation and refuses publication. Receipt-authorized publication is
 foreground and synchronous: the owning setup/upgrade command converges both
 semantic layers itself, and detached index jobs never inherit the receipt.
+
+Setup additionally supports ordinary core publication without a memory run grant
+while historical curation is pending. The same durable backfill run remains pending;
+no candidate is promoted or marked validated. If history changes during guarded
+memory publication, setup may make one bounded ordinary core-index retry while
+retaining requeued memory work. Only the scoped publication above completes adoption.
+
+Before repair, `wf setup --check` assesses a bounded census of installed framework,
+configuration, environment metadata, recovery ownership and index metadata. The
+check path dispatches before tool-environment activation. A separate stdlib SQLite
+child reads committed WAL-backed metadata without loading a second SQLite binding
+into the MCP process. Results distinguish readiness, required action and uncertainty;
+only ordinary successful setup writes the advisory `.wavefoundry/index/setup-state.json`.
+The stamp is not recovery or publication authority. MCP startup and the existing
+monitor share the assessment, invalidate it for relevant changes, and coalesce
+repeated stderr notices. Changed loaded assessment code requests a fresh host;
+ordinary product-source edits do not request setup.
+
+Plain setup inspects local recovery ownership before configuration or surface writes.
+Its storage coordinator reuses the migration receipt and shared lifecycle/publication
+fence with explicit setup ownership and an installed-framework fingerprint. It never
+selects archives or takes over pending upgrade ownership. Required host-stop commands
+resume setup; synchronous all-layer publication and fresh-process verification precede
+owned legacy cleanup. Missing/current stores retain normal creation/incremental paths.
 
 An indexed setup/upgrade run remains the durable fingerprint baseline.
 Unchanged ordinary setup calls reuse it without reopening validation; a later

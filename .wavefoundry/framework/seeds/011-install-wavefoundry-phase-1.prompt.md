@@ -21,9 +21,20 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 
 ### 1.1 — Bootstrap harness (single orchestrated script)
 
-**Action:** Run `wf setup`. This is the orchestrator that completes all the mechanical Phase 1 work in one call — **including provisioning the lifecycle-ID policy and required workflow defaults**. Setup's first action (Step 0/4) computes and atomically writes the complete scheme-v2 `lifecycle_id_policy` into `docs/workflow-config.json` when no policy block exists yet (`epoch_utc` = the install date so no ID horizon is burned on past years; a deterministic scattered `offset`; `scheme_version: "v2"`). It also adds each absent framework-required section from the shipped defaults: `wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`, `prompt_generation`, `factor_review_policy`, and `persona_review_policy`. Existing top-level sections are never modified or reordered. No manual epoch/offset computation and no hand-authored default policy — do **not** hand-edit the lifecycle policy block. Because setup runs before any ID is minted or docs gate runs, no ID can be generated under fallback settings and no fresh config reaches lint without its required sections.
+**Action:** Run `wf setup`. This is the orchestrator that completes all the mechanical Phase 1 work in one call — **including provisioning the lifecycle-ID policy and required workflow defaults**. After read-only recovery preflight, Step 0/4 computes and atomically writes the complete scheme-v2 `lifecycle_id_policy` into `docs/workflow-config.json` when no policy block exists yet (`epoch_utc` = the install date so no ID horizon is burned on past years; a deterministic scattered `offset`; `scheme_version: "v2"`). It also adds each absent framework-required section from the shipped defaults: `wave_implement`, `wave_review`, `agent_memory`, `project_persona_generation`, `prompt_generation`, `factor_review_policy`, and `persona_review_policy`. Existing top-level sections are never modified or reordered. No manual epoch/offset computation and no hand-authored default policy — do **not** hand-edit the lifecycle policy block. Because setup runs before any ID is minted or docs gate runs, no ID can be generated under fallback settings and no fresh config reaches lint without its required sections.
 
-**Historical projects pause before index publication.** Setup now provisions dependencies and smoke-tests the newly installed MCP before publishing an index. A fresh project with no closed wave history continues in one pass. An already wave-enabled target returns action-required exit 4 with `awaiting_memory_validation`: reload/restart the MCP host, repeatedly call `memory_backfill(mode="create", entry_path="setup")`, validate each pending candidate through `memory_validate`, then rerun ordinary `wf setup`. This is a retained setup phase, not failure or completion. The repeated setup invocation reuses the durable run, recomputes the authoritative `memory-state.sqlite` pending census, and owns the single index publication. There is no setup-memory-specific MCP tool or public resume flag. Migration uses this same reentrant setup gate. `wf_audit_install` remains observational and never resumes or writes backfill state.
+**Setup makes the installed checkout ready.** After cloning or pulling framework changes, run the same `wf setup`. It does not discover or install release archives. Before changing local setup state it checks recovery ownership; a pending archive-owned upgrade must finish through its retained upgrade continuation. Supported obsolete indexes reconcile through staged conversion with source-bound recovery and verification before cleanup. Save any setup restart command, stop the repository's old hosts, and run that exact command in an external terminal with its explicit host confirmation. Empty host discovery is not proof that every host stopped. Never delete indexes, locks or receipts to force setup forward.
+
+**Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
+reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
+Follow the reported action: plain setup for local preparation, a host restart for
+stale loaded code, or the retained owning command for pending recovery. Do not
+substitute setup for a pending upgrade continuation. The check installs nothing,
+downloads no models and does not repair or rebuild indexes. It is read-only for
+application data; SQLite may create or update normal WAL/SHM coordination files.
+It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
+
+**Historical memory remains explicit without blocking core search.** Setup can publish core docs/code/graph indexes while historical validation is pending. It reports that pending work separately and does not mark the backfill indexed, promote candidates, or change their validation labels. Run `memory_backfill(mode="create", entry_path="setup")`, validate its run-scoped worklist with `memory_validate`, then rerun ordinary `wf setup`. The ready run still uses the guarded publication receipt and authoritative pending census. Core readiness is not completion of historical memory adoption; `wf_audit_install` remains observational.
 
 **Python prerequisite:** Before running setup, `python3 --version` must work from the command line and report Python 3.11 or newer. If `python3` is missing, if only `python` is available, or if `python3` reports a version below 3.11, stop. The agent or operator must install/fix Python and PATH before proceeding; do not bypass this by pointing MCP at a tool-venv or project-local Python.
 
@@ -37,17 +48,17 @@ Before executing row 1.1, check whether `.wavefoundry/install-log.md` exists:
 2. **Step 2/4 — venv + framework dependencies**:
    - Creates the tool venv at `~/.wavefoundry/venv/` (user-home, not project-root — the venv is shared across all wavefoundry projects on the machine; `WAVEFOUNDRY_TOOL_VENV` env var overrides).
    - Installs framework deps, including the embedding/index stack and SOCKS proxy support for httpx-backed downloads.
-   - Does **not** publish semantic or graph indexes yet. Historical-memory inventory runs after the MCP smoke test; only a no-work result or an explicit successful resume authorizes publication.
+   - Does **not** publish semantic or graph indexes yet. Storage reconciliation follows dependency provisioning; historical-memory inventory follows the MCP smoke test. Pending curation does not block normal core publication.
 3. **Step 3/4 — MCP server dry-run smoke test** (via `server.py --dry-run`):
    - Verifies the MCP server can initialize through the same launch shape generated MCP configs use: `python3 .wavefoundry/framework/scripts/server.py --dry-run`.
    - Confirms all imports work, tool registration succeeds, framework state is loadable, and the PATH `python3` that the host will launch can use the Wavefoundry tool environment.
    - Exits 0 on success, non-zero on failure with a clear diagnostic.
    - This catches startup misconfigurations BEFORE the operator restarts their agent; without this, a broken MCP would only surface after restart.
-4. **Step 4/4 — historical-memory gate, then index publication**:
+4. **Step 4/4 — core index publication and historical-memory status**:
    - Inventories closed waves into the durable SQLite backfill state.
-   - Returns action-required exit 4 before publication when validation remains.
-   - Otherwise—or after an ordinary repeated `wf setup` recomputes an empty pending set—builds `.wavefoundry/index/` (docs/seeds, semantic code embeddings, code embeddings, and graph). The framework seeds and top-level README fold into the project docs index; there is no separate framework index.
-   - Use `--background-code` or `--background-docs` only when the operator intentionally accepts one semantic layer finishing after setup returns. A candidate-bearing historical-memory publication intentionally ignores either flag and converges both semantic layers synchronously under its publication receipt.
+   - Builds core indexes and reports pending memory validation without claiming adoption complete.
+   - Builds `.wavefoundry/index/` (docs/seeds, semantic code embeddings, code embeddings, and graph). The framework seeds and top-level README fold into the project docs index; there is no separate framework index.
+   - Use `--background-code` or `--background-docs` only when the operator intentionally accepts one semantic layer finishing after setup returns. A storage migration or candidate-bearing validated historical-memory publication intentionally ignores either flag and converges both semantic layers synchronously under its publication receipt.
 
 **Expected artifact:** the committed `.mcp.json` names `command: "python3"` and the repo-relative `.wavefoundry/framework/scripts/server.py` as its only argument — a path, never an inline `-c` program, so the committed config stays auditable for enterprise review; `python3 .wavefoundry/framework/scripts/server.py --dry-run` exits 0 from the repository root. The server anchors its own repository from its install location, so no `--root` and no project-anchor variable belongs in this stanza. Hook launchers are the separate case that does need `CLAUDE_PROJECT_DIR`.
 
@@ -59,8 +70,8 @@ with canonical text stored once and chunks, vectors, FTS, graph rows and
 communities published together in a single transaction. Standard setup provisions
 pinned APSW/SQLite and sqlite-vec in the tool environment; it does not install
 LanceDB for a new project. Keep Python 3.11+ and the existing platform bootstrap
-path. If setup detects old Lance stores, route to **Upgrade Wavefoundry** rather
-than deleting them or treating the project as fresh.
+path. Setup reconciles supported old stores through staged migration; never delete
+them or treat the project as fresh to bypass recovery.
 
 ### 1.2 — Verify lifecycle policy and workflow defaults provisioned by setup
 
