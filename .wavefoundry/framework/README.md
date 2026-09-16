@@ -37,6 +37,24 @@ downloads no models and does not repair or rebuild indexes. It is read-only for
 application data; SQLite may create or update normal WAL/SHM coordination files.
 It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
 
+## Python runtime advisory and transition
+
+Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+
+`wf` prints one advisory to stderr per invocation on Python 3.11/3.12, including help and setup checks. Direct MCP serving prints it once at process startup; help, `server.py --dry-run`, imports, tool calls and background assessments do not repeat it. The advisory itself changes neither exit codes nor readiness and does not install Python or replace environments. Existing compatibility refusals still apply.
+
+If a host hides MCP stderr, inspect `index_health().data.setup_readiness.advisories`, or the `advisories` list in `wf setup --check --json`. `python_runtime_deprecated` reports the executing interpreter and recommended minimum. It is separate from repair actions: deprecation alone does not require setup or an index rebuild.
+
+To deliberately move to newer Python:
+
+1. Install Python outside Wavefoundry. Select the newer interpreter as `python3` on PATH for both the setup terminal and the agent host; verify `python3 --version`. Invoking a version-specific executable alone is insufficient because setup's MCP verification launches PATH `python3`.
+2. Stop all consumers of the shared tool environment, including MCP servers and dashboards for other repositories. Ordinary setup already replaces an environment built for a different Python minor version. Alternatively, select an isolated `WAVEFOUNDRY_TOOL_VENV` before setup and pass that same override to the agent host's launch environment.
+3. Run `./.wavefoundry/bin/wf setup` (PowerShell: `.\.wavefoundry\bin\wf.cmd setup`) from the repository. Setup provisions dependencies under the selected Python; it does not install or select Python for you. If a recovery receipt is pending, follow its owning continuation instead of substituting setup.
+4. Fully restart the agent host with the selected PATH and any environment override, then check `index_health()`. An in-process implementation reload cannot change its interpreter.
+
+The environment replacement path was exercised with disposable Python 3.11 and 3.13 environments on macOS Apple Silicon. That check does not qualify full dependency/model installation or native Windows/Linux execution.
+
+
 ## Local index compatibility
 
 A project keeps ONE local index database, `.wavefoundry/index/index.sqlite`, holding the docs and code semantic layers together with the code graph and its communities; only the agent-memory store stays separate. It requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLite 3.53.4) and `sqlite-vec==0.1.9`. All dependencies must support the selected Python/OS/architecture; a wheel listing alone does not certify an end-to-end install.

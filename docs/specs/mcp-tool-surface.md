@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-16
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -1247,6 +1247,8 @@ not rely on `status` to signal index absence.
 - Recovery: call `index_build(content='docs', mode='update')` (preferred MCP path) or rerun
 `wf update-indexes --root .` when `index_stale`,
 `index_missing`, `index_degraded`, or `index_absent` is reported.
+
+Python runtime advice is available under `index_health().data.setup_readiness.advisories`, and as top-level `advisories` in `wf setup --check --json`. On Python 3.11/3.12, the entry has code `python_runtime_deprecated`, severity `warning`, the actual executing version, recommended minimum `3.13`, interpreter provenance and guidance. Python 3.13+ has no deprecation entry. Advice is separate from setup reasons/actions and does not alter status, startup blocking or exit codes. Independent failures retain their existing recovery actions; repeated health calls do not print another warning.
 
 `index_build(content: str = "docs", mode: str = "update", layer: str = "project")`
 

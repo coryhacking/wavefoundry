@@ -495,6 +495,10 @@ class TechdocsBaselineSubcommandTests(unittest.TestCase):
     def tearDown(self):
         sys.argv = self._orig_argv
 
+    def _runtime_notice(self):
+        advisory = self.mod.runtime_advisory.python_runtime_advisory()
+        return self.mod.runtime_advisory.format_advisory(advisory) + "\n" if advisory is not None else ""
+
     @staticmethod
     def _target(temp_dir: str, *, targets: bool = True) -> Path:
         import render_agent_surfaces as ras
@@ -544,17 +548,17 @@ class TechdocsBaselineSubcommandTests(unittest.TestCase):
             self.assertEqual(envelope["missing_targets"], [])
             self.assertIsNone(envelope["partial"])
             self.assertIsNone(envelope["refusal"])
-            self.assertEqual(err, "")
+            self.assertEqual(err, self._runtime_notice())
             self.assertIn("name: example-project-docs", (root / "catalog-info.yaml").read_text(encoding="utf-8"))
 
-            # Text mode on a rerun: preserved lines on stdout, nothing on stderr, exit 0.
+            # Text mode on a rerun: preserved stdout, only the runtime notice on stderr, exit 0.
             rc, out, err = self._run(["techdocs-baseline", "--root", str(root)])
             self.assertEqual(rc, 0)
             self.assertEqual(
                 out.splitlines(),
                 [f"techdocs-baseline: preserved {rel}" for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md")],
             )
-            self.assertEqual(err, "")
+            self.assertEqual(err, self._runtime_notice())
 
             # Mixed trio: exit 0, one WARNING on stderr, `partial` is the record.
             (root / "mkdocs.yml").write_text("site_name: Mine\n", encoding="utf-8")
@@ -626,11 +630,12 @@ class TechdocsBaselineSubcommandTests(unittest.TestCase):
             self.assertEqual(envelope["written_paths"], [])
             for rel in ("catalog-info.yaml", "mkdocs.yml", "docs/index.md"):
                 self.assertFalse((root / rel).exists(), rel)
-            # Text mode: the one stderr line, empty stdout.
+            # Text mode: one diagnostic plus any runtime notice, empty stdout.
             rc, out, err = self._run(["techdocs-baseline", "--root", str(root)])
             self.assertEqual(rc, 1)
             self.assertEqual(out, "")
-            self.assertEqual(len(err.splitlines()), 1)
+            self.assertTrue(err.startswith(self._runtime_notice()))
+            self.assertEqual(len(err[len(self._runtime_notice()):].splitlines()), 1)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._target(temp_dir)

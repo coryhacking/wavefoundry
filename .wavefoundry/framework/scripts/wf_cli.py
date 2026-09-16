@@ -25,6 +25,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+import runtime_advisory
 
 # Wave 1p8gv: the dispatcher is a CLI entry — reconfigure stdout/stderr to UTF-8 so non-ASCII output
 # from any in-process-dispatched subcommand never raises on a cp1252 Windows console.
@@ -169,6 +170,9 @@ def _dispatch(subcommand: str, rest: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    advisory = runtime_advisory.python_runtime_advisory()
+    if advisory is not None:
+        print(runtime_advisory.format_advisory(advisory), file=sys.stderr)
     args = list(sys.argv[1:] if argv is None else argv)
     parser = _build_parser()
 

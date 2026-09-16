@@ -2,7 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-16
+
+## Runtime advisory boundary
+
+`runtime_advisory.py` derives nonblocking advice from the executing interpreter and returns data without printing or changing environment state. `wf_cli.main` owns one stderr notice per command invocation; the executable MCP serving entry in `server.py` owns one per server process. MCP help and dry-run verification stay silent for this notice, preventing a duplicate during setup. Imports, hot reloads, tool handlers and readiness monitors do not emit it.
+
+`setup_readiness.assess_setup` includes the data in `advisories`, separate from reasons and actions. Existing status, startup blocking, text formatting and exit-code decisions remain unchanged. Index health exposes the assessment for agents whose host hides stderr.
 
 ## Primary Control Paths
 

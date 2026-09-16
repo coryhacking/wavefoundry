@@ -2,14 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-16
 
 ## Current Session
 
 **Active wave:** *(none)*
-**Status:** idle after authorized review/closure. Plain setup reconciliation, read-only setup checks and post-Git index-health guidance shipped in source. All eleven ACs/tasks complete; three delivery defects repaired and independently reverified. Six required lanes and delivery council approved. Full suite passed 9,096 tests (21 intentional skips); receipt matches framework inputs. Gates closed. Changes remain uncommitted; no package/release requested.
+**Status:** idle. Wave 1y6hg closed after all five ACs, required delivery reviews and docs checks passed. Fresh framework receipt: 9,104 tests across 95 files, 12 skips; two-worker run passed the unchanged timing check. No commit or push performed.
 
-**Last closed wave:** `1y3og setup-local-reconciliation` — setup makes fresh and Git-updated checkouts usable safely; read-only checks surface setup/restart/owning-resume actions without automatic repair.
+**Paused wave:** `1y4j8 portable-windows-path-test` retains its three-line test-only fix and prior reviews. BackgroundRefreshActiveTests passed all13 on macOS3.13.5; exact-method controls passed on3.11/3.13, restored-old failure on3.11 and constant-result mutants rejected. No nativeWindows claim. Preserve these unrelated pending edits.
+
+**Last closed wave:** `1y6hg python-runtime-deprecation-advisory` — Python 3.11/3.12 remain allowed with once-only command/MCP startup advice, nonblocking health data and interpreter-transition guidance.
 
 Retrospective validated as memory `1y5tz-mem validate-setup-readiness-against-canonical-producers`: test observers with actual producer output and share parser grammar. No wave AC/task deferrals.
 

@@ -18,6 +18,18 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 sys.dont_write_bytecode = True
+import runtime_advisory
+
+
+def expected_notice():
+    advisory = runtime_advisory.python_runtime_advisory()
+    if advisory is not None:
+        # Isolated Python can report the resolved Homebrew executable rather
+        # than the parent's symlink spelling; provenance belongs to the child.
+        advisory["executable"] = subprocess.check_output(
+            [sys.executable, "-I", "-S", "-c", "import sys; print(sys.executable)"], text=True,
+        ).strip()
+    return runtime_advisory.format_advisory(advisory) + "\n" if advisory is not None else ""
 
 
 def result(status="ready", *, blocked=False, signature=None):
@@ -35,7 +47,7 @@ class PublicBootstrapTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.scripts = self.root / ".wavefoundry/framework/scripts"
         self.scripts.mkdir(parents=True)
-        for name in ("wf_cli.py", "setup_wavefoundry.py", "server.py", "repo_root.py", "cli_stdio.py", "subprocess_util.py"):
+        for name in ("wf_cli.py", "setup_wavefoundry.py", "server.py", "repo_root.py", "cli_stdio.py", "subprocess_util.py", "runtime_advisory.py"):
             shutil.copy2(SCRIPTS / name, self.scripts / name)
         (self.scripts / "venv_bootstrap.py").write_text(
             "def activate_tool_venv(**kwargs):\n    raise AssertionError('ACTIVATION TRIPWIRE')\n"
@@ -69,7 +81,7 @@ class PublicBootstrapTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertEqual(payload["root"], str(target))
         self.assertEqual(payload["status"], "action_required")
-        self.assertEqual(completed.stderr, "")
+        self.assertEqual(completed.stderr, expected_notice())
         after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
         self.assertEqual(before, after)
 
@@ -85,7 +97,9 @@ class PublicBootstrapTests(unittest.TestCase):
         completed = self.invoke("server.py", "--root", str(self.root), blocked=True)
         self.assertEqual(completed.returncode, 1, completed.stderr)
         self.assertEqual(completed.stdout, "")
-        self.assertEqual(json.loads(completed.stderr)["root"], str(self.root))
+        notice = expected_notice()
+        self.assertTrue(completed.stderr.startswith(notice))
+        self.assertEqual(json.loads(completed.stderr[len(notice):])["root"], str(self.root))
 
     def test_startup_advisory_does_not_disable_non_index_startup(self):
         completed = self.invoke("server.py", "--root", str(self.root))
@@ -163,7 +177,7 @@ class SharedAssessmentTests(unittest.TestCase):
             payload = json.loads(completed.stdout)
             self.assertEqual(payload["status"], "action_required")
             self.assertTrue(payload["startup_blocked"])
-            self.assertEqual(completed.stderr, "")
+            self.assertEqual(completed.stderr, expected_notice())
             self.assertEqual(before, census())
             self.assertFalse(marker.exists())
             startup = subprocess.run(
@@ -218,6 +232,8 @@ class SharedAssessmentTests(unittest.TestCase):
 
         handler = Mock()
         assessment = result("indeterminate")
+        with patch.object(sys, "version_info", (3, 12, 9)):
+            assessment["advisories"] = [runtime_advisory.python_runtime_advisory()]
         handler.assess_setup.return_value = assessment
         calls = []
         handler.assess_setup.side_effect = lambda **kwargs: calls.append("assessment") or assessment
@@ -227,6 +243,7 @@ class SharedAssessmentTests(unittest.TestCase):
             response = tools["index_health"]()
         self.assertEqual(calls, ["assessment", "snapshot"])
         self.assertEqual(response["data"]["setup_readiness"], assessment)
+        self.assertEqual(response["data"]["setup_readiness"]["advisories"][0]["actual_version"], "3.12.9")
 
     def test_explicit_main_argv_not_import_time_sys_argv_controls_check(self):
         import setup_readiness

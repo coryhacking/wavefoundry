@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-09-11
+Last verified: 2026-09-16
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -104,3 +104,9 @@ All critical (C), medium (M), and low (L) items identified in this scoping asses
 - Investigation date: 2026-06-17 (against framework `1.7.0`).
 - Renderer: `render_platform_surfaces.py` (`launcher_command`, `render_mcp_json`, `render_bin_launchers`, `remove_git_hooks` — git hooks dropped in wave 1p88t).
 - Platform mapping: `docs/agents/platform-mapping.md`.
+
+## Python runtime policy
+
+Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+
+The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.

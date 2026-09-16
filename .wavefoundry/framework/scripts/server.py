@@ -19,6 +19,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import repo_root
 import setup_readiness
+import runtime_advisory
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -45,6 +46,10 @@ def _assess_startup(root: Path) -> dict[str, Any]:
 # intentionally retain their existing facade behavior.
 if __name__ == "__main__":
     _startup_args = parse_args()
+    if not _startup_args.dry_run:
+        _runtime_advisory = runtime_advisory.python_runtime_advisory()
+        if _runtime_advisory is not None:
+            print(runtime_advisory.format_advisory(_runtime_advisory), file=sys.stderr)
     _STARTUP_ROOT = repo_root.discover_root(_startup_args.root)
     _STARTUP_ASSESSMENT = _assess_startup(_STARTUP_ROOT)
     if _STARTUP_ASSESSMENT.get("startup_blocked"):

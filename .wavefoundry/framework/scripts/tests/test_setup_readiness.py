@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections import namedtuple
 import ast
 import inspect
 import io
@@ -63,6 +64,48 @@ class SetupReadinessTests(unittest.TestCase):
 
     def assess(self, **kwargs):
         return readiness.assess_setup(self.root, **kwargs)
+
+    def test_deprecated_runtime_is_additive_and_retains_independent_failures(self):
+        Version = namedtuple('Version', 'major minor micro')
+        for minor in (11, 12, 13):
+            with self.subTest(minor=minor), patch.object(sys, 'version_info', Version(3, minor, 9)):
+                (self.venv / 'pyvenv.cfg').write_text(f'version = 3.{minor}.9')
+                readiness._site().mkdir(parents=True, exist_ok=True)
+                for failure in ('none', 'dependency', 'ownership', 'runtime'):
+                    with self.subTest(failure=failure):
+                        (self.venv / 'pyvenv.cfg').write_text(f'version = 3.{minor if failure != "runtime" else 99}.9')
+                        owner = patch.object(readiness, '_owner', side_effect=ValueError('owner invalid')) if failure == 'ownership' else patch.object(readiness, '_owner', return_value=(False, []))
+                        with owner, patch.object(readiness, '_dependencies', return_value=['missing'] if failure == 'dependency' else []), \
+                             redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                            observed = self.assess()
+                            with patch.object(readiness.runtime_advisory, 'python_runtime_advisory', return_value=None):
+                                baseline = self.assess()
+                        for field in ('status', 'reasons', 'actions', 'startup_blocked'):
+                            self.assertEqual(observed[field], baseline[field], (field, observed))
+                        self.assertEqual(readiness.exit_code(observed), readiness.exit_code(baseline))
+                        self.assertEqual(readiness.format_text(observed), readiness.format_text(baseline))
+                        self.assertEqual(len(observed['advisories']), int(minor < 13))
+                        if minor < 13:
+                            self.assertEqual(observed['advisories'][0]['actual_version'], f'3.{minor}.9')
+                        self.assertEqual(out.getvalue(), '')
+                        self.assertEqual(err.getvalue(), '')
+                        if failure == 'none':
+                            self.assertEqual(observed['status'], 'ready')
+                            self.assertFalse(observed['startup_blocked'])
+                            self.assertEqual(observed['actions'], [])
+                        else:
+                            self.assertNotEqual(observed['status'], 'ready')
+
+    def test_below_minimum_remains_blocked_without_deprecation_advisory(self):
+        Version = namedtuple('Version', 'major minor micro')
+        with patch.object(sys, 'version_info', Version(3, 10, 9)):
+            (self.venv / 'pyvenv.cfg').write_text('version = 3.10.9')
+            readiness._site().mkdir(parents=True, exist_ok=True)
+            result = self.assess()
+        self.assertTrue(result['startup_blocked'])
+        self.assertEqual(result['status'], 'action_required')
+        self.assertEqual(result['advisories'], [])
+        self.assertIn('environment_incompatible', [item['code'] for item in result['reasons']])
 
     def test_ready_without_stamp_and_no_application_writes(self):
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}

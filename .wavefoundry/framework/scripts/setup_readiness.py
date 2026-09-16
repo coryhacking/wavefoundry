@@ -25,6 +25,7 @@ import tomllib
 
 import subprocess_util
 import venv_bootstrap
+import runtime_advisory
 from provider_policy import REQUESTED_PROVIDER_ENV, SETUP_SELECTED_ENV
 
 from setup_requirements import REQUIRED_IMPORTS, CUDA_DEPENDENCY_IMPORTS, GPU_ACCEL_IMPORTS, parse_args as parse_setup_args
@@ -36,7 +37,7 @@ MAX_JSON_BYTES = 256 * 1024
 MAX_METADATA_BYTES = 256 * 1024
 MAX_ENV_ENTRIES = 4096
 SOURCE_FILES = (
-    'setup_readiness.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
+    'setup_readiness.py', 'runtime_advisory.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
     'setup_reconciliation.py', 'venv_bootstrap.py', 'subprocess_util.py', 'repo_root.py', 'wf_cli.py',
     'server.py', 'server_impl.py', 'index_compatibility.py', 'index_paths.py',
     'index_state_store.py', 'sqlite_vector_store.py', 'sqlite_runtime.py', 'chunker.py',
@@ -415,8 +416,10 @@ def _owner(root: Path) -> tuple[bool, list[str] | None]:
 def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                  timeout_seconds: float = 2.0) -> dict:
     started = time.monotonic()
+    advisory = runtime_advisory.python_runtime_advisory()
     result = {'schema_version': SCHEMA_VERSION, 'status': 'ready', 'signature': '',
               'reasons': [], 'actions': [], 'startup_blocked': True,
+              'advisories': [advisory] if advisory is not None else [],
               'limitations': list(LIMITATIONS), 'timings_ms': {}}
     unknown, needs_setup, pending, preserve = False, False, False, False
     def reason(code, message):

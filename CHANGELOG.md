@@ -10,6 +10,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Clear guidance for older Python installations.** Python 3.11/3.12 remain usable, with one advisory per command or MCP startup recommending 3.13+. Health checks expose the same advice without triggering repairs, and setup guidance explains how to move safely to a newer interpreter. Wave `1y6hg`.
+
 - **One setup command after cloning or pulling updates.** `wf setup` reconciles local dependencies and indexes without an upgrade archive, preserves recovery data until verification, and keeps core search usable while historical memory review remains pending. `wf setup --check` and MCP notices identify when setup, a restart or recovery is needed. Wave `1y3og`.
 
 ## [1.24.0] - 2026-09-13
