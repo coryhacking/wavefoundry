@@ -1,0 +1,5770 @@
+{
+  "kind": "exploratory_nonqualifying",
+  "epoch_before": [
+    "44c3be1c86124a3c862390ff51f1bb23",
+    "complete",
+    1545
+  ],
+  "provider": "CPUExecutionProvider",
+  "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "epoch_after": [
+    "44c3be1c86124a3c862390ff51f1bb23",
+    "complete",
+    1545
+  ],
+  "source_sha256": "693165ed9fc484cee8138c67932755648b092c4ef6dc9460a8149763310fe49a",
+  "limitations": [
+    "Coordinator-authored exploratory questions, not independent holdout",
+    "CPU pinned for all variants; no GPU/platform claim",
+    "Subset reranker timings only, not measured candidate end-to-end",
+    "Completed epoch stable, no frozen database retained",
+    "No code_ask experiment; no representation or diversity ablation"
+  ],
+  "cases": [
+    {
+      "id": "c1",
+      "kind": "code",
+      "query": "How do older running processes avoid overwriting indexes produced by newer code?",
+      "expected": "index_compatibility.py",
+      "runs": [
+        {
+          "total_ms": 976.2531251180917,
+          "rerank_ms": 491.6221247985959,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.59991686604917,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 162.4280409887433,
+              "indices": [
+                0,
+                6,
+                9,
+                2,
+                5
+              ],
+              "gated_indices": [
+                0,
+                6,
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 536.0235420521349,
+          "rerank_ms": 485.2265000808984,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.56037500500679,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 162.6671659760177,
+              "indices": [
+                0,
+                6,
+                9,
+                2,
+                5
+              ],
+              "gated_indices": [
+                0,
+                6,
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 533.2274581305683,
+          "rerank_ms": 482.94924991205335,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.55924996733665,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 162.79462515376508,
+              "indices": [
+                0,
+                6,
+                9,
+                2,
+                5
+              ],
+              "gated_indices": [
+                0,
+                6,
+                9
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        0,
+        6,
+        9,
+        29,
+        21
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/gen_codebase_map.py::generate_codebase_map:L1698-L1723",
+          "lines": [
+            1698,
+            1723
+          ],
+          "raw_logit": 0.07715781778097153
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 39/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L32055-L32076",
+          "lines": [
+            32055,
+            32076
+          ],
+          "raw_logit": -8.64962387084961
+        },
+        {
+          "index": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L33347-L33362",
+          "lines": [
+            33347,
+            33362
+          ],
+          "raw_logit": -6.356342315673828
+        },
+        {
+          "index": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > code_ask_response",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::code_ask_response",
+          "lines": [
+            28071,
+            28088
+          ],
+          "raw_logit": -9.502775192260742
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/memory_records.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/memory_records.py::_median_commit_interval_days",
+          "lines": [
+            1478,
+            1492
+          ],
+          "raw_logit": -8.566610336303711
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/index_compatibility.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/index_compatibility.py#summary",
+          "lines": [
+            1,
+            240
+          ],
+          "raw_logit": -7.742652893066406
+        },
+        {
+          "index": 6,
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/delivery-review.json#node-6:L519-L519",
+          "lines": [
+            519,
+            519
+          ],
+          "raw_logit": -0.6044497489929199
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+          "section": "upgrade_extensions > _from_version_predates",
+          "id": ".wavefoundry/framework/scripts/upgrade_extensions.py::_from_version_predates",
+          "lines": [
+            1709,
+            1722
+          ],
+          "raw_logit": -8.730182647705078
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L78-L83",
+          "lines": [
+            78,
+            83
+          ],
+          "raw_logit": -10.607178688049316
+        },
+        {
+          "index": 9,
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "section": "graph_query > _constructed_index (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/graph_query.py::_constructed_index:L472-L502",
+          "lines": [
+            472,
+            502
+          ],
+          "raw_logit": -0.8074256181716919
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::index_health_response:L10023-L10056",
+          "lines": [
+            10023,
+            10056
+          ],
+          "raw_logit": -6.522106170654297
+        },
+        {
+          "index": 11,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "section": "index_state_store > memory_invalidate",
+          "id": ".wavefoundry/framework/scripts/index_state_store.py::memory_invalidate",
+          "lines": [
+            1365,
+            1382
+          ],
+          "raw_logit": -8.797597885131836
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py",
+          "section": null,
+          "id": "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py::STOP",
+          "lines": [
+            33,
+            33
+          ],
+          "raw_logit": -11.483434677124023
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "section": "upgrade_wavefoundry > _build_upgrade_summary (part 5/5)",
+          "id": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py::_build_upgrade_summary:L3778-L3783",
+          "lines": [
+            3778,
+            3783
+          ],
+          "raw_logit": -10.413801193237305
+        },
+        {
+          "index": 14,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L223-L223",
+          "lines": [
+            223,
+            223
+          ],
+          "raw_logit": -8.030375480651855
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > _sql_analyze_program (part 16/30)",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::_sql_analyze_program:L9479-L9498",
+          "lines": [
+            9479,
+            9498
+          ],
+          "raw_logit": -10.680039405822754
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py",
+          "section": null,
+          "id": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py::QUERY",
+          "lines": [
+            62,
+            62
+          ],
+          "raw_logit": -11.406760215759277
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "section": "index_state_store > MEMORY_STATE_FILENAME [const] (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/index_state_store.py::MEMORY_STATE_FILENAME:L1188-L1207",
+          "lines": [
+            1188,
+            1207
+          ],
+          "raw_logit": -8.122257232666016
+        },
+        {
+          "index": 18,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2528-L2545",
+          "lines": [
+            2528,
+            2545
+          ],
+          "raw_logit": -9.187466621398926
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > GraphPublication.recheck_sources",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::GraphPublication.recheck_sources",
+          "lines": [
+            1944,
+            1966
+          ],
+          "raw_logit": -11.181991577148438
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/scripts/venv_bootstrap.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/venv_bootstrap.py::ensure_python_resolves:L263-L290",
+          "lines": [
+            263,
+            290
+          ],
+          "raw_logit": -10.53479290008545
+        },
+        {
+          "index": 21,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": "setup_wavefoundry > _run_setup (part 4/6)",
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_run_setup:L420-L448",
+          "lines": [
+            420,
+            448
+          ],
+          "raw_logit": -4.637542247772217
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/indexer.py::parse_args:L5865-L5891",
+          "lines": [
+            5865,
+            5891
+          ],
+          "raw_logit": -8.894515037536621
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > _build_index_locked (part 25/75)",
+          "id": ".wavefoundry/framework/scripts/indexer.py::_build_index_locked:L4550-L4574",
+          "lines": [
+            4550,
+            4574
+          ],
+          "raw_logit": -9.190777778625488
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/delivery-review.json#node-11:L991-L1009",
+          "lines": [
+            991,
+            1009
+          ],
+          "raw_logit": -6.17331075668335
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > retire_orphaned_graph_paths (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::retire_orphaned_graph_paths:L16672-L16703",
+          "lines": [
+            16672,
+            16703
+          ],
+          "raw_logit": -9.782400131225586
+        },
+        {
+          "index": 26,
+          "path": ".wavefoundry/framework/scripts/wave_lint_lib/link_validators.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/wave_lint_lib/link_validators.py::_strip_code",
+          "lines": [
+            26,
+            30
+          ],
+          "raw_logit": -11.049367904663086
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 107/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L33937-L33958",
+          "lines": [
+            33937,
+            33958
+          ],
+          "raw_logit": -10.143723487854004
+        },
+        {
+          "index": 28,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L222-L222",
+          "lines": [
+            222,
+            222
+          ],
+          "raw_logit": -9.718324661254883
+        },
+        {
+          "index": 29,
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/readiness-review.json",
+          "section": null,
+          "id": "docs/waves/1xxc9 monotonic-index-version-protection/readiness-review.json#node-0:L29-L51",
+          "lines": [
+            29,
+            51
+          ],
+          "raw_logit": -3.264846086502075
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "section": null,
+          "score": 1.0
+        },
+        {
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "score": 0.9410404296255326
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "section": "graph_query > _constructed_index (part 1/2)",
+          "score": 0.9234828633270726
+        },
+        {
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/readiness-review.json",
+          "section": null,
+          "score": 0.7109141330121324
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": "setup_wavefoundry > _run_setup (part 4/6)",
+          "score": 0.5921748761898614
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "code",
+      "query": "Where are oversized source chunks split to fit the embedding input budget?",
+      "expected": "chunker.py",
+      "runs": [
+        {
+          "total_ms": 536.3048331346363,
+          "rerank_ms": 483.19887509569526,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.86629118770361,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2,
+                4,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 164.28283299319446,
+              "indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 541.6000420227647,
+          "rerank_ms": 488.22620790451765,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.16520901583135,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2,
+                4,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 161.44399996846914,
+              "indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 546.882624970749,
+          "rerank_ms": 495.2001669444144,
+          "variants": {
+            "5": {
+              "rerank_ms": 83.4535420872271,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2,
+                4,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 171.1323750205338,
+              "indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2,
+                6,
+                5,
+                4
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        0,
+        2,
+        20,
+        17,
+        6
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::split_large_chunks:L1296-L1319",
+          "lines": [
+            1296,
+            1319
+          ],
+          "raw_logit": -0.4521164000034332
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::MAX_CODE_CHUNK_CHARS",
+          "lines": [
+            220,
+            231
+          ],
+          "raw_logit": -3.9109315872192383
+        },
+        {
+          "index": 2,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::chunk_file",
+          "lines": [
+            8372,
+            8390
+          ],
+          "raw_logit": -0.7177882790565491
+        },
+        {
+          "index": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::AGENT_TEXT_BUDGET_CHARS",
+          "lines": [
+            592,
+            596
+          ],
+          "raw_logit": -4.567110061645508
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2089-L2110",
+          "lines": [
+            2089,
+            2110
+          ],
+          "raw_logit": -3.672212600708008
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._agent_candidate_select:L2081-L2099",
+          "lines": [
+            2081,
+            2099
+          ],
+          "raw_logit": -3.0660347938537598
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::_max_chars_for_chunk",
+          "lines": [
+            238,
+            243
+          ],
+          "raw_logit": -2.7657880783081055
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::split_large_chunks:L1320-L1345",
+          "lines": [
+            1320,
+            1345
+          ],
+          "raw_logit": -5.312760353088379
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L217-L217",
+          "lines": [
+            217,
+            217
+          ],
+          "raw_logit": -4.7489914894104
+        },
+        {
+          "index": 9,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::AGENT_CANDIDATE_MAX",
+          "lines": [
+            597,
+            597
+          ],
+          "raw_logit": -10.140003204345703
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._agent_candidate_select:L2185-L2205",
+          "lines": [
+            2185,
+            2205
+          ],
+          "raw_logit": -5.41489839553833
+        },
+        {
+          "index": 11,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::chunk_markdown:L1681-L1715",
+          "lines": [
+            1681,
+            1715
+          ],
+          "raw_logit": -4.218446254730225
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > CHUNKER_VERSION [const] (part 4/11)",
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L218-L218",
+          "lines": [
+            218,
+            218
+          ],
+          "raw_logit": -3.290163516998291
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2196-L2217",
+          "lines": [
+            2196,
+            2217
+          ],
+          "raw_logit": -4.644988059997559
+        },
+        {
+          "index": 14,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > _line_wrap_chunk (part 1/5)",
+          "id": ".wavefoundry/framework/scripts/chunker.py::_line_wrap_chunk:L1146-L1177",
+          "lines": [
+            1146,
+            1177
+          ],
+          "raw_logit": -4.677347660064697
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > EMBED_BUFFER_CHUNKS_DEFAULT [const]",
+          "id": ".wavefoundry/framework/scripts/indexer.py::EMBED_BUFFER_CHUNKS_DEFAULT",
+          "lines": [
+            1838,
+            1844
+          ],
+          "raw_logit": -6.105373859405518
+        },
+        {
+          "index": 16,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > CHUNKER_VERSION [const] (part 5/11)",
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L219-L219",
+          "lines": [
+            219,
+            219
+          ],
+          "raw_logit": -9.190295219421387
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::chunk_diagram",
+          "lines": [
+            2663,
+            2686
+          ],
+          "raw_logit": -2.1598963737487793
+        },
+        {
+          "index": 18,
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "section": "gen_codebase_map > OVERSIZED_AREA_NODE_CAP [const]",
+          "id": ".wavefoundry/framework/scripts/gen_codebase_map.py::OVERSIZED_AREA_NODE_CAP",
+          "lines": [
+            152,
+            157
+          ],
+          "raw_logit": -9.541610717773438
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::DRAWIO_EXTENSIONS",
+          "lines": [
+            386,
+            392
+          ],
+          "raw_logit": -10.203106880187988
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > CHUNKER_VERSION [const] (part 2/11)",
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L216-L216",
+          "lines": [
+            216,
+            216
+          ],
+          "raw_logit": -1.5290780067443848
+        },
+        {
+          "index": 21,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L50-L56",
+          "lines": [
+            50,
+            56
+          ],
+          "raw_logit": -8.406838417053223
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L224-L224",
+          "lines": [
+            224,
+            224
+          ],
+          "raw_logit": -8.2266845703125
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > EMBED_BATCH_SIZE [const]",
+          "id": ".wavefoundry/framework/scripts/indexer.py::EMBED_BATCH_SIZE",
+          "lines": [
+            132,
+            133
+          ],
+          "raw_logit": -5.667910575866699
+        },
+        {
+          "index": 24,
+          "path": ".wavefoundry/framework/scripts/wave_lint_lib/docs_constants_validators.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/wave_lint_lib/docs_constants_validators.py::_claims:L55-L95",
+          "lines": [
+            55,
+            95
+          ],
+          "raw_logit": -7.415589332580566
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > MAX_CHUNK_CHARS [const]",
+          "id": ".wavefoundry/framework/scripts/chunker.py::MAX_CHUNK_CHARS",
+          "lines": [
+            233,
+            235
+          ],
+          "raw_logit": -8.847009658813477
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py",
+          "section": null,
+          "id": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/graph_lifecycle_eval.py::participant_view",
+          "lines": [
+            525,
+            538
+          ],
+          "raw_logit": -9.58250617980957
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > CHUNKER_VERSION [const] (part 11/11)",
+          "id": ".wavefoundry/framework/scripts/chunker.py::CHUNKER_VERSION:L225-L225",
+          "lines": [
+            225,
+            225
+          ],
+          "raw_logit": -8.5730619430542
+        },
+        {
+          "index": 28,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::chunk_rst:L2400-L2437",
+          "lines": [
+            2400,
+            2437
+          ],
+          "raw_logit": -7.616143226623535
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 34/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31977-L31990",
+          "lines": [
+            31977,
+            31990
+          ],
+          "raw_logit": -5.718011379241943
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "score": 1.0
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "score": 0.9727543699695944
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": "chunker > CHUNKER_VERSION [const] (part 2/11)",
+          "score": 0.8895536193036496
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "score": 0.8248608715990642
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "score": 0.7627244449672684
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "code",
+      "query": "How are semantic vectors, keyword matches and graph evidence combined to answer a codebase question?",
+      "expected": "server_impl.py",
+      "runs": [
+        {
+          "total_ms": 566.2560830824077,
+          "rerank_ms": 509.81362513266504,
+          "variants": {
+            "5": {
+              "rerank_ms": 82.49808312393725,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                3
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 168.12979197129607,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 548.9423328544945,
+          "rerank_ms": 495.25554198771715,
+          "variants": {
+            "5": {
+              "rerank_ms": 81.71149995177984,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                3
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 165.61475000344217,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 543.341042008251,
+          "rerank_ms": 489.6790839266032,
+          "variants": {
+            "5": {
+              "rerank_ms": 82.13308290578425,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                3
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 162.93287510052323,
+              "indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ],
+              "gated_indices": [
+                4,
+                2,
+                0,
+                1,
+                9
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        12,
+        4,
+        2,
+        0,
+        1
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._build_graph_related:L2038-L2052",
+          "lines": [
+            2038,
+            2052
+          ],
+          "raw_logit": 0.5995087027549744
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2528-L2545",
+          "lines": [
+            2528,
+            2545
+          ],
+          "raw_logit": -2.54809308052063
+        },
+        {
+          "index": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2043-L2063",
+          "lines": [
+            2043,
+            2063
+          ],
+          "raw_logit": 1.375274896621704
+        },
+        {
+          "index": 3,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L1916-L1931",
+          "lines": [
+            1916,
+            1931
+          ],
+          "raw_logit": -5.0666093826293945
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex.search_combined:L2507-L2522",
+          "lines": [
+            2507,
+            2522
+          ],
+          "raw_logit": 1.7303656339645386
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._graph_signal_candidates:L1914-L1929",
+          "lines": [
+            1914,
+            1929
+          ],
+          "raw_logit": -5.0745463371276855
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex.search_combined:L2539-L2560",
+          "lines": [
+            2539,
+            2560
+          ],
+          "raw_logit": -2.797363519668579
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex.search_combined:L2523-L2538",
+          "lines": [
+            2523,
+            2538
+          ],
+          "raw_logit": -5.602195739746094
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+          "section": null,
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json#node-21:L6423-L6445",
+          "lines": [
+            6423,
+            6445
+          ],
+          "raw_logit": -4.461793422698975
+        },
+        {
+          "index": 9,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31954-L31976",
+          "lines": [
+            31954,
+            31976
+          ],
+          "raw_logit": -2.6687710285186768
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_code_ask_response_body:L28396-L28420",
+          "lines": [
+            28396,
+            28420
+          ],
+          "raw_logit": -4.358669757843018
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/delivery-review.json#node-10:L910-L929",
+          "lines": [
+            910,
+            929
+          ],
+          "raw_logit": -2.8527302742004395
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > _code_ask_response_body (part 4/17)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_code_ask_response_body:L28171-L28194",
+          "lines": [
+            28171,
+            28194
+          ],
+          "raw_logit": 2.170846462249756
+        },
+        {
+          "index": 13,
+          "path": "docs/waves/1x5tq later-created-doc-link-targets/delivery-evidence.json",
+          "section": null,
+          "id": "docs/waves/1x5tq later-created-doc-link-targets/delivery-evidence.json#node-4:L505-L522",
+          "lines": [
+            505,
+            522
+          ],
+          "raw_logit": -7.31587553024292
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json",
+          "section": "implementation-evidence (part 2/3)",
+          "id": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json:L4321-L4440:L4377-L4433",
+          "lines": [
+            4377,
+            4433
+          ],
+          "raw_logit": -6.755338191986084
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_classify_question:L27837-L27863",
+          "lines": [
+            27837,
+            27863
+          ],
+          "raw_logit": -8.452515602111816
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/1x5tq later-created-doc-link-targets/delivery-evidence.json",
+          "section": "delivery-evidence > node-10 (part 6/6)",
+          "id": "docs/waves/1x5tq later-created-doc-link-targets/delivery-evidence.json#node-10:L1327-L1335",
+          "lines": [
+            1327,
+            1335
+          ],
+          "raw_logit": -5.436545372009277
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L35-L41",
+          "lines": [
+            35,
+            41
+          ],
+          "raw_logit": -7.863754749298096
+        },
+        {
+          "index": 18,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex (part 44/77)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2168-L2195",
+          "lines": [
+            2168,
+            2195
+          ],
+          "raw_logit": -3.0645875930786133
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::CODE_SEARCH_SUBSTRATE_SOURCES",
+          "lines": [
+            275,
+            281
+          ],
+          "raw_logit": -8.844453811645508
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 7/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31345-L31361",
+          "lines": [
+            31345,
+            31361
+          ],
+          "raw_logit": -6.704747676849365
+        },
+        {
+          "index": 21,
+          "path": "docs/waves/1xny6 unified-index-database/readiness-review-r2.json",
+          "section": "readiness-review-r2 > node-12 (part 3/4)",
+          "id": "docs/waves/1xny6 unified-index-database/readiness-review-r2.json#node-12:L2469-L2469",
+          "lines": [
+            2469,
+            2469
+          ],
+          "raw_logit": -7.976627826690674
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/indexer.py::_build_index_locked:L5636-L5662",
+          "lines": [
+            5636,
+            5662
+          ],
+          "raw_logit": -8.263740539550781
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex._graph_signal_candidates (part 2/5)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._graph_signal_candidates:L1930-L1962",
+          "lines": [
+            1930,
+            1962
+          ],
+          "raw_logit": -5.421019554138184
+        },
+        {
+          "index": 24,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 35/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31991-L32005",
+          "lines": [
+            31991,
+            32005
+          ],
+          "raw_logit": -4.233939170837402
+        },
+        {
+          "index": 25,
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/delivery-review.json#node-6:L561-L561",
+          "lines": [
+            561,
+            561
+          ],
+          "raw_logit": -3.7901511192321777
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+          "section": "implementation-evidence > node-1 (part 1/2)",
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json#node-1:L5-L61",
+          "lines": [
+            5,
+            61
+          ],
+          "raw_logit": -6.802175998687744
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/scripts/setup_requirements.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_requirements.py::parse_args:L72-L82",
+          "lines": [
+            72,
+            82
+          ],
+          "raw_logit": -5.6517252922058105
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py",
+          "section": "walkthrough_include_prefixes > semantic_hit_rank",
+          "id": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py::semantic_hit_rank",
+          "lines": [
+            84,
+            101
+          ],
+          "raw_logit": -7.776544094085693
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/scripts/chunker.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/chunker.py::_SegmentClassifier:L3204-L3224",
+          "lines": [
+            3204,
+            3224
+          ],
+          "raw_logit": -8.51000690460205
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > _code_ask_response_body (part 4/17)",
+          "score": 1.0
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "score": 0.9600119091325094
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "score": 0.9277757713501967
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "score": 0.8573495301604592
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "score": 0.5716013703272693
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "kind": "code",
+      "query": "How does setup reconcile an obsolete local index after pulling framework changes from git?",
+      "expected": "setup_reconciliation.py",
+      "runs": [
+        {
+          "total_ms": 530.3886670153588,
+          "rerank_ms": 480.4874157998711,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.78433300741017,
+              "indices": [
+                1,
+                4,
+                0,
+                2,
+                3
+              ],
+              "gated_indices": [
+                1,
+                4,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 161.78229195065796,
+              "indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ],
+              "gated_indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 530.8087498415262,
+          "rerank_ms": 479.9352919217199,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.64483392424881,
+              "indices": [
+                1,
+                4,
+                0,
+                2,
+                3
+              ],
+              "gated_indices": [
+                1,
+                4,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 160.704999929294,
+              "indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ],
+              "gated_indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 530.2147909533232,
+          "rerank_ms": 479.76616700179875,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.69504198990762,
+              "indices": [
+                1,
+                4,
+                0,
+                2,
+                3
+              ],
+              "gated_indices": [
+                1,
+                4,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 160.95650009810925,
+              "indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ],
+              "gated_indices": [
+                6,
+                7,
+                1,
+                4,
+                0
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        6,
+        7,
+        1,
+        4,
+        10
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_print_help",
+          "lines": [
+            62,
+            80
+          ],
+          "raw_logit": -1.3815059661865234
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/render_agent_surfaces.py::reconcile_review_protocol_surfaces:L1854-L1880",
+          "lines": [
+            1854,
+            1880
+          ],
+          "raw_logit": -0.5754637718200684
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/1xny6 unified-index-database/readiness-review-r2.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/readiness-review-r2.json#node-7:L469-L475",
+          "lines": [
+            469,
+            475
+          ],
+          "raw_logit": -6.576498508453369
+        },
+        {
+          "index": 3,
+          "path": ".wavefoundry/framework/scripts/repair_ppol_memory_staging.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/repair_ppol_memory_staging.py#summary",
+          "lines": [
+            1,
+            287
+          ],
+          "raw_logit": -11.229363441467285
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py#summary",
+          "lines": [
+            1,
+            515
+          ],
+          "raw_logit": -0.8114506602287292
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+          "section": "summary (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/reconcile_scan.py#summary:L3-L30",
+          "lines": [
+            3,
+            30
+          ],
+          "raw_logit": -2.8107330799102783
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/setup_readiness.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_readiness.py::assess_setup:L525-L543",
+          "lines": [
+            525,
+            543
+          ],
+          "raw_logit": 1.4950885772705078
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > WALKER_VERSION [const] (part 1/3)",
+          "id": ".wavefoundry/framework/scripts/indexer.py::WALKER_VERSION:L689-L705",
+          "lines": [
+            689,
+            705
+          ],
+          "raw_logit": 0.48171111941337585
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/scripts/setup_reconciliation.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/setup_reconciliation.py#summary",
+          "lines": [
+            1,
+            289
+          ],
+          "raw_logit": -8.180291175842285
+        },
+        {
+          "index": 9,
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/readiness-review.json",
+          "section": null,
+          "id": "docs/waves/1xxc9 monotonic-index-version-protection/readiness-review.json#node-0:L29-L51",
+          "lines": [
+            29,
+            51
+          ],
+          "raw_logit": -2.86448073387146
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "section": "upgrade_wavefoundry > _reconciliation_recommendation_lines (part 1/6)",
+          "id": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py::_reconciliation_recommendation_lines:L3550-L3572",
+          "lines": [
+            3550,
+            3572
+          ],
+          "raw_logit": -1.3036341667175293
+        },
+        {
+          "index": 11,
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/sqlite_storage_migration.py::cleanup_legacy:L2225-L2252",
+          "lines": [
+            2225,
+            2252
+          ],
+          "raw_logit": -6.903308868408203
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+          "section": "summary (part 2/2)",
+          "id": ".wavefoundry/framework/scripts/reconcile_scan.py#summary:L31-L38",
+          "lines": [
+            31,
+            38
+          ],
+          "raw_logit": -9.840596199035645
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::memory_search_response:L11899-L11922",
+          "lines": [
+            11899,
+            11922
+          ],
+          "raw_logit": -7.549957752227783
+        },
+        {
+          "index": 14,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > _plan_orphan_store_reconcile (part 1/4)",
+          "id": ".wavefoundry/framework/scripts/indexer.py::_plan_orphan_store_reconcile:L2507-L2534",
+          "lines": [
+            2507,
+            2534
+          ],
+          "raw_logit": -4.248530864715576
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/scripts/wf_cli.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/wf_cli.py::_build_parser:L92-L110",
+          "lines": [
+            92,
+            110
+          ],
+          "raw_logit": -3.3974220752716064
+        },
+        {
+          "index": 16,
+          "path": ".wavefoundry/framework/scripts/build_pack.py",
+          "section": "build_pack > BUILD_EPOCH_UTC [const]",
+          "id": ".wavefoundry/framework/scripts/build_pack.py::BUILD_EPOCH_UTC",
+          "lines": [
+            111,
+            126
+          ],
+          "raw_logit": -10.585366249084473
+        },
+        {
+          "index": 17,
+          "path": ".gitignore",
+          "section": null,
+          "id": ".gitignore:L1-L61:L3-L60",
+          "lines": [
+            3,
+            60
+          ],
+          "raw_logit": -5.182429313659668
+        },
+        {
+          "index": 18,
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/render_agent_surfaces.py::SKILL_REGISTRY:L686-L704",
+          "lines": [
+            686,
+            704
+          ],
+          "raw_logit": -9.631709098815918
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > GraphIndexSession (part 112/157)",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::GraphIndexSession:L14559-L14580",
+          "lines": [
+            14559,
+            14580
+          ],
+          "raw_logit": -10.15090560913086
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_run_setup:L351-L384",
+          "lines": [
+            351,
+            384
+          ],
+          "raw_logit": -3.4391889572143555
+        },
+        {
+          "index": 21,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "section": "index_state_store > IndexStateStore._create_tables (part 8/8)",
+          "id": ".wavefoundry/framework/scripts/index_state_store.py::IndexStateStore._create_tables:L642-L648",
+          "lines": [
+            642,
+            648
+          ],
+          "raw_logit": -8.293983459472656
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/venv_bootstrap.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/venv_bootstrap.py::ensure_python_resolves:L263-L290",
+          "lines": [
+            263,
+            290
+          ],
+          "raw_logit": -10.210845947265625
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > retire_orphaned_graph_paths (part 2/2)",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::retire_orphaned_graph_paths:L16704-L16729",
+          "lines": [
+            16704,
+            16729
+          ],
+          "raw_logit": -5.362672328948975
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json",
+          "section": null,
+          "id": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json:L18001-L18120:L18003-L18039",
+          "lines": [
+            18003,
+            18039
+          ],
+          "raw_logit": -10.08100700378418
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/sqlite_runtime.py::connect:L49-L77",
+          "lines": [
+            49,
+            77
+          ],
+          "raw_logit": -7.377921104431152
+        },
+        {
+          "index": 26,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": "setup_wavefoundry > _run_setup (part 1/6)",
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_run_setup:L320-L350",
+          "lines": [
+            320,
+            350
+          ],
+          "raw_logit": -3.147592067718506
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L42-L49",
+          "lines": [
+            42,
+            49
+          ],
+          "raw_logit": -10.83171272277832
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py",
+          "section": null,
+          "id": "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py#summary",
+          "lines": [
+            1,
+            251
+          ],
+          "raw_logit": -8.30859375
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 37/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L32022-L32037",
+          "lines": [
+            32022,
+            32037
+          ],
+          "raw_logit": -7.509368419647217
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/setup_readiness.py",
+          "section": null,
+          "score": 1.0
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > WALKER_VERSION [const] (part 1/3)",
+          "score": 0.9203598350353437
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "score": 0.8372776803243457
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "score": 0.8187317430956814
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+          "section": "upgrade_wavefoundry > _reconciliation_recommendation_lines (part 1/6)",
+          "score": 0.7800516093057139
+        }
+      ]
+    },
+    {
+      "id": "d1",
+      "kind": "docs",
+      "query": "What should I do after pulling framework updates when my local dependencies and index are out of date?",
+      "expected": "",
+      "runs": [
+        {
+          "total_ms": 546.9889170490205,
+          "rerank_ms": 490.00549991615117,
+          "variants": {
+            "5": {
+              "rerank_ms": 90.38912504911423,
+              "indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ],
+              "gated_indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ]
+            },
+            "10": {
+              "rerank_ms": 177.8432910796255,
+              "indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ],
+              "gated_indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 549.337999895215,
+          "rerank_ms": 490.8116669394076,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.25670796632767,
+              "indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ],
+              "gated_indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ]
+            },
+            "10": {
+              "rerank_ms": 163.47716585732996,
+              "indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ],
+              "gated_indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 541.303584119305,
+          "rerank_ms": 483.94462489522994,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.21237514913082,
+              "indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ],
+              "gated_indices": [
+                1,
+                3,
+                0,
+                2,
+                4
+              ]
+            },
+            "10": {
+              "rerank_ms": 161.86466603539884,
+              "indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ],
+              "gated_indices": [
+                8,
+                1,
+                3,
+                0,
+                5
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        8,
+        17,
+        1,
+        15,
+        3
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "section": "160 - Upgrade Wavefoundry (Shortcut) > Local semantic storage conversion (wave 1xjmm) (part 6/27)",
+          "id": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L234-L251",
+          "lines": [
+            234,
+            251
+          ],
+          "raw_logit": -1.6289913654327393
+        },
+        {
+          "index": 1,
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md#doc-summary",
+          "lines": [
+            1,
+            229
+          ],
+          "raw_logit": 0.8101409077644348
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md",
+          "section": "Framework Pack and Framework Index Leak Transient Artifact Files > Decision Log",
+          "id": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md#decision-log",
+          "lines": [
+            95,
+            102
+          ],
+          "raw_logit": -1.8292970657348633
+        },
+        {
+          "index": 3,
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "Setup reconciles the local checkout > Requirements (part 3/5)",
+          "id": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md#requirements:L16-L28:L24-L25",
+          "lines": [
+            24,
+            25
+          ],
+          "raw_logit": -1.0920203924179077
+        },
+        {
+          "index": 4,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.23.0] > Changed",
+          "id": "CHANGELOG.md#1230/changed",
+          "lines": [
+            53,
+            56
+          ],
+          "raw_logit": -2.5557267665863037
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/seeds/150-refresh-wavefoundry.prompt.md",
+          "section": "doc-summary (part 2/14)",
+          "id": ".wavefoundry/framework/seeds/150-refresh-wavefoundry.prompt.md#doc-summary:L2-L2",
+          "lines": [
+            2,
+            2
+          ],
+          "raw_logit": -1.6933945417404175
+        },
+        {
+          "index": 6,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md",
+          "section": "Dashboard: Framework Index Stale Monitoring Parity > Requirements",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md#requirements",
+          "lines": [
+            14,
+            24
+          ],
+          "raw_logit": -5.923211097717285
+        },
+        {
+          "index": 7,
+          "path": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md",
+          "section": "doc-summary",
+          "id": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md#doc-summary",
+          "lines": [
+            1,
+            117
+          ],
+          "raw_logit": -7.211298942565918
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "Setup reconciles the local checkout > Rationale",
+          "id": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": 5.270489692687988
+        },
+        {
+          "index": 9,
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > Local semantic storage conversion (wave 1xjmm) (part 6/6)",
+          "id": "docs/prompts/upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L224-L231",
+          "lines": [
+            224,
+            231
+          ],
+          "raw_logit": -3.1190154552459717
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "section": "doc-summary (part 3/3)",
+          "id": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#doc-summary:L3-L5",
+          "lines": [
+            3,
+            5
+          ],
+          "raw_logit": -1.9211832284927368
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md",
+          "section": "Framework Pack and Framework Index Leak Transient Artifact Files > AC Priority",
+          "id": "docs/waves/130et framework-bin-mcp-server-launcher/130o2-bug framework-pack-leaks-lock-files.md#ac-priority",
+          "lines": [
+            83,
+            94
+          ],
+          "raw_logit": -3.027540683746338
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md",
+          "section": "Dashboard: Framework Index Stale Monitoring Parity > Rationale",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -3.3061470985412598
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md",
+          "section": "Wave Framework Seeding Overview > Key Points For Implementers > Preserve local evidence during upgrade",
+          "id": ".wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md#key-points-for-implementers/preserve-local-evidence-during-upgrade",
+          "lines": [
+            226,
+            226
+          ],
+          "raw_logit": -5.32631254196167
+        },
+        {
+          "index": 14,
+          "path": "docs/prompts/install-wavefoundry.prompt.md",
+          "section": "Init Wavefoundry > MCP / Wavefoundry Server (part 2/2)",
+          "id": "docs/prompts/install-wavefoundry.prompt.md#mcp-wavefoundry-server:postlude:L136-L144",
+          "lines": [
+            136,
+            144
+          ],
+          "raw_logit": -3.9923925399780273
+        },
+        {
+          "index": 15,
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > How Framework Updates Work (part 5/6)",
+          "id": "docs/prompts/upgrade-wavefoundry.prompt.md#how-framework-updates-work:L265-L277",
+          "lines": [
+            265,
+            277
+          ],
+          "raw_logit": -0.954431414604187
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/1p99f retire-framework-index-seed-references/1p994-enh retire-framework-index-seed-references.md",
+          "section": "Retire framework-index references in shipped seeds (single project index is the reality) > Scope (part 2/2)",
+          "id": "docs/waves/1p99f retire-framework-index-seed-references/1p994-enh retire-framework-index-seed-references.md#scope:L51-L90:L74-L90",
+          "lines": [
+            74,
+            90
+          ],
+          "raw_logit": -4.416214466094971
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/README.md",
+          "section": "Wave Framework > Setup after a clone or pull",
+          "id": ".wavefoundry/framework/README.md#setup-after-a-clone-or-pull",
+          "lines": [
+            11,
+            39
+          ],
+          "raw_logit": 2.783069372177124
+        },
+        {
+          "index": 18,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.11.1] - 2026-07-06",
+          "id": "CHANGELOG.md#1111---2026-07-06",
+          "lines": [
+            1332,
+            1342
+          ],
+          "raw_logit": -9.266042709350586
+        },
+        {
+          "index": 19,
+          "path": "docs/waves/12tms python-env-and-semver-implementation/12shs-bug project-index-health-flags-framework-paths-stale.md",
+          "section": "Project Index Health Check Falsely Flags Framework Paths As Stale > Serialization Points",
+          "id": "docs/waves/12tms python-env-and-semver-implementation/12shs-bug project-index-health-flags-framework-paths-stale.md#serialization-points",
+          "lines": [
+            60,
+            63
+          ],
+          "raw_logit": -6.973886013031006
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/seeds/150-refresh-wavefoundry.prompt.md",
+          "section": "# 150 - Refresh Wavefoundry (Internal Helper)",
+          "id": ".wavefoundry/framework/seeds/150-refresh-wavefoundry.prompt.md#preamble@L1",
+          "lines": [
+            1,
+            15
+          ],
+          "raw_logit": -3.156489133834839
+        },
+        {
+          "index": 21,
+          "path": "docs/contributing/build-and-verification.md",
+          "section": "Build and Verification > Semantic Index And Offline Search > Update vs rebuild \u2014 decision table (part 3/4)",
+          "id": "docs/contributing/build-and-verification.md#semantic-index-and-offline-search/update-vs-rebuild-decision-table:postlude:L208-L215",
+          "lines": [
+            208,
+            215
+          ],
+          "raw_logit": -7.712630748748779
+        },
+        {
+          "index": 22,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j7k-bug framework-stale-use-index-inputs-not-git-dirty.md",
+          "section": "Dashboard: Use Framework Index Inputs Instead of Git Dirty State > Rationale",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j7k-bug framework-stale-use-index-inputs-not-git-dirty.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -3.6432600021362305
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+          "section": "Convert Local Vector Storage to Unified SQLite > Standard Upgrade and Recovery Path (part 4/6)",
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md#standard-upgrade-and-recovery-path:L116-L127:L123-L124",
+          "lines": [
+            123,
+            124
+          ],
+          "raw_logit": -7.07309627532959
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+          "section": "Convert Local Vector Storage to Unified SQLite > Standard Upgrade and Recovery Path (part 5/6)",
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md#standard-upgrade-and-recovery-path:L116-L127:L125-L126",
+          "lines": [
+            125,
+            126
+          ],
+          "raw_logit": -3.699455499649048
+        },
+        {
+          "index": 25,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.10.0] - 2026-07-01 > Changed (part 2/3)",
+          "id": "CHANGELOG.md#1100---2026-07-01/changed:L1390-L1393",
+          "lines": [
+            1390,
+            1393
+          ],
+          "raw_logit": -4.542227268218994
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md",
+          "section": "Dashboard: Framework Index Stale Monitoring Parity > Scope",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md#scope",
+          "lines": [
+            25,
+            46
+          ],
+          "raw_logit": -6.626979827880859
+        },
+        {
+          "index": 27,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/wave.md",
+          "section": "Wave Record > Journal Watchpoints (part 2/2)",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/wave.md#journal-watchpoints:L72-L87:L83-L87",
+          "lines": [
+            83,
+            87
+          ],
+          "raw_logit": -1.7175004482269287
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j8w-bug framework-stale-ignore-packaging-artifacts.md",
+          "section": "Dashboard: Ignore Packaging Artifacts in Framework Stale Detection > Rationale",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j8w-bug framework-stale-ignore-packaging-artifacts.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -4.394753456115723
+        },
+        {
+          "index": 29,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md",
+          "section": "Dashboard: Framework Index Stale Monitoring Parity > Tasks",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2e-bug framework-index-stale-monitoring.md#tasks",
+          "lines": [
+            57,
+            64
+          ],
+          "raw_logit": -8.117461204528809
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "Setup reconciles the local checkout > Rationale",
+          "score": 1.0
+        },
+        {
+          "path": ".wavefoundry/framework/README.md",
+          "section": "Wave Framework > Setup after a clone or pull",
+          "score": 0.8288848914090383
+        },
+        {
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "doc-summary",
+          "score": 0.6931628079129764
+        },
+        {
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > How Framework Updates Work (part 5/6)",
+          "score": 0.5717740011765664
+        },
+        {
+          "path": "docs/waves/1y3og setup-local-reconciliation/1y3hc-enh setup-local-index-reconciliation.md",
+          "section": "Setup reconciles the local checkout > Requirements (part 3/5)",
+          "score": 0.5623089531163821
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "kind": "docs",
+      "query": "How does interrupted storage conversion preserve recovery data until the new index is verified?",
+      "expected": "",
+      "runs": [
+        {
+          "total_ms": 539.2206248361617,
+          "rerank_ms": 482.9382090829313,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.95245785079896,
+              "indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 167.66820801422,
+              "indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 553.2231661491096,
+          "rerank_ms": 494.653542060405,
+          "variants": {
+            "5": {
+              "rerank_ms": 81.63179201073945,
+              "indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 160.20666691474617,
+              "indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 540.4853748623282,
+          "rerank_ms": 482.8533339314163,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.58387506753206,
+              "indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                4,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 170.29899987392128,
+              "indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                3,
+                1,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        3,
+        1,
+        11,
+        0,
+        6
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/README.md",
+          "section": "Wave Framework > Local index compatibility (part 2/2)",
+          "id": ".wavefoundry/framework/README.md#local-index-compatibility:postlude:L73-L75",
+          "lines": [
+            73,
+            75
+          ],
+          "raw_logit": 3.3561758995056152
+        },
+        {
+          "index": 1,
+          "path": "docs/agents/memory/1xk4o-mem parent-owned-index-recovery-must-preserve-current-memory-aut.md",
+          "section": "Parent-owned index recovery must preserve current memory authorization > Summary",
+          "id": "docs/agents/memory/1xk4o-mem parent-owned-index-recovery-must-preserve-current-memory-aut.md#summary",
+          "lines": [
+            22,
+            25
+          ],
+          "raw_logit": 3.67002272605896
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/summary5-final-qa.md",
+          "section": "Summary5 final independent QA \u2014 repaired tree > Independent repair verification",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/summary5-final-qa.md#independent-repair-verification",
+          "lines": [
+            11,
+            18
+          ],
+          "raw_logit": 2.787853240966797
+        },
+        {
+          "index": 3,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.23.0] > Fixed",
+          "id": "CHANGELOG.md#1230/fixed",
+          "lines": [
+            45,
+            49
+          ],
+          "raw_logit": 5.10534143447876
+        },
+        {
+          "index": 4,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Index compatibility refusals",
+          "id": "docs/specs/mcp-tool-surface.md#index-compatibility-refusals",
+          "lines": [
+            1670,
+            1699
+          ],
+          "raw_logit": 2.8305680751800537
+        },
+        {
+          "index": 5,
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/1xwi1-bug prevent-stale-index-writer-downgrades.md",
+          "section": "Prevent stale processes from downgrading project indexes > Concrete Compatibility Design (part 2/2)",
+          "id": "docs/waves/1xxc9 monotonic-index-version-protection/1xwi1-bug prevent-stale-index-writer-downgrades.md#concrete-compatibility-design:postlude:L42-L42",
+          "lines": [
+            42,
+            42
+          ],
+          "raw_logit": 2.439732074737549
+        },
+        {
+          "index": 6,
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > Local semantic storage conversion (wave 1xjmm) (part 2/6)",
+          "id": "docs/prompts/upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L114-L141",
+          "lines": [
+            114,
+            141
+          ],
+          "raw_logit": 3.311638355255127
+        },
+        {
+          "index": 7,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Acceptance Criteria (part 4/9)",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#acceptance-criteria:L134-L148:L140-L140",
+          "lines": [
+            140,
+            140
+          ],
+          "raw_logit": 0.07447121292352676
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "section": "160 - Upgrade Wavefoundry (Shortcut) > Local semantic storage conversion (wave 1xjmm) (part 2/27)",
+          "id": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L124-L151",
+          "lines": [
+            124,
+            151
+          ],
+          "raw_logit": 3.062272310256958
+        },
+        {
+          "index": 9,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+          "section": "Convert Local Vector Storage to Unified SQLite > Session Handoff (part 9/11)",
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md#session-handoff:L314-L360:L350-L353",
+          "lines": [
+            350,
+            353
+          ],
+          "raw_logit": 0.6266700625419617
+        },
+        {
+          "index": 10,
+          "path": "docs/architecture/decisions/1sihk-adr annotation-first-temporal-decay.md",
+          "section": "1sihk-adr \u2014 Annotation-First Temporal Decay (Score-Blended Decay Rejected) > Consequences",
+          "id": "docs/architecture/decisions/1sihk-adr annotation-first-temporal-decay.md#consequences",
+          "lines": [
+            21,
+            26
+          ],
+          "raw_logit": -9.521015167236328
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+          "section": "Convert Local Vector Storage to Unified SQLite > Standard Upgrade and Recovery Path (part 6/6)",
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md#standard-upgrade-and-recovery-path:L116-L127:L127-L127",
+          "lines": [
+            127,
+            127
+          ],
+          "raw_logit": 3.467050552368164
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > GraphStateStore.ensure_current",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::GraphStateStore.ensure_current.__doc__",
+          "lines": [
+            1589,
+            1598
+          ],
+          "raw_logit": -5.461893081665039
+        },
+        {
+          "index": 13,
+          "path": "docs/contributing/build-and-verification.md",
+          "section": "Build and Verification > Semantic Index And Offline Search > Update vs rebuild \u2014 decision table (part 2/4)",
+          "id": "docs/contributing/build-and-verification.md#semantic-index-and-offline-search/update-vs-rebuild-decision-table:postlude:L208-L208",
+          "lines": [
+            208,
+            208
+          ],
+          "raw_logit": 2.7927045822143555
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1ro44 agent-memory-and-retrieval-decay/wave.md",
+          "section": "Wave Record > Review Checkpoints (part 10/40)",
+          "id": "docs/waves/1ro44 agent-memory-and-retrieval-decay/wave.md#review-checkpoints:L52-L171:L81-L82",
+          "lines": [
+            81,
+            82
+          ],
+          "raw_logit": -0.5631795525550842
+        },
+        {
+          "index": 15,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.10.0] - 2026-07-01 > Fixed (part 1/3)",
+          "id": "CHANGELOG.md#1100---2026-07-01/fixed:L1400-L1403",
+          "lines": [
+            1400,
+            1403
+          ],
+          "raw_logit": -2.0872957706451416
+        },
+        {
+          "index": 16,
+          "path": "docs/architecture/data-and-control-flow.md",
+          "section": "Data and Control Flow > Semantic format upgrade (wave 1xjmm)",
+          "id": "docs/architecture/data-and-control-flow.md#semantic-format-upgrade-wave-1xjmm",
+          "lines": [
+            630,
+            659
+          ],
+          "raw_logit": 2.261622190475464
+        },
+        {
+          "index": 17,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Upgrade and recovery procedure (part 3/5)",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#upgrade-and-recovery-procedure:L107-L108",
+          "lines": [
+            107,
+            108
+          ],
+          "raw_logit": 2.057701826095581
+        },
+        {
+          "index": 18,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Acceptance Criteria (part 5/9)",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#acceptance-criteria:L134-L148:L140-L141",
+          "lines": [
+            140,
+            141
+          ],
+          "raw_logit": -1.6289805173873901
+        },
+        {
+          "index": 19,
+          "path": "docs/references/memory-retrieval-eval.md",
+          "section": "Memory-retrieval evaluation and fusion gate > Selected production integration (wave 1yad2) > Source freshness and runtime recovery",
+          "id": "docs/references/memory-retrieval-eval.md#selected-production-integration-wave-1yad2/source-freshness-and-runtime-recovery",
+          "lines": [
+            187,
+            192
+          ],
+          "raw_logit": -0.23584426939487457
+        },
+        {
+          "index": 20,
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > Index writer compatibility and first protected upgrade (part 2/2)",
+          "id": "docs/prompts/upgrade-wavefoundry.prompt.md#index-writer-compatibility-and-first-protected-upgrade:L68-L81",
+          "lines": [
+            68,
+            81
+          ],
+          "raw_logit": 2.10902738571167
+        },
+        {
+          "index": 21,
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > Local semantic storage conversion (wave 1xjmm) (part 1/6)",
+          "id": "docs/prompts/upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L85-L113",
+          "lines": [
+            85,
+            113
+          ],
+          "raw_logit": 0.8755149245262146
+        },
+        {
+          "index": 22,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Readiness contracts and plan review > Additional consumer review \u2014 2026-09-10 (rows 1\u20132 of 6)",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#readiness-contracts-and-plan-review/additional-consumer-review-2026-09-10:rows1-2",
+          "lines": [
+            89,
+            94
+          ],
+          "raw_logit": 0.7433976531028748
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/qualification-report.md",
+          "section": "Memory retrieval qualification and selection > Recovery and integrity",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/qualification-report.md#recovery-and-integrity",
+          "lines": [
+            56,
+            60
+          ],
+          "raw_logit": -0.7392440438270569
+        },
+        {
+          "index": 24,
+          "path": "docs/agents/memory/1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route.md",
+          "section": "",
+          "id": "docs/agents/memory/1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route.md#preamble",
+          "lines": [
+            1,
+            21
+          ],
+          "raw_logit": -0.5754110813140869
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/scripts/publication_control.py",
+          "section": "publication_control > _checkpoint_recovery_tail",
+          "id": ".wavefoundry/framework/scripts/publication_control.py::_checkpoint_recovery_tail.__doc__",
+          "lines": [
+            118,
+            129
+          ],
+          "raw_logit": -3.556175947189331
+        },
+        {
+          "index": 26,
+          "path": "docs/architecture/data-and-control-flow.md",
+          "section": "Data and Control Flow > Primary Control Paths > Path 5: Semantic Index Build (part 3/8)",
+          "id": "docs/architecture/data-and-control-flow.md#primary-control-paths/path-5-semantic-index-build:L100-L101",
+          "lines": [
+            100,
+            101
+          ],
+          "raw_logit": -5.78045129776001
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "section": "160 - Upgrade Wavefoundry (Shortcut) > Index writer compatibility and first protected upgrade (part 2/2)",
+          "id": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#index-writer-compatibility-and-first-protected-upgrade:L52-L91:L78-L91",
+          "lines": [
+            78,
+            91
+          ],
+          "raw_logit": 1.6632581949234009
+        },
+        {
+          "index": 28,
+          "path": "docs/agents/memory/1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route.md",
+          "section": "doc-summary",
+          "id": "docs/agents/memory/1td27-mem interrupted-lifecycle-states-need-a-named-recovery-route.md#doc-summary",
+          "lines": [
+            1,
+            34
+          ],
+          "raw_logit": -0.5670691728591919
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+          "section": "160 - Upgrade Wavefoundry (Shortcut) > Local semantic storage conversion (wave 1xjmm) (part 16/27)",
+          "id": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#local-semantic-storage-conversion-wave-1xjmm:L283-L305",
+          "lines": [
+            283,
+            305
+          ],
+          "raw_logit": 1.200180172920227
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.23.0] > Fixed",
+          "score": 1.0
+        },
+        {
+          "path": "docs/agents/memory/1xk4o-mem parent-owned-index-recovery-must-preserve-current-memory-aut.md",
+          "section": "Parent-owned index recovery must preserve current memory authorization > Summary",
+          "score": 0.9018676525190494
+        },
+        {
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/1xj6o-ref unified-sqlite-vector-storage.md",
+          "section": "Convert Local Vector Storage to Unified SQLite > Standard Upgrade and Recovery Path (part 6/6)",
+          "score": 0.8879905005243418
+        },
+        {
+          "path": ".wavefoundry/framework/README.md",
+          "section": "Wave Framework > Local index compatibility (part 2/2)",
+          "score": 0.8804100308365217
+        },
+        {
+          "path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+          "section": "Upgrade Wavefoundry > Local semantic storage conversion (wave 1xjmm) (part 2/6)",
+          "score": 0.8773650111188112
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "kind": "docs",
+      "query": "What makes a memory search result evidence rather than an instruction I must obey?",
+      "expected": "",
+      "runs": [
+        {
+          "total_ms": 540.2562080416828,
+          "rerank_ms": 483.7929999921471,
+          "variants": {
+            "5": {
+              "rerank_ms": 85.39691707119346,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 161.69091616757214,
+              "indices": [
+                0,
+                2,
+                5,
+                9,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 535.0527910050005,
+          "rerank_ms": 478.5169998649508,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.04779096134007,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 159.68870790675282,
+              "indices": [
+                0,
+                2,
+                5,
+                9,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 534.8479580134153,
+          "rerank_ms": 477.79779182747006,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.52283299528062,
+              "indices": [
+                0,
+                2,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            },
+            "10": {
+              "rerank_ms": 159.69145810231566,
+              "indices": [
+                0,
+                2,
+                5,
+                9,
+                4
+              ],
+              "gated_indices": [
+                0,
+                2
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        21,
+        0,
+        17,
+        10,
+        2
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Rationale and alternatives",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#rationale-and-alternatives",
+          "lines": [
+            25,
+            30
+          ],
+          "raw_logit": -1.0421078205108643
+        },
+        {
+          "index": 1,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Required positive and negative controls",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#required-positive-and-negative-controls",
+          "lines": [
+            45,
+            59
+          ],
+          "raw_logit": -7.694799423217773
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/implementation-checks.md",
+          "section": "Memory evaluation implementation checks > Limits",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/implementation-checks.md#limits",
+          "lines": [
+            57,
+            59
+          ],
+          "raw_logit": -3.6935036182403564
+        },
+        {
+          "index": 3,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-primer.md",
+          "section": "Memory retrieval readiness primer > Strongest challenge",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-primer.md#strongest-challenge",
+          "lines": [
+            13,
+            18
+          ],
+          "raw_logit": -8.540657043457031
+        },
+        {
+          "index": 4,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/wave.md",
+          "section": "Wave Record > Outputs produced",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/wave.md#outputs-produced",
+          "lines": [
+            89,
+            95
+          ],
+          "raw_logit": -7.641756057739258
+        },
+        {
+          "index": 5,
+          "path": "docs/references/memory-retrieval-eval.md",
+          "section": "Memory-retrieval evaluation and fusion gate > Purpose",
+          "id": "docs/references/memory-retrieval-eval.md#purpose",
+          "lines": [
+            7,
+            20
+          ],
+          "raw_logit": -5.858834266662598
+        },
+        {
+          "index": 6,
+          "path": "docs/waves/1sxj7 self-populating-memory-and-telemetry-reconciliation/1sxmy-bug memory-supply-and-exploration-estimate-integrity.md",
+          "section": "Memory supply and exploration-estimate integrity > AC Priority",
+          "id": "docs/waves/1sxj7 self-populating-memory-and-telemetry-reconciliation/1sxmy-bug memory-supply-and-exploration-estimate-integrity.md#ac-priority",
+          "lines": [
+            169,
+            188
+          ],
+          "raw_logit": -10.499512672424316
+        },
+        {
+          "index": 7,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > AC Priority",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#ac-priority",
+          "lines": [
+            119,
+            131
+          ],
+          "raw_logit": -9.699492454528809
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#doc-summary",
+          "lines": [
+            1,
+            66
+          ],
+          "raw_logit": -9.772047996520996
+        },
+        {
+          "index": 9,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Requirements (part 2/3)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#requirements:L22-L28:L24-L25",
+          "lines": [
+            24,
+            25
+          ],
+          "raw_logit": -7.147062301635742
+        },
+        {
+          "index": 10,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Scope",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#scope",
+          "lines": [
+            50,
+            57
+          ],
+          "raw_logit": -3.5021443367004395
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Boundaries and verified source (part 2/2)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#boundaries-and-verified-source:L43-L43",
+          "lines": [
+            43,
+            43
+          ],
+          "raw_logit": -8.750110626220703
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Rationale (part 2/2)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#rationale:L18-L18",
+          "lines": [
+            18,
+            18
+          ],
+          "raw_logit": -5.719318389892578
+        },
+        {
+          "index": 13,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Risks",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#risks",
+          "lines": [
+            171,
+            182
+          ],
+          "raw_logit": -5.319100379943848
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Rationale (part 1/2)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#rationale:L12-L17",
+          "lines": [
+            12,
+            17
+          ],
+          "raw_logit": -6.345430850982666
+        },
+        {
+          "index": 15,
+          "path": "docs/references/memory-retrieval-eval.md",
+          "section": "Memory-retrieval evaluation and fusion gate > Original qualification gate and result (part 1/2)",
+          "id": "docs/references/memory-retrieval-eval.md#original-qualification-gate-and-result:L78-L106:L78-L104",
+          "lines": [
+            78,
+            104
+          ],
+          "raw_logit": -7.8698835372924805
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract-review.md",
+          "section": "Memory retrieval docs-contract readiness review > Source-verified current behavior (rows 1\u20137 of 7)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract-review.md#source-verified-current-behavior:rows1-7",
+          "lines": [
+            24,
+            32
+          ],
+          "raw_logit": -6.3656392097473145
+        },
+        {
+          "index": 17,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Approved policy (part 1/3)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#approved-policy:L15-L23:L15-L19",
+          "lines": [
+            15,
+            19
+          ],
+          "raw_logit": -3.192211389541626
+        },
+        {
+          "index": 18,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Architecture checkpoint verdict",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md#architecture-checkpoint-verdict",
+          "lines": [
+            7,
+            12
+          ],
+          "raw_logit": -7.770913600921631
+        },
+        {
+          "index": 19,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Acceptance Criteria (part 2/2)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#acceptance-criteria:L60-L67:L67-L67",
+          "lines": [
+            67,
+            67
+          ],
+          "raw_logit": -8.440412521362305
+        },
+        {
+          "index": 20,
+          "path": "docs/waves/1t72b ce-hardening-and-paired-eval/1t728-bug memory-propose-target-misattribution.md",
+          "section": "Memory Propose Draws Targets From the Verification Command > Progress Log",
+          "id": "docs/waves/1t72b ce-hardening-and-paired-eval/1t728-bug memory-propose-target-misattribution.md#progress-log",
+          "lines": [
+            101,
+            108
+          ],
+          "raw_logit": -7.6395416259765625
+        },
+        {
+          "index": 21,
+          "path": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/wave.md",
+          "section": "Wave Record > Prepare Review Evidence (part 2/2)",
+          "id": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/wave.md#prepare-review-evidence:L73-L103:L100-L103",
+          "lines": [
+            100,
+            103
+          ],
+          "raw_logit": -0.7250000238418579
+        },
+        {
+          "index": 22,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Acceptance Criteria (part 1/2)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md#acceptance-criteria:L60-L67:L60-L66",
+          "lines": [
+            60,
+            66
+          ],
+          "raw_logit": -6.6673407554626465
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1stwm memory-supply/1stwk-feat evidence-derived-memory-candidates.md",
+          "section": "Evidence-derived memory candidates from the review ledger > AC Priority",
+          "id": "docs/waves/1stwm memory-supply/1stwk-feat evidence-derived-memory-candidates.md#ac-priority",
+          "lines": [
+            90,
+            105
+          ],
+          "raw_logit": -7.757868766784668
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1u8r2 memory-consolidation-and-drift-parser/1u75c-enh memory-review-shortcut.md",
+          "section": "Review Memories Shortcut > AC Priority",
+          "id": "docs/waves/1u8r2 memory-consolidation-and-drift-parser/1u75c-enh memory-review-shortcut.md#ac-priority",
+          "lines": [
+            80,
+            90
+          ],
+          "raw_logit": -8.778891563415527
+        },
+        {
+          "index": 25,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-primer.md",
+          "section": "Memory retrieval readiness primer > Primer questions",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-primer.md#primer-questions",
+          "lines": [
+            37,
+            41
+          ],
+          "raw_logit": -5.404394626617432
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-synthesis.md",
+          "section": "Memory retrieval readiness synthesis > Evidence integrity and approval facts",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-synthesis.md#evidence-integrity-and-approval-facts",
+          "lines": [
+            35,
+            44
+          ],
+          "raw_logit": -8.214313507080078
+        },
+        {
+          "index": 27,
+          "path": "docs/waves/1t8la memory-archival-and-retention/1t8l9-enh memory-archival-and-retention-lifecycle.md",
+          "section": "Memory archival and retention lifecycle > AC Priority",
+          "id": "docs/waves/1t8la memory-archival-and-retention/1t8l9-enh memory-archival-and-retention-lifecycle.md#ac-priority",
+          "lines": [
+            135,
+            146
+          ],
+          "raw_logit": -10.984678268432617
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/README.md",
+          "section": "",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/README.md#preamble",
+          "lines": [
+            1,
+            7
+          ],
+          "raw_logit": -6.376382827758789
+        },
+        {
+          "index": 29,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-synthesis.md",
+          "section": "Memory retrieval readiness synthesis > Primer response and resolved improvements",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-synthesis.md#primer-response-and-resolved-improvements",
+          "lines": [
+            19,
+            28
+          ],
+          "raw_logit": -7.175209045410156
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/wave.md",
+          "section": "Wave Record > Prepare Review Evidence (part 2/2)",
+          "score": 1.0
+        },
+        {
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Rationale and alternatives",
+          "score": 0.9690918380567932
+        },
+        {
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/authority-decision.md",
+          "section": "Memory query relevance and authority decision > Approved policy (part 1/3)",
+          "score": 0.7595235145896936
+        },
+        {
+          "path": "docs/waves/1yad2 memory-retrieval-quality/1yad1-enh memory-retrieval-relevance-and-fusion.md",
+          "section": "Memory retrieval relevance and fusion > Scope",
+          "score": 0.7293146776486111
+        },
+        {
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/implementation-checks.md",
+          "section": "Memory evaluation implementation checks > Limits",
+          "score": 0.7106630906321462
+        }
+      ]
+    },
+    {
+      "id": "d4",
+      "kind": "docs",
+      "query": "When should an agent use graph traversal instead of text search to find callers?",
+      "expected": "",
+      "runs": [
+        {
+          "total_ms": 538.3462079335004,
+          "rerank_ms": 481.1721669975668,
+          "variants": {
+            "5": {
+              "rerank_ms": 78.90229183249176,
+              "indices": [
+                3,
+                0,
+                2,
+                1,
+                4
+              ],
+              "gated_indices": [
+                3,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 159.5938338432461,
+              "indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 536.4190000109375,
+          "rerank_ms": 479.04041688889265,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.32620814628899,
+              "indices": [
+                3,
+                0,
+                2,
+                1,
+                4
+              ],
+              "gated_indices": [
+                3,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 160.53858282975852,
+              "indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 542.5817079376429,
+          "rerank_ms": 484.4808748457581,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.57679189369082,
+              "indices": [
+                3,
+                0,
+                2,
+                1,
+                4
+              ],
+              "gated_indices": [
+                3,
+                0
+              ]
+            },
+            "10": {
+              "rerank_ms": 161.5822499152273,
+              "indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ],
+              "gated_indices": [
+                7,
+                3,
+                0,
+                6,
+                8
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        7,
+        15,
+        13,
+        3,
+        0
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Requirements",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#requirements",
+          "lines": [
+            16,
+            24
+          ],
+          "raw_logit": -0.10008594393730164
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": "graph_indexer > _ts_extract_callee_positional",
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::_ts_extract_callee_positional.__doc__",
+          "lines": [
+            8135,
+            8144
+          ],
+          "raw_logit": -5.7781782150268555
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Risks",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#risks",
+          "lines": [
+            118,
+            128
+          ],
+          "raw_logit": -4.071438312530518
+        },
+        {
+          "index": 3,
+          "path": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md",
+          "section": "Bidirectional Graph Path Search > Rationale",
+          "id": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md#rationale",
+          "lines": [
+            10,
+            30
+          ],
+          "raw_logit": 0.15578855574131012
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/seeds/211-guru.prompt.md",
+          "section": "Guru > Retrieval Loop > Call Chain Obligation",
+          "id": ".wavefoundry/framework/seeds/211-guru.prompt.md#retrieval-loop/call-chain-obligation",
+          "lines": [
+            503,
+            510
+          ],
+          "raw_logit": -6.325713634490967
+        },
+        {
+          "index": 5,
+          "path": "docs/agents/guru.md",
+          "section": "Guru > Retrieval Loop > Call Chain Obligation",
+          "id": "docs/agents/guru.md#retrieval-loop/call-chain-obligation",
+          "lines": [
+            490,
+            497
+          ],
+          "raw_logit": -6.325713634490967
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/graph_query.py",
+          "section": "graph_query > GraphQueryIndex.traverse",
+          "id": ".wavefoundry/framework/scripts/graph_query.py::GraphQueryIndex.traverse.__doc__",
+          "lines": [
+            1382,
+            1389
+          ],
+          "raw_logit": -0.22805115580558777
+        },
+        {
+          "index": 7,
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 11: Agent graph expansion is structural and question-type agnostic",
+          "id": "docs/architecture/search-architecture.md#design-decisions/decision-11-agent-graph-expansion-is-structural-and-question-type-agnostic",
+          "lines": [
+            359,
+            382
+          ],
+          "raw_logit": 1.9440736770629883
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/1p3dk framework-drift-convergence/1p3ha-enh code-read-comprehensive-enrichment.md",
+          "section": "code_read Comprehensive Enrichment > Decision Log (rows 3\u20136 of 8)",
+          "id": "docs/waves/1p3dk framework-drift-convergence/1p3ha-enh code-read-comprehensive-enrichment.md#decision-log:rows3-6",
+          "lines": [
+            193,
+            196
+          ],
+          "raw_logit": -1.7760032415390015
+        },
+        {
+          "index": 9,
+          "path": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md",
+          "section": "Bidirectional Graph Path Search > Scope",
+          "id": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md#scope",
+          "lines": [
+            53,
+            84
+          ],
+          "raw_logit": -2.7134218215942383
+        },
+        {
+          "index": 10,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Progress Log (rows 3\u20133 of 4)",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#progress-log:rows3-3",
+          "lines": [
+            105,
+            105
+          ],
+          "raw_logit": -4.656677722930908
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Scope",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#scope",
+          "lines": [
+            25,
+            43
+          ],
+          "raw_logit": -0.45601028203964233
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/1ro44 agent-memory-and-retrieval-decay/1p8gy-enh graph-backed-agent-memory.md",
+          "section": "Graph-backed agent memory > Serialization Points",
+          "id": "docs/waves/1ro44 agent-memory-and-retrieval-decay/1p8gy-enh graph-backed-agent-memory.md#serialization-points",
+          "lines": [
+            122,
+            130
+          ],
+          "raw_logit": -5.756603717803955
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+          "section": "doc-summary (part 9/15)",
+          "id": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md#doc-summary:L9-L9",
+          "lines": [
+            9,
+            9
+          ],
+          "raw_logit": 0.8406898379325867
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Acceptance Criteria (part 2/4)",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#acceptance-criteria:L46-L51:L47-L49",
+          "lines": [
+            47,
+            49
+          ],
+          "raw_logit": -2.389171600341797
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/seeds/221-code-reviewer.prompt.md",
+          "section": "Agent Body \u2014 Code Reviewer > Executable Evidence And Actionability > Reviewer-side graph queries for actionability facts",
+          "id": ".wavefoundry/framework/seeds/221-code-reviewer.prompt.md#executable-evidence-and-actionability/reviewer-side-graph-queries-for-actionability-facts",
+          "lines": [
+            143,
+            147
+          ],
+          "raw_logit": 1.1241871118545532
+        },
+        {
+          "index": 16,
+          "path": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+          "section": "`code_ask` is the wrong tool for a direct navigational lookup of a **known** sym",
+          "id": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md#preamble@L129",
+          "lines": [
+            129,
+            133
+          ],
+          "raw_logit": -1.6347782611846924
+        },
+        {
+          "index": 17,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Progress Log (rows 22\u201322 of 65)",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#progress-log:rows22-22",
+          "lines": [
+            279,
+            279
+          ],
+          "raw_logit": -9.280877113342285
+        },
+        {
+          "index": 18,
+          "path": "docs/agents/guru.md",
+          "section": "Guru > Retrieval Loop > Tool Selection Quick Rules (part 4/6)",
+          "id": "docs/agents/guru.md#retrieval-loop/tool-selection-quick-rules:L163-L164",
+          "lines": [
+            163,
+            164
+          ],
+          "raw_logit": -0.31639695167541504
+        },
+        {
+          "index": 19,
+          "path": "docs/waves/12xr3 graph-augmentation-promotion/1301h-enh graph-driven-code-definition-narrowing.md",
+          "section": "Graph-driven `code_definition` File Narrowing > Decision Log",
+          "id": "docs/waves/12xr3 graph-augmentation-promotion/1301h-enh graph-driven-code-definition-narrowing.md#decision-log",
+          "lines": [
+            115,
+            124
+          ],
+          "raw_logit": -5.834076881408691
+        },
+        {
+          "index": 20,
+          "path": "docs/agents/guru.md",
+          "section": "Guru > Retrieval Loop > Tool Selection Quick Rules (part 3/6)",
+          "id": "docs/agents/guru.md#retrieval-loop/tool-selection-quick-rules:L162-L162",
+          "lines": [
+            162,
+            162
+          ],
+          "raw_logit": -0.22431081533432007
+        },
+        {
+          "index": 21,
+          "path": "docs/waves/13129 graph-tools-field-feedback-round-2/1312l-enh graph-builder-java-receiver-type-attribution.md",
+          "section": "Graph-Builder Java Receiver-Type Attribution \u2014 Eliminate Phantom Edges at Index Time > Decision Log (rows 11\u201311 of 11)",
+          "id": "docs/waves/13129 graph-tools-field-feedback-round-2/1312l-enh graph-builder-java-receiver-type-attribution.md#decision-log:rows11-11",
+          "lines": [
+            119,
+            119
+          ],
+          "raw_logit": -8.92501163482666
+        },
+        {
+          "index": 22,
+          "path": "docs/waves/12xfr id-generation-and-planning-improvements/0rlcw-doc search-retrieval-heuristics-canonicalization.md",
+          "section": "Search Retrieval Heuristics Canonicalization > Rationale",
+          "id": "docs/waves/12xfr id-generation-and-planning-improvements/0rlcw-doc search-retrieval-heuristics-canonicalization.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -7.137964725494385
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Acceptance Criteria (part 4/4)",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#acceptance-criteria:L46-L51:L50-L51",
+          "lines": [
+            50,
+            51
+          ],
+          "raw_logit": -1.5286076068878174
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Acceptance Criteria (part 3/4)",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md#acceptance-criteria:L46-L51:L50-L50",
+          "lines": [
+            50,
+            50
+          ],
+          "raw_logit": -3.286088466644287
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/seeds/211-guru.prompt.md",
+          "section": "Guru > Retrieval Loop > Tool Selection Quick Rules (part 7/7)",
+          "id": ".wavefoundry/framework/seeds/211-guru.prompt.md#retrieval-loop/tool-selection-quick-rules:L181-L186",
+          "lines": [
+            181,
+            186
+          ],
+          "raw_logit": -2.304569959640503
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/1p9q8 graph-index-accuracy/1p9q6-enh oversized-file-degraded-extraction.md",
+          "section": "Graph accuracy: degraded line-scan extraction for files over the tree-sitter parse cap, instead of total omission > Agent Execution Graph",
+          "id": "docs/waves/1p9q8 graph-index-accuracy/1p9q6-enh oversized-file-degraded-extraction.md#agent-execution-graph",
+          "lines": [
+            63,
+            73
+          ],
+          "raw_logit": -6.551909923553467
+        },
+        {
+          "index": 27,
+          "path": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md",
+          "section": "Bidirectional Graph Path Search > Requirements",
+          "id": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md#requirements",
+          "lines": [
+            31,
+            52
+          ],
+          "raw_logit": -0.5126972198486328
+        },
+        {
+          "index": 28,
+          "path": "docs/agents/guru.md",
+          "section": "Guru > Retrieval Loop > Tool Selection Quick Rules (part 6/6)",
+          "id": "docs/agents/guru.md#retrieval-loop/tool-selection-quick-rules:L165-L171",
+          "lines": [
+            165,
+            171
+          ],
+          "raw_logit": -3.030691623687744
+        },
+        {
+          "index": 29,
+          "path": "CHANGELOG.md",
+          "section": "Changelog > [1.24.0] - 2026-09-13",
+          "id": "CHANGELOG.md#1240---2026-09-13",
+          "lines": [
+            23,
+            40
+          ],
+          "raw_logit": -1.3715064525604248
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 11: Agent graph expansion is structural and question-type agnostic",
+          "score": 1.0
+        },
+        {
+          "path": ".wavefoundry/framework/seeds/221-code-reviewer.prompt.md",
+          "section": "Agent Body \u2014 Code Reviewer > Executable Evidence And Actionability > Reviewer-side graph queries for actionability facts",
+          "score": 0.926958560396608
+        },
+        {
+          "path": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+          "section": "doc-summary (part 9/15)",
+          "score": 0.901702567812276
+        },
+        {
+          "path": "docs/waves/12xr3 graph-augmentation-promotion/13006-enh bidirectional-graph-path-search.md",
+          "section": "Bidirectional Graph Path Search > Rationale",
+          "score": 0.8406865958957925
+        },
+        {
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4hu-enh graph-signal-retrieval-fusion.md",
+          "section": "Graph-Signal Retrieval Fusion for `code_ask` (Structural Proximity as a Candidate Source) > Requirements",
+          "score": 0.8178914403128099
+        }
+      ]
+    },
+    {
+      "id": "n1",
+      "kind": "code",
+      "query": "Which function replicates the local semantic index to a hosted multi-region vector service?",
+      "expected": "NEG",
+      "runs": [
+        {
+          "total_ms": 536.0489999875426,
+          "rerank_ms": 483.13008318655193,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.32550010830164,
+              "indices": [
+                1,
+                3,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": [
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 162.02025022357702,
+              "indices": [
+                1,
+                3,
+                9,
+                4,
+                5
+              ],
+              "gated_indices": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 562.5569999683648,
+          "rerank_ms": 508.30641691572964,
+          "variants": {
+            "5": {
+              "rerank_ms": 81.16624993272126,
+              "indices": [
+                1,
+                3,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": [
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 168.5029158834368,
+              "indices": [
+                1,
+                3,
+                9,
+                4,
+                5
+              ],
+              "gated_indices": [
+                1
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 534.7586248535663,
+          "rerank_ms": 479.99608307145536,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.11054201051593,
+              "indices": [
+                1,
+                3,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": [
+                1
+              ]
+            },
+            "10": {
+              "rerank_ms": 160.8332919422537,
+              "indices": [
+                1,
+                3,
+                9,
+                4,
+                5
+              ],
+              "gated_indices": [
+                1
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        1,
+        3,
+        9,
+        12,
+        11
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L32055-L32076",
+          "lines": [
+            32055,
+            32076
+          ],
+          "raw_logit": -8.896865844726562
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/retrieval_eval.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/retrieval_eval.py#summary",
+          "lines": [
+            1,
+            2810
+          ],
+          "raw_logit": -2.885749101638794
+        },
+        {
+          "index": 2,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::docs_search_response:L6190-L6216",
+          "lines": [
+            6190,
+            6216
+          ],
+          "raw_logit": -9.104910850524902
+        },
+        {
+          "index": 3,
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xny6 unified-index-database/delivery-review.json#node-10:L910-L929",
+          "lines": [
+            910,
+            929
+          ],
+          "raw_logit": -6.116706371307373
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L33237-L33259",
+          "lines": [
+            33237,
+            33259
+          ],
+          "raw_logit": -6.971275806427002
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L33347-L33362",
+          "lines": [
+            33347,
+            33362
+          ],
+          "raw_logit": -7.222193241119385
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > LEXICAL_TOP_K [const]",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::LEXICAL_TOP_K",
+          "lines": [
+            517,
+            522
+          ],
+          "raw_logit": -10.729971885681152
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/sqlite_runtime.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/sqlite_runtime.py::connect:L78-L104",
+          "lines": [
+            78,
+            104
+          ],
+          "raw_logit": -9.820415496826172
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 7/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31345-L31361",
+          "lines": [
+            31345,
+            31361
+          ],
+          "raw_logit": -9.614067077636719
+        },
+        {
+          "index": 9,
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+          "section": null,
+          "id": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json#node-19:L443-L443",
+          "lines": [
+            443,
+            443
+          ],
+          "raw_logit": -6.263425827026367
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex._lexical_candidates (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex._lexical_candidates:L2235-L2260",
+          "lines": [
+            2235,
+            2260
+          ],
+          "raw_logit": -10.327696800231934
+        },
+        {
+          "index": 11,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_print_help",
+          "lines": [
+            62,
+            80
+          ],
+          "raw_logit": -6.921785831451416
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex (part 67/77)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2782-L2798",
+          "lines": [
+            2782,
+            2798
+          ],
+          "raw_logit": -6.829581260681152
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_code_ask_response_body:L28351-L28371",
+          "lines": [
+            28351,
+            28371
+          ],
+          "raw_logit": -10.727974891662598
+        },
+        {
+          "index": 14,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 35/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31991-L32005",
+          "lines": [
+            31991,
+            32005
+          ],
+          "raw_logit": -10.912650108337402
+        },
+        {
+          "index": 15,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex:L2854-L2873",
+          "lines": [
+            2854,
+            2873
+          ],
+          "raw_logit": -9.548656463623047
+        },
+        {
+          "index": 16,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > _code_ask_response_body (part 2/17)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_code_ask_response_body:L28114-L28145",
+          "lines": [
+            28114,
+            28145
+          ],
+          "raw_logit": -10.030892372131348
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/scripts/index_state_store.py",
+          "section": "index_state_store > LEXICAL_FUSION_K [const]",
+          "id": ".wavefoundry/framework/scripts/index_state_store.py::LEXICAL_FUSION_K",
+          "lines": [
+            2395,
+            2410
+          ],
+          "raw_logit": -11.253804206848145
+        },
+        {
+          "index": 18,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L5-L12",
+          "lines": [
+            5,
+            12
+          ],
+          "raw_logit": -11.015986442565918
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex.search_combined (part 1/20)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::WaveIndex.search_combined:L2507-L2522",
+          "lines": [
+            2507,
+            2522
+          ],
+          "raw_logit": -7.805879592895508
+        },
+        {
+          "index": 20,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/indexer.py::_layer_publication_state",
+          "lines": [
+            3550,
+            3580
+          ],
+          "raw_logit": -11.143523216247559
+        },
+        {
+          "index": 21,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 118/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L34245-L34268",
+          "lines": [
+            34245,
+            34268
+          ],
+          "raw_logit": -11.001108169555664
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::index_health_response:L9992-L10022",
+          "lines": [
+            9992,
+            10022
+          ],
+          "raw_logit": -10.693206787109375
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_index_chunk_matching_address:L7066-L7101",
+          "lines": [
+            7066,
+            7101
+          ],
+          "raw_logit": -10.42563533782959
+        },
+        {
+          "index": 24,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > code_ask_response",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::code_ask_response",
+          "lines": [
+            28071,
+            28088
+          ],
+          "raw_logit": -10.453316688537598
+        },
+        {
+          "index": 25,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::code_search_response:L6403-L6424",
+          "lines": [
+            6403,
+            6424
+          ],
+          "raw_logit": -9.69654369354248
+        },
+        {
+          "index": 26,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 34/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L31977-L31990",
+          "lines": [
+            31977,
+            31990
+          ],
+          "raw_logit": -9.179283142089844
+        },
+        {
+          "index": 27,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/relevance-followup-metrics.json",
+          "section": "relevance-followup-metrics > node-3",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/relevance-followup-metrics.json#node-3",
+          "lines": [
+            6,
+            6
+          ],
+          "raw_logit": -11.010894775390625
+        },
+        {
+          "index": 28,
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/graph_indexer.py::GraphIndexSession:L13433-L13454",
+          "lines": [
+            13433,
+            13454
+          ],
+          "raw_logit": -9.642427444458008
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L42-L49",
+          "lines": [
+            42,
+            49
+          ],
+          "raw_logit": -9.132619857788086
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/retrieval_eval.py",
+          "section": null,
+          "score": 1.0
+        },
+        {
+          "path": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+          "section": null,
+          "score": 0.6138938822645639
+        },
+        {
+          "path": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+          "section": null,
+          "score": 0.5963606019653391
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > WaveIndex (part 67/77)",
+          "score": 0.5287038494061528
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "score": 0.5176852113103229
+        }
+      ]
+    },
+    {
+      "id": "n2",
+      "kind": "code",
+      "query": "Where does the framework train the embedding model on private repository code every night?",
+      "expected": "NEG",
+      "runs": [
+        {
+          "total_ms": 531.1315001454204,
+          "rerank_ms": 479.279583087191,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.71874997019768,
+              "indices": [
+                2,
+                0,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 160.88866698555648,
+              "indices": [
+                6,
+                2,
+                0,
+                4,
+                7
+              ],
+              "gated_indices": []
+            }
+          }
+        },
+        {
+          "total_ms": 534.2429578304291,
+          "rerank_ms": 482.55249997600913,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.52187513001263,
+              "indices": [
+                2,
+                0,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 159.7537079360336,
+              "indices": [
+                6,
+                2,
+                0,
+                4,
+                7
+              ],
+              "gated_indices": []
+            }
+          }
+        },
+        {
+          "total_ms": 532.6269590295851,
+          "rerank_ms": 479.61254185065627,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.60750022903085,
+              "indices": [
+                2,
+                0,
+                4,
+                1,
+                3
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 163.51000010035932,
+              "indices": [
+                6,
+                2,
+                0,
+                4,
+                7
+              ],
+              "gated_indices": []
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        6,
+        15,
+        2,
+        20,
+        0
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": ".wavefoundry/framework/scripts/benchmarks/embed_bench.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/embed_bench.py#summary",
+          "lines": [
+            1,
+            570
+          ],
+          "raw_logit": -5.542852878570557
+        },
+        {
+          "index": 1,
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/render_agent_surfaces.py::CLAUDE_GURU_AGENT:L395-L411",
+          "lines": [
+            395,
+            411
+          ],
+          "raw_logit": -8.309065818786621
+        },
+        {
+          "index": 2,
+          "path": ".wavefoundry/framework/scripts/benchmarks/retrieval_eval.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/retrieval_eval.json#node-0",
+          "lines": [
+            2,
+            2
+          ],
+          "raw_logit": -5.354655742645264
+        },
+        {
+          "index": 3,
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/render_agent_surfaces.py::Skill",
+          "lines": [
+            460,
+            474
+          ],
+          "raw_logit": -8.699607849121094
+        },
+        {
+          "index": 4,
+          "path": ".wavefoundry/framework/scripts/setup_requirements.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_requirements.py::parse_args:L60-L71",
+          "lines": [
+            60,
+            71
+          ],
+          "raw_logit": -5.698115348815918
+        },
+        {
+          "index": 5,
+          "path": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json#node-1:L50-L56",
+          "lines": [
+            50,
+            56
+          ],
+          "raw_logit": -6.594978332519531
+        },
+        {
+          "index": 6,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > _text_embedding_cached_first (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/indexer.py::_text_embedding_cached_first:L3383-L3400",
+          "lines": [
+            3383,
+            3400
+          ],
+          "raw_logit": -4.0145697593688965
+        },
+        {
+          "index": 7,
+          "path": ".wavefoundry/framework/scripts/wave_lint_lib/docs_constants_validators.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/wave_lint_lib/docs_constants_validators.py::_claims:L55-L95",
+          "lines": [
+            55,
+            95
+          ],
+          "raw_logit": -6.126711845397949
+        },
+        {
+          "index": 8,
+          "path": ".wavefoundry/framework/scripts/provider_policy.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/provider_policy.py#summary",
+          "lines": [
+            1,
+            426
+          ],
+          "raw_logit": -8.569682121276855
+        },
+        {
+          "index": 9,
+          "path": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/render_agent_surfaces.py::SKILL_REGISTRY:L686-L704",
+          "lines": [
+            686,
+            704
+          ],
+          "raw_logit": -8.504131317138672
+        },
+        {
+          "index": 10,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > EMBEDDING_MODEL_SET_FINGERPRINT [const]",
+          "id": ".wavefoundry/framework/scripts/indexer.py::EMBEDDING_MODEL_SET_FINGERPRINT",
+          "lines": [
+            67,
+            67
+          ],
+          "raw_logit": -7.592855930328369
+        },
+        {
+          "index": 11,
+          "path": ".wavefoundry/framework/scripts/setup_wavefoundry.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/setup_wavefoundry.py::_run_gpu_check",
+          "lines": [
+            269,
+            281
+          ],
+          "raw_logit": -8.205779075622559
+        },
+        {
+          "index": 12,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": "server_impl > register_mcp_surface (part 85/159)",
+          "id": ".wavefoundry/framework/scripts/server_impl.py::register_mcp_surface:L33347-L33362",
+          "lines": [
+            33347,
+            33362
+          ],
+          "raw_logit": -5.818217754364014
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/sqlite_storage_migration.py::_validated_rebuild_proof:L1177-L1194",
+          "lines": [
+            1177,
+            1194
+          ],
+          "raw_logit": -10.043907165527344
+        },
+        {
+          "index": 14,
+          "path": ".wavefoundry/framework/scripts/gen_codebase_map.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/gen_codebase_map.py#summary",
+          "lines": [
+            1,
+            1930
+          ],
+          "raw_logit": -7.83389139175415
+        },
+        {
+          "index": 15,
+          "path": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py",
+          "section": "summary",
+          "id": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py#summary",
+          "lines": [
+            1,
+            167
+          ],
+          "raw_logit": -4.165305137634277
+        },
+        {
+          "index": 16,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/indexer.py::_build_index_locked:L4209-L4229",
+          "lines": [
+            4209,
+            4229
+          ],
+          "raw_logit": -8.493365287780762
+        },
+        {
+          "index": 17,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > _build_index_locked (part 68/75)",
+          "id": ".wavefoundry/framework/scripts/indexer.py::_build_index_locked:L5613-L5635",
+          "lines": [
+            5613,
+            5635
+          ],
+          "raw_logit": -11.341164588928223
+        },
+        {
+          "index": 18,
+          "path": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json",
+          "section": null,
+          "id": "docs/waves/1xtnr call-edge-target-integrity/implementation-evidence.json:L9721-L9840:L9790-L9842",
+          "lines": [
+            9790,
+            9842
+          ],
+          "raw_logit": -7.566445827484131
+        },
+        {
+          "index": 19,
+          "path": ".wavefoundry/framework/scripts/setup_reconciliation.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/setup_reconciliation.py#summary",
+          "lines": [
+            1,
+            289
+          ],
+          "raw_logit": -8.967395782470703
+        },
+        {
+          "index": 20,
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/delivery-review.json",
+          "section": null,
+          "id": "docs/waves/1xxc9 monotonic-index-version-protection/delivery-review.json#node-7:L968-L968",
+          "lines": [
+            968,
+            968
+          ],
+          "raw_logit": -5.470005989074707
+        },
+        {
+          "index": 21,
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/indexer.py::_build_index_locked:L5203-L5223",
+          "lines": [
+            5203,
+            5223
+          ],
+          "raw_logit": -10.500543594360352
+        },
+        {
+          "index": 22,
+          "path": ".wavefoundry/framework/scripts/accel_embedder.py",
+          "section": "accel_embedder > _resolve_model_files (part 1/2)",
+          "id": ".wavefoundry/framework/scripts/accel_embedder.py::_resolve_model_files:L378-L402",
+          "lines": [
+            378,
+            402
+          ],
+          "raw_logit": -6.722017765045166
+        },
+        {
+          "index": 23,
+          "path": ".wavefoundry/framework/scripts/graph_quality_eval.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/graph_quality_eval.py::production_identity",
+          "lines": [
+            475,
+            492
+          ],
+          "raw_logit": -11.063529968261719
+        },
+        {
+          "index": 24,
+          "path": ".wavefoundry/framework/scripts/accel_embedder.py",
+          "section": "accel_embedder > _hf_download_cached_first (part 2/3)",
+          "id": ".wavefoundry/framework/scripts/accel_embedder.py::_hf_download_cached_first:L245-L268",
+          "lines": [
+            245,
+            268
+          ],
+          "raw_logit": -10.383918762207031
+        },
+        {
+          "index": 25,
+          "path": "docs/waves/1xxcd staged-graph-memory-publication/implementation-evidence.json",
+          "section": null,
+          "id": "docs/waves/1xxcd staged-graph-memory-publication/implementation-evidence.json#node-10:L304-L330",
+          "lines": [
+            304,
+            330
+          ],
+          "raw_logit": -8.830121040344238
+        },
+        {
+          "index": 26,
+          "path": ".wavefoundry/framework/scripts/memory_eval.py",
+          "section": "summary",
+          "id": ".wavefoundry/framework/scripts/memory_eval.py#summary",
+          "lines": [
+            1,
+            1030
+          ],
+          "raw_logit": -10.030085563659668
+        },
+        {
+          "index": 27,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_framework_test_receipt_status:L19689-L19712",
+          "lines": [
+            19689,
+            19712
+          ],
+          "raw_logit": -7.9451165199279785
+        },
+        {
+          "index": 28,
+          "path": ".wavefoundry/framework/scripts/benchmarks/embed_bench.py",
+          "section": "embed_bench > MODEL_SWAP_CODE_PATH [const]",
+          "id": ".wavefoundry/framework/scripts/benchmarks/embed_bench.py::MODEL_SWAP_CODE_PATH",
+          "lines": [
+            37,
+            37
+          ],
+          "raw_logit": -8.106185913085938
+        },
+        {
+          "index": 29,
+          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "section": null,
+          "id": ".wavefoundry/framework/scripts/server_impl.py::_framework_test_receipt_status:L19760-L19774",
+          "lines": [
+            19760,
+            19774
+          ],
+          "raw_logit": -10.719700813293457
+        }
+      ],
+      "public_top5": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "section": "indexer > _text_embedding_cached_first (part 1/2)",
+          "score": 1.0
+        },
+        {
+          "path": "docs/waves/1wfsl structured-docs-retrieval/evidence/walkthrough_include_prefixes.py",
+          "section": "summary",
+          "score": 0.9794262707612498
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/benchmarks/retrieval_eval.json",
+          "section": null,
+          "score": 0.8170929313751926
+        },
+        {
+          "path": "docs/waves/1xxc9 monotonic-index-version-protection/delivery-review.json",
+          "section": null,
+          "score": 0.8013488853193004
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/benchmarks/embed_bench.py",
+          "section": null,
+          "score": 0.7914060822586007
+        }
+      ]
+    },
+    {
+      "id": "n3",
+      "kind": "docs",
+      "query": "What is the hosted semantic search service monthly subscription price per repository?",
+      "expected": "NEG",
+      "runs": [
+        {
+          "total_ms": 540.9621659200639,
+          "rerank_ms": 485.8392500318587,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.15216700732708,
+              "indices": [
+                3,
+                1,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 159.88591709174216,
+              "indices": [
+                3,
+                6,
+                1,
+                7,
+                4
+              ],
+              "gated_indices": []
+            }
+          }
+        },
+        {
+          "total_ms": 540.5935840681195,
+          "rerank_ms": 483.9331661351025,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.10679110884666,
+              "indices": [
+                3,
+                1,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 160.0899170152843,
+              "indices": [
+                3,
+                6,
+                1,
+                7,
+                4
+              ],
+              "gated_indices": []
+            }
+          }
+        },
+        {
+          "total_ms": 538.0871670786291,
+          "rerank_ms": 481.69366689398885,
+          "variants": {
+            "5": {
+              "rerank_ms": 80.13062481768429,
+              "indices": [
+                3,
+                1,
+                4,
+                0,
+                2
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 161.30745806731284,
+              "indices": [
+                3,
+                6,
+                1,
+                7,
+                4
+              ],
+              "gated_indices": []
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        3,
+        12,
+        6,
+        21,
+        28
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": "docs/architecture/embedding-model.md",
+          "section": "Embedding Model > Why Semantic Search at All",
+          "id": "docs/architecture/embedding-model.md#why-semantic-search-at-all",
+          "lines": [
+            13,
+            20
+          ],
+          "raw_logit": -10.438652038574219
+        },
+        {
+          "index": 1,
+          "path": "docs/architecture/decisions/1xjmn-adr unified-sqlite-vector-storage.md",
+          "section": "1xjmn-adr \u2014 Unified SQLite storage for docs and code retrieval > Qualified Local Implementation (part 1/2)",
+          "id": "docs/architecture/decisions/1xjmn-adr unified-sqlite-vector-storage.md#qualified-local-implementation:L96-L127:L96-L119",
+          "lines": [
+            96,
+            119
+          ],
+          "raw_logit": -9.684183120727539
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/12pn3 search-retrieval-quality/wave.md",
+          "section": "doc-summary",
+          "id": "docs/waves/12pn3 search-retrieval-quality/wave.md#doc-summary",
+          "lines": [
+            1,
+            121
+          ],
+          "raw_logit": -10.50703239440918
+        },
+        {
+          "index": 3,
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 3: Unified local SQLite storage (part 1/2)",
+          "id": "docs/architecture/search-architecture.md#design-decisions/decision-3-unified-local-sqlite-storage:L65-L93",
+          "lines": [
+            65,
+            93
+          ],
+          "raw_logit": -7.0825042724609375
+        },
+        {
+          "index": 4,
+          "path": "docs/references/wavefoundry-overview.md",
+          "section": "Wavefoundry: The Agent Harness for Software Repositories > The Semantic Index",
+          "id": "docs/references/wavefoundry-overview.md#the-semantic-index",
+          "lines": [
+            120,
+            133
+          ],
+          "raw_logit": -9.95773983001709
+        },
+        {
+          "index": 5,
+          "path": "docs/waves/1stwj context-efficiency-telemetry/1stwi-feat per-wave-context-efficiency-telemetry.md",
+          "section": "Per-wave context-efficiency telemetry (estimated context avoided) > Rationale (part 1/2)",
+          "id": "docs/waves/1stwj context-efficiency-telemetry/1stwi-feat per-wave-context-efficiency-telemetry.md#rationale:L13-L15:L13-L14",
+          "lines": [
+            13,
+            14
+          ],
+          "raw_logit": -11.384038925170898
+        },
+        {
+          "index": 6,
+          "path": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md",
+          "section": "",
+          "id": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md#preamble",
+          "lines": [
+            1,
+            10
+          ],
+          "raw_logit": -8.999290466308594
+        },
+        {
+          "index": 7,
+          "path": "docs/waves/1293d mcp-server-foundation/wave.md",
+          "section": "Wave \u2014 MCP Server Foundation > Handoff or Next-Wave Notes",
+          "id": "docs/waves/1293d mcp-server-foundation/wave.md#handoff-or-next-wave-notes",
+          "lines": [
+            254,
+            260
+          ],
+          "raw_logit": -9.897013664245605
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/12mns code-ask-retrieval-quality/wave.md",
+          "section": "Wave Record > Wave Summary",
+          "id": "docs/waves/12mns code-ask-retrieval-quality/wave.md#wave-summary",
+          "lines": [
+            51,
+            54
+          ],
+          "raw_logit": -10.808391571044922
+        },
+        {
+          "index": 9,
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > The Problem",
+          "id": "docs/architecture/search-architecture.md#the-problem",
+          "lines": [
+            7,
+            18
+          ],
+          "raw_logit": -10.88692855834961
+        },
+        {
+          "index": 10,
+          "path": "docs/architecture/embedding-model.md",
+          "section": "doc-summary",
+          "id": "docs/architecture/embedding-model.md#doc-summary",
+          "lines": [
+            1,
+            297
+          ],
+          "raw_logit": -10.09304428100586
+        },
+        {
+          "index": 11,
+          "path": "docs/architecture/decisions/12dzj-adr embedding-model-and-format.md",
+          "section": "12dzj-adr \u2014 Embedding Model: BAAI/bge-base-en-v1.5 via fastembed ONNX INT8 > Context",
+          "id": "docs/architecture/decisions/12dzj-adr embedding-model-and-format.md#context",
+          "lines": [
+            7,
+            18
+          ],
+          "raw_logit": -10.702526092529297
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md",
+          "section": "doc-summary",
+          "id": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md#doc-summary",
+          "lines": [
+            1,
+            147
+          ],
+          "raw_logit": -8.778210639953613
+        },
+        {
+          "index": 13,
+          "path": "docs/architecture/decisions/12dzj-adr embedding-model-and-format.md",
+          "section": "doc-summary",
+          "id": "docs/architecture/decisions/12dzj-adr embedding-model-and-format.md#doc-summary",
+          "lines": [
+            1,
+            61
+          ],
+          "raw_logit": -10.969176292419434
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/1sufn-enh measured-lexical-semantic-memory-fusion.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/1sufn-enh measured-lexical-semantic-memory-fusion.md#doc-summary",
+          "lines": [
+            1,
+            243
+          ],
+          "raw_logit": -11.19138240814209
+        },
+        {
+          "index": 15,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2x-bug index-tile-remove-up-to-date-and-use-files.md",
+          "section": "Dashboard: Simplify Semantic Index Tile Hierarchy > Rationale",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2x-bug index-tile-remove-up-to-date-and-use-files.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -11.129620552062988
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/1sufo memory-retrieval-eval-and-fusion/wave.md",
+          "section": "Wave Record > Objective",
+          "id": "docs/waves/1sufo memory-retrieval-eval-and-fusion/wave.md#objective",
+          "lines": [
+            11,
+            14
+          ],
+          "raw_logit": -11.10010814666748
+        },
+        {
+          "index": 17,
+          "path": "docs/architecture/embedding-model.md",
+          "section": "Embedding Model > What This Document Covers",
+          "id": "docs/architecture/embedding-model.md#what-this-document-covers",
+          "lines": [
+            7,
+            12
+          ],
+          "raw_logit": -10.879032135009766
+        },
+        {
+          "index": 18,
+          "path": "docs/contributing/build-and-verification.md",
+          "section": "Build and Verification > Semantic Index And Offline Search",
+          "id": "docs/contributing/build-and-verification.md#semantic-index-and-offline-search:code-3",
+          "lines": [
+            52,
+            53
+          ],
+          "raw_logit": -9.666439056396484
+        },
+        {
+          "index": 19,
+          "path": "docs/waves/1sufo memory-retrieval-eval-and-fusion/1svuj-bug memory-search-semantic-override-policy-fix.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1sufo memory-retrieval-eval-and-fusion/1svuj-bug memory-search-semantic-override-policy-fix.md#doc-summary",
+          "lines": [
+            1,
+            109
+          ],
+          "raw_logit": -10.010407447814941
+        },
+        {
+          "index": 20,
+          "path": "docs/architecture/testing-architecture.md",
+          "section": "Testing Architecture > Test Tiers (rows 17\u201317 of 31)",
+          "id": "docs/architecture/testing-architecture.md#test-tiers:rows17-17",
+          "lines": [
+            27,
+            27
+          ],
+          "raw_logit": -9.760857582092285
+        },
+        {
+          "index": 21,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Current Tool Surface > Search And Retrieval (part 1/15)",
+          "id": "docs/specs/mcp-tool-surface.md#current-tool-surface/search-and-retrieval:L439-L460",
+          "lines": [
+            439,
+            460
+          ],
+          "raw_logit": -9.228095054626465
+        },
+        {
+          "index": 22,
+          "path": "docs/waves/1seav search-freshness-degraded-retrieval/wave.md",
+          "section": "Wave Record > Objective",
+          "id": "docs/waves/1seav search-freshness-degraded-retrieval/wave.md#objective",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -10.587545394897461
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1sufo memory-retrieval-eval-and-fusion/wave.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1sufo memory-retrieval-eval-and-fusion/wave.md#doc-summary",
+          "lines": [
+            1,
+            89
+          ],
+          "raw_logit": -11.221029281616211
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/1sufn-enh measured-lexical-semantic-memory-fusion.md",
+          "section": "",
+          "id": "docs/waves/1tbt5 memory-retrieval-quality-adaptive-freshness/1sufn-enh measured-lexical-semantic-memory-fusion.md#preamble",
+          "lines": [
+            1,
+            19
+          ],
+          "raw_logit": -11.142452239990234
+        },
+        {
+          "index": 25,
+          "path": "docs/waves/1sufo memory-retrieval-eval-and-fusion/1svuj-bug memory-search-semantic-override-policy-fix.md",
+          "section": "",
+          "id": "docs/waves/1sufo memory-retrieval-eval-and-fusion/1svuj-bug memory-search-semantic-override-policy-fix.md#preamble",
+          "lines": [
+            1,
+            11
+          ],
+          "raw_logit": -10.403155326843262
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2x-bug index-tile-remove-up-to-date-and-use-files.md",
+          "section": "Dashboard: Simplify Semantic Index Tile Hierarchy > Acceptance Criteria",
+          "id": "docs/waves/12hsd dashboard-completed-wave-pending-filter/12j2x-bug index-tile-remove-up-to-date-and-use-files.md#acceptance-criteria",
+          "lines": [
+            38,
+            44
+          ],
+          "raw_logit": -11.105734825134277
+        },
+        {
+          "index": 27,
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 8: `code_ask` does mechanical retrieval routing, not LLM synthesis (part 8/9)",
+          "id": "docs/architecture/search-architecture.md#design-decisions/decision-8-code-ask-does-mechanical-retrieval-routing-not-llm-synthesis:L299-L318",
+          "lines": [
+            299,
+            318
+          ],
+          "raw_logit": -10.61185359954834
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Session Handoff",
+          "id": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md#session-handoff",
+          "lines": [
+            347,
+            349
+          ],
+          "raw_logit": -9.523236274719238
+        },
+        {
+          "index": 29,
+          "path": "docs/waves/12pn3 search-retrieval-quality/wave.md",
+          "section": "Wave Record > Objective",
+          "id": "docs/waves/12pn3 search-retrieval-quality/wave.md#objective",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -10.196962356567383
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 3: Unified local SQLite storage (part 1/2)",
+          "score": 1.0
+        },
+        {
+          "path": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md",
+          "section": "doc-summary",
+          "score": 0.6057903738089421
+        },
+        {
+          "path": "docs/waves/12mc3 agent-detail-panel-blank-section-mismatch/12mha-enh semantic-search-reranker.md",
+          "section": "",
+          "score": 0.5543948035754905
+        },
+        {
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Current Tool Surface > Search And Retrieval (part 1/15)",
+          "score": 0.5012034179908773
+        },
+        {
+          "path": "docs/waves/1xny6 unified-index-database/1xny5-ref unify-graph-index-storage.md",
+          "section": "One SQLite database for semantic and graph indexing > Session Handoff",
+          "score": 0.432590412651763
+        }
+      ]
+    },
+    {
+      "id": "n4",
+      "kind": "docs",
+      "query": "What is the documented guaranteed recall percentage for code search across every programming language?",
+      "expected": "NEG",
+      "runs": [
+        {
+          "total_ms": 539.0579579398036,
+          "rerank_ms": 482.02774999663234,
+          "variants": {
+            "5": {
+              "rerank_ms": 81.9274578243494,
+              "indices": [
+                4,
+                3,
+                2,
+                1,
+                0
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 161.0609998460859,
+              "indices": [
+                9,
+                4,
+                3,
+                2,
+                1
+              ],
+              "gated_indices": [
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 537.7537079621106,
+          "rerank_ms": 480.5331670213491,
+          "variants": {
+            "5": {
+              "rerank_ms": 79.8025419935584,
+              "indices": [
+                4,
+                3,
+                2,
+                1,
+                0
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 160.823583137244,
+              "indices": [
+                9,
+                4,
+                3,
+                2,
+                1
+              ],
+              "gated_indices": [
+                9
+              ]
+            }
+          }
+        },
+        {
+          "total_ms": 574.0601250436157,
+          "rerank_ms": 515.6054999679327,
+          "variants": {
+            "5": {
+              "rerank_ms": 95.55954206734896,
+              "indices": [
+                4,
+                3,
+                2,
+                1,
+                0
+              ],
+              "gated_indices": []
+            },
+            "10": {
+              "rerank_ms": 179.9142921809107,
+              "indices": [
+                9,
+                4,
+                3,
+                2,
+                1
+              ],
+              "gated_indices": [
+                9
+              ]
+            }
+          }
+        }
+      ],
+      "full_indices": [
+        25,
+        9,
+        14,
+        4,
+        15
+      ],
+      "candidates": [
+        {
+          "index": 0,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4pz-enh code-constants-multi-language.md",
+          "section": "code_constants \u2014 multi-language constant lookup > Acceptance Criteria (part 1/2)",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4pz-enh code-constants-multi-language.md#acceptance-criteria:L40-L46:L40-L45",
+          "lines": [
+            40,
+            45
+          ],
+          "raw_logit": -7.838782787322998
+        },
+        {
+          "index": 1,
+          "path": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md",
+          "section": "doc-summary",
+          "id": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md#doc-summary",
+          "lines": [
+            1,
+            124
+          ],
+          "raw_logit": -6.379912853240967
+        },
+        {
+          "index": 2,
+          "path": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md",
+          "section": "Code Search Language Categories > Acceptance Criteria",
+          "id": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md#acceptance-criteria",
+          "lines": [
+            46,
+            58
+          ],
+          "raw_logit": -5.85218620300293
+        },
+        {
+          "index": 3,
+          "path": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md",
+          "section": "Code Search Language Categories > Risks",
+          "id": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md#risks",
+          "lines": [
+            116,
+            121
+          ],
+          "raw_logit": -5.819451808929443
+        },
+        {
+          "index": 4,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Tool Selection Guide > When to use `code_search` \u2014 and which `language` form to pass (part 1/2)",
+          "id": "docs/specs/mcp-tool-surface.md#tool-selection-guide/when-to-use-code-search-and-which-language-form-to-pass:L1553-L1575",
+          "lines": [
+            1553,
+            1575
+          ],
+          "raw_logit": -4.539758205413818
+        },
+        {
+          "index": 5,
+          "path": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md",
+          "section": "doc-summary",
+          "id": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md#doc-summary",
+          "lines": [
+            1,
+            192
+          ],
+          "raw_logit": -8.101762771606445
+        },
+        {
+          "index": 6,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Current Tool Surface > Search And Retrieval (part 9/15)",
+          "id": "docs/specs/mcp-tool-surface.md#current-tool-surface/search-and-retrieval:L555-L555",
+          "lines": [
+            555,
+            555
+          ],
+          "raw_logit": -10.746455192565918
+        },
+        {
+          "index": 7,
+          "path": "docs/waves/12jnb project-index-stale-use-index-inputs/12jqm-bug mixed-language-navigation-aggregation.md",
+          "section": "MCP: Preserve Mixed-Language Symbol Navigation Results > Acceptance Criteria",
+          "id": "docs/waves/12jnb project-index-stale-use-index-inputs/12jqm-bug mixed-language-navigation-aggregation.md#acceptance-criteria",
+          "lines": [
+            41,
+            48
+          ],
+          "raw_logit": -10.59757137298584
+        },
+        {
+          "index": 8,
+          "path": "docs/waves/130et framework-bin-mcp-server-launcher/130qf-bug graph-tree-sitter-cross-file-coverage.md",
+          "section": "Graph Cross-File Resolution for All Tree-Sitter Languages, Not Just Python > Decision Log (rows 4\u20136 of 6)",
+          "id": "docs/waves/130et framework-bin-mcp-server-launcher/130qf-bug graph-tree-sitter-cross-file-coverage.md#decision-log:rows4-6",
+          "lines": [
+            105,
+            107
+          ],
+          "raw_logit": -10.037527084350586
+        },
+        {
+          "index": 9,
+          "path": "docs/architecture/decisions/1p92d-adr embedding-precision-policy.md",
+          "section": "1p92d-adr \u2014 Embedding & reranker precision policy: FP16 on GPU, INT8 on CPU > Measurement (A) \u2014 result (2026-06-30, CPU, arctic-embed-xs) > End-to-end result (with the reranker in the loop) \u2014 2026-06-30 (part 1/1)",
+          "id": "docs/architecture/decisions/1p92d-adr embedding-precision-policy.md#measurement-a-result-2026-06-30-cpu-arctic-embed-xs/end-to-end-result-with-the-reranker-in-the-loop-2026-06-30:postlude:prose2:L89-L99",
+          "lines": [
+            89,
+            99
+          ],
+          "raw_logit": -1.9484063386917114
+        },
+        {
+          "index": 10,
+          "path": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md",
+          "section": "Generalize cross-language confidence promotion (was: cross-file receiver-type resolution coverage) > Measurement Spike Findings (AC-1) (rows 1\u20132 of 2)",
+          "id": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md#measurement-spike-findings-ac-1:rows1-2",
+          "lines": [
+            41,
+            48
+          ],
+          "raw_logit": -9.64830207824707
+        },
+        {
+          "index": 11,
+          "path": "docs/waves/12mns code-ask-retrieval-quality/12mns-enh dynamic-vector-top-k.md",
+          "section": "Dynamic VECTOR_TOP_K for Explanatory and Flow Questions > Rationale",
+          "id": "docs/waves/12mns code-ask-retrieval-quality/12mns-enh dynamic-vector-top-k.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -6.639742374420166
+        },
+        {
+          "index": 12,
+          "path": "docs/waves/1p66q code-ask-retrieval-quality/1p66t-enh code-ask-graph-signal-and-enumeration.md",
+          "section": "code_ask misses cross-file chains and enumerations; the graph rescue never reaches citations > Rationale (part 2/2)",
+          "id": "docs/waves/1p66q code-ask-retrieval-quality/1p66t-enh code-ask-graph-signal-and-enumeration.md#rationale:L18-L18",
+          "lines": [
+            18,
+            18
+          ],
+          "raw_logit": -7.067799091339111
+        },
+        {
+          "index": 13,
+          "path": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+          "section": "doc-summary (part 9/15)",
+          "id": ".wavefoundry/framework/seeds/180-implement-feature.prompt.md#doc-summary:L9-L9",
+          "lines": [
+            9,
+            9
+          ],
+          "raw_logit": -7.814852237701416
+        },
+        {
+          "index": 14,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract.md",
+          "section": "doc-summary (part 2/4)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract.md#doc-summary:L2-L2",
+          "lines": [
+            2,
+            2
+          ],
+          "raw_logit": -3.936906337738037
+        },
+        {
+          "index": 15,
+          "path": "docs/waves/1wpif index-content-and-retrieval-correctness/wave.md",
+          "section": "Wave Record > Review Checkpoints (part 7/26)",
+          "id": "docs/waves/1wpif index-content-and-retrieval-correctness/wave.md#review-checkpoints:L184-L229:L208-L209",
+          "lines": [
+            208,
+            209
+          ],
+          "raw_logit": -4.971116065979004
+        },
+        {
+          "index": 16,
+          "path": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md",
+          "section": "",
+          "id": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md#preamble",
+          "lines": [
+            1,
+            10
+          ],
+          "raw_logit": -7.144545555114746
+        },
+        {
+          "index": 17,
+          "path": "docs/architecture/search-architecture.md",
+          "section": "Search Architecture > Design Decisions > Decision 9: `max_per_file` cap in `code_search` for result diversity (part 3/3)",
+          "id": "docs/architecture/search-architecture.md#design-decisions/decision-9-max-per-file-cap-in-code-search-for-result-diversity:L333-L333",
+          "lines": [
+            333,
+            333
+          ],
+          "raw_logit": -8.739302635192871
+        },
+        {
+          "index": 18,
+          "path": "docs/waves/12jnb project-index-stale-use-index-inputs/12jnh-enh multi-language-code-navigation.md",
+          "section": "MCP: Expand Symbol Navigation Beyond Python > Rationale",
+          "id": "docs/waves/12jnb project-index-stale-use-index-inputs/12jnh-enh multi-language-code-navigation.md#rationale",
+          "lines": [
+            10,
+            13
+          ],
+          "raw_logit": -7.7226362228393555
+        },
+        {
+          "index": 19,
+          "path": "docs/waves/1wpif index-content-and-retrieval-correctness/1wpah-bug retrieval-candidate-generation-correctness.md",
+          "section": "Make Retrieval Candidate Generation Honor Filters and ANN Tuning > Acceptance Criteria (part 1/4)",
+          "id": "docs/waves/1wpif index-content-and-retrieval-correctness/1wpah-bug retrieval-candidate-generation-correctness.md#acceptance-criteria:L33-L38:L33-L34",
+          "lines": [
+            33,
+            34
+          ],
+          "raw_logit": -7.077329158782959
+        },
+        {
+          "index": 20,
+          "path": "docs/waves/12br9 code-search-language-filter/12br9-bug code-search-language-filter-mismatch.md",
+          "section": "doc-summary",
+          "id": "docs/waves/12br9 code-search-language-filter/12br9-bug code-search-language-filter-mismatch.md#doc-summary",
+          "lines": [
+            1,
+            106
+          ],
+          "raw_logit": -7.567678451538086
+        },
+        {
+          "index": 21,
+          "path": "docs/waves/12d4b codebase-qa/12d5s-enh code-search-result-diversity.md",
+          "section": "Code Search Result Diversity > Risks",
+          "id": "docs/waves/12d4b codebase-qa/12d5s-enh code-search-result-diversity.md#risks",
+          "lines": [
+            90,
+            96
+          ],
+          "raw_logit": -9.868840217590332
+        },
+        {
+          "index": 22,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Context-Efficiency Telemetry > Retrieval field",
+          "id": "docs/specs/mcp-tool-surface.md#context-efficiency-telemetry/retrieval-field",
+          "lines": [
+            219,
+            265
+          ],
+          "raw_logit": -7.156163215637207
+        },
+        {
+          "index": 23,
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract.md",
+          "section": "(part 1/3)",
+          "id": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract.md#preamble:L1-L13",
+          "lines": [
+            1,
+            13
+          ],
+          "raw_logit": -5.01511812210083
+        },
+        {
+          "index": 24,
+          "path": "docs/waves/1p4hi code-ask-agent-rerank/1p4pz-enh code-constants-multi-language.md",
+          "section": "code_constants \u2014 multi-language constant lookup > Requirements",
+          "id": "docs/waves/1p4hi code-ask-agent-rerank/1p4pz-enh code-constants-multi-language.md#requirements",
+          "lines": [
+            16,
+            23
+          ],
+          "raw_logit": -6.588242530822754
+        },
+        {
+          "index": 25,
+          "path": "docs/waves/1p4wz embedding-retrieval-architecture/1p4wx-enh docs-code-embedding-model-split.md",
+          "section": "Docs/code embedding model split (arctic-embed-xs for docs) > Progress Log (rows 3\u20133 of 3)",
+          "id": "docs/waves/1p4wz embedding-retrieval-architecture/1p4wx-enh docs-code-embedding-model-split.md#progress-log:rows3-3",
+          "lines": [
+            140,
+            140
+          ],
+          "raw_logit": -1.8837518692016602
+        },
+        {
+          "index": 26,
+          "path": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md",
+          "section": "Generalize cross-language confidence promotion (was: cross-file receiver-type resolution coverage) > Measurement Spike Findings (AC-1) > Consumer-pack spike (Java / Swift / TS-JS) (rows 1\u20136 of 6)",
+          "id": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md#measurement-spike-findings-ac-1/consumer-pack-spike-java-swift-ts-js:rows1-6",
+          "lines": [
+            59,
+            70
+          ],
+          "raw_logit": -8.156795501708984
+        },
+        {
+          "index": 27,
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Current Tool Surface > Search And Retrieval (part 5/15)",
+          "id": "docs/specs/mcp-tool-surface.md#current-tool-surface/search-and-retrieval:L512-L512",
+          "lines": [
+            512,
+            512
+          ],
+          "raw_logit": -7.919996738433838
+        },
+        {
+          "index": 28,
+          "path": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md",
+          "section": "Code Search Language Categories > Decision Log",
+          "id": "docs/waves/12br9 code-search-language-filter/12bre-enh code-search-language-categories.md#decision-log",
+          "lines": [
+            107,
+            115
+          ],
+          "raw_logit": -7.224347114562988
+        },
+        {
+          "index": 29,
+          "path": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md",
+          "section": "Generalize cross-language confidence promotion (was: cross-file receiver-type resolution coverage) > Decision Log (rows 1\u20133 of 5)",
+          "id": "docs/waves/1p7de graph-edge-trust/1p7dg-enh cross-file-receiver-resolution.md#decision-log:rows1-3",
+          "lines": [
+            170,
+            174
+          ],
+          "raw_logit": -8.98705005645752
+        }
+      ],
+      "public_top5": [
+        {
+          "path": "docs/waves/1p4wz embedding-retrieval-architecture/1p4wx-enh docs-code-embedding-model-split.md",
+          "section": "Docs/code embedding model split (arctic-embed-xs for docs) > Progress Log (rows 3\u20133 of 3)",
+          "score": 1.0
+        },
+        {
+          "path": "docs/architecture/decisions/1p92d-adr embedding-precision-policy.md",
+          "section": "1p92d-adr \u2014 Embedding & reranker precision policy: FP16 on GPU, INT8 on CPU > Measurement (A) \u2014 result (2026-06-30, CPU, arctic-embed-xs) > End-to-end result (with the reranker in the loop) \u2014 2026-06-30 (part 1/1)",
+          "score": 0.9927048816674697
+        },
+        {
+          "path": "docs/waves/1yad2 memory-retrieval-quality/evidence/readiness-contract.md",
+          "section": "doc-summary (part 2/4)",
+          "score": 0.7683376737745741
+        },
+        {
+          "path": "docs/specs/mcp-tool-surface.md",
+          "section": "MCP Tool Surface Specification > Tool Selection Guide > When to use `code_search` \u2014 and which `language` form to pass (part 1/2)",
+          "score": 0.700316456581563
+        },
+        {
+          "path": "docs/waves/1wpif index-content-and-retrieval-correctness/wave.md",
+          "section": "Wave Record > Review Checkpoints (part 7/26)",
+          "score": 0.6516453181233884
+        }
+      ]
+    }
+  ]
+}

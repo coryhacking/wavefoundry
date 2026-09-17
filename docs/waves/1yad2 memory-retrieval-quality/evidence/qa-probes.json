@@ -1,0 +1,374 @@
+{
+  "code_only": "import importlib.util,tempfile,json\nfrom pathlib import Path\nfrom unittest.mock import patch\nsrc=Path('docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py');spec=importlib.util.spec_from_file_location('qprobe',src);q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)\nwith tempfile.TemporaryDirectory() as t:\n root=Path(t);m=q.srv._memory_mod();q.ev.build_corpus(root,[dict(memory_id='mem-known',kind='decision',summary='lexical recovery needle',evidence=['fixture'],targets=['src/p.py'],status='active',confidence=.9)],m)\n idx=q.ProbeIndex(root)\n with patch.object(q,'ROOT',root),patch.object(idx,'_index_meta_signature',return_value=('complete',1)),patch.object(idx,'_open_vector_layer',side_effect=lambda layer,kind:'code' if kind=='code' else None),patch.object(idx,'_embed_query',return_value=[0.]),patch.object(idx,'_get_reranker',return_value=object()),patch.object(idx,'_start_background_model_downloads_after_startup'):\n  response,evidence,controls,available,elapsed=q.measure(idx,{'query':'lexical recovery needle'},'production')\n  print(json.dumps({'available':available,'docs_layer':idx._proj_docs_vector_layer,'semantic_assist':response['data']['semantic_assist'],'evidence':evidence,'ids':[r['memory_id'] for r in response['data']['records']]}))\n  assert available is False and evidence.get('fallback')=='public_lexical'\n",
+  "measure_faults": "import sys,importlib.util,tempfile,json,math\nfrom pathlib import Path\nfrom unittest.mock import patch\nsrc=Path('docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py').resolve();spec=importlib.util.spec_from_file_location('qualification_eval_probe',src);q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)\nchecks=[]\nclass Index:\n _docs_vector_layer=\"docs\"\n semantic_failed=False\n def _ensure_loaded(self):pass\n def _get_reranker(self):return Reranker()\nclass Reranker:\n def rerank(self,*args):return [0.]\nclass BrokenReranker:\n def rerank(self,*args):raise RuntimeError('injected relevance failure')\nclass NonfiniteReranker:\n def rerank(self,*args):return [float('nan')]\nwith tempfile.TemporaryDirectory(prefix='wf-measure-fault-') as tmp:\n root=Path(tmp);mem=q.srv._memory_mod();record={'memory_id':'mem-scratch-safe','kind':'successful_pattern','summary':'lexical recovery needle','evidence':['fixture'],'targets':['src/safe.py'],'status':'active','confidence':.9,'created':'2026-09-16'};q.ev.build_corpus(root,[record],mem)\n records=mem.load_memory_records(root,statuses=['active']);mid=records[0]['memory_id'];case={'query':'lexical recovery needle'}\n good_candidate=(records,{'rrf':[mid],'score_fusion':[mid]}, {'coverage_complete':True,'candidate_ids':[mid],'stage_ms':{}})\n with patch.object(q,'ROOT',root):\n  expected=q.baseline(None,case)\n  def run(name,index,variant='rrf',candidate=good_candidate,exception=None):\n   kwargs={'side_effect':exception} if exception else {'return_value':candidate}\n   with patch.object(q,'candidates',**kwargs):result=q.measure(index,case,variant)\n   response,evidence,controls,available,elapsed=result\n   checks.append({'name':name,'passed':response==expected and available is False and evidence.get('fallback')=='public_lexical','available':available,'evidence':evidence,'returned_ids':[r['memory_id'] for r in response['data']['records']],'latency_eligible':available is True,'elapsed_nonnegative':elapsed>=0})\n  for name in ['missing_index','stale_index']:\n   idx=Index();idx._ensure_loaded=lambda:(_ for _ in ()).throw(RuntimeError('injected '+name));run(name,idx)\n  run('semantic_failure',Index(),exception=RuntimeError('injected semantic failure'))\n  for name,ranker in [('reranker_absent',None),('reranker_throws',BrokenReranker()),('reranker_nan',NonfiniteReranker())]:\n   idx=Index();idx._get_reranker=lambda ranker=ranker:ranker;run(name,idx,'rrf_qualified')\n  incomplete=(records,{'rrf':[mid],'score_fusion':[mid]}, {'coverage_complete':False,'candidate_ids':[mid],'stage_ms':{}});run('incomplete_coverage',Index(),candidate=incomplete)\n  idx=Index();idx._get_reranker=lambda:None;run('production_reranker_absent',idx,'production')\n  # Exercise the production swallowed-error observer through actual public search.\n  idx=Index()\n  def search(*a,**kw):idx.semantic_failed=True;raise RuntimeError('public search catches this')\n  idx.search_docs=search;run('production_swallowed_semantic_failure',idx,'production')\nprint(json.dumps({'cases':checks,'passed':sum(c['passed'] for c in checks),'total':len(checks),'limits':['Missing/stale load faults injected; no actual stale SQLite constructed.','Latency credit verified from returned availability and runner branch inspection, not full main execution.','No holdout or live index was read/scored.']},indent=2))\nassert all(c['passed'] for c in checks)\n",
+  "qualification_helpers": "import sys,json,copy\nfrom pathlib import Path\nsys.path.insert(0,'.wavefoundry/framework/scripts');import memory_eval as e\np=Path('docs/waves/1yad2 memory-retrieval-quality/evidence');corpus=json.loads((p/'qualification-corpus.json').read_text());queries=json.loads((p/'qualification-queries.json').read_text())\nparams={'channel_cap':20,'result_cap':20,'rrf_k':60,'score_semantic_weight':.75,'normalization':'bounded-channel-minmax','relevance_text':'title-action-summary','relevance_threshold':-4.,'qualification_cap':20}\nmanifest={'schema_version':1,'reviewer':queries['reviewer'],'ranker_author':'separate implementer','split_protocol':'frozen before scoring','parameters':params,'gates':{'recall3_gain':.05,'latency_reduction':.2,'warm_p95_ms':500}}\ndef bind(c,q,m):\n m=copy.deepcopy(m);m.update(corpus_fingerprint=e.qualification_fingerprint(c),queries_fingerprint=e.qualification_fingerprint(q),parameters_fingerprint=e.qualification_fingerprint(m['parameters']));return m\nchecks={};checks['valid_manifest']=e.validate_qualification_manifest(corpus,queries,bind(corpus,queries,manifest))\nfor name,field,value in [('none_records','records',None),('scalar_records','records',[7])]:\n c=copy.deepcopy(corpus);c[field]=value\n try: checks[name]=e.validate_qualification_manifest(c,queries,bind(c,queries,manifest))\n except Exception as ex:checks[name]={'raised':type(ex).__name__}\nq=copy.deepcopy(queries)\nfor case in q['cases'][-8:]:\n case.pop('relevant_ids');case.pop('irrelevant_ids');case.pop('unjudged_ids')\nchecks['unlabelled_negatives_accepted']=e.validate_qualification_manifest(corpus,q,bind(corpus,q,manifest))\nb={'available':True,'queries':24,'answerable_queries':16,'no_match_queries':8,'recall_at_3':.8,'recall_at_10':1.,'mrr':.8,'answerable_misses':0,'no_match_false_positives':0};c=dict(b);valid={x:True for x in ['manifest_valid','independent_labels','holdout_untouched','coverage_complete','policy_approved','performance_complete']};lat={'baseline_p95_ms':100,'candidate_p95_ms':80,'baseline_warm_calls':100,'candidate_warm_calls':100}\nchecks['valid_adoption']=e.qualification_adoption(b,c,lat,valid)\nfor name,changes in [('negative_counts',{'queries':-24,'answerable_queries':-16,'no_match_queries':-8}),('boolean_counts',{'queries':True,'answerable_queries':True,'no_match_queries':True}),('inconsistent_population',{'queries':24,'answerable_queries':30,'no_match_queries':8})]:\n checks[name]=e.qualification_adoption(dict(b,**changes),dict(c,**changes),lat,valid)\nrows=[{'rankings':{'v':['a']},'relevant_ids':['a']},{'rankings':{'v':[]},'relevant_ids':['b']},{'rankings':{'v':['uncertain']},'relevant_ids':[]}];checks['denominator_and_fp']=e.quality_metrics(rows,'v')\nchecks['missing_measurement']=e.quality_metrics(rows+[{'rankings':{},'relevant_ids':[]}],'v')\nprint(json.dumps(checks,indent=2))\n",
+  "independent_recompute": "import json,hashlib,sys\nfrom pathlib import Path\nfrom fractions import Fraction\nsys.path.insert(0,'.wavefoundry/framework/scripts');import memory_eval as ev\np=Path('/private/tmp/wf-memory-qualified-holdout.json');data=json.loads(p.read_text());rows=data['cases'];variants=list(data['timings']);result={};paired={}\nfor variant in variants:\n pos=[];neg=[];miss=0;irrelevant=unjudged=returned=0\n for row in rows:\n  assert row['availability'][variant] is True\n  order=list(dict.fromkeys(row['rankings'][variant]))[:20];want=set(row['relevant_ids']);bad=set(row['irrelevant_ids']);returned+=len(order);irrelevant+=len(set(order)&bad);unjudged+=len(set(order)-want-bad)\n  if want:\n   pos.append((Fraction(len(set(order[:3])&want),len(want)),Fraction(len(set(order[:10])&want),len(want)),next((Fraction(1,n) for n,x in enumerate(order,1) if x in want),Fraction(0))))\n   miss+=not order\n  else:neg.append(bool(order))\n values={'recall_at_3':float(sum(x[0] for x in pos)/len(pos)),'recall_at_10':float(sum(x[1] for x in pos)/len(pos)),'mrr':float(sum(x[2] for x in pos)/len(pos)),'answerable_misses':miss,'no_match_false_positives':sum(neg),'judged_irrelevant_results':irrelevant,'unjudged_results':unjudged,'returned_results':returned}\n for key,value in values.items():assert abs(value-data['metrics'][variant][key])<1e-12,(variant,key,value,data['metrics'][variant][key])\n result[variant]=values\n if variant!='production':\n  paired[variant]={'additional_empty_ids':[r['id'] for r in rows if r['relevant_ids'] and r['rankings']['production'] and not r['rankings'][variant]],'additional_false_positive_ids':[r['id'] for r in rows if not r['relevant_ids'] and not r['rankings']['production'] and r['rankings'][variant]],'recovered_negative_ids':[r['id'] for r in rows if not r['relevant_ids'] and r['rankings']['production'] and not r['rankings'][variant]]}\nvalidity={k:True for k in ['manifest_valid','independent_labels','holdout_untouched','coverage_complete','policy_approved','performance_complete']}\ngates={}\nfor variant in variants[1:]:\n gates[variant]=ev.qualification_adoption(data['metrics']['production'],data['metrics'][variant],{'baseline_p95_ms':data['timings']['production']['p95_ms'],'candidate_p95_ms':data['timings'][variant]['p95_ms'],'baseline_warm_calls':100,'candidate_warm_calls':100},validity)\n assert gates[variant]['adopt'] is False\nreport={'source_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'metrics_independently_recomputed':result,'paired_failures':paired,'optimistic_all_validity_flags_true_gate':gates,'note':'Even granting all validity flags, every finalist fails objective gates; does not assert remaining performance/platform obligations complete.'}\nPath('/private/tmp/wf-qa-recomputed.json').write_text(json.dumps(report,indent=2)+'\\n');print(json.dumps(report,indent=2))\n",
+  "fault_results": {
+    "cases": [
+      {
+        "name": "missing_index",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "stale_index",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "semantic_failure",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "reranker_absent",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "reranker_throws",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "reranker_nan",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "ValueError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "incomplete_coverage",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "coverage_complete": false,
+          "candidate_ids": [
+            "mem-scratch-safe"
+          ],
+          "stage_ms": {},
+          "fallback": "public_lexical",
+          "unavailable": "incomplete_semantic_coverage"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "production_reranker_absent",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      },
+      {
+        "name": "production_swallowed_semantic_failure",
+        "passed": true,
+        "available": false,
+        "evidence": {
+          "unavailable": "RuntimeError",
+          "fallback": "public_lexical"
+        },
+        "returned_ids": [
+          "mem-scratch-safe"
+        ],
+        "latency_eligible": false,
+        "elapsed_nonnegative": true
+      }
+    ],
+    "passed": 9,
+    "total": 9,
+    "limits": [
+      "Missing/stale load faults injected; no actual stale SQLite constructed.",
+      "Latency credit verified from returned availability and runner branch inspection, not full main execution.",
+      "No holdout or live index was read/scored."
+    ]
+  },
+  "helper_results": {
+    "valid_manifest": {
+      "valid": true,
+      "reasons": [],
+      "corpus_count": 218,
+      "holdout_count": 24
+    },
+    "none_records": {
+      "valid": false,
+      "reasons": [
+        "invalid_corpus_structure"
+      ],
+      "corpus_count": 0,
+      "holdout_count": 0
+    },
+    "scalar_records": {
+      "valid": false,
+      "reasons": [
+        "invalid_corpus_structure"
+      ],
+      "corpus_count": 0,
+      "holdout_count": 0
+    },
+    "unlabelled_negatives_accepted": {
+      "valid": false,
+      "reasons": [
+        "explicit_relevance_labels_required",
+        "insufficient_holdout_coverage"
+      ],
+      "corpus_count": 218,
+      "holdout_count": 24
+    },
+    "valid_adoption": {
+      "adopt": true,
+      "reasons": [],
+      "product_path_changed": false
+    },
+    "negative_counts": {
+      "adopt": false,
+      "reasons": [
+        "quality_measurement_unavailable"
+      ],
+      "product_path_changed": false
+    },
+    "boolean_counts": {
+      "adopt": false,
+      "reasons": [
+        "quality_measurement_unavailable"
+      ],
+      "product_path_changed": false
+    },
+    "inconsistent_population": {
+      "adopt": false,
+      "reasons": [
+        "quality_measurement_unavailable"
+      ],
+      "product_path_changed": false
+    },
+    "denominator_and_fp": {
+      "available": true,
+      "queries": 3,
+      "unavailable_queries": 0,
+      "answerable_queries": 2,
+      "no_match_queries": 1,
+      "answerable_misses": 1,
+      "answerable_without_relevant": 1,
+      "no_match_false_positives": 1,
+      "judged_irrelevant_results": 0,
+      "unjudged_results": 1,
+      "returned_results": 2,
+      "candidate_recall": null,
+      "recall_at_3": 0.5,
+      "recall_at_10": 0.5,
+      "mrr": 0.5
+    },
+    "missing_measurement": {
+      "available": false,
+      "queries": 4,
+      "unavailable_queries": 1,
+      "answerable_queries": 2,
+      "no_match_queries": 1,
+      "answerable_misses": 1,
+      "answerable_without_relevant": 1,
+      "no_match_false_positives": 1,
+      "judged_irrelevant_results": 0,
+      "unjudged_results": 1,
+      "returned_results": 2,
+      "candidate_recall": null,
+      "recall_at_3": null,
+      "recall_at_10": null,
+      "mrr": null
+    }
+  },
+  "independent_results": {
+    "source_sha256": "5bc6268e04d06a8bcc9ba523d21880b621b79d2bfedadfc95b6f04da73cea308",
+    "metrics_independently_recomputed": {
+      "production": {
+        "recall_at_3": 0.75,
+        "recall_at_10": 0.75,
+        "mrr": 0.84375,
+        "answerable_misses": 0,
+        "no_match_false_positives": 2,
+        "judged_irrelevant_results": 2,
+        "unjudged_results": 6,
+        "returned_results": 22
+      },
+      "rrf": {
+        "recall_at_3": 1.0,
+        "recall_at_10": 1.0,
+        "mrr": 1.0,
+        "answerable_misses": 0,
+        "no_match_false_positives": 8,
+        "judged_irrelevant_results": 156,
+        "unjudged_results": 304,
+        "returned_results": 480
+      },
+      "score_fusion": {
+        "recall_at_3": 0.90625,
+        "recall_at_10": 1.0,
+        "mrr": 0.91875,
+        "answerable_misses": 0,
+        "no_match_false_positives": 8,
+        "judged_irrelevant_results": 159,
+        "unjudged_results": 301,
+        "returned_results": 480
+      },
+      "rrf_qualified": {
+        "recall_at_3": 0.84375,
+        "recall_at_10": 0.84375,
+        "mrr": 0.9375,
+        "answerable_misses": 1,
+        "no_match_false_positives": 0,
+        "judged_irrelevant_results": 0,
+        "unjudged_results": 10,
+        "returned_results": 26
+      },
+      "score_fusion_qualified": {
+        "recall_at_3": 0.84375,
+        "recall_at_10": 0.84375,
+        "mrr": 0.90625,
+        "answerable_misses": 1,
+        "no_match_false_positives": 0,
+        "judged_irrelevant_results": 0,
+        "unjudged_results": 10,
+        "returned_results": 26
+      }
+    },
+    "paired_failures": {
+      "rrf": {
+        "additional_empty_ids": [],
+        "additional_false_positive_ids": [
+          "holdout-17",
+          "holdout-19",
+          "holdout-20",
+          "holdout-21",
+          "holdout-23",
+          "holdout-24"
+        ],
+        "recovered_negative_ids": []
+      },
+      "score_fusion": {
+        "additional_empty_ids": [],
+        "additional_false_positive_ids": [
+          "holdout-17",
+          "holdout-19",
+          "holdout-20",
+          "holdout-21",
+          "holdout-23",
+          "holdout-24"
+        ],
+        "recovered_negative_ids": []
+      },
+      "rrf_qualified": {
+        "additional_empty_ids": [
+          "holdout-04"
+        ],
+        "additional_false_positive_ids": [],
+        "recovered_negative_ids": [
+          "holdout-18",
+          "holdout-22"
+        ]
+      },
+      "score_fusion_qualified": {
+        "additional_empty_ids": [
+          "holdout-04"
+        ],
+        "additional_false_positive_ids": [],
+        "recovered_negative_ids": [
+          "holdout-18",
+          "holdout-22"
+        ]
+      }
+    },
+    "optimistic_all_validity_flags_true_gate": {
+      "rrf": {
+        "adopt": false,
+        "reasons": [
+          "no_match_false_positives_increased"
+        ],
+        "product_path_changed": false
+      },
+      "score_fusion": {
+        "adopt": false,
+        "reasons": [
+          "no_match_false_positives_increased"
+        ],
+        "product_path_changed": false
+      },
+      "rrf_qualified": {
+        "adopt": false,
+        "reasons": [
+          "answerable_misses_increased",
+          "warm_p95_budget_exceeded"
+        ],
+        "product_path_changed": false
+      },
+      "score_fusion_qualified": {
+        "adopt": false,
+        "reasons": [
+          "answerable_misses_increased"
+        ],
+        "product_path_changed": false
+      }
+    },
+    "note": "Even granting all validity flags, every finalist fails objective gates; does not assert remaining performance/platform obligations complete."
+  }
+}

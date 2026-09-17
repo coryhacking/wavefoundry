@@ -13,6 +13,7 @@ registration, or explicit projection mutation.
 """
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import secrets
@@ -686,9 +687,9 @@ _PRE_RELEASE_TABLES = frozenset(
 
 RETRIEVAL_METHOD = "utf8_bytes_div_4_phase_source_ledger"
 RETRIEVAL_METHOD_LABEL = (
-    "estimated token savings — gross contained source-file baseline minus "
+    "estimated context avoided — whole eligible text-file baseline minus "
     "the canonical request and complete response, with each source version "
-    "credited once per wave phase."
+    "credited once per wave phase; not measured model-token savings."
 )
 WORKFLOW_PROXY_METHOD = "utf8_bytes_div_4_workflow_closed_ledger"
 WORKFLOW_PROXY_METHOD_LABEL = (
@@ -704,12 +705,14 @@ CONTEXT_EFFICIENCY_CARRIER_BLOCK = f"""\
 ### Context-efficiency checkpoint
 
 New wave records reserve one marker-owned `## Context Efficiency` snapshot.
-It shows one conservative per-stage estimated-token-savings total. Runtime
+It shows one per-stage Estimated context avoided total. Runtime
 telemetry is written through to the host-local SQLite authority; lifecycle,
 reload, and upgrade boundaries project durable totals into `wave.md`.
-Gross source and workflow-prompt credits are reduced by every recorded request
-and complete response. Saved output or avoided tool loops count only through a
-quality-equivalent paired evaluation. Runtime lifecycle tools own projection;
+Whole eligible text-file, workflow-prompt and derived-artifact credits are reduced
+by every recorded request and complete response. This baseline does not prove
+what an agent otherwise would have read or spent. Saved output or avoided tool
+loops count only through quality-equivalent paired evidence, recorded separately
+in the checkpoint state. Runtime lifecycle tools own projection;
 manual/non-MCP creation may omit the snapshot until a projection boundary.
 {CONTEXT_EFFICIENCY_CARRIER_MARKER_END}"""
 
@@ -750,6 +753,42 @@ def _opaque_version_id(version: FileVersion, stronger: bool) -> str:
     return hashlib.sha256(canonical_core_json(payload).encode("utf-8")).hexdigest()
 
 
+_SOURCE_PREFIX_BYTES = 4096
+_BINARY_SOURCE_SUFFIXES = frozenset({
+    ".sqlite", ".sqlite3", ".db", ".db3", ".lance", ".bin",
+    ".zip", ".gz", ".bz2", ".xz", ".7z", ".tar", ".tgz", ".zst",
+    ".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe", ".o", ".a",
+    ".class", ".jar", ".wasm", ".pdf", ".png", ".jpg", ".jpeg",
+    ".gif", ".ico", ".woff", ".woff2", ".onnx", ".safetensors",
+})
+
+
+def _eligible_source_text(root: Path, path: Path, size: int) -> bool:
+    """Conservatively recognize source text; never scan a whole file for credit."""
+    parts = tuple(part.casefold() for part in path.relative_to(root).parts)
+    if (
+        parts[:2] in {(".wavefoundry", "index"), (".wavefoundry", "logs"),
+                      (".wavefoundry", "locks")}
+        or any(part.endswith(".lance") or part in {".git", "__pycache__"}
+               for part in parts)
+        or path.suffix.casefold() in _BINARY_SOURCE_SUFFIXES
+        or path.name.casefold().endswith(("-wal", "-shm", "-journal"))
+    ):
+        return False
+    try:
+        with path.open("rb") as source:
+            prefix = source.read(_SOURCE_PREFIX_BYTES)
+        if b"\0" in prefix:
+            return False
+        # A valid multibyte character may straddle the bounded sample's end.
+        codecs.getincrementaldecoder("utf-8")().decode(
+            prefix, final=len(prefix) >= size or len(prefix) < _SOURCE_PREFIX_BYTES
+        )
+        return True
+    except (OSError, UnicodeError, ValueError):
+        return False
+
+
 def measure_source_proofs(
     root: Path, proofs: Iterable[SourceProof]
 ) -> SourceMeasurement:
@@ -777,44 +816,37 @@ def measure_source_proofs(
     for key, candidates in grouped.items():
         resolved = Path(key)
         current = contained_stat_signature(resolved_root, resolved)
-        selected: FileVersion | None = current
+        if current is None or not _eligible_source_text(resolved_root, resolved, current.size):
+            continue
         classification = "estimated"
         stronger = False
-        if current is not None:
-            for proof in candidates:
-                signature_matches = proof.expected is not None and _file_version_matches(
-                    proof.expected, current
-                )
-                stable = (
-                    proof.kind == "live"
-                    and proof.boundary_stable
-                    and signature_matches
-                ) or (
-                    proof.kind == "indexed"
-                    and proof.epoch_stable
-                    and (signature_matches or proof.stronger_same_version)
-                )
-                if stable:
-                    classification = "verified"
-                    stronger = proof.stronger_same_version
-                    break
-        else:
-            selected = next(
-                (proof.expected for proof in candidates if proof.expected is not None),
-                None,
+        for proof in candidates:
+            signature_matches = proof.expected is not None and _file_version_matches(
+                proof.expected, current
             )
-        if selected is None:
-            continue
+            stable = (
+                proof.kind == "live"
+                and proof.boundary_stable
+                and signature_matches
+            ) or (
+                proof.kind == "indexed"
+                and proof.epoch_stable
+                and (signature_matches or proof.stronger_same_version)
+            )
+            if stable:
+                classification = "verified"
+                stronger = proof.stronger_same_version
+                break
         kind = (
             "structural"
             if any(proof.credit_kind == "structural" for proof in candidates)
             else "content"
         )
-        token_count = estimate_tokens_from_byte_count(selected.size)
+        token_count = estimate_tokens_from_byte_count(current.size)
         credits.append(
             SourceCreditCandidate(
                 source_id=_opaque_source_id(resolved_root, resolved),
-                version_id=_opaque_version_id(selected, stronger),
+                version_id=_opaque_version_id(current, stronger),
                 tokens=token_count,
                 classification=classification,
                 credit_kind=kind,
@@ -2464,6 +2496,21 @@ def _checkpoint_state_errors(snapshot: Any) -> list[str]:
     return errors
 
 
+_CHECKPOINT_ESTIMATE_NOTE = (
+    "Estimated context avoided uses whole eligible text-file, workflow-prompt "
+    "and derived-artifact credits, minus recorded request and response tokens. "
+    "This baseline does not prove what an agent otherwise would have read or "
+    "spent. Any quality-equivalent paired-evaluation residual is recorded "
+    "separately in the checkpoint state and included in the total."
+)
+_LEGACY_CHECKPOINT_ESTIMATE_NOTE = (
+    "Estimated token savings use phase-unique returned source versions "
+    "and mapped workflow prompts, minus recorded request and response "
+    "tokens. Saved model output or avoided tool loops count only through "
+    "quality-equivalent paired evidence."
+)
+
+
 def render_checkpoint_block(snapshot: Mapping[str, Any]) -> str:
     state = _normalized_checkpoint_state(snapshot)
     status = state["measurement_status"]
@@ -2472,14 +2519,9 @@ def render_checkpoint_block(snapshot: Mapping[str, Any]) -> str:
         "",
         CONTEXT_EFFICIENCY_MARKER_BEGIN,
         "",
-        (
-            "Estimated token savings use phase-unique returned source versions "
-            "and mapped workflow prompts, minus recorded request and response "
-            "tokens. Saved model output or avoided tool loops count only through "
-            "quality-equivalent paired evidence."
-        ),
+        _CHECKPOINT_ESTIMATE_NOTE,
         "",
-        "| Stage | Tool calls | Estimated token savings |",
+        "| Stage | Tool calls | Estimated context avoided |",
         "| --- | ---: | ---: |",
     ]
     if status in {"accounting_gap", "credit_history_unavailable", "failed"}:
@@ -2558,7 +2600,16 @@ def checkpoint_validation_errors(text: str) -> list[str]:
         errors = _checkpoint_state_errors(state)
         if errors:
             return errors
-        if render_checkpoint_block(state) not in canonical:
+        expected = render_checkpoint_block(state)
+        # Accept the exact prior presentation without rewriting archived waves
+        # or weakening the state/numeric consistency check.
+        legacy = expected.replace(
+            _CHECKPOINT_ESTIMATE_NOTE, _LEGACY_CHECKPOINT_ESTIMATE_NOTE
+        ).replace(
+            "| Stage | Tool calls | Estimated context avoided |",
+            "| Stage | Tool calls | Estimated token savings |",
+        )
+        if expected not in canonical and legacy not in canonical:
             return ["context-efficiency checkpoint render does not match state"]
         return []
     return ["context-efficiency checkpoint schema is unsupported"]

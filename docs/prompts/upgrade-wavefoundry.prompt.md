@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-16
+Last verified: 2026-09-17
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -275,7 +275,7 @@ What this prompt is not:
 
 **Supported operator environments:** native Windows, WSL2, macOS, and Linux are first-class. Prefer the MCP path or the cross-platform `wf` / `wf.cmd` dispatcher for the host; structured argv is authoritative and display commands are rendered for the detected platform.
 
-Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release. Follow `.wavefoundry/framework/README.md` **Python runtime advisory and transition** when deliberately changing interpreters: select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated `WAVEFOUNDRY_TOOL_VENV`, and retain existing recovery ownership. The advisory never performs that transition automatically.
+**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release. Follow `.wavefoundry/framework/README.md` **Python runtime advisory and transition** when deliberately changing interpreters: select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated `WAVEFOUNDRY_TOOL_VENV`, and retain existing recovery ownership. The advisory never performs that transition automatically.
 
 **Python requirement:** Python 3.11 or later is required. Framework dependencies are installed into a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override); `wf setup` is the operator command to create/populate it and run the index setup flow when the dispatcher is on PATH. If `wf` is not on PATH, use the setup step documented in the install prompt. If the setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path: in agent-driven sessions, first ask the operator for permission to rerun the same setup command with network access or host escalation enabled. If that cannot complete, manually obtain the exact `wavefoundry-models-<set>.zip` asset from the same release (or an approved internal distribution), leave it zipped, place it in the target repository root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, or `~/Downloads/`, and rerun `wf setup`. It verifies the set, hashes, and licenses before replacing the cache; an invalid archive leaves a verified cache unchanged.
 
@@ -568,10 +568,10 @@ Verify the policy reaches each applicable destination, stale inheritance claims 
 
 When seed 050 changes, merge its **Check readiness after Git changes** instruction into root `AGENTS.md`, preserving project-specific guidance. Verify checkout-changing operations and conflict stops require `index_health()`, that both freshness and `data.setup_readiness` are inspected, and that the no-MCP `wf setup --check --json` fallback is described as bounded readiness only. Keep host wrappers as pointers; do not install Git hooks or automatically execute recommended repairs.
 
-## Python runtime deprecation guidance
+## Wavefoundry tooling Python runtime guidance
 
-Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
-During the editing pass, reconcile this policy into existing install/upgrade prompts and Python support guidance, preserving project additions and renderer-owned regions. Explain the once-per-`wf` invocation and once-per-MCP-serving-start stderr notice, silent dry-run verification, and structured `setup_readiness.advisories` visibility. The advisory is nonblocking and must not be treated as a setup/rebuild action.
+During the editing pass, reconcile this tooling-only policy into existing install/upgrade prompts and Wavefoundry Python support guidance, preserving project additions and renderer-owned regions. Explain the once-per-`wf` invocation and once-per-MCP-serving-start stderr notice, silent dry-run verification, and structured `setup_readiness.advisories` visibility. The advisory is nonblocking and must not be treated as a setup/rebuild action.
 
 Use `.wavefoundry/framework/README.md` **Python runtime advisory and transition** for the deliberate transition: select newer PATH `python3` for both setup and the restarted host; stop all consumers before ordinary setup replaces an incompatible shared environment, or select and propagate an isolated `WAVEFOUNDRY_TOOL_VENV`. Setup does not install Python. Preserve pending recovery ownership and perform a full host restart after changing interpreters.

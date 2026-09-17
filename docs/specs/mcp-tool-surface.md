@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-16
+Last verified: 2026-09-17
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -255,14 +255,33 @@ tools use their documented source-path fields (`data.path`,
 `path_nodes[*].source_file`, according to the tool). Telemetry never infers paths
 from unrelated response strings.
 
-The strongest available contained size baseline is used. Stable live read boundaries
-and stable indexed epochs with matching per-path provenance are counted in
-`source_files_verified`. A readable current-file size or already-captured/indexed
-expected size without that proof is counted in `source_files_estimated`.
+Source credits for retrieval and first-party tool accounting share
+`measure_source_proofs`. Known binary/runtime paths are excluded, including
+index and retired index-state databases, memory and telemetry stores, SQLite
+WAL/SHM/journals and legacy vector-store artifacts. Other candidate files receive
+a bounded 4096-byte UTF-8/NUL prefix check that tolerates a multibyte character
+split at the boundary. Renamed recognizable binaries, such as SQLite fixtures,
+are rejected. This is a conservative heuristic, not a universal binary classifier
+or proof that the whole file is text. Metadata-only, unreadable or uncertain
+sources earn no positive credit; request/response debits remain and retrieval
+stays usable. No whole-file read, cache, schema or dependency change is introduced
+solely for telemetry. Query results may represent canonical text documents; the
+containing database never qualifies as their source-text baseline.
+
+Among eligible sources, the strongest available contained size baseline is used.
+Stable live read boundaries and stable indexed epochs with matching per-path
+provenance are counted in
+`source_files_verified`. An eligible current-file size without that proof is
+counted in `source_files_estimated`; captured/indexed metadata verifies versions,
+but never substitutes for a missing current file.
 `source_files_counted` is their sum. Sources without any size-bearing baseline are
 omitted; no public unavailable-files category is emitted. Paths and versions are
 persisted only as opaque hashes. SQLite credits one source version once per wave
-phase across content and structural tools.
+phase across content and structural tools. The whole-file source baseline is
+reported as **Estimated context avoided**, not measured model usage or billing
+savings. Partial results do not establish full-file reads avoided; new
+phase/version credits do not prove repeated avoided reads. Verified source
+versions establish file evidence, not that counterfactual.
 
 ### Lifecycle field
 
@@ -303,9 +322,11 @@ the unified estimate rather than disappearing from it.
   invoking producer's rows and may atomically claim persisted producers whose
   lease is provably unheld. Live peers and ambiguous/missing leases stay general.
 - Each stage is displayed with
-  `max(0, content + structural + workflow prompt - request - response + paired residual)`.
-  The wave total is recomputed from the summed components and floored once; it
-  is never the sum of already-floored stage headlines.
+  `max(0, content + structural + workflow prompt + derived artifact - request - response + paired residual)`.
+  The wave total sums the stage headlines. The paired residual remains separately
+  recorded as `matched_pair_residual`, with `paired_evaluation_count`; the display
+  can include it without treating it as source-file credit. The separate memory
+  exploration estimate is excluded.
 - The SQLite store contains opaque accounting IDs and values, not query text,
   returned content, prompts, paths, secrets, or conversations.
 - Every framework writer of the active `wave.md`, including mutating
@@ -315,8 +336,12 @@ the unified estimate rather than disappearing from it.
   `<!-- wave:context-efficiency begin/end -->`; legacy `wavefoundry:` telemetry
   markers are accepted and migrated when touched. Runtime and docs lint share the
   strict marker/schema/render validator for that block. The human projection has
-  one table: stage, tool calls, and estimated token savings. Detailed components
-  stay in the machine state.
+  one table: stage, tool calls, and **Estimated context avoided**, with its
+  whole-file baseline explained nearby. The dashboard displays this wave Markdown.
+  Exact legacy checkpoint wording remains accepted with the same numeric/state
+  checks, and persisted `estimated_tokens_saved` fields remain readable. No
+  historical correction, backfill or closed-wave rewrite is introduced. Detailed
+  components stay in the machine state.
 - Lifecycle boundaries project pending generations. MCP reload and framework
   upgrade refuse to proceed until all pending generations are projected.
   Claude Code additionally renders a dedicated, detached main-session `Stop`
@@ -373,18 +398,22 @@ report_path="", applicability=null)` is the typed authority:
 
 ### `wf_memory_eval`
 
-`wf_memory_eval()` measures the configured repository's memory-retrieval
-quality by running the curated live-corpus pass (wave 1tgws). It is read-only:
+`wf_memory_eval()` runs a sampled self-summary memory-retrieval diagnostic
+(waves 1tgws/1yad2), not independent quality qualification. It is read-only:
 no records are written and no index is built. It takes no target-directory
 argument — like every other tool it operates on the configured root, per the
 allowed-roots safety rule.
 
 The response `data` carries the engine's aggregate report only: `available`,
 `sample_size`/`sample_cap`, `sample_strategy`, `fingerprint`, `counts_by_kind`,
-`counts_by_status`, metrics, and the adoption gate. It NEVER carries record
+`counts_by_status`, metrics, and the adoption gate. The report names
+`evaluation_kind`, `production_variant` and `experimental_variant`, with
+`qualifying: false` and `adoption_gate.adopt: false`; a sampled self-query cannot
+qualify new production ranking. Frozen full-corpus qualification is an explicit
+local workflow, never automatically discovered by this tool. It NEVER carries record
 bodies, summaries, or memory ids — the privacy boundary is structural, pinned
 by `test_memory_eval_tool_reports_aggregate_only`. When the semantic backend or
-corpus is unavailable the report returns `available: false` with
+corpus is unavailable (including a code-only index without docs vectors), or a semantic query fails, the report returns `available: false` with
 `unavailable_reason`, surfaced as a `curated_pass_unavailable` diagnostic
 rather than an error. The hermetic invariant pass remains a test
 (`tests/test_memory_eval.py`); its golden fixture is test scaffolding and is
@@ -781,6 +810,8 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 
 `wf_review_event(wave_id, event, actor, context_id, mode="dry_run", ...)`
 
+- **Optional contributor identity:** `operator_handle` selects a handle in `docs/contributors.json`; otherwise a bounded local git-email lookup resolves it. New approval, finding and run records carry `verification_context.operator = {handle, source}` when available, including generated convergence contexts. The contributors file maps handles to `{name, emails}`; no network lookup or identity gate is added. An absent map is silent; invalid/unreadable maps, ambiguous or unmapped emails and unknown explicit handles emit one advisory `operator_identity_unresolved` while leaving the event writable. The handle is reference attribution, not proof the human personally approved an agent review. `wave.md` displays the stored handle using its existing review table. Identity is excluded from request digests; replay returns the original attribution without lookup or append. `dry_run` previews the same metadata without writing; `list` performs no identity lookup.
+
 - Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
 - **`event="list"` (wave 1t59p): the standardized forensic/history READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag), and `approvals` (per-signoff currency rows), all presented from the same canonical structured authority projection used by guided review and the close gate. `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. Use it for full history, filters, truncation recovery, or disputed state—not after every successful write. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call.
 - Finding callers explicitly provide the load-bearing judgment object plus evidence narrative; the tool never guesses contract relevance, reachability, authority, impact, containment, scope, or wave causality. It derives IDs, disposition, blocking, review depth, supersession, cycle linkage, and append order.
@@ -860,6 +891,29 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
 
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
+
+**Explicit memory-query retrieval (wave 1yad2):** `memory_search(query=...)`
+uses memory-scoped dense20 + lexical20 candidates, equal RRF k=60 and CPU
+summary relevance checks over only the first five candidates. Empty summaries
+use their title. Finite raw logits >= -4 pass; output preserves RRF order and
+is capped at min(limit,5), with no unchecked refill. Status, kind and exact
+target/symbol filters apply before retrieval. Queryless listings, target-only
+requests, briefs and unsolicited advisories keep existing policy ordering.
+
+Returned records are search evidence: the calling agent evaluates relevance,
+applicability and direct support just as for semantic, lexical and graph results.
+Qualification metadata reports model screening, not verified answer support or
+authority. Original confidence, status, validation, successor and provenance
+fields remain intact. Missing/stale/incomplete indexes, unavailable models and
+failed/nonfinite qualification use explicit lexical-policy recovery. Eligible
+body bytes must match published docs-layer source hashes in the vector read
+transaction. Recovery
+must not masquerade as healthy qualification or healthy zero matches. Archived
+history stays readable through this recovery when its bodies are not indexed.
+A cached CPU model-load failure needs a runtime restart after correcting the
+reranker-disable setting or local model/runtime availability (`wf setup` when
+provisioning is needed); index refresh alone does not reset it. No additional
+host-agent service or network model is invoked by memory search.
 
 **Memory physical archive (wave 1t8la):**
 

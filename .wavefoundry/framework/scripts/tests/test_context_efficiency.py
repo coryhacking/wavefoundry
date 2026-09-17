@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import io
 import json
 import os
 import sqlite3
@@ -125,6 +126,65 @@ def _artifact(
 
 
 class EstimatorAndProofTests(TempRootTest):
+    def test_binary_and_runtime_sources_never_receive_text_credit(self) -> None:
+        for name, content in (
+            (".wavefoundry/index/index.sqlite", b"text-looking container"),
+            (".wavefoundry/logs/events.json", b"runtime text"),
+            ("old.code.lance/data", b"legacy vectors"),
+            ("memory-state.sqlite", b"text-looking container"),
+            ("cache.db-wal", b"text-looking sidecar"),
+            ("cache.db-shm", b"text-looking sidecar"),
+            ("cache.db-journal", b"text-looking sidecar"),
+            ("ARCHIVE.ZIP", b"text-looking archive"),
+            ("program.exe", b"text-looking executable"),
+            ("renamed.txt", b"SQLite format 3\0payload"),
+            ("unknown", b"\xff\xfe\xfd"),
+            ("truncated.txt", b"unfinished \xe2"),
+            ("boundary.txt", b"a" * 4095 + b"\xe2"),
+        ):
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+                metric = ce.retrieval_context_avoided(
+                    {"content": "excerpt"}, self.root,
+                    [ce.SourceProof(path, "live", None)],
+                    request_arguments={"path": name},
+                )
+                self.assertEqual(metric["estimated_source_tokens"], 0)
+                self.assertEqual(metric["_source_credits"], [])
+                self.assertGreater(metric["estimated_request_tokens"], 0)
+                self.assertGreater(metric["estimated_returned_tokens"], 0)
+
+    def test_text_probe_is_bounded_and_allows_split_utf8(self) -> None:
+        path = self.root / "README"
+        content = b"a" * 4095 + "😀".encode() + b"z" * 4096
+        path.write_bytes(content)
+        reads = []
+
+        class PrefixStream(io.BytesIO):
+            def read(self, size=-1):
+                reads.append(size)
+                return super().read(size)
+
+        with patch.object(Path, "open", return_value=PrefixStream(content)):
+            measured = ce.measure_source_proofs(self.root, [ce.SourceProof(path, "live", None)])
+        self.assertEqual(reads, [4096])
+        self.assertEqual(measured.estimated_source_tokens, (len(content) + 3) // 4)
+
+    def test_unreadable_missing_and_noncontent_sources_get_no_credit(self) -> None:
+        path = self.root / "readme.md"
+        path.write_text("valid text", encoding="utf-8")
+        proof = ce.SourceProof(path, "live", ce.contained_stat_signature(self.root, path))
+        with patch.object(Path, "open", side_effect=PermissionError("denied")):
+            self.assertEqual(ce.measure_source_proofs(self.root, [proof]).candidates, ())
+        with patch.object(Path, "open", side_effect=AssertionError("metadata must not be read")):
+            self.assertEqual(ce.measure_source_proofs(self.root, [
+                ce.SourceProof(path, "live", None, content_bearing=False)
+            ]).candidates, ())
+        path.unlink()
+        self.assertEqual(ce.measure_source_proofs(self.root, [proof]).candidates, ())
+
     def test_utf8_estimator_is_deterministic(self) -> None:
         self.assertEqual(ce.estimate_tokens_utf8(""), 0)
         self.assertEqual(ce.estimate_tokens_utf8("abcde"), 2)
@@ -851,6 +911,31 @@ t.record_retrieval({
 
 
 class CheckpointTests(TempRootTest):
+    def test_estimate_label_preserves_exact_legacy_render_and_tamper_checks(self) -> None:
+        snapshot = self.sample()
+        block = ce.render_checkpoint_block(snapshot)
+        self.assertIn("| Stage | Tool calls | Estimated context avoided |", block)
+        self.assertIn("whole eligible text-file", block)
+        self.assertIn("does not prove", block)
+        self.assertIn("paired-evaluation residual is recorded separately", block)
+        self.assertEqual(ce.parse_checkpoint_block(block)["totals"]["matched_pair_residual"], 30)
+        legacy_note = (
+            "Estimated token savings use phase-unique returned source versions "
+            "and mapped workflow prompts, minus recorded request and response "
+            "tokens. Saved model output or avoided tool loops count only through "
+            "quality-equivalent paired evidence."
+        )
+        legacy = block.replace(ce._CHECKPOINT_ESTIMATE_NOTE, legacy_note).replace(
+            "| Stage | Tool calls | Estimated context avoided |",
+            "| Stage | Tool calls | Estimated token savings |",
+        )
+        for text in (block, legacy, legacy.replace("wave:", "wavefoundry:")):
+            with self.subTest(text=text[:100]):
+                self.assertEqual(ce.parse_checkpoint_block(text), snapshot)
+                self.assertIsNone(ce.parse_checkpoint_block(
+                    text.replace("| review | 2 | 120 |", "| review | 2 | 121 |")
+                ))
+
     def sample(self) -> dict[str, object]:
         stage = {
             "calls": 2,

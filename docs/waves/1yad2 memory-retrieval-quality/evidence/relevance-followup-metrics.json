@@ -1,0 +1,57 @@
+[
+  {
+    "variant": "production",
+    "recall3": 0.625,
+    "recall10": 0.625,
+    "mrr": 0.5694444444444444,
+    "answerable_success": 8,
+    "empty": 3,
+    "negative_fp": 2,
+    "p95_ms": 674.5783749502152,
+    "unjudged_positive_returned": 5
+  },
+  {
+    "variant": "rrf",
+    "recall3": 0.9166666666666666,
+    "recall10": 1.0,
+    "mrr": 0.9583333333333334,
+    "answerable_success": 12,
+    "empty": 0,
+    "negative_fp": 8,
+    "p95_ms": 112.84829210489988,
+    "unjudged_positive_returned": 225
+  },
+  {
+    "variant": "summary20",
+    "recall3": 0.8333333333333334,
+    "recall10": 0.875,
+    "mrr": 0.875,
+    "answerable_success": 11,
+    "empty": 1,
+    "negative_fp": 0,
+    "p95_ms": 470.1777908485383,
+    "unjudged_positive_returned": 14
+  },
+  {
+    "variant": "summary5",
+    "recall3": 0.8333333333333334,
+    "recall10": 0.875,
+    "mrr": 0.875,
+    "answerable_success": 11,
+    "empty": 1,
+    "negative_fp": 0,
+    "p95_ms": 196.21466705575585,
+    "unjudged_positive_returned": 5
+  },
+  {
+    "variant": "agent5",
+    "recall3": 0.9166666666666666,
+    "recall10": 0.9166666666666666,
+    "mrr": 1.0,
+    "answerable_success": 12,
+    "empty": 0,
+    "negative_fp": 0,
+    "p95_ms": null,
+    "unjudged_positive_returned": 1
+  }
+]

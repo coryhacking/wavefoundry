@@ -219,6 +219,71 @@ def dense_rows(index_dir: Path, layer: str, vector, limit: int,
         conn.close()
 
 
+def dense_path_scores(index_dir: Path, layer: str, vector, paths,
+                      limit: int = 20, *, expected_hashes: dict[str, str] | None = None) -> dict:
+    """Exact search over eligible individual memory body paths.
+
+    Group before LIMIT so duplicate chunks cannot consume record slots. This
+    bounds returned rows, not distance computations: every eligible chunk is
+    scanned. Compact archive-register entries are lexical identities, not
+    individual body paths. When supplied, source hashes must match published
+    layer state in the same read transaction as vectors. No tables, embeddings
+    or schema are written here.
+    """
+    layer = _layer(layer)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+        raise ValueError("memory candidate limit must be an integer from 1 to 20")
+    supplied = list(paths)
+    if any(not isinstance(path, str) or not path for path in supplied):
+        raise ValueError("memory body paths must be nonempty strings")
+    wanted = sorted(set(supplied))
+    query = pack_vector(vector)
+    report = {"scores": {}, "eligible_chunks": 0, "covered_paths": 0,
+              "requested_paths": len(wanted), "complete": not wanted}
+    if not wanted:
+        return report
+    encoded = json.dumps(wanted, ensure_ascii=False)
+    conn = _open(index_dir)
+    try:
+        with conn:
+            if expected_hashes is not None:
+                stored = dict(conn.execute(
+                    "SELECT path,hash FROM layer_path_state WHERE layer=? "
+                    "AND path IN (SELECT value FROM json_each(?))", [layer, encoded],
+                ).fetchall())
+                report["source_current"] = (
+                    set(expected_hashes) == set(wanted)
+                    and all(isinstance(expected_hashes[path], str)
+                            and len(expected_hashes[path]) == 64
+                            and stored.get(path) == expected_hashes[path]
+                            for path in wanted)
+                )
+                if not report["source_current"]:
+                    return report
+            source = (f"FROM chunks_{layer} c JOIN vectors_{layer} v "
+                      "ON v.chunk_id=c.id "
+                      "WHERE c.path IN (SELECT value FROM json_each(?))")
+            chunks, covered = conn.execute(
+                "SELECT count(*),count(DISTINCT c.path) " + source,
+                [encoded],
+            ).fetchone()
+            rows = conn.execute(
+                "SELECT c.path,min(vec_distance_cosine(v.embedding,?)) AS distance "
+                + source + " GROUP BY c.path ORDER BY distance,c.path LIMIT ?",
+                [query, encoded, limit],
+            ).fetchall()
+            scores = {}
+            for path, distance in rows:
+                if distance is None or not math.isfinite(float(distance)):
+                    raise ValueError("non-finite memory vector distance")
+                scores[path] = 1.0 - float(distance)
+            report.update(scores=scores, eligible_chunks=chunks,
+                          covered_paths=covered, complete=covered == len(wanted))
+            return report
+    finally:
+        conn.close()
+
+
 def payload_rows(index_dir: Path, layer: str, predicate: str | None = None,
                  limit: int | None = None, include_vector: bool = False) -> list[dict]:
     layer = _layer(layer)

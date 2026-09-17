@@ -10,6 +10,7 @@ import datetime
 import functools
 import importlib.util
 import json
+import math
 import os
 import tempfile
 from contextlib import contextmanager
@@ -39,6 +40,7 @@ for _wll_key in list(sys.modules):
             "context_efficiency",
             "public_contract",
             "gardener_metadata",
+            "operator_identity",
         }
     ):
         del sys.modules[_wll_key]
@@ -54,6 +56,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
+from operator_identity import resolve_operator
 import setup_readiness
 
 # Capture once even when the implementation module is hot-reloaded. The thin
@@ -956,6 +959,8 @@ class WaveIndex:
         self._docs_vector_layer = None   # SQLite docs layer token, None if not loaded
         self._code_vector_layer = None   # SQLite code layer token, None if not loaded
         self._reranker = None
+        self._memory_reranker = None
+        self._memory_reranker_failed_model = None
         # Wave 1p4wz: serialize the one-time lazy build of the reranker / embedders. FastMCP dispatches
         # tools on a thread pool, so N concurrent first queries could otherwise each pay the CoreML
         # compile + GPU-offload probe (and race the shared offline-env mutation). The locks guard only
@@ -1541,6 +1546,45 @@ class WaveIndex:
                 f"({reranker.provider}, batch {reranker.batch_size}x{accel_embedder.STATIC_SEQ})"
             )
             return self._reranker
+
+    def _memory_candidate_scores(self, query: str, paths: list[str], *,
+                                 expected_hashes: dict[str, str]) -> dict[str, Any]:
+        """Bound materialized memory records without routing through docs reranking."""
+        vector = self._embed_query(query, self._indexer_constant("DOCS_MODEL"))
+        return _load_script("sqlite_vector_store").dense_path_scores(
+            self.index_dir, "docs", vector, paths, limit=MEMORY_SEARCH_CAP,
+            expected_hashes=expected_hashes,
+        )
+
+    def _get_memory_reranker(self):
+        """CPU-only raw-logit model for the separately qualified memory gate.
+
+        Do not use make_reranker: its CPU provider argument still permits GPU
+        discovery. Memory's fixed cutoff was qualified with CPU INT8 singleton
+        scoring. Keep the normal code/docs provider and cache untouched.
+        """
+        try:
+            import accel_embedder
+            if accel_embedder._reranker_disabled():
+                return None
+            model = self._indexer_constant("RERANKER_MODEL")
+            with self._reranker_lock:
+                for reranker in (getattr(self, "_memory_reranker", None),
+                                 getattr(self, "_reranker", None)):
+                    if (getattr(reranker, "provider", None) == "CPUExecutionProvider"
+                            and getattr(reranker, "model_name", None) == model):
+                        return reranker
+                if getattr(self, "_memory_reranker_failed_model", None) == model:
+                    return None
+                try:
+                    reranker = accel_embedder.StaticShapeReranker(model, ["CPUExecutionProvider"])
+                except Exception:
+                    self._memory_reranker_failed_model = model
+                    return None
+                self._memory_reranker = reranker
+                return reranker
+        except Exception:
+            return None
 
     def _start_background_model_downloads(self) -> None:
         import os
@@ -10190,13 +10234,15 @@ def index_health_response(
 #
 # The record FILES under docs/agents/memory/ are the source of truth (few,
 # small, live); the semantic index is an optional retrieval assist and its
-# absence degrades silently. Decay is a ranking view, never a mutation.
+# absence has explicit lexical recovery. Decay is a ranking view, never a mutation.
 
 # Advisory caps (1p8gy Req 6: named constants, response bloat is a hot-path
 # concern). A briefing is a nudge, not a document — five entries is what an
 # agent actually reads before acting.
 MEMORY_BRIEF_CAP = 5
 MEMORY_SEARCH_CAP = 20
+MEMORY_QUERY_CHECK_CAP = 5
+MEMORY_QUERY_MIN_LOGIT = -4.0
 MEMORY_PROPOSE_CAP = 20
 MEMORY_CONSOLIDATE_GROUP_CAP = 10
 MEMORY_CONSOLIDATE_MEMBER_CAP = 5
@@ -11707,6 +11753,89 @@ def memory_validate_response(
             usage="memory_search(include_history=True)")
 
 
+def _memory_query_records(
+    root: Path, records: list[dict[str, Any]], query: str, index: Optional[WaveIndex],
+) -> tuple[Optional[list[dict[str, Any]]], dict[str, Any]]:
+    """Return screened RRF candidates, or None for explicit lexical recovery.
+
+    The calling agent still decides relevance and applicability. A model logit
+    is not proof that a memory answers the question or establishes authority.
+    """
+    retrieval = {
+        "method": "lexical_policy", "qualification": "unavailable",
+        "checked_candidate_cap": MEMORY_QUERY_CHECK_CAP, "checked_candidates": 0,
+        "support_verified": False, "fallback_reason": "semantic_index_unavailable",
+    }
+    if index is None:
+        return None, retrieval
+    try:
+        index._ensure_loaded()
+        if index._docs_vector_layer is None:
+            return None, retrieval
+        retrieval["fallback_reason"] = "memory_candidate_state_unavailable"
+        ranking = _load_script("memory_eval")
+        by_id = {r["memory_id"]: r for r in records}
+        if len(by_id) != len(records):
+            return None, retrieval
+        body_paths = {}
+        expected_hashes = {}
+        canonical_root = root.resolve()
+        for record in records:
+            if record.get("record_type") == "archive_register_entry":
+                continue  # compact entries share a manifest; their identity is lexical
+            source_path = Path(record["path"])
+            if not source_path.is_absolute():
+                source_path = canonical_root / source_path
+            path = source_path.resolve().relative_to(canonical_root).as_posix()
+            if path in body_paths:
+                return None, retrieval
+            body_paths[path] = record["memory_id"]
+            retrieval["fallback_reason"] = "memory_source_state_stale"
+            expected_hashes[path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        retrieval["fallback_reason"] = "memory_candidate_state_unavailable"
+        dense = index._memory_candidate_scores(
+            query, list(body_paths), expected_hashes=expected_hashes,
+        )
+        if dense.get("source_current") is False:
+            retrieval["fallback_reason"] = "memory_source_state_stale"
+            return None, retrieval
+        if not dense["complete"]:
+            # Includes intentionally unindexed historical bodies. Do not force
+            # archive embedding or pass an incomplete dense stream as complete.
+            retrieval["fallback_reason"] = "memory_vector_coverage_incomplete"
+            return None, retrieval
+        scores = dense["scores"]
+        if any(not math.isfinite(float(value)) for value in scores.values()):
+            return None, retrieval
+        semantic = [body_paths[path] for path in sorted(scores, key=lambda p: (-scores[p], body_paths[p]))]
+        lexical = ranking.lexical_bm25_order(records, query)[:MEMORY_SEARCH_CAP]
+        order = ranking.reciprocal_rank_fusion([semantic, lexical])[:MEMORY_QUERY_CHECK_CAP]
+        retrieval["semantic_assist"] = bool(semantic)
+        if order:
+            retrieval["fallback_reason"] = "memory_relevance_model_unavailable"
+            reranker = index._get_memory_reranker()
+            if reranker is None:
+                return None, retrieval
+            texts = [str(by_id[mid].get("summary") or by_id[mid].get("title") or "") for mid in order]
+            raw = list(reranker.rerank(query, texts))
+            if len(raw) != len(order) or any(isinstance(value, (bool, str, bytes)) for value in raw):
+                return None, retrieval
+            values = [float(value) for value in raw]
+            if not all(math.isfinite(value) for value in values):
+                return None, retrieval
+            retrieval["checked_candidates"] = len(order)
+            selected = [mid for mid, score in zip(order, values) if score >= MEMORY_QUERY_MIN_LOGIT]
+        else:
+            selected = []
+        retrieval.update(method="hybrid_rrf", qualification="model_relevance",
+                         fallback_reason=None)
+        return [by_id[mid] for mid in selected], retrieval
+    except Exception:
+        # Never put query/model exception text into the response. Recovery is
+        # the old eligible all-token lexical path, not unchecked dense hits.
+        return None, retrieval
+
+
 def memory_search_response(
     root: Path,
     query: str = "",
@@ -11742,44 +11871,52 @@ def memory_search_response(
         records = [r for r in records if r["kind"] == kind]
     if target or symbol:
         records = [r for r in records if mem.match_targets(r, path=target, symbol=symbol)]
-    semantic_hit_order: dict[str, int] = {}
+    retrieval = {"method": "policy", "qualification": "not_requested",
+                 "checked_candidate_cap": MEMORY_QUERY_CHECK_CAP, "checked_candidates": 0,
+                 "support_verified": False, "fallback_reason": None}
+    query_order: Optional[dict[str, int]] = None
     if query:
-        lowered = query.lower()
-        # Semantic assist (optional): the docs index already embeds records.
-        if index is not None:
-            try:
-                hits, _reranked = index.search_docs(query, top_n=MEMORY_SEARCH_CAP)
-                for rank, hit in enumerate(hits):
-                    hit_path = str(hit.get("path") or "")
-                    if hit_path.startswith(mem.MEMORY_DIR):
-                        stem = Path(hit_path).stem
-                        semantic_hit_order.setdefault(stem, rank)
-            except Exception:
-                pass
-        # Token containment keeps search useful with no index at all: every
-        # query token must appear somewhere in the record's text surface.
-        tokens = [t for t in re.split(r"[^a-z0-9_]+", lowered) if t]
-
-        def _text_match(r: dict[str, Any]) -> bool:
-            haystack = " ".join([
-                (r.get("summary") or ""), (r.get("title") or ""),
-                " ".join(r.get("target_refs") or []),
-                " ".join(r.get("evidence_refs") or []),
-                " ".join(r.get("keywords") or []),
-            ]).lower()
-            return bool(tokens) and all(t in haystack for t in tokens)
-
-        records = [
-            r for r in records
-            if r["memory_id"] in semantic_hit_order or _text_match(r)
-        ]
-    ranked = _memory_ranked(
-        root,
-        records,
-        relevance_rank_by_id=semantic_hit_order if query else None,
-    )
+        n = min(n, MEMORY_QUERY_CHECK_CAP)
+        selected, retrieval = _memory_query_records(root, records, query, index)
+        if selected is not None:
+            records = selected
+            query_order = {r["memory_id"]: i for i, r in enumerate(records)}
+        else:
+            # Existing all-token containment and authority ordering remain the
+            # explicit recovery path when semantic/relevance infrastructure fails.
+            tokens = [t for t in re.split(r"[^a-z0-9_]+", query.lower()) if t]
+            def _text_match(r: dict[str, Any]) -> bool:
+                haystack = " ".join([
+                    (r.get("summary") or ""), (r.get("title") or ""),
+                    " ".join(r.get("target_refs") or []),
+                    " ".join(r.get("evidence_refs") or []),
+                    " ".join(r.get("keywords") or []),
+                ]).lower()
+                return bool(tokens) and all(t in haystack for t in tokens)
+            records = [r for r in records if _text_match(r)]
+    ranked = _memory_ranked(root, records)
+    if query_order is not None:
+        # Preserve selected RRF order while retaining existing decay/provenance
+        # metadata. Relevance ordering does not establish instruction authority.
+        ranked.sort(key=lambda pair: query_order[pair[0]["memory_id"]])
     views = [_memory_view(record, decay) for record, decay in ranked[:n]]
     diagnostics = []
+    if retrieval["qualification"] == "unavailable":
+        model_unavailable = retrieval["fallback_reason"] == "memory_relevance_model_unavailable"
+        recovery = (
+            "Check the reranker disable setting and local model/runtime availability; "
+            "run wf setup if provisioning is needed. After correcting availability, "
+            "restart the MCP server to clear any cached model-load failure; "
+            "an index refresh alone does not clear that cache."
+            if model_unavailable else "Run index_health() and follow its index recovery guidance."
+        )
+        diagnostics.append(_diagnostic(
+            "memory_query_fallback", "Memory relevance screening is unavailable; "
+            "results use all-token lexical matching and policy ordering. "
+            "The calling agent must assess each record's relevance and support. " + recovery,
+            recovery_tools=[] if model_unavailable else ["index_health"],
+            recovery_usage=recovery if model_unavailable else "index_health()",
+        ))
     if not views:
         diagnostics.append(_diagnostic(
             "no_memory_matches",
@@ -11800,7 +11937,8 @@ def memory_search_response(
              1 for record in records
              if record.get("record_type") == "archive_body"
          ),
-         "semantic_assist": bool(semantic_hit_order)},
+         "semantic_assist": bool(query_order is not None and retrieval.get("semantic_assist")),
+         "retrieval": retrieval},
         diagnostics=diagnostics,
         next_tools=["memory_brief", "memory_reconcile"],
         usage="memory_brief(context='pre_implementation')",
@@ -17278,6 +17416,7 @@ def wf_review_event_response(
     integrity_checks: dict[str, Any] | None = None,
     record_type: str = "",
     verbose: bool = False,
+    operator_handle: str | None = None,
 ) -> dict[str, Any]:
     """Preview or append a compact semantic review event to a marked wave.
 
@@ -17605,8 +17744,19 @@ def wf_review_event_response(
             appended = existing_bundle
             proposed_records = tuple(current.records)
         else:
+            # Attribution is metadata of the first write, never retry identity.
+            # Keep lookup below the replay branch so retries retain the stored
+            # contributor even when local configuration has changed.
+            operator, identity_reason = resolve_operator(root, operator_handle)
+            if operator is None and identity_reason != "no_contributors_file":
+                stale_warnings.append(_diagnostic(
+                    "operator_identity_unresolved",
+                    f"{identity_reason}. Check docs/contributors.json and git user.email, "
+                    "or supply a mapped operator_handle. Attribution omitted.",
+                    advisory=True,
+                ))
             appended, build_errors = build_identified_review_event(
-                current.records, wave_md.parent.name, semantic_event
+                current.records, wave_md.parent.name, semantic_event, operator=operator
             )
             if build_errors:
                 return _response(
@@ -29455,8 +29605,8 @@ def wf_memory_eval_response(root: Path) -> dict[str, Any]:
     It measures the CONFIGURED root — like every other tool, and per the
     allowed-roots safety rule, the caller does not name a target directory.
     Aggregate-only by construction: the engine's report carries metrics,
-    kind/status counts, a fingerprint, and the adoption gate, never record
-    bodies or ids.
+    kind/status counts, a fingerprint, and a non-qualification notice, never
+    record bodies or ids. Self-summary probes cannot authorize adoption.
     """
     target = root
     evaluator = _load_script("memory_eval")
@@ -30274,6 +30424,8 @@ class ImplHandler:
         self.index._proj_docs_vector_layer = None
         self.index._proj_code_vector_layer = None
         self.index._reranker = None
+        self.index._memory_reranker = None
+        self.index._memory_reranker_failed_model = None
         self.index._model_downloads_started = False
         self.index._loaded_meta_signature = {}
         self.index._vector_available = set()
@@ -32482,12 +32634,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_memory_eval(**kwargs: Any) -> dict[str, Any]:
-        """Measure this repository's memory-retrieval quality (aggregate only).
+        """Inspect this repository's memory-retrieval diagnostics (aggregate only).
 
         Runs the curated live-corpus pass over the configured repository's
         memory records: it freezes a bounded sample before scoring, then
-        reports aggregate metrics, kind/status counts, a content fingerprint,
-        and the fusion adoption-gate verdict. Read-only — no records are
+        reports aggregate metrics, kind/status counts and a content fingerprint.
+        These self-summary probes are diagnostic, not independent quality
+        qualification. Adoption remains false without separately frozen,
+        independently judged holdout evidence. Read-only: no records are
         written and no index is built.
 
         Privacy boundary: the report NEVER contains record bodies, summaries,
@@ -32523,6 +32677,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         integrity_checks: dict[str, Any] | None = None,
         record_type: str = "",
         verbose: bool = False,
+        operator_handle: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
@@ -32669,6 +32824,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             record_type: list only — filter rows to one record type
                 (``executable_evidence``, ``review_run``, ``finding_synthesis``).
             verbose: list only — return full records instead of the compact index.
+            operator_handle: Optional contributor handle from docs/contributors.json.
+                Otherwise resolve the local git email. Best-effort reference only:
+                unavailable identity never blocks a review, and retries retain the
+                original stored attribution. No lookup for list or replay.
 
         Schema note: after an upgrade that adds ``approval_phase`` or
         ``integrity_checks``, reconnect the client if its cached tool schema
@@ -32701,6 +32860,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             integrity_checks=integrity_checks,
             record_type=record_type,
             verbose=verbose,
+            operator_handle=operator_handle,
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
@@ -33807,21 +33967,25 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                            limit: int = 10, **kwargs: Any) -> dict[str, Any]:
         """Search agent memory records by query, target file/symbol, kind, or status.
 
-        Record files are the source of truth (live filesystem); the semantic
-        docs index is an optional assist whose absence degrades silently.
-        Ranking is kind-aware-decayed confidence with centrality tie-breaks;
+        Free-text queries fuse memory-scoped semantic and lexical candidates,
+        then screen only the first five summaries with the local CPU relevance
+        model. Returned records are ranked evidence, not verified answers: the
+        calling agent must judge each result's relevance, support and applicability.
+        Missing semantic/relevance infrastructure uses explicit all-token lexical
+        and policy recovery; response retrieval metadata distinguishes that case.
+        Queryless listings retain kind-aware confidence/freshness ordering;
         stale/superseded/rejected/archived bodies are excluded unless
         ``include_history`` or an explicit ``status`` asks for them. A targeted
         normal search may return a compact archive-register entry, never the body.
 
         Args:
-            query: Free-text query (semantic assist + text containment).
+            query: Free-text query (memory RRF plus bounded summary screening).
             target: File path a record must target.
             symbol: Symbol name a record must target (matches "symbol:" refs).
             kind: Restrict to one memory kind.
             status: Restrict to one status (default: active + candidate).
             include_history: Include stale/superseded/rejected/archived bodies.
-            limit: Max records (default 10, cap 20).
+            limit: Max records (default 10; query cap 5, queryless cap 20).
         """
         bad = _ensure_no_extra_args("memory_search", kwargs)
         if bad is not None:

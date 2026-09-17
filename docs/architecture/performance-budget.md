@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-17
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -43,6 +43,30 @@ with a static [1,512] graph, scoring one real passage per inference (batch 1).
 | `wf docs-lint` full corpus | < 300 s bound (config-tunable `docs_lint.full_scan_timeout_seconds`) | typically seconds; the bound guards the subprocess |
 | Gardener / surface render subprocesses | < 180 s bound (config-tunable `subprocess_ops.*_timeout_seconds`, wave 1seax) | typically seconds; generous bound for slow machines |
 | Framework script test suite | ~4.5 min full (6 workers, ~6,000 tests) | 2026-07-20 runs: 260–320 s |
+
+## Memory retrieval qualification (wave 1yad2)
+
+The selected memory-query design caps channels at 20 semantic and 20 lexical
+identities, union at 40, and CPU summary qualification/output at five. Adoption
+requires warm end-to-end p95 <=500 ms and no worse than matched production,
+over at least 100 calls. The integration prototype measured 200 ms p95 versus
+694 ms on macOS ARM64/Python 3.13.5 with existing full embedding and INT8 CPU
+reranker artifacts. This is local prototype evidence; production-path timing
+and model/provider parity remain delivery checks, not implied by unit tests.
+
+Only memory qualification forces the measured CPU path; a GPU-backed ordinary
+search may retain a separate CPU memory reranker. Report cold initialization and
+resident memory overhead rather than changing a process-global provider. No
+extra agent service is part of these local timings. Host-agent evidence validation
+is a separate experiment with unqualified serving latency and monetary cost.
+
+SQL exact scans and BM25 scale with eligible corpus size despite bounded output.
+The retained synthetic probe covered up to 29,750 chunks including 100 chunks
+per identity and ran under index-update contention, so it is not an isolated
+end-to-end throughput guarantee. Earlier unsuccessful candidates and complete
+measurement limitations remain in the
+[original report](../waves/1yad2%20memory-retrieval-quality/evidence/qualification-report.md)
+and [integration preflight](../waves/1yad2%20memory-retrieval-quality/evidence/summary5-integration-preflight.md).
 
 ## Semantic-Index State Budgets (wave 1sed7)
 

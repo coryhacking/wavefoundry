@@ -8,11 +8,27 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-09-17
+
+### Added
+
+- **See who contributed to a review.** Review records and wave summaries include contributor identity when available, without blocking work when identity cannot be resolved. Wave `1y9sv`.
+
 ### Changed
 
-- **Clear guidance for older Python installations.** Python 3.11/3.12 remain usable, with one advisory per command or MCP startup recommending 3.13+. Health checks expose the same advice without triggering repairs, and setup guidance explains how to move safely to a newer interpreter. Wave `1y6hg`.
+- **Match agent effort to the task.** Shared guidance helps teams choose suitable models from planning through closure, preserve handoffs across agent hosts, and keep reviews independent. Wave `1y3hb`.
+
+- **Find useful project memories faster, even with different wording.** Memory search combines semantic and keyword matches with focused relevance checks, helping agents recall applicable lessons without filling results with weak matches. Source evidence remains available for agent review, and keyword fallback keeps search usable when semantic retrieval is unavailable. Wave `1yad2`.
+
+- **Clear guidance for Wavefoundry’s Python tooling.** Python 3.11/3.12 remain usable, with one advisory per command or MCP startup recommending 3.13+. Setup guidance explains how to change the tooling interpreter safely without changing the host project’s application runtime requirements. Wave `1y6hg`.
 
 - **One setup command after cloning or pulling updates.** `wf setup` reconciles local dependencies and indexes without an upgrade archive, preserves recovery data until verification, and keeps core search usable while historical memory review remains pending. `wf setup --check` and MCP notices identify when setup, a restart or recovery is needed. Wave `1y3og`.
+
+### Fixed
+
+- **More credible context estimates.** Binary databases and runtime files no longer inflate source-text credits. New wave summaries label the figure Estimated context avoided and explain its whole-file baseline; existing records remain readable. Wave `1yab2`.
+
+- **Portable Windows-path regression coverage.** Developers running the framework tests on non-Windows Python 3.11 can now verify quoted, case-insensitive Windows root matching without a platform-path error. Production behavior is unchanged. Wave `1y4j8`.
 
 ## [1.24.0] - 2026-09-13
 

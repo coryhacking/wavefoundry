@@ -87,6 +87,61 @@ def _repo(root: Path) -> None:
 
 
 class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
+    def test_registered_code_read_excludes_sqlite_and_preserves_text_accounting(self):
+        """Real producer reads reject database baselines but retain call costs."""
+        class Registry:
+            def __init__(self):
+                self.tools = {}
+
+            def tool(self, **_kwargs):
+                def register(fn):
+                    self.tools[fn.__name__] = fn
+                    return fn
+                return register
+
+            def resource(self, *_args, **_kwargs):
+                return lambda fn: fn
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            database = root / ".wavefoundry/index/index.sqlite"
+            database.parent.mkdir(parents=True)
+            with sqlite3.connect(database) as conn:
+                conn.execute("CREATE TABLE source (body TEXT)")
+                conn.execute("INSERT INTO source VALUES (?)", ("source text",))
+            renamed = root / "renamed.txt"
+            renamed.write_bytes(database.read_bytes())
+            source = root / "control.py"
+            source.write_text(
+                'def control():\n    return "valid source"\n' + "# text control\n" * 200,
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            self.addCleanup(telemetry.close)
+            handler = SimpleNamespace(root=root, cache={}, telemetry=telemetry)
+            registry = Registry()
+            srv.register_mcp_surface(registry, lambda: handler)
+
+            for path, expected_credit in (
+                (".wavefoundry/index/index.sqlite", 0),
+                ("renamed.txt", 0),
+                ("control.py", (source.stat().st_size + 3) // 4),
+                ("control.py", 0),
+            ):
+                with self.subTest(path=path, expected_credit=expected_credit):
+                    result = registry.tools["code_read"](
+                        path=path, start_line=1, end_line=1
+                    )
+                    self.assertEqual(result["status"], "ok")
+                    metric = result["data"]["context_avoided"]
+                    self.assertEqual(metric["estimated_source_tokens"], expected_credit)
+                    self.assertEqual(metric["source_files_credited"], int(expected_credit > 0))
+                    self.assertGreater(metric["estimated_request_tokens"], 0)
+                    self.assertGreater(metric["estimated_returned_tokens"], 0)
+                    self.assertEqual(metric["persistence"], "durable")
+            telemetry.close()
+
     @staticmethod
     def _p95(samples: list[float]) -> float:
         ordered = sorted(samples)
@@ -1347,7 +1402,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(metric["source_files_estimated"], 0)
             self.assertLess(metric["estimated_source_tokens"], 100)
 
-    def test_missing_indexed_source_uses_captured_size_estimate(self):
+    def test_missing_indexed_source_retains_results_without_source_credit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
@@ -1384,10 +1439,12 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 )
 
             metric = result["data"]["context_avoided"]
-            self.assertEqual(metric["estimated_source_tokens"], 100)
-            self.assertEqual(metric["source_files_counted"], 1)
+            self.assertEqual(metric["estimated_source_tokens"], 0)
+            self.assertEqual(metric["source_files_counted"], 0)
             self.assertEqual(metric["source_files_verified"], 0)
-            self.assertEqual(metric["source_files_estimated"], 1)
+            self.assertEqual(metric["source_files_estimated"], 0)
+            self.assertEqual(result["data"]["results"], core["data"]["results"])
+            self.assertGreater(metric["estimated_returned_tokens"], 0)
             self.assertNotIn("source_files_unavailable", metric)
             self.assertNotIn("source_files_unmeasured", metric)
 

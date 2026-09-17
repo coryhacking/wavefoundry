@@ -1,0 +1,51 @@
+{
+  "wave_id": "1y9sv review-event-operator-identity",
+  "corrected_at": "2026-09-17T17:43:25.657537+00:00",
+  "authorization": "Operator requested: correct this wave, then close it, then write the estimator change up.",
+  "reason": "Binary index.sqlite file size was credited as avoided text. Invalid whole-database baseline.",
+  "source_path": ".wavefoundry/index/index.sqlite",
+  "original_credit": {
+    "wave_key": "1y9sv review-event-operator-identity",
+    "phase_id": "plan-1",
+    "stage": "plan",
+    "source_id": "749244a532ed59549a4c9795c65676f19c6a4724caec5307b5b7017c16899945",
+    "version_id": "872d2413549b39a0a805bf7ffd08f3fbc102bad52971919c6c139888d969b2d8",
+    "tokens": 113050624,
+    "credit_kind": "content",
+    "provenance": "content"
+  },
+  "corrected_tokens": 0,
+  "removed_credit": 113050624,
+  "before_totals": {
+    "calls": 162,
+    "content_source_credit": 116463201,
+    "structural_source_credit": 0,
+    "workflow_prompt_credit": 7993,
+    "derived_artifact_credit": 1149,
+    "request_debit": 7817,
+    "response_debit": 236694,
+    "matched_pair_residual": 0,
+    "paired_evaluation_count": 0,
+    "direct_net": 116227832,
+    "estimated_tokens_saved": 116227832,
+    "source_credit_count": 156,
+    "source_credit_drop_count": 0
+  },
+  "scope": "Only this source-credit row; retain key for deduplication. All call debits and other credits unchanged. No estimator source change.",
+  "after_totals": {
+    "calls": 162,
+    "content_source_credit": 3412577,
+    "structural_source_credit": 0,
+    "workflow_prompt_credit": 7993,
+    "derived_artifact_credit": 1149,
+    "request_debit": 7817,
+    "response_debit": 236694,
+    "matched_pair_residual": 0,
+    "paired_evaluation_count": 0,
+    "direct_net": 3177208,
+    "estimated_tokens_saved": 3177208,
+    "source_credit_count": 156,
+    "source_credit_drop_count": 0
+  },
+  "generation": 128
+}

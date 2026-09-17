@@ -4597,5 +4597,125 @@ class ReviewActionInputSchemaTests(unittest.TestCase):
         )
 
 
+
+
+class OperatorReviewEvidenceTests(unittest.TestCase):
+    def event(self, kind: str) -> dict[str, object]:
+        event = {
+            "event": kind, "actor": "qa-reviewer", "context_id": "operator-fixture",
+            "fresh_context": True, "independent": True,
+            "run_kind": "initial_delivery", "cycle": 0,
+            "signoff_key": "qa-reviewer", "approval_phase": "delivery",
+            "observed": "fixture outcome", "artifact_or_test_id": "operator-fixture",
+            "integrity_checks": integrity_checks(),
+        }
+        if kind == "finding":
+            event.update(
+                finding_id="operator-finding",
+                judgment={
+                    "validation_status": "real", "scope_relation": "admitted",
+                    "introduced_or_worsened_by_wave": True,
+                    "contract_relevance": "required_ac", "supported_reachability": True,
+                    "attacker_reachability": False, "authority_domain": "integrity",
+                    "authority_delta": "low", "observable_impact": "material",
+                    "containment": "none",
+                },
+                proposition="required behavior holds", failure_condition="behavior differs",
+                public_path="wf_review_event", command_or_fixture="operator-fixture",
+                expected="required behavior", limitations="local fixture",
+                safety_and_authorization="disposable fixture",
+                disposition_rationale="required contract regression needs repair",
+                review_boundaries_changed=[], source_lanes=["qa-reviewer"],
+                blocking_required_lanes=["qa-reviewer"], approval_recheck_lanes=["qa-reviewer"],
+            )
+        return event
+
+    def test_identified_operator_propagates_without_changing_digest(self) -> None:
+        for kind in ("run", "approval", "finding"):
+            event = self.event(kind)
+            plain, errors = subject.build_identified_review_event([], "1y9sv fixture", event)
+            self.assertEqual(errors, ())
+            for source in ("explicit", "git_email"):
+                with self.subTest(kind=kind, source=source):
+                    operator = {"handle": "alice", "source": source}
+                    rows, errors = subject.build_identified_review_event(
+                        [], "1y9sv fixture", event, operator=operator
+                    )
+                    self.assertEqual(errors, ())
+                    self.assertEqual(rows[0][subject.REQUEST_DIGEST_FIELD], plain[0][subject.REQUEST_DIGEST_FIELD])
+                    self.assertEqual(rows[0][subject.EVENT_IDENTITY_FIELD], plain[0][subject.EVENT_IDENTITY_FIELD])
+                    contexts = [row["verification_context"] for row in rows if "verification_context" in row]
+                    self.assertEqual(len(contexts), 1)
+                    self.assertEqual(contexts[0]["operator"], operator)
+                    self.assertIsNot(contexts[0]["operator"], operator)
+                    self.assertFalse(subject.validate_review_evidence_records(rows))
+                    self.assertNotIn("operator", plain[0]["verification_context"])
+
+    def test_generated_convergence_checkpoint_retains_operator(self) -> None:
+        records = ()
+        base = self.event("finding")
+        operator = {"handle": "alice", "source": "git_email"}
+        sequence = [dict(base)]
+        for cycle in (1, 2):
+            sequence.extend([
+                dict(base, actor="implementer", run_kind="repair_start", cycle=cycle,
+                     context_id=f"repair-{cycle}"),
+                dict(base, run_kind="reverification", cycle=cycle,
+                     context_id=f"verify-{cycle}", blocking_required_lanes=[]),
+            ])
+        for event in sequence:
+            rows, errors = subject.build_identified_review_event(
+                records, "1y9sv fixture", event, operator=operator
+            )
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+            self.assertFalse(subject.validate_review_evidence_records(records))
+        checkpoints = [row for row in records if row.get("run_kind") == "convergence_checkpoint"]
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["verification_context"]["operator"], operator)
+        for row in records:
+            if "verification_context" in row:
+                self.assertEqual(row["verification_context"]["operator"], operator)
+
+    def test_operator_shape_is_strict_for_run_and_evidence(self) -> None:
+        cases = [
+            (None, "must be an object"),
+            ([], "must be an object"),
+            ({}, "missing fields"),
+            ({"handle": "alice"}, "missing fields"),
+            ({"source": "explicit"}, "missing fields"),
+            ({"handle": "", "source": "explicit"}, "non-empty string"),
+            ({"handle": " \t", "source": "explicit"}, "non-empty string"),
+            ({"handle": 7, "source": "explicit"}, "non-empty string"),
+            ({"handle": "alice", "source": "unknown"}, "source"),
+            ({"handle": "alice", "source": ""}, "source"),
+            ({"handle": "alice", "source": None}, "source"),
+            ({"handle": "alice", "source": []}, "source"),
+            ({"handle": "alice", "source": {}}, "source"),
+            ({"handle": "alice", "source": "explicit", "email": "private"}, "unknown fields"),
+        ]
+        for kind in ("run", "approval"):
+            rows, errors = subject.build_compact_review_event([], self.event(kind))
+            self.assertEqual(errors, ())
+            self.assertFalse(subject.validate_review_evidence_records(rows))
+            for operator, expected in cases:
+                with self.subTest(kind=kind, operator=operator):
+                    invalid = copy.deepcopy(rows)
+                    invalid[0]["verification_context"]["operator"] = operator
+                    errors = subject.validate_review_evidence_records(invalid)
+                    self.assertIn(expected, "\n".join(errors))
+                    self.assertIn("verification_context.operator", "\n".join(errors))
+
+    def test_approval_why_uses_stored_handle_only(self) -> None:
+        rows, errors = subject.build_compact_review_event([], self.event("approval"))
+        self.assertEqual(errors, ())
+        plain = subject.review_status_rows(rows, ["qa-reviewer"])[0]
+        self.assertEqual(plain["why"], "current executed approval follows every affected repair")
+        rows[0]["verification_context"]["operator"] = {"handle": "alice", "source": "explicit"}
+        attributed = subject.review_status_rows(rows, ["qa-reviewer"])[0]
+        self.assertEqual(attributed["why"], "current executed approval by alice follows every affected repair")
+        self.assertEqual(attributed["state"], plain["state"])
+
+
 if __name__ == "__main__":
     unittest.main()

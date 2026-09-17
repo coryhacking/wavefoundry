@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-17
 
 ## The Problem
 
@@ -526,19 +526,43 @@ Env toggles: `WAVEFOUNDRY_ENABLE_DRIFT_PARTITION` (census/eval opt-in), `WAVEFOU
 stable consumer contract for the future verify-docs review loop; `wf_garden_docs` points at it and gardener stamps
 never clear drift.
 
-**Agent memory retrieval** (waves 1ro44 / 1tbt5): typed memory records under
-`docs/agents/memory/` are indexed through the docs path with a `memory` tag and
-served by `memory_search`/`memory_brief` — record files are the source of truth
-and the semantic index is an optional assist. One batched per-target commit
-history read drives adaptive half-lives: median target cadence, named
-multiplier/clamps, conservative multi-target selection, and fixed fallback for
-sparse/unreadable history. Policy partitions (exact-target class, base
-confidence, status, kind family) precede adaptive freshness, semantic rank,
-persisted-betweenness, and id. Decisions/preferences do not age-decay;
-fragile-file churn requests re-verification. The queryless brief shares the
-policy/freshness order but has no relevance stream. A measured BM25+semantic
-RRF candidate was rejected by the 1tbt5 adoption gate, so search retains the
-shipped semantic tie-break and no dormant fusion branch or flag.
+**Agent memory retrieval** (waves 1ro44 / 1tbt5 / 1yad2): typed memory
+records under `docs/agents/memory/` remain the source of truth. Explicit free-text
+`memory_search` filters eligibility, kind and exact target/symbol constraints
+before retrieving at most 20 semantic identities and 20 lexical identities.
+Eligible body files are SHA-256 checked against their published docs-layer
+source hashes inside the vector read transaction. Missing or changed source
+provenance takes the explicit fallback path. The SQLite query groups eligible
+chunk distances by canonical path before its limit; compact archive entries remain individual lexical identities. Equal-weight
+RRF (k=60) orders the union. Only the first five candidates receive CPU
+cross-encoder checks of their summary (title when summary is empty), with raw
+finite logit >= -4 admitted; rejected records do not trigger an unchecked refill.
+The result cap is the smaller of five and the caller's limit, in RRF order.
+
+These are relevance-screened search candidates, not verified answers or current
+authority. The calling agent evaluates each record's relevance, applicability
+and evidence, just as it does for semantic, lexical and graph results. Original
+confidence, status, provenance and successor metadata remain visible. Ranking
+neither promotes a record's authority nor resolves conflicting instructions.
+The local search makes no extra host-agent or remote model call.
+
+Empty-query/target-only listings, `memory_brief` and unsolicited advisories retain
+policy/freshness ordering: exact-target class, confidence, status and family
+precede adaptive freshness and later tie-breaks. A batched per-target commit
+history read drives adaptive half-lives; decisions/preferences do not age-decay,
+and fragile-file churn requests re-verification. The shared policy sort is not
+changed for other consumers.
+
+Unavailable, incomplete or stale semantic state, intentionally unindexed history,
+or failed/unavailable qualification uses the existing all-token lexical-policy
+recovery with explicit unavailable/fallback metadata. It never labels unchecked
+semantic candidates as screened results. A healthy empty result is distinguishable
+from degraded retrieval. If CPU model loading failed, check the reranker-disable
+setting and local runtime/model availability, run `wf setup` if provisioning is
+needed, then restart MCP to clear the cached load failure. Index refresh alone
+does not clear that failure. Ordinary code/docs search is unchanged. The memory
+evaluator's sampled self-summary output remains nonqualifying; detailed independent
+qualification is an explicit local run. See `docs/references/memory-retrieval-eval.md`.
 Physical archive bodies under `docs/agents/memory/archive/` are a historical
 storage class and are excluded by both repository walking and explicit-file
 index seams; graph extraction applies the same boundary. The compact register at

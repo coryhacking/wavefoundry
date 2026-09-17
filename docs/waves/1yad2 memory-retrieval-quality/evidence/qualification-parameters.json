@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "corpus_fingerprint": "0bd4e1e4f93fa4d7ea6ea433b01c5958d10dc5d85ea2dc8fc4a54a3dec1f5265",
+  "queries_fingerprint": "a815ed85603c6e04531a15f2db474800ec9b43e32a8f823210536bb8b322e44e",
+  "reviewer": "independent QA /root/memory_holdout",
+  "ranker_author": "coordinator /root and implementer /root/memory_readiness_primer",
+  "parameters": {
+    "channel_cap": 20,
+    "result_cap": 20,
+    "rrf_k": 60,
+    "score_semantic_weight": 0.75,
+    "normalization": "bounded-channel-minmax",
+    "relevance_text": "title-action-summary",
+    "relevance_threshold": -4.0,
+    "qualification_cap": 20,
+    "injection": "one lexical-only identity with >=half top BM25 and two distinct non-stopword overlaps after first semantic identity",
+    "tie_break": "memory_id lexicographic",
+    "cpu_provider": "CPUExecutionProvider",
+    "normalization_notes": "bounded-channel-minmax; constant nonempty channel=1, absent identity=0; dense allows negative cosine, lexical positive only",
+    "relevance_text_notes": "title\\naction_delta\\nsummary; missing fields empty; existing tokenizer truncation unchanged"
+  },
+  "gates": {
+    "recall3_gain": 0.05,
+    "latency_reduction": 0.2,
+    "warm_p95_ms": 500,
+    "warm_calls": 100,
+    "no_quality_regression": true,
+    "no_additional_false_positive_queries": true,
+    "no_additional_answerable_empty": true
+  },
+  "split_protocol": "Fixed from exploratory development before independent holdout scoring; two fusion finalists each with no hard gate and individually qualified diagnostic. No post-holdout tuning.",
+  "parameters_fingerprint": "11afc3741f5a1124fe185c5254e6d8124b68365cc20e5d8fc95115048c87eab8"
+}

@@ -1,0 +1,81 @@
+{
+  "retained_at": "2026-09-17",
+  "operator_instruction": "Summarize evidence to what is needed for the future; delete unnecessary items.",
+  "scope": "Only this wave evidence; lifecycle ledger and reviewer reports preserved. No framework source, tests, labels, rankings, parameters, approvals, or memory records changed.",
+  "evidence_bytes_before": 2256161,
+  "retired": [
+    {
+      "path": "exploratory-memory-retrieval.json.gz",
+      "bytes": 239136,
+      "sha256": "6111f1f1773ffdafe0976edc710f65aeb1492a27e25077864c6fb9db97688110",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 4122,
+      "sha256": "332709e7b311dbfaca13c2dc6a8a04a324ab2c226b05ca44980be8d3996fa5f4",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "qualification-development.json.gz",
+      "bytes": 109931,
+      "sha256": "c1873cad0afe35b20dd96ec7535e991faa13fa63d774bb854c67504c35d4409e",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "qualification-holdout.json.gz",
+      "bytes": 136223,
+      "sha256": "7d939e5e159c067bf22297d2b35bd0b9392398d52ee2536d6670e0b001f216fa",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "qualification-development.log",
+      "bytes": 2499,
+      "sha256": "9fd16fa88a5f93dc691a9eaedf7f352e68c0b2603e07a5add1a382ab90547861",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "qualification-holdout.log",
+      "bytes": 8023,
+      "sha256": "d74584e1b9174b081325599af624c799eb492313bec471da396a46bb36ad445b",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "relevance-followup.json.gz",
+      "bytes": 139237,
+      "sha256": "f0ae0011078f210eead9af562ff287f2ba0c772cdbac4e7abaa59c575cba876a",
+      "disposition": "deleted; superseded experiment outputs or redundant logs/manifest"
+    },
+    {
+      "path": "qualification-corpus.json",
+      "bytes": 973760,
+      "sha256": "d4817379a9c3ef18aca0e152dfb10805630035e9386770b50c89ada0b943d7cd",
+      "disposition": "preserved byte-for-byte in qualification-inputs.json.gz"
+    },
+    {
+      "path": "qualification-queries.json",
+      "bytes": 239187,
+      "sha256": "00720e2025b35e7cddcbf09d6799174d6f766beb2c371681eb094b468b94f69c",
+      "disposition": "preserved byte-for-byte in qualification-inputs.json.gz"
+    }
+  ],
+  "new_input_bundle": {
+    "path": "qualification-inputs.json.gz",
+    "bytes": 147196,
+    "sha256": "7e0b8fb0014a17d2c44d92f30b73411feb6763d5a23cd80332696cf35a1a2eab"
+  },
+  "retained_result_bundles": [
+    {
+      "path": "summary5-production-qualification.json.gz",
+      "sha256": "e4e82891fbfff3dafb80c2ab281bd0f77c6f0c2f2375ba88110fd978eb445e69"
+    },
+    {
+      "path": "summary5-integration-preflight.json.gz",
+      "sha256": "22ab975523551b9c12129a7433420271c582de2ab5411f636d3dcf9ed83091a0"
+    },
+    {
+      "path": "summary5-delivery-qa.json.gz",
+      "sha256": "b1e3068e0ce2adc2ea92e559b95ae3daac701d3bbe038b5a6d0048d38b8cabfc"
+    }
+  ]
+}

@@ -39,7 +39,7 @@ It is a bounded readiness check, not a complete integrity, freshness or search-q
 
 ## Python runtime advisory and transition
 
-Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
+**Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 `wf` prints one advisory to stderr per invocation on Python 3.11/3.12, including help and setup checks. Direct MCP serving prints it once at process startup; help, `server.py --dry-run`, imports, tool calls and background assessments do not repeat it. The advisory itself changes neither exit codes nor readiness and does not install Python or replace environments. Existing compatibility refusals still apply.
 

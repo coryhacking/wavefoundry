@@ -3889,28 +3889,34 @@ class ExplorationAvoidedTests(_MemoryCase):
 
 
 class MemorySearchOrderingTests(_MemoryCase):
-    """Semantic relevance and adaptive freshness stay inside trust policy."""
+    """Explicit queries rank relevance; queryless/fallback advice retains policy."""
 
     def setUp(self):
         super().setUp()
         self.srv = load_server()
 
     def _semantic_index(self, *memory_ids):
-        """A mock index whose search_docs ranks the given memory ids, in order."""
+        """Controlled semantic candidates and passing raw summary scores."""
         idx = MagicMock()
-        idx.search_docs.return_value = (
-            [{"path": f"{self.mem.MEMORY_DIR}/{mid}.md"} for mid in memory_ids], False)
+        idx._docs_vector_layer = "docs"
+        idx._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {
+            "scores": {path: 1.0 / (1 + memory_ids.index(Path(path).stem))
+                       for path in paths if Path(path).stem in memory_ids},
+            "complete": True,
+        }
+        idx._get_memory_reranker.return_value.rerank.side_effect = lambda query, texts: [0.0] * len(texts)
         return idx
 
-    def test_semantic_does_not_demote_high_trust_record(self):
+    def test_query_relevance_can_precede_confidence_without_claiming_authority(self):
         # A: high confidence; B: low confidence but the top semantic hit.
         self._add("mem-a", "operator_preference", confidence=0.9, targets=("src/a.py",))
         self._add("mem-b", "review_finding", confidence=0.3, targets=("src/b.py",))
         idx = self._semantic_index("mem-b", "mem-a")  # semantic wants B first
         resp = self.srv.memory_search_response(self.root, query="regress", index=idx)
         ids = [r["memory_id"] for r in resp["data"]["records"]]
-        self.assertLess(ids.index("mem-a"), ids.index("mem-b"),
-                        "the higher-confidence record must not be demoted by text relevance")
+        self.assertEqual(ids, ["mem-b", "mem-a"])
+        self.assertEqual(resp["data"]["records"][0]["confidence"], 0.3)
+        self.assertFalse(resp["data"]["retrieval"]["support_verified"])
 
     def test_semantic_tiebreaks_within_a_confidence_tier(self):
         # Same confidence tier → semantic rank decides the order within it.
@@ -3931,7 +3937,7 @@ class MemorySearchOrderingTests(_MemoryCase):
         self.assertEqual(ids, ["mem-a", "mem-b"],
                          "no-index path stays in policy order (confidence desc)")
 
-    def test_semantic_rank_cannot_cross_kind_policy_family(self):
+    def test_query_relevance_can_cross_kind_without_changing_queryless_policy(self):
         self._add(
             "mem-authority", "decision", confidence=0.8,
             targets=("src/policy.py",)
@@ -3942,12 +3948,15 @@ class MemorySearchOrderingTests(_MemoryCase):
         )
         idx = self._semantic_index("mem-tactical", "mem-authority")
         response = self.srv.memory_search_response(
-            self.root, query="lesson", index=idx
+            self.root, query="semantic question", index=idx
         )
         self.assertEqual(
             [record["memory_id"] for record in response["data"]["records"]],
-            ["mem-authority", "mem-tactical"],
+            ["mem-tactical", "mem-authority"],
         )
+        listing = self.srv.memory_search_response(self.root, index=idx)
+        self.assertEqual([r["memory_id"] for r in listing["data"]["records"]],
+                         ["mem-authority", "mem-tactical"])
 
     def test_brief_remains_queryless_and_exact_target_promoted(self):
         import inspect
@@ -3970,6 +3979,222 @@ class MemorySearchOrderingTests(_MemoryCase):
             [record["memory_id"] for record in response["data"]["advisories"]],
             ["mem-target", "mem-unmatched"],
         )
+
+
+class MemoryQueryQualificationTests(_MemoryCase):
+    _semantic_index = MemorySearchOrderingTests._semantic_index
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+
+    def test_source_hashes_guard_current_vectors_without_global_freshness_scan(self):
+        import hashlib
+        import struct
+        store = self.srv._load_script("sqlite_vector_store")
+
+        source = self._add("mem-a", "decision")
+        original_source = source.read_bytes()
+        rel = source.relative_to(self.root).as_posix()
+        digest = hashlib.sha256(original_source).hexdigest()
+        database = self.root / "memory-vectors.sqlite"
+        conn = sqlite3.connect(database)
+        conn.executescript(
+            "CREATE TABLE chunks_docs(id INTEGER PRIMARY KEY,path TEXT);"
+            "CREATE TABLE vectors_docs(chunk_id INTEGER PRIMARY KEY,embedding BLOB);"
+            "CREATE TABLE layer_path_state(layer TEXT,path TEXT,hash TEXT);"
+        )
+        conn.execute("INSERT INTO chunks_docs VALUES(1,?)", (rel,))
+        conn.execute("INSERT INTO vectors_docs VALUES(1,?)", (struct.pack("<f", .1),))
+        conn.execute("INSERT INTO layer_path_state VALUES('docs',?,?)", (rel, digest))
+        conn.commit()
+        conn.close()
+        database_before = database.read_bytes()
+        traces = []
+
+        def readonly(_):
+            db = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+            db.set_trace_callback(traces.append)
+            db.create_function("vec_distance_cosine", 2, lambda a, b: .1)
+            return db
+
+        index = self._semantic_index("mem-a")
+        index.index_dir = self.index_dir
+        index._embed_query.return_value = [1.0] * store.DIMENSIONS
+        index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: (
+            self.srv.WaveIndex._memory_candidate_scores(index, query, paths, **kwargs)
+        )
+        with patch.object(store, "_open", side_effect=readonly):
+            fresh = self.srv.memory_search_response(self.root, query="lesson", index=index)
+            self.assertEqual(fresh["data"]["retrieval"]["method"], "hybrid_rrf")
+            (self.root / "unrelated.py").write_text("changed unrelated source")
+            unrelated = self.srv.memory_search_response(self.root, query="lesson", index=index)
+            self.assertEqual(unrelated["data"]["retrieval"]["method"], "hybrid_rrf")
+            stat = source.stat()
+            source.write_bytes(original_source.replace(b"Lesson from", b"Update from"))
+            os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            self.assertEqual(source.stat().st_size, stat.st_size)
+            self.assertEqual(source.stat().st_mtime_ns, stat.st_mtime_ns)
+            stale = self.srv.memory_search_response(self.root, query="lesson", index=index)
+            self.assertEqual(stale["data"]["retrieval"]["qualification"], "unavailable")
+            self.assertEqual(stale["data"]["retrieval"]["fallback_reason"], "memory_source_state_stale")
+            source.write_bytes(original_source)
+            restored = self.srv.memory_search_response(self.root, query="lesson", index=index)
+            self.assertEqual(restored["data"]["retrieval"]["method"], "hybrid_rrf")
+        self.assertEqual(database.read_bytes(), database_before)
+        self.assertTrue(traces)
+        self.assertTrue(all(sql.lstrip().startswith("SELECT") for sql in traces))
+        conn = sqlite3.connect(database)
+        conn.execute("DELETE FROM layer_path_state")
+        conn.commit()
+        conn.close()
+        with patch.object(store, "_open", side_effect=readonly):
+            missing = self.srv.memory_search_response(self.root, query="lesson", index=index)
+        self.assertEqual(missing["data"]["retrieval"]["fallback_reason"], "memory_source_state_stale")
+
+    def test_model_failure_guidance_explains_cached_failure_recovery(self):
+        self._add("mem-a", "decision")
+        index = self._semantic_index("mem-a")
+        index._get_memory_reranker.return_value = None
+        response = self.srv.memory_search_response(self.root, query="lesson", index=index)
+        diagnostic = next(d for d in response["diagnostics"] if d["code"] == "memory_query_fallback")
+        wording = json.dumps(diagnostic)
+        for expected in ("disable setting", "wf setup", "restart the MCP server", "index refresh alone"):
+            self.assertIn(expected, wording)
+        self.assertEqual(response["data"]["retrieval"]["qualification"], "unavailable")
+
+    def test_five_summary_checks_no_refill_and_rrf_order_is_preserved(self):
+        for i in range(7):
+            self._add(f"mem-{i}", "review_finding")
+        index = self._semantic_index(*(f"mem-{i}" for i in range(7)))
+        reranker = index._get_memory_reranker.return_value
+        reranker.rerank.side_effect = lambda query, texts: [-4.0, -4.01, 12.0, -10.0, -5.0]
+        response = self.srv.memory_search_response(self.root, query="semantic-only", index=index, limit=20)
+        self.assertEqual([r["memory_id"] for r in response["data"]["records"]], ["mem-0", "mem-2"])
+        self.assertEqual(reranker.rerank.call_args.args[1], [f"Lesson from mem-{i}." for i in range(5)])
+        self.assertEqual(response["data"]["retrieval"]["checked_candidates"], 5)
+        self.assertEqual(response["data"]["retrieval"]["qualification"], "model_relevance")
+        limited = self.srv.memory_search_response(self.root, query="semantic-only", index=index, limit=1)
+        self.assertEqual(limited["data"]["count"], 1)
+        self.assertEqual(limited["data"]["retrieval"]["checked_candidates"], 5)
+
+    def test_empty_qualified_result_does_not_fall_back_or_refill(self):
+        self._add("mem-a", "decision")
+        index = self._semantic_index("mem-a")
+        index._get_memory_reranker.return_value.rerank.side_effect = lambda query, texts: [-9.0]
+        response = self.srv.memory_search_response(self.root, query="lesson", index=index)
+        self.assertEqual(response["data"]["records"], [])
+        self.assertEqual(response["data"]["retrieval"]["qualification"], "model_relevance")
+        self.assertNotIn("memory_query_fallback", [d["code"] for d in response["diagnostics"]])
+
+    def test_relevance_failure_never_returns_unchecked_semantic_hits(self):
+        self._add("mem-a", "decision")
+        for bad in ([float("nan")], [float("inf")], [], [True], ["0"], [0.0, 1.0], RuntimeError("private query")):
+            with self.subTest(scores=bad):
+                index = self._semantic_index("mem-a")
+                rerank = index._get_memory_reranker.return_value.rerank
+                rerank.side_effect = bad if isinstance(bad, Exception) else lambda query, texts, bad=bad: bad
+                response = self.srv.memory_search_response(self.root, query="semantic-only", index=index)
+                self.assertEqual(response["data"]["records"], [])
+                self.assertEqual(response["data"]["retrieval"]["qualification"], "unavailable")
+                self.assertFalse(response["data"]["semantic_assist"])
+                self.assertNotIn("private query", json.dumps(response))
+
+    def test_missing_stale_code_only_incomplete_and_model_disabled_recover_lexically(self):
+        self._add("mem-a", "decision")
+        for failure in ("missing", "stale", "code_only", "incomplete", "model", "nonfinite_dense"):
+            with self.subTest(failure=failure):
+                index = self._semantic_index("mem-a")
+                if failure == "missing":
+                    index = None
+                elif failure == "stale":
+                    index._ensure_loaded.side_effect = RuntimeError("stale producer")
+                elif failure == "code_only":
+                    index._docs_vector_layer = None
+                elif failure == "incomplete":
+                    index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": False, "scores": {}}
+                elif failure == "model":
+                    index._get_memory_reranker.return_value = None
+                else:
+                    index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": True, "scores": {paths[0]: float("nan")}}
+                response = self.srv.memory_search_response(self.root, query="lesson", index=index)
+                self.assertEqual([r["memory_id"] for r in response["data"]["records"]], ["mem-a"])
+                self.assertEqual(response["data"]["retrieval"]["method"], "lexical_policy")
+                self.assertEqual(response["data"]["retrieval"]["qualification"], "unavailable")
+                self.assertIn("memory_query_fallback", [d["code"] for d in response["diagnostics"]])
+
+    def test_filters_precede_candidate_limits_and_status_is_preserved(self):
+        self._add("mem-a", "decision", targets=("src/a.py", "symbol:Alpha"))
+        self._add("mem-b", "review_finding", targets=("src/b.py", "symbol:Beta"))
+        self._add("mem-stale", "decision", status="stale", targets=("src/a.py", "symbol:Alpha"))
+        index = self._semantic_index("mem-stale", "mem-b", "mem-a")
+        response = self.srv.memory_search_response(
+            self.root, query="semantic-only", target="src/a.py", symbol="Alpha", kind="decision", index=index)
+        self.assertEqual([r["memory_id"] for r in response["data"]["records"]], ["mem-a"])
+        self.assertEqual(index._memory_candidate_scores.call_args.args[1], ["docs/agents/memory/mem-a.md"])
+        explicit = self.srv.memory_search_response(
+            self.root, query="semantic-only", target="src/a.py", status="stale", index=index)
+        self.assertEqual([r["memory_id"] for r in explicit["data"]["records"]], ["mem-stale"])
+        self.assertEqual(explicit["data"]["records"][0]["status"], "stale")
+
+    def test_archive_entries_keep_identity_and_unindexed_history_recovers(self):
+        for mid in ("mem-archive-a", "mem-archive-b"):
+            self._add(mid, "failed_attempt", status="stale")
+            self.mem.archive_memory_record(self.root, mid, reason="retained lesson")
+        index = self._semantic_index()
+        response = self.srv.memory_search_response(self.root, query="lesson", index=index)
+        self.assertEqual(response["data"]["archive_register_entry_count"], 2)
+        self.assertEqual(len({r["memory_id"] for r in response["data"]["records"]}), 2)
+        self.assertEqual(index._memory_candidate_scores.call_args.args[1], [])
+        index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": False, "scores": {}}
+        history = self.srv.memory_search_response(self.root, query="lesson", include_history=True, index=index)
+        self.assertEqual(history["data"]["archived_body_count"], 2)
+        self.assertEqual(history["data"]["retrieval"]["fallback_reason"], "memory_vector_coverage_incomplete")
+
+    def test_title_fallback_and_alias_root_paths(self):
+        self._add("mem-a", "decision")
+        records = self.mem.load_memory_records(self.root)
+        records[0]["summary"] = ""
+        index = self._semantic_index("mem-a")
+        with patch.object(self.srv._memory_mod(), "load_memory_records", return_value=records):
+            response = self.srv.memory_search_response(self.root, query="semantic-only", index=index)
+        self.assertEqual(response["data"]["count"], 1)
+        self.assertEqual(index._get_memory_reranker.return_value.rerank.call_args.args[1], ["Lesson mem-a"])
+
+    def test_cpu_reranker_is_isolated_cached_and_respects_disable(self):
+        import accel_embedder
+        import threading
+        from types import SimpleNamespace
+        index = object.__new__(self.srv.WaveIndex)
+        index._reranker_lock = threading.Lock()
+        index._indexer_constant = lambda name: "existing-model"
+        gpu = SimpleNamespace(provider="CUDAExecutionProvider", model_name="existing-model")
+        cpu = SimpleNamespace(provider="CPUExecutionProvider", model_name="existing-model")
+        index._reranker = gpu
+        with patch.object(accel_embedder, "_reranker_disabled", return_value=False), patch.object(
+            accel_embedder, "StaticShapeReranker", return_value=cpu
+        ) as construct, patch.object(accel_embedder, "make_reranker", side_effect=AssertionError("GPU-discovering factory forbidden")):
+            self.assertIs(index._get_memory_reranker(), cpu)
+            self.assertIs(index._get_memory_reranker(), cpu)
+            construct.assert_called_once_with("existing-model", ["CPUExecutionProvider"])
+            self.assertIs(index._reranker, gpu)
+        with patch.object(accel_embedder, "_reranker_disabled", return_value=True):
+            self.assertIsNone(index._get_memory_reranker())
+
+    def test_cpu_model_failure_is_cached_without_disabling_other_search(self):
+        import accel_embedder
+        import threading
+        index = object.__new__(self.srv.WaveIndex)
+        index._reranker_lock = threading.Lock()
+        index._indexer_constant = lambda name: "existing-model"
+        index._reranker = None
+        with patch.object(accel_embedder, "_reranker_disabled", return_value=False), patch.object(
+            accel_embedder, "StaticShapeReranker", side_effect=RuntimeError("provider failed")
+        ) as construct:
+            self.assertIsNone(index._get_memory_reranker())
+            self.assertIsNone(index._get_memory_reranker())
+            self.assertEqual(construct.call_count, 1)
+            self.assertFalse(getattr(index, "_reranker_disabled", False))
 
 
 class MemoryAutoPopulateTests(_MemoryCase):

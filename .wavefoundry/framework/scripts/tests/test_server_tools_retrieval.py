@@ -13724,7 +13724,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 "signoff_key", "approval_phase", "finding_id", "run_kind", "cycle",
                 "judgment", "evidence", "source_lanes", "blocking_required_lanes",
                 "approval_recheck_lanes", "review_boundaries_changed", "fresh_context",
-                "independent", "integrity_checks", "record_type", "verbose",
+                "independent", "integrity_checks", "record_type", "verbose", "operator_handle",
             },
         )
         self.assertEqual(

@@ -1,0 +1,23 @@
+{
+  "class": "TextEmbedding",
+  "index_model_versions": {
+    "docs": "Snowflake/snowflake-arctic-embed-s@full@wf-model-set-2-20260811-arctic-s",
+    "code": "Snowflake/snowflake-arctic-embed-s@full@wf-model-set-2-20260811-arctic-s"
+  },
+  "session_providers": [
+    "CPUExecutionProvider"
+  ],
+  "model_files": [
+    {
+      "name": "model.onnx",
+      "sha256": "579c1f1778a0993eb0d2a1403340ffb491c769247fb46acc4f5cf8ac5b89c1e1",
+      "bytes": 133093492
+    },
+    {
+      "name": "tokenizer.json",
+      "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854",
+      "bytes": 711649
+    }
+  ],
+  "note": "Read-only model identity probe using exported metadata; no serving epoch override or index write. Full precision follows stored index model version, even with CPU provider."
+}

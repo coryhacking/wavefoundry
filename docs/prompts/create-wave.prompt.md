@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-17
 
 Shortcut: **`Create wave`**
 
@@ -92,11 +92,13 @@ identity itself remains a declaration the validator cannot verify.
 ### Context-efficiency checkpoint
 
 New wave records reserve one marker-owned `## Context Efficiency` snapshot.
-It shows one conservative per-stage estimated-token-savings total. Runtime
+It shows one per-stage Estimated context avoided total. Runtime
 telemetry is written through to the host-local SQLite authority; lifecycle,
 reload, and upgrade boundaries project durable totals into `wave.md`.
-Gross source and workflow-prompt credits are reduced by every recorded request
-and complete response. Saved output or avoided tool loops count only through a
-quality-equivalent paired evaluation. Runtime lifecycle tools own projection;
+Whole eligible text-file, workflow-prompt and derived-artifact credits are reduced
+by every recorded request and complete response. This baseline does not prove
+what an agent otherwise would have read or spent. Saved output or avoided tool
+loops count only through quality-equivalent paired evidence, recorded separately
+in the checkpoint state. Runtime lifecycle tools own projection;
 manual/non-MCP creation may omit the snapshot until a projection boundary.
 <!-- wave:context-efficiency-carrier end -->

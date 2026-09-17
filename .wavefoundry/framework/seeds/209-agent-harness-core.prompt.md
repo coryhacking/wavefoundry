@@ -126,6 +126,7 @@ The protocol is **prospective and additive**. Existing finding and approval reco
 | `unexecuted_remainder_prohibited` | Yes | Boolean; required with `safe_boundary: true` and otherwise false |
 | `universal_claim` | Yes | Boolean; true requires the closed census object below |
 | `verification_context.actor` | Yes | Exact authority that produced the evidence: the specialist lane name for specialist approval/reassessment, `wave-council` for council approval, or `operator` for operator approval |
+| `verification_context.operator` | No | Optional `{handle, source}` contributor reference; `source` is `explicit` or `git_email`. Use available identity through `wf_review_event`; missing identity never blocks review. This is attribution, not authenticated identity or approval authority. Existing review documents display the stored handle; retries retain original attribution. |
 | `verification_context.context_id` | Yes | Stable run/context identifier |
 | `verification_context.fresh_context` | Yes | Boolean; true only when no implementation/recheck context was retained |
 | `verification_context.independent` | Yes | Boolean; true only when the reviewer did not implement the repair and formed its own current-tree/test assessment before relying on prior findings, evidence claims, or verdicts |

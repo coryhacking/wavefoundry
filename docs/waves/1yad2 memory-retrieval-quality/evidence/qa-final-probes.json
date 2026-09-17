@@ -1,0 +1,24 @@
+{
+  "script": "import sys,json,hashlib,tempfile,inspect,unittest,io,types\nfrom pathlib import Path\nsys.path[:0]=['.wavefoundry/framework/scripts','.wavefoundry/framework/scripts/tests'];import sqlite_vector_store as s,memory_eval as e,test_memory_eval as tests\nout={};root=Path.cwd();fp=json.loads(Path('docs/waves/1yad2 memory-retrieval-quality/evidence/delivery-fingerprint.json').read_text())\nout['fingerprints']={str(p):hashlib.sha1(b'blob '+str(len((b:=(root/p).read_bytes()))).encode()+b'\\0'+b).hexdigest()==h for p,h in fp.items()};assert all(out['fingerprints'].values())\nwith tempfile.TemporaryDirectory() as t:\n p=Path(t);c=s.runtime.connect(p/s.FILENAME);c.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT)');c.execute('INSERT INTO meta VALUES(?,?)',('store_schema_version','8'));c.execute('CREATE TABLE chunks_docs(id INTEGER PRIMARY KEY,path TEXT)');c.execute('CREATE TABLE vectors_docs(chunk_id INTEGER PRIMARY KEY,embedding BLOB)')\n a=\"docs/agents/memory/a.md\";b=\"docs/agents/memory/b'--.md\";query=[1.]+[0.]*(s.DIMENSIONS-1);second=[.5,.8660254]+[0.]*(s.DIMENSIONS-2)\n with c:\n  for n in range(32):\n   path=a if n<30 else b if n==30 else 'docs/not-memory.md';vector=second if n==30 else query;c.execute('INSERT INTO chunks_docs VALUES(?,?)',(n,path));c.execute('INSERT INTO vectors_docs VALUES(?,?)',(n,s.pack_vector(vector)))\n c.close();r=s.dense_path_scores(p,'docs',query,[a,b],2);assert list(r['scores'])==[a,b] and r['eligible_chunks']==31 and r['covered_paths']==2 and r['complete'];assert abs(r['scores'][a]-1)<1e-6 and abs(r['scores'][b]-.5)<1e-5\n assert len(s.dense_path_scores(p,'docs',query,[a,b],1)['scores'])==1\n assert not s.dense_path_scores(p,'docs',query,[a,b,'MISSING'],2)['complete']\n for bad in [0,21,True,1.5]:\n  try:s.dense_path_scores(p,'docs',query,[a,b],bad)\n  except ValueError:pass\n  else:raise AssertionError('invalid limit accepted')\n out['native_sqlite_vec']='31 eligiblechunks/2paths with30dominantduplicates;quotedpath literal;unrelatedexcluded;cosines1/.5;limit1;missingcoverage;invalidlimits all pass'\n# Targeted real tests, not whole suite.\nnames=['test_scoped_sql_groups_before_limit_and_preserves_database','test_curated_diagnostic_is_nonqualifying_and_query_failures_do_not_leak','test_curated_code_only_index_is_unavailable_not_empty_semantic_success']\nfor name in names:\n result=unittest.TextTestRunner(stream=io.StringIO()).run(unittest.TestSuite([tests.QualificationTests(name)]));assert result.wasSuccessful();out[name]='pass'\n# Mutate runtime function in scratch module dictionary; no source file changes.\nsource=inspect.getsource(s.dense_path_scores);namespace=dict(s.__dict__);exec(source.replace(' GROUP BY c.path',''),namespace);original=s.dense_path_scores;s.dense_path_scores=types.FunctionType(namespace['dense_path_scores'].__code__,s.__dict__,argdefs=original.__defaults__)\ntry:\n result=unittest.TextTestRunner(stream=io.StringIO()).run(unittest.TestSuite([tests.QualificationTests(names[0])]));assert len(result.failures)>0 and not result.errors;out['remove_group_by_mutant']=f'{len(result.failures)} assertion failure(s),0 errors'\nfinally:s.dense_path_scores=original\nprint(json.dumps(out,indent=2));Path('/private/tmp/wf-qa-final-results.json').write_text(json.dumps(out,indent=2))\n",
+  "results": {
+    "fingerprints": {
+      ".wavefoundry/framework/scripts/memory_eval.py": true,
+      ".wavefoundry/framework/scripts/server_impl.py": true,
+      ".wavefoundry/framework/scripts/sqlite_vector_store.py": true,
+      ".wavefoundry/framework/scripts/tests/test_memory_eval.py": true,
+      "docs/references/memory-retrieval-eval.md": true,
+      "docs/specs/mcp-tool-surface.md": true,
+      "docs/architecture/search-architecture.md": true,
+      "docs/architecture/testing-architecture.md": true,
+      "docs/architecture/performance-budget.md": true,
+      "CHANGELOG.md": true,
+      "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py": true,
+      "docs/waves/1yad2 memory-retrieval-quality/evidence/qualification-report.md": true
+    },
+    "native_sqlite_vec": "31 eligiblechunks/2paths with30dominantduplicates;quotedpath literal;unrelatedexcluded;cosines1/.5;limit1;missingcoverage;invalidlimits all pass",
+    "test_scoped_sql_groups_before_limit_and_preserves_database": "pass",
+    "test_curated_diagnostic_is_nonqualifying_and_query_failures_do_not_leak": "pass",
+    "test_curated_code_only_index_is_unavailable_not_empty_semantic_success": "pass",
+    "remove_group_by_mutant": "1 assertion failure(s),0 errors"
+  }
+}

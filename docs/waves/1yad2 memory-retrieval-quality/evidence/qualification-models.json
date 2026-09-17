@@ -1,0 +1,50 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "processor": "arm",
+  "logical_cpus": 12,
+  "cpu_brand_probe": "sysctl denied by sandbox; no precise chip/RAM claim",
+  "models": {
+    "embedding": {
+      "name": "Snowflake/snowflake-arctic-embed-s",
+      "provider": [
+        "CPUExecutionProvider"
+      ],
+      "class": "TextEmbedding",
+      "precision": "full (recorded index version)",
+      "files": [
+        {
+          "name": "model.onnx",
+          "sha256": "579c1f1778a0993eb0d2a1403340ffb491c769247fb46acc4f5cf8ac5b89c1e1",
+          "bytes": 133093492
+        },
+        {
+          "name": "tokenizer.json",
+          "sha256": "91f1def9b9391fdabe028cd3f3fcc4efd34e5d1f08c3bf2de513ebb5911a1854",
+          "bytes": 711649
+        }
+      ]
+    },
+    "reranker": {
+      "name": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "provider": "CPUExecutionProvider",
+      "files": [
+        {
+          "name": "model_int8.onnx",
+          "sha256": "a13ec391ca99f49886694e12d3e800521f36d4267d7d448c34421c541a2baf50",
+          "bytes": 23012404
+        },
+        {
+          "name": "tokenizer.json",
+          "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+          "bytes": 711396
+        },
+        {
+          "name": "rerank_cpu_int8_static_1x512.onnx",
+          "sha256": "c507287de3d8282d15cfe96160e4ec05cb8274378a3ac6bf764868b77e3854ac",
+          "bytes": 23012322
+        }
+      ]
+    }
+  }
+}

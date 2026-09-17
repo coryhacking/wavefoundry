@@ -4,7 +4,7 @@ Owner: Engineering
 Role: memory-archive
 Category: specialist
 Status: active
-Last verified: 2026-08-02
+Last verified: 2026-09-17
 
 Searchable compact register for history-worthy retired memory. Full bodies remain under
 `docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.
@@ -90,6 +90,15 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Successor: `1u8q4-mem upgrade-staging-integrity-playbook`
 - Archive path: `docs/agents/memory/archive/1tzgi-mem upgrade-bridge-bootstrap-spans-three-fragile-integrity-bound.md`
 
+## 1tzsp-mem
+
+- Title: `Release packaging tests must pin the single public package`
+- Kind: `review_finding`
+- Targets: `.wavefoundry/framework/scripts/build_pack.py`, `.wavefoundry/framework/scripts/tests/test_build_pack.py`
+- Archived: `2026-09-17`
+- Successor: `1y7ig-mem verify-package-contents-through-the-real-release-and-injecti`
+- Archive path: `docs/agents/memory/archive/1tzsp-mem.md`
+
 ## 1u0dl-mem upgrade-runner-fragility-clusters-at-phase-transition-state-
 
 - Title: `Upgrade runner fragility clusters at phase-transition state seams`
@@ -125,3 +134,12 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-08-02`
 - Successor: `1u8q3-mem upgrade-runner-phase-playbook`
 - Archive path: `docs/agents/memory/archive/1u551-mem upgrade-self-install-fragility-only-a-fresh-process-phase-ru.md`
+
+## 1vkk1-mem retired-pack-members-need-an-exact-absence-assertion-on-a-re
+
+- Title: `Retired pack members need an exact absence assertion on a real injected build, not just an allowlist edit`
+- Kind: `review_finding`
+- Targets: `.wavefoundry/framework/scripts/tests/test_build_pack.py`, `.wavefoundry/framework/scripts/build_pack.py`
+- Archived: `2026-09-17`
+- Successor: `1y7ig-mem verify-package-contents-through-the-real-release-and-injecti`
+- Archive path: `docs/agents/memory/archive/1vkk1-mem retired-pack-members-need-an-exact-absence-assertion-on-a-re.md`

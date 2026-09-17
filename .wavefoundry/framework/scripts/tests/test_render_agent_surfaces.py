@@ -939,7 +939,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         for literal in (
             "operational aggregate, not lifecycle or review authority",
             "single plain table",
-            "estimated token savings",
+            "Estimated context avoided",
             "canonical `wave:` markers",
             "successful create or mutating prepare",
             "accounting-gap poison",

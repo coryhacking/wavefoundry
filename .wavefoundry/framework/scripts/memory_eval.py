@@ -2,15 +2,18 @@
 """Memory-retrieval policy and candidate evaluation.
 
 Builds a synthetic memory corpus (memory_golden.json) in a throwaway repo, runs
-the current ``memory_search`` path against golden fixtures, and compares the
-shipped semantic tie-break with an evaluation-only lexical+semantic RRF
-candidate. The optional curated pass freezes a bounded sample of the live
+the current ``memory_search`` path against golden fixtures, and compares it
+with the legacy confidence-first lexical+semantic RRF control. The optional
+curated diagnostic freezes a bounded sample of the live
 corpus before scoring and emits aggregate metrics, counts, and a fingerprint
 only — never memory bodies, summaries, or record ids.
 
-MEASUREMENT-ONLY: the RRF candidate is not wired into product code. Deterministic
+The shared BM25/RRF primitives also serve production memory search; comparison
+variants and sampled diagnostics remain measurement-only. Deterministic
 and hermetic by default; ``--curated-root`` is an explicit operator-run
-observational pass.
+observational pass, never adoption qualification. Explicit frozen full-corpus
+inputs use the qualification helpers; ordinary MCP calls do not discover
+local qualification files automatically.
 
 This module ships with the framework (wave 1tgws) so the curated pass can
 measure ANY target repository's memory corpus, through ``wf_memory_eval`` or
@@ -68,6 +71,24 @@ class _StubIndex:
 
     def __init__(self, order: list[str]) -> None:
         self._order = order
+        self._docs_vector_layer = "docs"
+
+    def _ensure_loaded(self):
+        return None
+
+    def _memory_candidate_scores(self, query: str, paths: list[str], *,
+                                 expected_hashes: dict[str, str]) -> dict[str, Any]:
+        ranks = {mid: i for i, mid in enumerate(self._order)}
+        return {"scores": {path: 1.0 / (1 + ranks[Path(path).stem])
+                           for path in paths if Path(path).stem in ranks},
+                "complete": True, "eligible_chunks": len(paths),
+                "covered_paths": len(paths), "requested_paths": len(paths)}
+
+    def _get_memory_reranker(self):
+        return self
+
+    def rerank(self, query: str, texts: list[str]) -> list[float]:
+        return [0.0] * len(texts)  # eligibility/order fixtures, not model qualification
 
     def search_docs(self, query: str, top_n: int = 0):
         return ([{"path": f"docs/agents/memory/{mid}.md"} for mid in self._order], False)
@@ -211,13 +232,16 @@ def _record_text(record: dict[str, Any]) -> str:
     ])
 
 
-def lexical_bm25_order(
+def lexical_bm25_scores(
     records: list[dict[str, Any]], query: str
-) -> list[str]:
-    """Evaluation-only deterministic BM25 over already-loaded records."""
+) -> dict[str, float]:
+    """Positive BM25 scores over the complete supplied eligible record corpus."""
     query_terms = _tokens(query)
     if not query_terms or not records:
-        return []
+        return {}
+    identities = [record["memory_id"] for record in records]
+    if len(set(identities)) != len(identities):
+        raise ValueError("BM25 requires distinct memory identities")
     tokenized = [_tokens(_record_text(record)) for record in records]
     avg_len = sum(len(tokens) for tokens in tokenized) / max(len(tokenized), 1)
     document_frequency = Counter(
@@ -242,13 +266,20 @@ def lexical_bm25_order(
         if score > 0:
             scored.append((score, record["memory_id"]))
     scored.sort(key=lambda pair: (-pair[0], pair[1]))
-    return [memory_id for _score, memory_id in scored]
+    return {memory_id: score for score, memory_id in scored}
+
+
+def lexical_bm25_order(
+    records: list[dict[str, Any]], query: str
+) -> list[str]:
+    """Deterministic BM25 over already-loaded eligible memory records."""
+    return list(lexical_bm25_scores(records, query))
 
 
 def reciprocal_rank_fusion(
     rankings: list[list[str]], *, rrf_k: int = RRF_K
 ) -> list[str]:
-    """Evaluation-only deterministic RRF over positive-match streams."""
+    """Deterministic RRF over record-deduplicated candidate streams."""
     scores: dict[str, float] = {}
     for ranking in rankings:
         for rank, memory_id in enumerate(ranking, start=1):
@@ -259,6 +290,297 @@ def reciprocal_rank_fusion(
             scores.items(), key=lambda pair: (-pair[1], pair[0])
         )
     ]
+
+
+def fusion_rankings(
+    dense_scores: dict[str, float], lexical_scores: dict[str, float],
+    cap: int = 20, *, injection_eligible: set[str] | None = None,
+) -> dict[str, list[str]]:
+    """Frozen evaluation variants, with at most ``cap`` records per channel.
+
+    Min-max populations are the capped channels, not all stored memories.
+    A constant nonempty channel maps to one; an absent identity maps to zero.
+    These scores order candidates and are not relevance probabilities.
+    """
+    if type(cap) is not int or not 1 <= cap <= 20:
+        raise ValueError("candidate cap must be an integer from 1 to 20")
+
+    def bounded(scores: dict[str, float], positive: bool) -> dict[str, float]:
+        if any(not isinstance(mid, str) or not mid or isinstance(score, bool)
+               or not isinstance(score, (int, float)) or not math.isfinite(score)
+               for mid, score in scores.items()):
+            raise ValueError("candidate scores must have identities and finite numbers")
+        return dict(sorted(
+            ((mid, score) for mid, score in scores.items() if not positive or score > 0),
+            key=lambda item: (-item[1], item[0]),
+        )[:cap])
+
+    dense = bounded(dense_scores, False)
+    lexical = bounded(lexical_scores, True)
+
+    def normalized(scores: dict[str, float]) -> dict[str, float]:
+        if not scores:
+            return {}
+        low, high = min(scores.values()), max(scores.values())
+        return {mid: (score - low) / (high - low) if high > low else 1.0
+                for mid, score in scores.items()}
+
+    def weighted_rrf(weight: float) -> list[str]:
+        scores: dict[str, float] = {}
+        for channel, factor in ((dense, weight), (lexical, 1.0 - weight)):
+            for rank, mid in enumerate(channel, 1):
+                scores[mid] = scores.get(mid, 0.0) + factor / (RRF_K + rank)
+        return sorted(scores, key=lambda mid: (-scores[mid], mid))[:cap]
+
+    dn, ln = normalized(dense), normalized(lexical)
+    union = set(dense) | set(lexical)
+    score_order = sorted(
+        union, key=lambda mid: (-(0.75 * dn.get(mid, 0.0) + 0.25 * ln.get(mid, 0.0)), mid)
+    )[:cap]
+    injected = list(dense)
+    if lexical and injection_eligible:
+        threshold = 0.5 * max(lexical.values())
+        for mid, score in lexical.items():
+            if mid in injection_eligible and mid not in injected and score >= threshold:
+                injected.insert(min(1, len(injected)), mid)
+                break
+    return {
+        "semantic": list(dense), "lexical": list(lexical),
+        "rrf": weighted_rrf(0.5), "score_fusion": score_order,
+        "weighted025": weighted_rrf(0.25), "weighted075": weighted_rrf(0.75),
+        "injection": injected[:cap],
+    }
+
+
+def qualification_fingerprint(payload: Any) -> str:
+    """Canonical complete-payload identity; not proof of reviewer independence."""
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+
+
+def validate_qualification_manifest(
+    corpus: dict[str, Any], queries: dict[str, Any], manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate pinned local inputs without returning their identities or text.
+
+    Independence and untouched holdout remain reviewer declarations; hashes
+    detect changed inputs, not whether somebody inspected a held-out result.
+    """
+    def malformed(reason: str) -> dict[str, Any]:
+        return {"valid": False, "reasons": [reason], "corpus_count": 0, "holdout_count": 0}
+
+    if not all(isinstance(value, dict) for value in (corpus, queries, manifest)):
+        return malformed("invalid_manifest_structure")
+    populations = (corpus.get("records"), corpus.get("archive_register", []))
+    if any(not isinstance(population, list)
+           or any(not isinstance(record, dict) for record in population)
+           for population in populations):
+        return malformed("invalid_corpus_structure")
+    cases, development = queries.get("cases"), queries.get("development_cases", [])
+    if any(not isinstance(population, list)
+           or any(not isinstance(case, dict) for case in population)
+           for population in (cases, development)):
+        return malformed("invalid_query_structure")
+    if not isinstance(manifest.get("parameters"), dict) or not isinstance(manifest.get("gates"), dict):
+        return malformed("invalid_manifest_structure")
+    reasons: list[str] = []
+    for key, payload in (("corpus_fingerprint", corpus), ("queries_fingerprint", queries),
+                         ("parameters_fingerprint", manifest.get("parameters", {}))):
+        try:
+            fingerprint = qualification_fingerprint(payload)
+        except (ValueError, TypeError):
+            return malformed("invalid_fingerprint_payload")
+        if manifest.get(key) != fingerprint:
+            reasons.append(key + "_mismatch")
+    if manifest.get("schema_version") != 1:
+        reasons.append("unsupported_manifest_version")
+    reviewer, author = manifest.get("reviewer"), manifest.get("ranker_author")
+    if not reviewer or not author or reviewer == author or queries.get("reviewer") != reviewer:
+        reasons.append("independent_reviewer_unproven")
+    if not manifest.get("split_protocol"):
+        reasons.append("split_protocol_missing")
+    parameters = manifest.get("parameters", {})
+    expected = {"channel_cap": 20, "result_cap": 20, "rrf_k": 60,
+                "score_semantic_weight": 0.75, "normalization": "bounded-channel-minmax",
+                "relevance_text": "title-action-summary", "relevance_threshold": -4.0,
+                "qualification_cap": 20}
+    if any(parameters.get(key) != value for key, value in expected.items()):
+        reasons.append("parameters_do_not_match_frozen_contract")
+    gates = {"recall3_gain": 0.05, "latency_reduction": 0.20, "warm_p95_ms": 500}
+    if any(manifest.get("gates", {}).get(key) != value for key, value in gates.items()):
+        reasons.append("gates_do_not_match_frozen_contract")
+    ids: set[str] = set()
+    for population in populations:
+        seen: set[str] = set()
+        for record in population:
+            mid = record.get("memory_id")
+            if not isinstance(mid, str) or not mid or mid in seen:
+                reasons.append("invalid_corpus_identity")
+                continue
+            seen.add(mid)
+        ids.update(seen)  # archived body and compact entry may share an identity
+    if not ids:
+        reasons.append("empty_corpus")
+    development_queries = {" ".join(str(case.get("query", "")).lower().split())
+                           for case in development}
+    holdout_queries: set[str] = set()
+    case_ids: set[str] = set()
+    negatives = 0
+    for case in cases:
+        q = " ".join(str(case.get("query", "")).lower().split())
+        cid = case.get("id")
+        if (not isinstance(case.get("query"), str) or not q
+                or q in development_queries or q in holdout_queries
+                or not isinstance(cid, str) or not cid or cid in case_ids
+                or case.get("split") != "holdout"):
+            reasons.append("holdout_not_disjoint")
+        holdout_queries.add(q)
+        if isinstance(cid, str):
+            case_ids.add(cid)
+        labels = [case.get(key) for key in ("relevant_ids", "irrelevant_ids", "unjudged_ids")]
+        if any(not isinstance(label, list)
+               or any(not isinstance(mid, str) or not mid for mid in label)
+               or len(label) != len(set(label)) for label in labels):
+            reasons.append("explicit_relevance_labels_required")
+            continue
+        relevant, irrelevant, unjudged = map(set, labels)
+        if (not (relevant | irrelevant | unjudged) <= ids
+                or relevant & irrelevant or relevant & unjudged or irrelevant & unjudged):
+            reasons.append("invalid_relevance_labels")
+        if not relevant and not irrelevant:
+            reasons.append("no_match_judgment_unproven")
+        negatives += not relevant
+    if len(cases) < 24 or negatives < 8 or negatives == len(cases):
+        reasons.append("insufficient_holdout_coverage")
+    return {"valid": not reasons, "reasons": sorted(set(reasons)),
+            "corpus_count": len(ids), "holdout_count": len(cases)}
+
+
+def quality_metrics(rows: list[dict[str, Any]], variant: str) -> dict[str, Any]:
+    """Aggregate frozen judgments; negatives never inflate recall or MRR.
+
+    Rows are explicit local evidence. Only this aggregate may enter ordinary
+    MCP responses. Unavailable measurements invalidate the aggregate instead
+    of being counted as successful no-match abstentions.
+    """
+    answerable: list[dict[str, float]] = []
+    unavailable = negatives = false_positives = misses = no_relevant = 0
+    irrelevant_count = unjudged_count = returned_count = 0
+    candidate_values: list[float] = []
+    for row in rows:
+        available = row.get("available", row.get("availability", True))
+        if isinstance(available, dict):
+            available = available.get(variant, False)
+        rankings = row.get("rankings", {})
+        if available is not True or variant not in rankings:
+            unavailable += 1
+            continue
+        ranked = list(dict.fromkeys(rankings[variant]))[:20]
+        expected = set(row.get("relevant_ids", row.get("expected_ids", [])))
+        irrelevant = set(row.get("irrelevant_ids", []))
+        if expected & irrelevant:
+            raise ValueError("relevance labels overlap")
+        returned_count += len(ranked)
+        irrelevant_count += len(set(ranked) & irrelevant)
+        unjudged_count += len(set(ranked) - expected - irrelevant)
+        if not expected:
+            negatives += 1
+            false_positives += bool(ranked)
+            continue
+        misses += not ranked
+        no_relevant += not (set(ranked) & expected)
+        answerable.append({
+            "recall_at_3": _recall_at_k(ranked, sorted(expected), 3),
+            "recall_at_10": _recall_at_k(ranked, sorted(expected), 10),
+            "mrr": _reciprocal_rank(ranked, sorted(expected)),
+        })
+        candidates = row.get("candidate_ids")
+        if isinstance(candidates, dict):
+            candidates = candidates.get(variant)
+        if candidates is None:
+            candidates = row.get("evidence", {}).get(variant, {}).get("candidate_ids")
+        if candidates is not None:
+            candidate_values.append(len(set(candidates) & expected) / len(expected))
+    valid = bool(rows) and not unavailable
+    report: dict[str, Any] = {
+        "available": valid, "queries": len(rows), "unavailable_queries": unavailable,
+        "answerable_queries": len(answerable), "no_match_queries": negatives,
+        "answerable_misses": misses, "answerable_without_relevant": no_relevant,
+        "no_match_false_positives": false_positives,
+        "judged_irrelevant_results": irrelevant_count, "unjudged_results": unjudged_count,
+        "returned_results": returned_count,
+        "candidate_recall": (sum(candidate_values) / len(candidate_values)
+                             if valid and answerable and len(candidate_values) == len(answerable)
+                             else None),
+    }
+    for key in ("recall_at_3", "recall_at_10", "mrr"):
+        report[key] = (sum(case[key] for case in answerable) / len(answerable)
+                       if valid and answerable else None)
+    return report
+
+
+def qualification_adoption(
+    baseline: dict[str, Any], candidate: dict[str, Any],
+    latencies: dict[str, Any], validity: dict[str, Any],
+) -> dict[str, Any]:
+    """Fail-closed readiness-contract gate over aggregate qualification evidence."""
+    reasons = [key + "_unproven" for key in (
+        "manifest_valid", "independent_labels", "holdout_untouched", "coverage_complete",
+        "policy_approved", "performance_complete",
+    ) if validity.get(key) is not True]
+    quality_valid = baseline.get("available") is True and candidate.get("available") is True
+    for metrics in (baseline, candidate):
+        counts = [metrics.get(key) for key in ("queries", "answerable_queries", "no_match_queries")]
+        if (any(type(value) is not int for value in counts)
+                or counts[0] < 24 or counts[1] <= 0 or counts[2] < 8
+                or counts[0] != counts[1] + counts[2]):
+            quality_valid = False
+        for count_key, population_key in (("answerable_misses", "answerable_queries"),
+                                          ("no_match_false_positives", "no_match_queries")):
+            count, population = metrics.get(count_key), metrics.get(population_key)
+            if (type(count) is not int or type(population) is not int
+                    or count < 0 or count > population):
+                quality_valid = False
+    for key in ("queries", "answerable_queries", "no_match_queries"):
+        if baseline.get(key) != candidate.get(key) or not baseline.get(key):
+            quality_valid = False
+    gain = None
+    for key in ("recall_at_3", "recall_at_10", "mrr"):
+        before, after = baseline.get(key), candidate.get(key)
+        if any(isinstance(v, bool) or not isinstance(v, (int, float))
+               or not math.isfinite(v) or not 0 <= v <= 1 for v in (before, after)):
+            quality_valid = False
+        elif after + 1e-12 < before:
+            reasons.append(key + "_regressed")
+        if key == "recall_at_3" and quality_valid:
+            gain = after - before
+    for key in ("answerable_misses", "no_match_false_positives"):
+        before, after = baseline.get(key), candidate.get(key)
+        if any(type(v) is not int or v < 0 for v in (before, after)):
+            quality_valid = False
+        elif after > before:
+            reasons.append(key + "_increased")
+    if not quality_valid:
+        reasons.append("quality_measurement_unavailable")
+    before = latencies.get("baseline_p95_ms")
+    after = latencies.get("candidate_p95_ms")
+    timing_valid = all(not isinstance(v, bool) and isinstance(v, (int, float))
+                       and math.isfinite(v) and v > 0 for v in (before, after))
+    calls = [latencies.get(key) for key in ("baseline_warm_calls", "candidate_warm_calls")]
+    timing_valid = timing_valid and all(type(v) is int and v >= 100 for v in calls)
+    speed_gain = None
+    if not timing_valid:
+        reasons.append("performance_measurement_unavailable")
+    else:
+        speed_gain = 1.0 - after / before
+        if after > 500 or after > before:
+            reasons.append("warm_p95_budget_exceeded")
+    if not ((gain is not None and gain + 1e-12 >= 0.05)
+            or (speed_gain is not None and speed_gain + 1e-12 >= 0.20)):
+        reasons.append("material_benefit_not_demonstrated")
+    return {"adopt": not reasons, "reasons": reasons, "product_path_changed": False}
 
 
 def _case_records(srv, root: Path, case: dict) -> list[dict[str, Any]]:
@@ -504,6 +826,8 @@ def evaluate_adoption(
         reasons.append("candidate regressed hermetic recall@k")
     if not curated or not curated.get("available"):
         reasons.append("curated corpus pass unavailable")
+    elif curated.get("qualifying") is not True:
+        reasons.append("self-summary diagnostic cannot qualify production adoption")
     else:
         metrics = curated["metrics"]
         if metrics["candidate"]["mrr"] <= metrics["baseline"]["mrr"]:
@@ -533,7 +857,7 @@ def _semantic_order(index: Any, query: str, memory_dir: str) -> list[str]:
 
 
 def run_curated(root: Path, k: int = DEFAULT_K) -> dict[str, Any]:
-    """Run a bounded live-corpus pass and return aggregate-only evidence."""
+    """Run a nonqualifying self-summary diagnostic with aggregate-only output."""
     import server_impl as srv
     mem = srv._memory_mod()
     records = [
@@ -568,6 +892,15 @@ def run_curated(root: Path, k: int = DEFAULT_K) -> dict[str, Any]:
     ).hexdigest()
     report: dict[str, Any] = {
         "available": False,
+        "evaluation_kind": "sampled_self_summary_diagnostic",
+        "qualifying": False,
+        "production_variant": "memory_rrf_summary5",
+        "baseline_variant": "legacy_policy_ordering",
+        "experimental_variant": "policy_ordered_rrf",
+        "adoption_gate": {
+            "adopt": False, "product_path_changed": False,
+            "reasons": ["independent_full_corpus_holdout_required"],
+        },
         "sample_size": len(selected),
         "sample_cap": CURATED_SAMPLE_CAP,
         "sample_strategy": "stable identity hash, frozen before scoring",
@@ -581,6 +914,9 @@ def run_curated(root: Path, k: int = DEFAULT_K) -> dict[str, Any]:
     try:
         index = srv.WaveIndex(root)
         index._ensure_loaded()
+        if getattr(index, "_docs_vector_layer", None) is None:
+            report["unavailable_reason"] = "semantic docs layer unavailable"
+            return report
     except Exception as exc:
         report["unavailable_reason"] = f"semantic index unavailable: {type(exc).__name__}"
         return report
@@ -609,11 +945,17 @@ def run_curated(root: Path, k: int = DEFAULT_K) -> dict[str, Any]:
     selected_ids = {record["memory_id"] for record in selected}
     for selected_record in selected:
         query = selected_record["summary"]
-        semantic = [
-            memory_id
-            for memory_id in _semantic_order(index, query, mem.MEMORY_DIR)
-            if memory_id in selected_ids
-        ]
+        try:
+            semantic = [
+                memory_id
+                for memory_id in _semantic_order(index, query, mem.MEMORY_DIR)
+                if memory_id in selected_ids
+            ]
+        except Exception:
+            # Model/query failures are unavailable observations, not successful
+            # abstention; exception messages can contain private query text.
+            report["unavailable_reason"] = "semantic query measurement unavailable"
+            return report
         case = {"query": query}
         baseline = _shipped_baseline_order(
             srv, root, selected, query, semantic,

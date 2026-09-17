@@ -2,11 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-08
+Last verified: 2026-09-17
 
-Wavefoundry reports one conservative estimate of tokens saved while its tools
-support a wave. The estimate is an accounting signal, not a billing record and
-not a causal claim about what a model would have done without Wavefoundry.
+Wavefoundry reports **Estimated context avoided** while its tools support a wave.
+The source component uses whole eligible file sizes as a baseline, converted with
+`ceil(UTF-8 bytes / 4)`. A partial result does not prove that an agent otherwise
+would have read the entire file, and credits in different phases or versions do
+not prove repeated avoided reads. The estimate is an accounting proxy, not
+measured model usage, billed tokens, monetary savings, or a causal claim about
+what a model would have done without Wavefoundry.
 
 ## Closed ledger
 
@@ -21,19 +25,19 @@ direct net =
   - request debit
   - response debit
 
-estimated token savings =
+estimated context avoided =
   max(0, direct net + matched-pair residual)
 ```
 
-Derived artifact credit is avoided WRITING: the UTF-8/4 size of textual
+Derived artifact credit uses the UTF-8/4 size of textual
 artifacts a tool persisted that the caller did not supply (canonical review
 ledger records and their projections, drafted memory records, generated
 change-doc scaffolds, and the platform surfaces a sync render actually
 changed — its manifest records new-or-changed content from inside the write
 chokepoints, so a byte-identical re-render credits nothing), floored per
 artifact after subtracting the caller-supplied request. It is a deterministic byte count of a real persisted
-artifact — never an estimate of what an agent "would have" done manually;
-that counterfactual remains gated behind paired evaluations. Tools that
+artifact. Counting those bytes does not establish that an agent otherwise
+would have written them; that counterfactual remains gated behind paired evaluations. Tools that
 derive nothing textual (validation, gardening, gates, audits) are
 instrumented debit-only: every first-party `wf_`/`memory_`/`index_` call now
 records its request/response cost, so phase totals no longer silently omit
@@ -49,29 +53,29 @@ read, so it credits exactly the docs whose content its response conveys
 (untruncated rows only). These ride the same source-proof machinery as
 retrieval credit (opaque identifiers, stat-signature versions, once-only per
 wave/phase/source/version), so an unchanged file credits once per phase while
-a grown ledger legitimately earns a fresh credit for its new version. Tools
+a grown eligible text ledger may earn a fresh credit for its new version. Tools
 that read nothing for the caller (memory_add, the scaffold generators) carry
 no source credit. Listings credit a bounded middle ground: never the whole
 swept corpus (whole-file credit for every listed document would scale with
-repository history rather than information delivered), and never zero —
-instead exactly the LIVE set the response enumerates. `wf_current_wave` and
+repository history rather than information delivered), and only eligible text from the LIVE set the response enumerates. `wf_current_wave` and
 `wf_list_waves` credit only non-closed wave records; `wf_list_plans` credits
 the pending plan docs it lists (pending by construction); `wf_map` credits
 the one resolved existing document; `memory_search` and `memory_brief`
-credit the capped set of record files they surface — each surfaced row names
-a real record an agent without the tool would have opened. Credit therefore
-tracks work in flight, not repository age; the closed-history tail never
-credits. The remaining counterfactual (what an agent would have read beyond
-the live set) belongs to paired evaluations. The bright line is unchanged:
-this is avoided reading of named files at measured sizes, never an estimate
-of agent behavior.
+credit eligible files from the capped set of records they surface. A surfaced
+record does not prove that an agent otherwise would have opened it. These
+listing credits follow work in flight; the closed-history tail never credits.
+The whole-file baseline remains a proxy rather than an observation of agent behavior.
 
 The `wave.md` projection intentionally shows only:
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 
-The SQLite authority retains the components for audit and testing.
+The SQLite authority retains the components for audit and testing, including
+`matched_pair_residual` and `paired_evaluation_count`. A displayed total can
+include that separately evidenced residual; it is not solely source-file credit.
+The existing `estimated_tokens_saved` persisted key remains readable. The
+separate **Estimated Exploration Avoided** memory signal is not added to this total.
 
 ## Retrieval credit
 
@@ -86,8 +90,8 @@ The 20 retrieval tools are:
 - `code_commit_provenance`
 
 A retrieval event always debits the canonical request arguments and the complete
-public response. It may credit contained project files that would otherwise
-have had to be read to obtain the returned content or structure.
+public response. It may credit eligible contained project files represented
+by the returned content or structure, using the qualified whole-file baseline.
 
 Content-bearing responses use their returned file paths. Structural tools use
 only their documented path fields:
@@ -100,13 +104,29 @@ only their documented path fields:
 - `code_graph_community.data.nodes[*].source_file`
 - `code_risk_score.data.results[*].source_file`
 
+The shared `measure_source_proofs` path checks eligibility for retrieval and
+first-party tool source credits. It rejects known binary/runtime paths, including
+framework index, memory and telemetry stores, SQLite WAL/SHM/journals and legacy
+vector-store artifacts. A database is a storage container, not the source-text
+baseline for documents returned from a query. Other candidate files undergo a
+bounded 4096-byte UTF-8/NUL prefix check; renamed SQLite or other recognizable
+binary content is excluded. A multibyte character split at the prefix boundary
+is not by itself invalid UTF-8. This conservative heuristic cannot detect every
+binary payload with a text-looking prefix and does not certify the whole file
+as text. Metadata-only, unreadable or uncertain sources earn no positive credit;
+request/response debits remain and the retrieval result stays usable. No
+telemetry-only whole-file read, cache, schema change or runtime dependency is added.
+
 Paths are converted to opaque identifiers before persistence. A source version
 is credited at most once for `(wave, phase, source, version)`, even when both a
 content and a structural tool return it. A changed version or a new phase may
 earn a new credit. Source size uses UTF-8 bytes divided by four; a stable serving
 epoch or read boundary marks the measurement verified, while an already-known
-contained current/captured size is labeled estimated. Telemetry never performs
-an otherwise-unneeded whole-file read merely to increase credit.
+contained current-file size is labeled estimated. Captured metadata verifies
+versions but does not substitute for a missing current file. These labels describe
+source-version evidence, not proof of avoided reads or measured savings.
+Telemetry never performs an otherwise-unneeded whole-file read merely to
+increase credit.
 
 A phase stores at most 100,000 source identities. Later unique sources are
 reported as dropped credit while their request/response debits still count.
@@ -286,6 +306,12 @@ deduplication.
 <!-- wave:context-efficiency end -->
 ```
 
+The shared validator accepts both the new wording and exact legacy checkpoint
+wording while checking numeric/state consistency. Changing displayed totals or
+call counts without matching state is still invalid. No historical accounting
+is corrected, backfilled or rewritten for this change. Existing closed-wave
+wording and persisted field names remain readable.
+
 Lifecycle projection boundaries update it under the shared wave writer lock.
 Pending generations are also projected before MCP reload and before framework
 upgrade. Between those hard boundaries, Claude Code's verified main-session
@@ -389,6 +415,6 @@ names, wave/phase/stage identifiers, event IDs, evaluation digests, and
 aggregate state. It does not persist query text, response content, prompts,
 source paths, or model conversations.
 
-The estimate demonstrates attributable context efficiency under this contract.
+The estimate reports the qualified accounting proxy under this contract.
 It does not establish provider billing savings, latency improvement, or
 counterfactual causality.

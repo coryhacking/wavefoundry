@@ -9736,8 +9736,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # shared helper is the one emit site, plus wf_validate_docs's own.
                 ("_docs_lint_warning_diagnostics", "_diagnostic", "docs_lint_warning"),
                 ("wf_validate_docs_response", "_diagnostic", "docs_lint_warning"),
+                # Optional attribution never gates an otherwise valid review.
+                ("wf_review_event_response", "_diagnostic", "operator_identity_unresolved"),
             },
-            "exactly these nine sites may be advisory. A tag added, removed, or "
+            "exactly these sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
             "does not -- moving it onto missing_wave_council_signoff or "
             "another_wave_active would otherwise open the readiness stage gate "
@@ -12788,6 +12790,30 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "error", result)
         self.assertIn("review_policy_receipt_stale", self._codes(result))
+
+
+    def test_operator_attribution_keeps_prepared_policy_receipt_current(self):
+        import review_policy
+        before = review_policy.current_policy_receipt(self._records())
+        self.assertIsNotNone(before)
+        (self.root / "docs/contributors.json").write_text(json.dumps({
+            "alice": {"name": "Alice", "emails": ["alice@example.test"]},
+        }), encoding="utf-8")
+        result = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", "code-reviewer", "identity-readiness",
+            mode="create", signoff_key="code-reviewer", approval_phase="readiness",
+            fresh_context=True, independent=True, operator_handle="alice",
+            integrity_checks=integrity_checks(),
+            evidence={"observed": "identity fixture", "artifact_or_test_id": "test:identity"},
+        )
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(result["data"]["appended_records"][0]["verification_context"]["operator"],
+                         {"handle": "alice", "source": "explicit"})
+        self.assertEqual(review_policy.current_policy_receipt(self._records()), before)
+        prepared = self._run(self.srv.wf_prepare_wave_response,
+                             self.root, self.wave_id, mode="ready")
+        self.assertEqual(prepared["status"], "ok", prepared)
+        self.assertEqual(review_policy.current_policy_receipt(self._records()), before)
 
 
 class LegacyProseGateParityTests(unittest.TestCase):

@@ -412,6 +412,7 @@ def _review_action_state_args(
 _VERIFICATION_CONTEXT_REQUIRED = frozenset(
     {"actor", "context_id", "fresh_context", "independent"}
 )
+_VERIFICATION_CONTEXT_OPTIONAL = frozenset({"operator"})
 _CENSUS_REQUIRED = frozenset(
     {
         "claim",
@@ -830,6 +831,8 @@ def build_identified_review_event(
     records: Iterable[Mapping[str, Any]],
     wave_key: str,
     event: Mapping[str, Any],
+    *,
+    operator: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Build a new bundle and put retry metadata on its leading row only.
 
@@ -838,7 +841,7 @@ def build_identified_review_event(
     metadata required by construction for every newly generated bundle.
     """
 
-    rows, errors = build_compact_review_event(records, event)
+    rows, errors = build_compact_review_event(records, event, operator=operator)
     if errors:
         return (), errors
     try:
@@ -1449,7 +1452,13 @@ def review_authority_projection(
             state = "withheld"
         elif approval_valid:
             state = "approved"
-            why = "current executed approval follows every affected repair"
+            operator = context.get("operator")
+            attribution = (
+                f" by {operator['handle']}"
+                if isinstance(operator, Mapping) and _nonempty_string(operator.get("handle"))
+                else ""
+            )
+            why = f"current executed approval{attribution} follows every affected repair"
             next_action = "none"
         else:
             state = "pending"
@@ -2593,6 +2602,8 @@ def repair_independence_violations(
 def build_compact_review_event(
     records: Iterable[Mapping[str, Any]],
     event: Mapping[str, Any],
+    *,
+    operator: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Expand a compact semantic event into canonical append-only protocol rows."""
 
@@ -2642,6 +2653,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
+                    **({"operator": dict(operator)} if operator is not None else {}),
                 },
             },
         ), ()
@@ -2731,6 +2743,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
+                    **({"operator": dict(operator)} if operator is not None else {}),
                 },
             },
         ), ()
@@ -2909,6 +2922,7 @@ def build_compact_review_event(
             "context_id": context_id,
             "fresh_context": bool(event.get("fresh_context")),
             "independent": bool(event.get("independent")),
+            **({"operator": dict(operator)} if operator is not None else {}),
         },
     }
     if event.get("census") is not None:
@@ -3042,6 +3056,7 @@ def build_compact_review_event(
                         "context_id": context_id,
                         "fresh_context": bool(event.get("fresh_context")),
                         "independent": bool(event.get("independent")),
+                        **({"operator": dict(operator)} if operator is not None else {}),
                     },
                 }
             )
@@ -3215,6 +3230,22 @@ def _validate_event_metadata(
     return errors
 
 
+def _validate_operator_context(context: Mapping[str, Any], label: str) -> list[str]:
+    if "operator" not in context:
+        return []
+    operator = context["operator"]
+    label = f"{label}.operator"
+    if not isinstance(operator, dict):
+        return [f"{label}: must be an object"]
+    errors = _require_fields(operator, frozenset({"handle", "source"}), frozenset(), label)
+    if not _nonempty_string(operator.get("handle")):
+        errors.append(f"{label}: `handle` must be a non-empty string")
+    source_error = _enum_error(operator, "source", ("explicit", "git_email"), label)
+    if source_error:
+        errors.append(source_error)
+    return errors
+
+
 def _validate_run_shape(record: Mapping[str, Any], index: int) -> list[str]:
     label = f"review_run[{index}]"
     errors = _require_fields(record, _RUN_REQUIRED, _RUN_OPTIONAL, label)
@@ -3246,10 +3277,11 @@ def _validate_run_shape(record: Mapping[str, Any], index: int) -> list[str]:
                 _require_fields(
                     context,
                     _VERIFICATION_CONTEXT_REQUIRED,
-                    frozenset(),
+                    _VERIFICATION_CONTEXT_OPTIONAL,
                     f"{label}.verification_context",
                 )
             )
+            errors.extend(_validate_operator_context(context, f"{label}.verification_context"))
             for field in ("actor", "context_id"):
                 if not _nonempty_string(context.get(field)):
                     errors.append(
@@ -3330,10 +3362,11 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
             _require_fields(
                 context,
                 _VERIFICATION_CONTEXT_REQUIRED,
-                frozenset(),
+                _VERIFICATION_CONTEXT_OPTIONAL,
                 f"{label}.verification_context",
             )
         )
+        errors.extend(_validate_operator_context(context, f"{label}.verification_context"))
         for field in ("actor", "context_id"):
             if not _nonempty_string(context.get(field)):
                 errors.append(f"{label}.verification_context: `{field}` must be a non-empty string")

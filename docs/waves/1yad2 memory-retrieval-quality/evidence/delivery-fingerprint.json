@@ -1,0 +1,14 @@
+{
+  ".wavefoundry/framework/scripts/memory_eval.py": "5fe6d1e012411243476427f667e9f9953230b205",
+  ".wavefoundry/framework/scripts/server_impl.py": "9a3b8a27077bada26c7403014521b6354ef7422d",
+  ".wavefoundry/framework/scripts/sqlite_vector_store.py": "bcadcfb8c981c24f2b516cfe5e8a242fc6608ea0",
+  ".wavefoundry/framework/scripts/tests/test_memory_eval.py": "822c05817a37d3da7c33a0efc2b8f060c060e594",
+  "docs/references/memory-retrieval-eval.md": "ebfbc85579b14bb61dc6ad6efc58e035fc6e0153",
+  "docs/specs/mcp-tool-surface.md": "c5731a3fd1f68fb8b36cf039da09512939e48500",
+  "docs/architecture/search-architecture.md": "eef675a2906afe3b7f613674e6efe5cf4df27880",
+  "docs/architecture/testing-architecture.md": "c94861c8b2e5fa66344e8b869b9dc65ae9099521",
+  "docs/architecture/performance-budget.md": "05cb948ccd1b130603809490fec183875193e758",
+  "CHANGELOG.md": "0114ea59dc17bd20db2d42a0fb1e02a6d6aeadc9",
+  "docs/waves/1yad2 memory-retrieval-quality/qualification_eval.py": "bc1037cd0c1fd41b8833f6828f876773e4127fc4",
+  "docs/waves/1yad2 memory-retrieval-quality/evidence/qualification-report.md": "af72ba643568d11441c9ddf06cad3d6a889ed40d"
+}
