@@ -23,7 +23,7 @@ import tempfile
 import time
 import types
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import MagicMock, patch
 import graph_fixture_support as gfs
 import graph_snapshot
@@ -3319,12 +3319,12 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         with patch.object(self.server.os, "name", "nt"):
             self.assertTrue(
                 self.server._index_builder_cmdline_targets_root(
-                    cmdline, Path("C:/Work/Repo Name")
+                    cmdline, PureWindowsPath("C:/Work/Repo Name")
                 )
             )
             self.assertFalse(
                 self.server._index_builder_cmdline_targets_root(
-                    cmdline, Path("C:/Work/Other")
+                    cmdline, PureWindowsPath("C:/Work/Other")
                 )
             )
 
