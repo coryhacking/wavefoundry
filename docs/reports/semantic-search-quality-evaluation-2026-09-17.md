@@ -79,6 +79,6 @@ Revisit these directions when real queries repeatedly miss current guidance or t
 
 ## Evidence and limits
 
-[Compact evidence bundle](semantic-search-quality-evaluation-2026-09-17.json.gz) retains queries, candidate records, scores/selections, public results, source hashes, checks, the diagnostic scorer and scratch drivers. Repeated records are stored once per query. The earlier contaminated pass is not retained as qualifying data. The scripts contain local paths and require adaptation; no full frozen SQLite database is included. These observed questions are development material for future work.
+The raw evidence bundle was archived during the [evidence cleanup](retrieval-evaluation-evidence-retention.md) and remains recoverable from its recorded Git snapshot. The method, comparison results, rejected contaminated pass and limitations remain documented here. The archived drivers contain local paths and require adaptation; no full frozen SQLite database was included. These observed questions are development material, not an independent holdout.
 
 This is a single-repository, CPU-only exploration using `cross-encoder/ms-marco-MiniLM-L-6-v2`. No blind independent review, GPU/platform qualification, universal recall guarantee, calibrated probability, new model comparison or production adoption is claimed. The closed memory wave and its evidence are unchanged.

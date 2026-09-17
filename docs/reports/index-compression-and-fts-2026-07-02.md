@@ -1,8 +1,12 @@
 # Index Compression and FTS Benchmark
 
 Owner: Engineering
-Status: draft
-Last verified: 2026-07-02
+Status: archived
+Last verified: 2026-09-17
+
+## Historical scope
+
+Retained as evidence for the former LanceDB backend. These July 2026 measurements and implementation recommendations do not describe the current unified SQLite index. Archival review on 2026-09-17 did not rerun the benchmark; the original results below remain unchanged.
 
 ## Purpose
 

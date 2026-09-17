@@ -323,6 +323,8 @@ an `invalid_baseline` refusal in that window, typically "baseline evaluator
 identity differs", is the expected signal, not a defect. The canonical command
 above names an output path, not a comparison source.
 
+**Evidence retention.** The protected historical inputs and reference comparison pair remain in the checkout. Superseded runs, invalid attempts and exploratory captures are summarized in the [retention record](../reports/retrieval-evaluation-evidence-retention.md), with a Git snapshot for recovering their exact bytes. References to retired outputs in closed-wave records and the checkpoint ledger are historical citations, not current baseline dependencies.
+
 When a signed comparison is structurally unavailable, the data-level tool at
 `.wavefoundry/framework/scripts/benchmarks/compare_retrieval_receipts.py`
 reproduces the comparison arithmetic over two recorded receipts and labels its
