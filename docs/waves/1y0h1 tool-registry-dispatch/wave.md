@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: planned
-Last verified: 2026-09-14
+Last verified: 2026-09-17
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -27,7 +27,7 @@ Change Status: `planned`
 
 ## Wave Summary
 
-Maintainer-facing refactor from the modularity RFC, scoped to what preserves the existing hot-reload and packaging model: a flat `mcp_tool_registry.py` sibling module populated by a post-registration pass over FastMCP's own tool table cross-referenced with the roster (operator decision 2026-09-16; the 90 registration sites are untouched), the three wrapper passes as one applied chain with an inspectable order, and a registry-based roster parity test. No aliases, no `server/` package, no fail-fast roster check at startup.
+Maintainer-facing refactor from the modularity RFC, scoped to what preserves the existing hot-reload and packaging model: a flat `mcp_tool_registry.py` sibling module populated by a post-registration pass over FastMCP's own tool table cross-referenced with the roster (operator decision 2026-09-16; the existing registration sites are untouched), the three wrapper passes as one applied chain with an inspectable order, and a registry-based roster parity test. No aliases, no `server/` package, no fail-fast roster check at startup.
 
 ## Watchpoints
 
@@ -36,7 +36,7 @@ Maintainer-facing refactor from the modularity RFC, scoped to what preserves the
 - The runtime roster check stays warning-only by recorded decision; do not reverse it.
 - `repo_root`, `subprocess_util`, `venv_bootstrap`, and now (as of `1y3og`, verified 2026-09-17) `setup_readiness` and `runtime_advisory` are outside the reload purge list and stay stale across `wf_reload_mcp`; out of scope here, worth its own small change, and growing.
 - This wave does not unblock Waveforge; do not sequence it ahead of `1y0gz` or `1y0h0`.
-- Follow-up for `1y0h2 handler-module-split` (docs-contract seat, 2026-09-16): its Requirement 2 has relocated modules hand-author `TOOLS: list[ToolSpec]`, but under the introspection design `ToolSpec` is derived from FastMCP's tool table after registration, so hand-authored specs would never be introspected. Before `1y0h2` opens, its change doc must state either that relocated handlers keep `@mcp.tool` registration through a call from `register_mcp_surface`, or that composition loops `mcp.tool()(fn)` over each `TOOLS` entry so introspection still finds them. Editing that doc rotates its readiness receipt; do it as its own re-ready step.
+- Resolved 2026-09-17: `1y0h2` keeps decorated closures in `register_mcp_surface` and delegates late to sibling response modules. No hand-authored tool specifications or second registration source; AST and runtime parity coverage remain.
 
 ## Finding Synthesis
 
@@ -53,7 +53,7 @@ Maintainer-facing refactor from the modularity RFC, scoped to what preserves the
 <!-- wave:review-status begin -->
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
-| wave-council-readiness | approved | current executed approval follows every affected repair | none |
+| wave-council-readiness | approved | current executed approval by coryhacking follows every affected repair | none |
 | code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
 | qa-reviewer | pending | no current executed approval | record approval evidence for qa-reviewer |
 | operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
@@ -69,13 +69,13 @@ Maintainer-facing refactor from the modularity RFC, scoped to what preserves the
 
 <!-- wave:context-efficiency begin -->
 
-Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+Estimated context avoided uses whole eligible text-file, workflow-prompt and derived-artifact credits, minus recorded request and response tokens. This baseline does not prove what an agent otherwise would have read or spent. Any quality-equivalent paired-evaluation residual is recorded separately in the checkpoint state and included in the total.
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | credit_history_unavailable | 0 | 0 |
 
-<!-- wave:context-efficiency-state {"generation":43,"measurement_status":"credit_history_unavailable","pending":false,"schema_version":1,"stages":{"plan":{"calls":42,"content_source_credit":1226740,"derived_artifact_credit":1250,"direct_net":1165719,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3094,"response_debit":61468,"source_credit_count":40,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2291},"review":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-1553,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10,"response_debit":1543,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":43,"content_source_credit":1226740,"derived_artifact_credit":1250,"direct_net":1164166,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3104,"response_debit":63011,"source_credit_count":40,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2291},"wave_id":"1y0h1 tool-registry-dispatch"} -->
+<!-- wave:context-efficiency-state {"generation":47,"measurement_status":"credit_history_unavailable","pending":false,"schema_version":1,"stages":{"plan":{"calls":46,"content_source_credit":1231500,"derived_artifact_credit":1492,"direct_net":1167313,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3447,"response_debit":66814,"source_credit_count":42,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4582},"review":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-1553,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10,"response_debit":1543,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":47,"content_source_credit":1231500,"derived_artifact_credit":1492,"direct_net":1165760,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3457,"response_debit":68357,"source_credit_count":42,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4582},"wave_id":"1y0h1 tool-registry-dispatch"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

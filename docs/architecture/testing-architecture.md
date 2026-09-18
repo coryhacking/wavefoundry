@@ -133,6 +133,10 @@ Independent-reference verification is a review-evidence technique for any implem
 
 The worked pattern is a fallback parser compared with a grammar-backed parser over valid generated declarations, asserting only initializer ownership identity. Named fixtures retain diagnosed edge cases; the differential comparison diversifies the reference used to explore the valid surface. Because both parsers can still share a misunderstanding, specification-derived or metamorphic assertions cover plausible common-mode failures. Implementer-produced results remain `independent: false`; carrier and rendering tests prove distribution only.
 
+### Golden Tool-Surface Guard (wave 1y0do)
+
+The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
+
 ### TechDocs External Oracle Tier
 
 The TechDocs matcher has a permanent differential harness under
@@ -516,6 +520,8 @@ contract: `docs/contributing/review-and-evals.md`.
 | `.wavefoundry/framework/scripts/tests/test_build_pack.py` | build_pack.py behavior |
 | `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | dashboard snapshot readers, port selection, and HTTP handler responses |
 | `.wavefoundry/framework/scripts/tests/fixtures/docs_lint/base/` | Fixture target repo for docs_lint tests |
+| `.wavefoundry/framework/scripts/tests/test_tool_surface_golden.py` | Golden snapshot of the public MCP tool surface, runtime roster parity, wrapper composition order |
+| `.wavefoundry/framework/scripts/tests/fixtures/tool-surface-golden.json` | Committed golden fixture of every registered tool's tier, input schema, and annotations |
 
 ## Doubles Policy
 

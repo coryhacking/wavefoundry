@@ -1,0 +1,3045 @@
+{
+  "fixture_schema": "1",
+  "tools": {
+    "code_ask": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "rerank": {
+            "default": "agent",
+            "title": "Rerank",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "code_askArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_callgraph": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "depth": {
+            "default": 1,
+            "title": "Depth",
+            "type": "integer"
+          },
+          "direction": {
+            "default": "both",
+            "title": "Direction",
+            "type": "string"
+          },
+          "include_tests": {
+            "default": false,
+            "title": "Include Tests",
+            "type": "boolean"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "code_callgraphArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_callhierarchy": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "context_depth": {
+            "default": 0,
+            "title": "Context Depth",
+            "type": "integer"
+          },
+          "direction": {
+            "default": "both",
+            "title": "Direction",
+            "type": "string"
+          },
+          "file": {
+            "default": "",
+            "title": "File",
+            "type": "string"
+          },
+          "include_external": {
+            "default": false,
+            "title": "Include External",
+            "type": "boolean"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "code_callhierarchyArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_commit_provenance": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "default": "",
+            "title": "Commit",
+            "type": "string"
+          },
+          "line_end": {
+            "default": 0,
+            "title": "Line End",
+            "type": "integer"
+          },
+          "line_start": {
+            "default": 0,
+            "title": "Line Start",
+            "type": "integer"
+          },
+          "path": {
+            "default": "",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "code_commit_provenanceArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_constants": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "glob": {
+            "default": "",
+            "title": "Glob",
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "title": "code_constantsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_definition": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "graph": {
+            "default": true,
+            "title": "Graph",
+            "type": "boolean"
+          },
+          "graph_limit": {
+            "default": 5,
+            "title": "Graph Limit",
+            "type": "integer"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "symbol_or_path_position": {
+            "title": "Symbol Or Path Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol_or_path_position"
+        ],
+        "title": "code_definitionArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_dependencies": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "code_dependenciesArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_graph_community": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "community_id": {
+            "default": "",
+            "title": "Community Id",
+            "type": "string"
+          },
+          "exclude_generated": {
+            "default": false,
+            "title": "Exclude Generated",
+            "type": "boolean"
+          },
+          "hub_node_id": {
+            "default": "",
+            "title": "Hub Node Id",
+            "type": "string"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "title": "code_graph_communityArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_graph_path": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "default": "forward",
+            "title": "Direction",
+            "type": "string"
+          },
+          "from_symbol": {
+            "title": "From Symbol",
+            "type": "string"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "max_hops": {
+            "default": 10,
+            "title": "Max Hops",
+            "type": "integer"
+          },
+          "min_confidence": {
+            "default": "EXTRACTED",
+            "title": "Min Confidence",
+            "type": "string"
+          },
+          "relations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Relations"
+          },
+          "to_symbol": {
+            "title": "To Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_symbol",
+          "to_symbol"
+        ],
+        "title": "code_graph_pathArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_hover": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "title": "Line",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "path"
+        ],
+        "title": "code_hoverArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_impact": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "include_tests": {
+            "default": false,
+            "title": "Include Tests",
+            "type": "boolean"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "max_hops": {
+            "default": 3,
+            "title": "Max Hops",
+            "type": "integer"
+          },
+          "max_results": {
+            "default": 50,
+            "title": "Max Results",
+            "type": "integer"
+          },
+          "path": {
+            "default": "",
+            "title": "Path",
+            "type": "string"
+          },
+          "relations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Relations"
+          },
+          "symbol": {
+            "default": "",
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "code_impactArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_keyword": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "glob": {
+            "default": "",
+            "title": "Glob",
+            "type": "string"
+          },
+          "graph": {
+            "default": true,
+            "title": "Graph",
+            "type": "boolean"
+          },
+          "graph_limit": {
+            "default": 5,
+            "title": "Graph Limit",
+            "type": "integer"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "queries": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Queries"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "code_keywordArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_lexical": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          },
+          "table": {
+            "default": "both",
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "code_lexicalArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_list_files": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "glob": {
+            "default": "",
+            "title": "Glob",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "code_list_filesArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_outline": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "code_outlineArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_pattern": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "glob": {
+            "default": "",
+            "title": "Glob",
+            "type": "string"
+          },
+          "ignore_case": {
+            "default": false,
+            "title": "Ignore Case",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Results"
+          },
+          "pattern": {
+            "title": "Pattern",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "title": "code_patternArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_read": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "end_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Line"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Line"
+          },
+          "with_line_numbers": {
+            "default": true,
+            "title": "With Line Numbers",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "code_readArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_references": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "call_sites_only": {
+            "default": false,
+            "title": "Call Sites Only",
+            "type": "boolean"
+          },
+          "exclude_docs": {
+            "default": false,
+            "title": "Exclude Docs",
+            "type": "boolean"
+          },
+          "exclude_tests": {
+            "default": false,
+            "title": "Exclude Tests",
+            "type": "boolean"
+          },
+          "graph": {
+            "default": true,
+            "title": "Graph",
+            "type": "boolean"
+          },
+          "graph_limit": {
+            "default": 5,
+            "title": "Graph Limit",
+            "type": "integer"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "symbol_or_path_position": {
+            "title": "Symbol Or Path Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol_or_path_position"
+        ],
+        "title": "code_referencesArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_risk_score": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "include_tests": {
+            "default": false,
+            "title": "Include Tests",
+            "type": "boolean"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "max_hops": {
+            "default": 3,
+            "title": "Max Hops",
+            "type": "integer"
+          },
+          "scope": {
+            "default": "",
+            "title": "Scope",
+            "type": "string"
+          },
+          "top": {
+            "default": 20,
+            "title": "Top",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "title": "code_risk_scoreArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "code_search": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "graph": {
+            "default": true,
+            "title": "Graph",
+            "type": "boolean"
+          },
+          "graph_limit": {
+            "default": 5,
+            "title": "Graph Limit",
+            "type": "integer"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "language": {
+            "default": "",
+            "title": "Language",
+            "type": "string"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "limit": {
+            "default": 7,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_per_file": {
+            "default": 0,
+            "title": "Max Per File",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {},
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "code_searchArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "docs_search": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "default": "",
+            "enum": [
+              "",
+              "doc",
+              "seed",
+              "architecture",
+              "prompt",
+              "doc-summary",
+              "doc-code"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 7,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {},
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "docs_searchArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "index_build": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "default": "docs",
+            "title": "Content",
+            "type": "string"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "mode": {
+            "default": "update",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "index_buildArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "index_build_status": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "index_build_statusArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "index_health": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "index_healthArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "index_optimize": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "default": "all",
+            "title": "Content",
+            "type": "string"
+          },
+          "rebuild_if_needed": {
+            "default": true,
+            "title": "Rebuild If Needed",
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "title": "index_optimizeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_add": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "abort_if_duplicate": {
+            "default": false,
+            "title": "Abort If Duplicate",
+            "type": "boolean"
+          },
+          "confidence": {
+            "default": 0.6,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "items": {},
+            "title": "Evidence",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "memory_id": {
+            "default": "",
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "candidate",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "supersedes": {
+            "default": "",
+            "title": "Supersedes",
+            "type": "string"
+          },
+          "targets": {
+            "items": {},
+            "title": "Targets",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence",
+          "kind",
+          "summary",
+          "targets"
+        ],
+        "title": "memory_addArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_backfill": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "entry_path": {
+            "default": "manual",
+            "title": "Entry Path",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "memory_backfillArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_brief": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "default": "pre_implementation",
+            "title": "Context",
+            "type": "string"
+          },
+          "limit": {
+            "default": 5,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Targets"
+          }
+        },
+        "required": [],
+        "title": "memory_briefArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "memory_consolidate": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "eligibility_confirmed": {
+            "default": false,
+            "title": "Eligibility Confirmed",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "memory_ids": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Memory Ids"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "reviewed": {
+            "default": false,
+            "title": "Reviewed",
+            "type": "boolean"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "memory_consolidateArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_propose": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "default": "",
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "memory_proposeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_purge": {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "eligibility_confirmed": {
+            "default": false,
+            "title": "Eligibility Confirmed",
+            "type": "boolean"
+          },
+          "memory_id": {
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "reviewed": {
+            "default": false,
+            "title": "Reviewed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "memory_id"
+        ],
+        "title": "memory_purgeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_reconcile": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_reason": {
+            "default": "",
+            "title": "Archive Reason",
+            "type": "string"
+          },
+          "eligibility_confirmed": {
+            "default": false,
+            "title": "Eligibility Confirmed",
+            "type": "boolean"
+          },
+          "memory_id": {
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "retain_for_history": {
+            "default": false,
+            "title": "Retain For History",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "superseded_by": {
+            "default": "",
+            "title": "Superseded By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_id",
+          "status"
+        ],
+        "title": "memory_reconcileArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "memory_search": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "include_history": {
+            "default": false,
+            "title": "Include History",
+            "type": "boolean"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "default": "",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target": {
+            "default": "",
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "memory_searchArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "memory_validate": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_delta": {
+            "title": "Action Delta",
+            "type": "string"
+          },
+          "canonical_overlap": {
+            "title": "Canonical Overlap",
+            "type": "string"
+          },
+          "current_target_verified": {
+            "title": "Current Target Verified",
+            "type": "boolean"
+          },
+          "evidence_verified": {
+            "title": "Evidence Verified",
+            "type": "boolean"
+          },
+          "memory_id": {
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "rewrite_confidence": {
+            "default": 0.8,
+            "title": "Rewrite Confidence",
+            "type": "number"
+          },
+          "rewrite_evidence": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rewrite Evidence"
+          },
+          "rewrite_kind": {
+            "default": "",
+            "title": "Rewrite Kind",
+            "type": "string"
+          },
+          "rewrite_summary": {
+            "default": "",
+            "title": "Rewrite Summary",
+            "type": "string"
+          },
+          "rewrite_targets": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rewrite Targets"
+          },
+          "rewrite_title": {
+            "default": "",
+            "title": "Rewrite Title",
+            "type": "string"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action_delta",
+          "canonical_overlap",
+          "current_target_verified",
+          "evidence_verified",
+          "memory_id",
+          "rationale",
+          "verdict"
+        ],
+        "title": "memory_validateArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "seed_get": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "seed_getArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_add_change": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "wave_id"
+        ],
+        "title": "wf_add_changeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_audit": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "wave_id": {
+            "default": "",
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_auditArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_audit_install": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Phase"
+          }
+        },
+        "required": [],
+        "title": "wf_audit_installArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_close_gate": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "gate": {
+            "title": "Gate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gate"
+        ],
+        "title": "wf_close_gateArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_close_wave": {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wave_id"
+        ],
+        "title": "wf_close_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_context_efficiency_eval": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Applicability"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "phase_id": {
+            "title": "Phase Id",
+            "type": "string"
+          },
+          "report_path": {
+            "default": "",
+            "title": "Report Path",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "phase_id",
+          "wave_id"
+        ],
+        "title": "wf_context_efficiency_evalArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_create_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_create_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_current_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_current_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_garden_docs": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_garden_docsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_gate_status": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_gate_statusArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_get_change": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "change_id": {
+            "default": "",
+            "title": "Change Id",
+            "type": "string"
+          },
+          "wave_id": {
+            "default": "",
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_get_changeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_get_handoff": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_get_handoffArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_get_prompt": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "shortcut": {
+            "title": "Shortcut",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shortcut"
+        ],
+        "title": "wf_get_promptArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_gpu_doctor": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_gpu_doctorArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_graph_report": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "collapse_class_module_pairs": {
+            "default": false,
+            "title": "Collapse Class Module Pairs",
+            "type": "boolean"
+          },
+          "collapse_generated_files": {
+            "default": false,
+            "title": "Collapse Generated Files",
+            "type": "boolean"
+          },
+          "collapse_package_to_directory": {
+            "default": false,
+            "title": "Collapse Package To Directory",
+            "type": "boolean"
+          },
+          "exclude_external": {
+            "default": false,
+            "title": "Exclude External",
+            "type": "boolean"
+          },
+          "exclude_generated": {
+            "default": false,
+            "title": "Exclude Generated",
+            "type": "boolean"
+          },
+          "layer": {
+            "default": "project",
+            "title": "Layer",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sections"
+          }
+        },
+        "required": [],
+        "title": "wf_graph_reportArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_help": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "default": "",
+            "title": "Goal",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_helpArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_implement_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wave_id"
+        ],
+        "title": "wf_implement_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_list_plans": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "title": "wf_list_plansArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_list_waves": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "title": "wf_list_wavesArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_map": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "title": "wf_mapArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_mark_ac": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ac_id": {
+            "title": "Ac Id",
+            "type": "string"
+          },
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ac_id",
+          "change_id",
+          "state",
+          "wave_id"
+        ],
+        "title": "wf_mark_acArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_mark_task": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "state",
+          "task",
+          "wave_id"
+        ],
+        "title": "wf_mark_taskArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_memory_eval": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_memory_evalArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_bug": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_bugArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_change": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_changeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_documentation": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_documentationArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_enhancement": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_enhancementArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_feature": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_featureArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_maintenance": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_maintenanceArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_operations": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_operationsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_refactor": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_refactorArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_task": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_taskArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_tech_debt": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_tech_debtArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_open_dashboard": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_open_dashboardArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_open_gate": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "gate": {
+            "title": "Gate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gate"
+        ],
+        "title": "wf_open_gateArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_pause_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wave_id"
+        ],
+        "title": "wf_pause_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_prepare_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wave_id"
+        ],
+        "title": "wf_prepare_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_reload_mcp": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_reload_mcpArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_remove_change": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "wave_id"
+        ],
+        "title": "wf_remove_changeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_reopen_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "wave_id"
+        ],
+        "title": "wf_reopen_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_restart_dashboard": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_restart_dashboardArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_review_event": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "title": "Actor",
+            "type": "string"
+          },
+          "approval_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Approval Phase"
+          },
+          "approval_recheck_lanes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Approval Recheck Lanes"
+          },
+          "blocking_required_lanes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Blocking Required Lanes"
+          },
+          "context_id": {
+            "title": "Context Id",
+            "type": "string"
+          },
+          "cycle": {
+            "default": 0,
+            "title": "Cycle",
+            "type": "integer"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Evidence"
+          },
+          "finding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finding Id"
+          },
+          "fresh_context": {
+            "default": false,
+            "title": "Fresh Context",
+            "type": "boolean"
+          },
+          "independent": {
+            "default": false,
+            "title": "Independent",
+            "type": "boolean"
+          },
+          "integrity_checks": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Integrity Checks"
+          },
+          "judgment": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Judgment"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "operator_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Operator Handle"
+          },
+          "record_type": {
+            "default": "",
+            "title": "Record Type",
+            "type": "string"
+          },
+          "review_boundaries_changed": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Review Boundaries Changed"
+          },
+          "run_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Kind"
+          },
+          "signoff_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Signoff Key"
+          },
+          "source_lanes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Lanes"
+          },
+          "verbose": {
+            "default": false,
+            "title": "Verbose",
+            "type": "boolean"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "context_id",
+          "event",
+          "wave_id"
+        ],
+        "title": "wf_review_eventArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_review_wave": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "default": "implementation",
+            "title": "Phase",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wave_id"
+        ],
+        "title": "wf_review_waveArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_run_sensors": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_run_sensorsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_scan_secrets": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "incremental",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_scan_secretsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_server_info": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_server_infoArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_set_handoff": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "wf_set_handoffArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_start_dashboard": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_start_dashboardArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_stop_dashboard": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_stop_dashboardArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_sync_surfaces": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_sync_surfacesArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_techdocs_audit": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "compare_to": {
+            "default": "",
+            "title": "Compare To",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_techdocs_auditArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_techdocs_baseline": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_techdocs_baselineArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_upgrade": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_hosts_stopped": {
+            "default": false,
+            "title": "Confirm Hosts Stopped",
+            "type": "boolean"
+          },
+          "phase": {
+            "default": "preflight_to_docs_gate",
+            "title": "Phase",
+            "type": "string"
+          },
+          "rebuild_storage": {
+            "default": false,
+            "title": "Rebuild Storage",
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "title": "wf_upgradeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_upgrade_status": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_upgrade_statusArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_validate_docs": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_validate_docsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    }
+  }
+}

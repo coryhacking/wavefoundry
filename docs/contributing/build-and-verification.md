@@ -45,6 +45,18 @@ advisory timing map. Timing data is advisory only — it never authorizes a test
 skip or a pass, and neither the cache file nor the timing manifest is a public
 compatibility API.
 
+### Golden tool-surface fixture (wave 1y0do)
+
+`tests/test_tool_surface_golden.py` boots the real `server.build_server` with a stub handler and serializes every registered MCP tool (implementation tools and the runner survivors) to `tests/fixtures/tool-surface-golden.json`: name, roster tier, complete input schema, and annotations. Tool descriptions and prose `description` strings at schema nodes are excluded; an input property that happens to be named `description` is still covered. The test fails with a per-tool, per-key diff on any drift.
+
+A golden diff is a public contract change. It must be named in the change doc that causes it, and the fixture is regenerated as a deliberate step, never as a reflex:
+
+```bash
+WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests.py --file test_tool_surface_golden.py
+```
+
+Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.TOOL_TIERS` in both directions) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost, with the five wrong permutations as negative controls).
+
 ## Semantic Index And Offline Search
 
 Build or refresh the local semantic index with:

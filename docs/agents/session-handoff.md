@@ -25,13 +25,13 @@ Retrospective validated as memory `1y5tz-mem validate-setup-readiness-against-ca
 
 | Wave | Changes | State |
 | --- | --- | --- |
-| `1y0do tool-surface-snapshot` | `1xzsl` | readied 2026-09-17 |
+| `1y0do tool-surface-snapshot` | `1xzsl` | CLOSED 2026-09-17; golden fixture landed (90 tools); uncommitted |
 | `1y0gz record-layout-roots` | `1y042`, `1y043` | readied 2026-09-17; no longer hard-depends on `1y0do` |
 | `1y0h0 typed-phase-gates` | `1y044`, `1y0bd` | readied 2026-09-17 |
-| `1y0h1 tool-registry-dispatch` | `1y0be` | re-readied 2026-09-16 after the registry decision; requires `1y0do` closed |
+| `1y0h1 tool-registry-dispatch` | `1y0be` | re-readied 2026-09-16 after the registry decision; `1y0do` dependency satisfied |
 | `1y0h2 handler-module-split` | `1y0bf` | readied 2026-09-17; requires `1y0h1` closed |
 
-Recommended implementation order once the OPEN slot frees: `1y0do`, `1y0gz`, `1y0h0`, `1y0h1`, `1y0h2` (`1y0gz` may go first if Waveforge is the priority).
+Remaining implementation order: `1y0gz`, `1y0h0`, `1y0h1`, `1y0h2`. The OPEN slot is free.
 
 ## Release
 
