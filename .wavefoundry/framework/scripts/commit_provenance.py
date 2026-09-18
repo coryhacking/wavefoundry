@@ -23,6 +23,7 @@ from typing import Any, Optional
 # The SINGLE sanctioned, argv-based, env-sanitized git entry point (a hostile
 # SHA/path cannot inject a shell command through it).
 from index_state_store import _run_git
+import record_paths  # record roots (wave 1y0gz)
 
 # A commit input is 7-40 lowercase hex. Syntax is only the first guard; callers
 # must also canonicalize it through local git before treating it as authority.
@@ -128,11 +129,11 @@ def resolve_via_evidence(root: Path, sha: str) -> list[str]:
     canonical = canonical_commit(root, sha)
     if canonical is None:
         return []
-    waves_dir = root / "docs" / "waves"
-    if not waves_dir.is_dir():
+    if not record_paths.load_record_roots(root).waves.is_dir():
         return []
     found: list[str] = []
-    for wave_md in sorted(waves_dir.glob("*/wave.md")):
+    # Wave 1y043: the shared discovery walk (flat or nested).
+    for wave_md in (d / "wave.md" for d in record_paths.discover_wave_dirs(root)):
         try:
             text = wave_md.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -241,15 +242,16 @@ _MAX_DECISION_ROWS = 12  # bound the surfaced reasoning per source
 
 
 def _wave_dir_for_id(root: Path, wave_id: str) -> Optional[Path]:
-    """Locate the on-disk wave directory for a resolved wave id (prefix match).
+    """Locate the on-disk wave directory for a resolved wave id.
 
-    Wave dirs are ``docs/waves/<id> <slug>/`` — match by the leading id token.
+    Wave dirs are ``<waves root>/.../<id> <slug>/`` — match by the leading id
+    token. Finding ``commit-provenance-nested-wave-dir``: the folders come
+    from the shared discovery walk (flat or nested), so a wave grouped below
+    the waves root is found too.
     """
-    waves_dir = root / "docs" / "waves"
-    if not waves_dir.is_dir():
-        return None
-    for d in sorted(waves_dir.glob(f"{wave_id}*")):
-        if d.is_dir() and (d.name == wave_id or d.name.startswith(wave_id + " ")):
+    wanted = wave_id.strip().lower()
+    for d in record_paths.discover_wave_dirs(root):
+        if record_paths.wave_id_of(d) == wanted:
             return d
     return None
 

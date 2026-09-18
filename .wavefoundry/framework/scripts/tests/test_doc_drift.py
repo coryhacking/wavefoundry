@@ -380,6 +380,29 @@ class HistoricalClassTests(_DriftCase):
         self.assertEqual(new["waves_behind"], 0)
         self.assertEqual(new["commits_since"], 0)
 
+    def test_nested_wave_keeps_landing_attribution_after_relocation(self):
+        from record_layout_support import patch_layout
+
+        self._seed_waves()
+        direct = self.root / "docs/waves"
+        grouped = self.root / "records/waves/team"
+        grouped.mkdir(parents=True)
+        for name in ("1aaaa first-wave", "1bbbb second-wave"):
+            shutil.move(str(direct / name), str(grouped / name))
+        docs = [
+            "records/waves/team/1aaaa first-wave/wave.md",
+            "records/waves/team/1bbbb second-wave/wave.md",
+        ]
+        with patch_layout(modules=(self.iss.record_paths,), waves_root="records/waves", nested=True):
+            self._update(docs, docs + ["src/a.py"])
+        old = self.iss.doc_drift_for_path(self.index_dir, docs[0])
+        new = self.iss.doc_drift_for_path(self.index_dir, docs[1])
+        self.assertEqual(old["waves_behind"], 1)
+        self.assertGreaterEqual(old["commits_since"], 1)
+        self.assertEqual(new["waves_behind"], 0)
+        self.assertTrue(old["historical"])
+        self.assertFalse(old["drifted"])
+
     def test_wave_without_derivable_landing_keeps_historical_marker(self):
         _init_git_repo(self.root)
         self._write("docs/waves/1cccc quiet-wave/wave.md", "# Wave 1cccc\n")

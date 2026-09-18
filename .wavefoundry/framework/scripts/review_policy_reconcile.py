@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import record_paths  # record roots (wave 1y0gz)
 from review_policy import (
     LIFECYCLE_RECONCILER_CARRIERS,
     RETIRED_LIFECYCLE_TOKENS,
@@ -220,13 +221,19 @@ def _retired_recovery(relative: str, text: str, problem: str) -> str:
 _LIVE_MARKDOWN_EXCLUDED_PREFIXES = (
     ".git/",
     ".wavefoundry/",
-    "docs/waves/",
     "docs/reports/",
     "docs/agents/memory/",
 )
 
 
-def _live_markdown_dir_excluded(relative_dir: str) -> bool:
+def _live_markdown_excluded_prefixes(root: Path) -> tuple[str, ...]:
+    """The static prefixes plus the resolved waves root (wave 1y0gz)."""
+    return _LIVE_MARKDOWN_EXCLUDED_PREFIXES + (
+        record_paths.load_record_roots(root).waves_prefix,
+    )
+
+
+def _live_markdown_dir_excluded(relative_dir: str, prefixes: tuple[str, ...]) -> bool:
     # The `.wavefoundry/` prefix subsumes what used to need a special case for
     # `framework.rollback-*` staging directories, exactly as it subsumed the
     # three subdirectory prefixes it replaced. Keeping the branch would imply
@@ -235,7 +242,7 @@ def _live_markdown_dir_excluded(relative_dir: str) -> bool:
     normalized = relative_dir.strip("/")
     return any(
         (normalized + "/").startswith(prefix)
-        for prefix in _LIVE_MARKDOWN_EXCLUDED_PREFIXES
+        for prefix in prefixes
     )
 
 
@@ -245,6 +252,7 @@ def _live_markdown_retired_errors(root: Path) -> tuple[str, ...]:
     registered = set(LIFECYCLE_RECONCILER_CARRIERS)
     errors: list[str] = []
     candidates: list[Path] = []
+    excluded_prefixes = _live_markdown_excluded_prefixes(root)
     try:
         for current, dirs, files in os.walk(root, topdown=True, followlinks=False):
             current_path = Path(current)
@@ -253,7 +261,8 @@ def _live_markdown_retired_errors(root: Path) -> tuple[str, ...]:
                 name
                 for name in dirs
                 if not _live_markdown_dir_excluded(
-                    name if relative_dir == "." else f"{relative_dir}/{name}"
+                    name if relative_dir == "." else f"{relative_dir}/{name}",
+                    excluded_prefixes,
                 )
             ]
             candidates.extend(
@@ -269,7 +278,7 @@ def _live_markdown_retired_errors(root: Path) -> tuple[str, ...]:
         if (
             relative in registered
             or relative == "CHANGELOG.md"
-            or any(relative.startswith(prefix) for prefix in _LIVE_MARKDOWN_EXCLUDED_PREFIXES)
+            or any(relative.startswith(prefix) for prefix in excluded_prefixes)
             or path.is_symlink()
             or not path.is_file()
         ):

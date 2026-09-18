@@ -27,19 +27,26 @@ PROMPT_SURFACE_FILES = (
 
 PROMPT_SURFACE_ALIASES: tuple[tuple[str, str], ...] = ()
 
+# Wave 1y0gz: entries that live under a fork-editable record root are NOT baked in here. The
+# waves-root-relative required docs are listed in WAVES_ROOT_REQUIRED_DOCS and joined to the
+# resolved root (`record_paths.load_record_roots`) at check time, so `docs/waves/README.md` stays
+# byte-identical for the shipped layout and follows `record_paths.WAVES_ROOT` otherwise.
 ADDITIONAL_REQUIRED_DOCS = (
     "docs/README.md",
     "docs/agents/session-handoff.md",
     "docs/workflow-config.json",
-    "docs/waves/README.md",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/references/project-context-memory.md",
     "docs/references/project-overview.md",
     "docs/agents/personas/README.md",
 )
 
+# Required docs relative to the resolved WAVES root (wave 1y0gz).
+WAVES_ROOT_REQUIRED_DOCS = ("README.md",)
+
+# Wave 1y0gz: the waves root itself is required too, but it is resolved from the `record_paths` constants by
+# `check_wave_roots(root)` rather than baked in as a literal here.
 WAVE_REQUIRED_PATHS = (
-    "docs/waves",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/personas",
 )
@@ -77,17 +84,18 @@ DOCS_LINT_MAX_FILE_BYTES_DEFAULT = 5 * 1024 * 1024
 # `code-insight-agent`→`guru` were courtesy `removed_in: null` warnings only; active docs
 # already use the canonical slugs, so docs-lint no longer scans for the legacy ones.
 
+# Wave 1y0gz: the waves-root entry (`<waves_root>/`) is appended at check time
+# from the resolved record layout, so a relocated repository's manifest is
+# checked against its real root rather than the default literal.
 MANIFEST_REQUIRED_GENERATED_ARTIFACTS = (
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
-    "docs/waves/",
     "docs/agents/personas/",
 )
 
 INDEX_REQUIRED_REFERENCES = (
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
-    "docs/waves/",
 )
 
 WAVE_REQUIRED_SECTIONS = (

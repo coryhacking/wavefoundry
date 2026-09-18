@@ -28,6 +28,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+import record_paths  # record roots (wave 1y0gz)
+
 
 REPORT_SCHEMA = "wavefoundry.retrieval-eval/v1"
 # Wave 1wscp: v2 adds the four mandatory evidence-authority fields
@@ -356,17 +358,21 @@ APPROVAL_STATES = ("approved", "unapproved")
 CARRIER_EFFECTS = ("none", "displaced_expected", "supplied_gain")
 # Path shapes that identify each carrier kind.  Ordered most specific first so
 # a fixture under a wave directory classifies as fixture_source, not wave_record.
-_CARRIER_PATH_RULES: tuple[tuple[str, Callable[[str], bool]], ...] = (
-    ("fixture_source", lambda p: p.startswith("docs/evals/")),
-    ("generated_report", lambda p: p.startswith("docs/reports/")),
-    ("evaluator_source", lambda p: (
+# Each rule takes ``(path, waves_prefix)``; the waves prefix is the resolved
+# record root with a trailing slash (wave 1y0gz), defaulting to the resolver's
+# default layout for callers that own no repository root.
+_DEFAULT_WAVES_PREFIX = record_paths.WAVES_ROOT + "/"
+_CARRIER_PATH_RULES: tuple[tuple[str, Callable[[str, str], bool]], ...] = (
+    ("fixture_source", lambda p, _w: p.startswith("docs/evals/")),
+    ("generated_report", lambda p, _w: p.startswith("docs/reports/")),
+    ("evaluator_source", lambda p, _w: (
         p.startswith(".wavefoundry/framework/scripts/") and p.endswith("_eval.py"))),
-    ("review_commentary", lambda p: p.endswith("events.jsonl")),
-    ("wave_record", lambda p: p.startswith("docs/waves/")),
+    ("review_commentary", lambda p, _w: p.endswith("events.jsonl")),
+    ("wave_record", lambda p, waves_prefix: p.startswith(waves_prefix)),
 )
 
 
-def classify_carrier(path: str) -> str | None:
+def classify_carrier(path: str, *, waves_prefix: str = _DEFAULT_WAVES_PREFIX) -> str | None:
     """The carrier kind for one normalized result path, or ``None`` if ordinary.
 
     Ordinary product source and documentation are NOT carriers; only the
@@ -375,13 +381,14 @@ def classify_carrier(path: str) -> str | None:
     """
     normalized = _normal_path(path)
     for kind, matches in _CARRIER_PATH_RULES:
-        if matches(normalized):
+        if matches(normalized, waves_prefix):
             return kind
     return None
 
 
 def carrier_rows(result_paths: Sequence[str], expected_paths: Sequence[str], *,
-                 approved: Iterable[str] = (), top_k: int = RECALL_K) -> list[dict[str, Any]]:
+                 approved: Iterable[str] = (), top_k: int = RECALL_K,
+                 waves_prefix: str = _DEFAULT_WAVES_PREFIX) -> list[dict[str, Any]]:
     """Typed carrier rows for one case's top-k results.
 
     ``effect`` is derived from position rather than asserted: a carrier ranked
@@ -395,7 +402,7 @@ def carrier_rows(result_paths: Sequence[str], expected_paths: Sequence[str], *,
     best_expected = expected_ranks[0] if expected_ranks else None
     rows: list[dict[str, Any]] = []
     for rank, path in enumerate(ranked):
-        kind = classify_carrier(path)
+        kind = classify_carrier(path, waves_prefix=waves_prefix)
         if kind is None:
             continue
         if best_expected is None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -71,7 +72,8 @@ from .constants import (
     WAVE_REQUIRED_SECTIONS,
     WAVE_WATCHPOINT_HEADINGS,
 )
-from .helpers import load_json, read_text, relative_to_root
+from .helpers import load_json, read_text, relative_to_root, resolve_record_roots
+import record_paths  # discovery walk and ambiguity diagnostics (wave 1y043)
 
 
 _H1_TITLE_RE = re.compile(r"^#\s+\S", re.MULTILINE)
@@ -1021,11 +1023,49 @@ def _parse_work_records(text: str, rel: str) -> list[WorkRecord]:
     return _parse_legacy_item_records(text, rel)
 
 
+def _wave_record_docs(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
+    """Every ``*.md`` inside a discovered wave folder (wave 1y0gz).
+
+    The wave folders come from :func:`record_paths.discover_wave_dirs` (the
+    one walk primitive: flat children, or the bounded nested walk that skips
+    symlinks, dot-prefixed directories and anything deeper than ``MAX_DEPTH``),
+    so lint sees exactly the set the MCP tools see. Within a wave folder the
+    walk is recursive, as the old ``rglob`` was, so evidence sub-documents
+    keep their per-file checks; it does NOT descend into a subdirectory that
+    itself holds a ``wave.md`` (a nested sub-wave is discovery's business, and
+    discovery excludes it), so the docs lint reads belong to exactly the
+    discovered wave folders."""
+    docs: list[Path] = []
+    for wave_dir in record_paths.discover_wave_dirs(root, roots):
+        docs.extend(_wave_folder_docs(wave_dir))
+    return sorted(docs)
+
+
+def _wave_folder_docs(wave_dir: Path) -> list[Path]:
+    """Every ``*.md`` file under ``wave_dir``, pruning any subdirectory that
+    holds its own ``wave.md`` (that subtree is a different, undiscovered wave)."""
+    docs: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(wave_dir):
+        current = Path(dirpath)
+        dirnames[:] = sorted(
+            name for name in dirnames if not (current / name / "wave.md").is_file()
+        )
+        docs.extend(current / name for name in filenames if name.endswith(".md") and (current / name).is_file())
+    return docs
+
+
+def _wave_record_files(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
+    """The ``wave.md`` of every discovered wave folder, sorted."""
+    return sorted(wave_dir / "wave.md" for wave_dir in record_paths.discover_wave_dirs(root, roots))
+
+
 def _collect_wave_state(root: Path) -> tuple[dict[str, WaveRecord], dict[str, WorkRecord]]:
     waves: dict[str, WaveRecord] = {}
     records: dict[str, WorkRecord] = {}
-    wave_root = root / "docs/waves"
-    for path in sorted(wave_root.rglob("*.md")):
+    roots = resolve_record_roots(root)
+    if roots is None:
+        return waves, records  # invalid record layout: fail closed (reported by the callers)
+    for path in _wave_record_docs(root, roots):
         if path.name == "README.md":
             continue
         rel = relative_to_root(root, path)
@@ -1077,11 +1117,13 @@ def _review_lane_markers() -> dict[str, tuple[str, ...]]:
 
 def check_closed_wave_requirements(root: Path) -> list[str]:
     failures: list[str] = []
-    wave_root = root / "docs/waves"
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
     terminal_statuses = {"complete", "completed", "deferred", "moved", "superseded", "closed"}
     handoff_text = read_text(root / "docs/agents/session-handoff.md") if (root / "docs/agents/session-handoff.md").exists() else ""
 
-    for path in sorted(wave_root.rglob("*.md")):
+    for path in _wave_record_docs(root, roots):
         if path.name == "README.md":
             continue
         rel = relative_to_root(root, path)
@@ -1144,7 +1186,11 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
     the incremental (post-edit) lint path. When None the behavior is unchanged (whole-tree).
     ``skip`` (wave 1p9cj): exclude these paths (oversized docs skipped by the file-size guard)."""
     failures: list[str] = []
-    plans_root = root / "docs/plans"
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
+    plans_root = roots.plans
+    plans_rel = roots.plans_rel
     if not plans_root.is_dir():
         return failures
 
@@ -1169,7 +1215,7 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
             if basename != expected:
                 failures.append(
                     f"{rel}: plan filename must match `Change ID` — rename to "
-                    f"`docs/plans/{expected}.md` (see `docs/plans/plan-template.md` → "
+                    f"`{plans_rel}/{expected}.md` (see `{plans_rel}/plan-template.md` → "
                     f"**Change ID / Filename**; generate new IDs with "
                     f"`python3 .wavefoundry/framework/scripts/lifecycle_id.py`)"
                 )
@@ -1186,7 +1232,7 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
             if basename != expected:
                 failures.append(
                     f"{rel}: wave-level plan filename must match `Wave:` identifier — rename to "
-                    f"`docs/plans/{expected}.md`"
+                    f"`{plans_rel}/{expected}.md`"
                 )
             continue
 
@@ -1195,7 +1241,7 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
             f"generate a change-id with "
             f"`python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`, "
             f"record it as `Change ID: \\`<id>\\`` in the file, and ensure the filename matches "
-            f"(see `docs/plans/plan-template.md` → **Change ID / Filename**)"
+            f"(see `{plans_rel}/plan-template.md` → **Change ID / Filename**)"
         )
 
     return failures
@@ -1203,10 +1249,24 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
 
 def check_wave_roots(root: Path) -> list[str]:
     failures: list[str] = []
-    for relative in WAVE_REQUIRED_PATHS:
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed, never probe a guessed root
+    # Wave 1y0gz: the waves root comes from the `record_paths` constants (shipped `docs/waves`); the remaining
+    # required paths stay literal in WAVE_REQUIRED_PATHS.
+    for relative in (roots.waves_rel, *WAVE_REQUIRED_PATHS):
         path = root / relative
         if not path.exists():
             failures.append(f"{relative}: missing required Wavefoundry generated artifact")
+    # Wave 1y043: a wave id at two paths is an error from lint exactly as it is
+    # from wf_current_wave, so enabling `nested` on a tree with duplicates is
+    # reported before any mutation.
+    if roots.waves.is_dir():
+        failures.extend(
+            record_paths.ambiguous_wave_id_diagnostics(
+                root, record_paths.discover_wave_dirs(root, roots)
+            )
+        )
     return failures
 
 
@@ -1240,10 +1300,15 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
     review-evidence validation, not flagged here.
     """
     failures: list[str] = []
-    waves_root = root / "docs" / "waves"
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
+    waves_root = roots.waves
     if not waves_root.is_dir():
         return failures
-    for wave_dir in sorted(path for path in waves_root.iterdir() if path.is_dir()):
+    # Wave 1y043: content-driven, so the CANDIDATE walk (every directory under
+    # the discovery guards, not only folders holding a wave.md).
+    for wave_dir in record_paths.walk_wave_candidates(root, roots):
         ledger = wave_dir / "events.jsonl"
         try:
             if not ledger.is_file() or ledger.stat().st_size == 0:
@@ -1274,7 +1339,7 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
                 )
             )
             failures.append(
-                f"docs/waves/{wave_dir.name}: orphaned review ledger: this "
+                f"{roots.waves_prefix}{wave_dir.name}: orphaned review ledger: this "
                 "folder holds a non-empty `events.jsonl` but no readable sibling `wave.md` "
                 "carrying `review-evidence-source: events.jsonl` (or the legacy inline "
                 "marker); a non-empty ledger requires a declared wave record, so restore "
@@ -1326,11 +1391,13 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
     its tamper state has no ``wave.md`` path that could appear in ``only``, and
     the directory enumeration is a cheap listdir."""
     failures: list[str] = []
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
     failures.extend(check_orphan_wave_ledgers(root))
-    wave_root = root / "docs/waves"
     seen_wave_ids: dict[str, str] = {}
     seen_item_ids: set[str] = set()
-    for path in sorted(wave_root.rglob("*.md")):
+    for path in _wave_record_docs(root, roots):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
             continue
@@ -1549,10 +1616,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:
                         if section not in change_text:
                             failures.append(f"{change_rel}: change doc is missing required section `{section}` — used by the dashboard")
-                staging = root / "docs/plans" / f"{change_id}.md"
+                staging = roots.plans / f"{change_id}.md"
                 if staging.is_file():
                     failures.append(
-                        f"{rel}: admitted change `{change_id}` must not remain under `docs/plans/` once the wave is "
+                        f"{rel}: admitted change `{change_id}` must not remain under `{roots.plans_prefix}` once the wave is "
                         f"ready or active; keep the canonical copy in the wave folder only"
                     )
     return failures
@@ -1988,8 +2055,11 @@ def check_cross_artifact_consistency(root: Path) -> list[str]:
                 "docs/prompts/prompt-surface-manifest.json `seed_framework_source`"
             )
         generated_artifacts = manifest_data.get("generated_artifacts")
-        if isinstance(generated_artifacts, list):
-            for required in MANIFEST_REQUIRED_GENERATED_ARTIFACTS:
+        roots = resolve_record_roots(root)
+        if isinstance(generated_artifacts, list) and roots is not None:
+            # Wave 1y0gz: the waves-root entry is checked against the RESOLVED
+            # root (`<waves_root>/`), never the default literal.
+            for required in (*MANIFEST_REQUIRED_GENERATED_ARTIFACTS, roots.waves_prefix):
                 if required not in generated_artifacts:
                     failures.append(
                         f"docs/prompts/prompt-surface-manifest.json: `generated_artifacts` is missing `{required}`"
@@ -2051,9 +2121,12 @@ def check_cross_artifact_consistency(root: Path) -> list[str]:
 
 def check_migration_edges(root: Path) -> list[str]:
     warnings: list[str] = []
+    roots = resolve_record_roots(root)
+    if roots is None:
+        return warnings  # invalid record layout: reported as an error by check_workflow_config
     audit_roots = [
         root / "docs/prompts",
-        root / "docs/waves",
+        roots.waves,
         root / "docs/agents/journals",
         root / "docs/agents/personas",
     ]
@@ -2093,11 +2166,14 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
     """
     errors: list[str] = []
     warnings: list[str] = []
-    wave_root = root / "docs" / "waves"
+    roots = resolve_record_roots(root, errors)
+    if roots is None:
+        return errors, warnings  # invalid record layout: fail closed
+    wave_root = roots.waves
     if not wave_root.exists():
         return errors, warnings
 
-    for path in sorted(wave_root.rglob("wave.md")):
+    for path in _wave_record_files(root, roots):
         text = read_text(path)
         if "wave-id:" not in text:
             continue
@@ -2226,11 +2302,14 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
     """
     errors: list[str] = []
     warnings: list[str] = []
-    wave_root = root / "docs" / "waves"
+    roots = resolve_record_roots(root, errors)
+    if roots is None:
+        return errors, warnings  # invalid record layout: fail closed
+    wave_root = roots.waves
     if not wave_root.exists():
         return errors, warnings
 
-    for path in sorted(wave_root.rglob("wave.md")):
+    for path in _wave_record_files(root, roots):
         text = read_text(path)
         if "wave-id:" not in text:
             continue
@@ -2278,15 +2357,16 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
 
 
 def _is_archived_legacy_wave_doc(root: Path, path: Path) -> bool:
+    roots = resolve_record_roots(root)
+    if roots is None:
+        return False
     try:
-        relative_parts = path.relative_to(root).parts
+        relative_parts = path.relative_to(roots.waves).parts
     except ValueError:
         return False
-    if len(relative_parts) < 4:
+    if len(relative_parts) < 2:
         return False
-    if relative_parts[0] != "docs" or relative_parts[1] != "waves":
-        return False
-    wave_folder = relative_parts[2]
+    wave_folder = relative_parts[0]
     if not wave_folder.startswith("00000 "):
         return False
     return path.name != "wave.md"

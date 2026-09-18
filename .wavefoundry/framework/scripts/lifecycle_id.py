@@ -15,6 +15,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import record_paths  # record roots (wave 1y0gz)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -359,20 +360,22 @@ _PREFIX_RE = re.compile(r"^([0-9a-z]{5,6})[-\s]")
 
 def _existing_prefixes(repo_root: Path) -> set[str]:
     prefixes: set[str] = set()
-    plans_dir = repo_root / "docs" / "plans"
+    roots = record_paths.load_record_roots(repo_root)
+    plans_dir = roots.plans
     if plans_dir.is_dir():
         for p in plans_dir.glob("*.md"):
             m = _PREFIX_RE.match(p.stem)
             if m:
                 prefixes.add(m.group(1))
-    waves_dir = repo_root / "docs" / "waves"
-    if waves_dir.is_dir():
-        for wave_dir in waves_dir.iterdir():
-            if wave_dir.is_dir():
-                m = _PREFIX_RE.match(wave_dir.name)
-                if m:
-                    prefixes.add(m.group(1))
-        for p in waves_dir.glob("*/*.md"):
+    if roots.waves.is_dir():
+        # Wave 1y043: every candidate folder (flat or nested) contributes its
+        # own prefix and the prefixes of the change docs it holds.
+        candidates = record_paths.walk_wave_candidates(repo_root, roots)
+        for wave_dir in candidates:
+            m = _PREFIX_RE.match(wave_dir.name)
+            if m:
+                prefixes.add(m.group(1))
+        for p in (md for wave_dir in candidates for md in wave_dir.glob("*.md")):
             m = _PREFIX_RE.match(p.stem)
             if m:
                 prefixes.add(m.group(1))

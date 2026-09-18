@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 
-from .helpers import read_text, relative_to_root
+from .helpers import read_text, relative_to_root, resolve_record_roots
 
 # Matches [text](href) but NOT image links ![alt](src).
 _LINK_RE = re.compile(r"(?<!!)\[(?:[^\[\]]*)\]\(([^)]+)\)")
@@ -19,8 +19,10 @@ _INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
 _SKIP_SCHEMES = ("http://", "https://", "mailto:", "ftp://", "tel://")
 
 # Paths under docs/ that contain historical snapshots; link-checking them produces
-# false positives for references to since-deleted files.
-_SKIP_PREFIXES = ("docs/reports/", "docs/waves/00000 ")
+# false positives for references to since-deleted files. The wave-zero archive prefix is joined
+# to the resolved waves root at check time (wave 1y0gz): `docs/waves/00000 ` by default.
+_SKIP_PREFIXES = ("docs/reports/",)
+_WAVE_ZERO_ARCHIVE_DIR_PREFIX = "00000 "
 
 
 def _strip_code(text: str) -> str:
@@ -35,7 +37,12 @@ def check_markdown_links(root: Path, path: Path) -> list[str]:
     text = read_text(path)
     rel = relative_to_root(root, path)
 
-    if any(rel.startswith(prefix) for prefix in _SKIP_PREFIXES):
+    failures: list[str] = []
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
+    skip_prefixes = (*_SKIP_PREFIXES, roots.waves_prefix + _WAVE_ZERO_ARCHIVE_DIR_PREFIX)
+    if any(rel.startswith(prefix) for prefix in skip_prefixes):
         return []
 
     stripped = _strip_code(text)
@@ -50,7 +57,6 @@ def check_markdown_links(root: Path, path: Path) -> list[str]:
     root_norm = os.path.abspath(str(root))
     parent_str = str(path.parent)
 
-    failures: list[str] = []
     seen: set[str] = set()
 
     for match in _LINK_RE.finditer(stripped):

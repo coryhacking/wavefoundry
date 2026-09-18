@@ -28,6 +28,8 @@ _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
+import record_paths  # noqa: E402  record roots (wave 1y0gz)
+
 MEMORY_DIR = "docs/agents/memory"
 MEMORY_ARCHIVE_DIR = f"{MEMORY_DIR}/archive"
 # Archive bodies stay under the memory root so explicit history can resolve
@@ -571,8 +573,8 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
       up that slug in the directory — so references are repaired even when the
       rename happened in an earlier interrupted run (including a truncated
       legacy id whose trailing dash was stripped during minting). Scope: the memory root,
-      every live doc surface (``docs/**/*.md`` plus repository-root
-      markdown), and the ``memory_backfill_sources`` rows. Closed or
+      every live doc surface (``docs/**/*.md``, configured plans/waves,
+      plus repository-root markdown), and the ``memory_backfill_sources`` rows. Closed or
       unclassifiable wave directories are skipped silently — archives keep
       historical ids by policy — and only markdown is ever touched, so events
       ledgers and other append-only history are structurally out of reach.
@@ -667,23 +669,30 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
                 {"path": str(path.relative_to(root)), "token": token}
             )
 
-    for path in sorted(memory_root.glob("*.md")):
-        _repair_and_record(path)
-    docs_root = root / "docs"
-    if docs_root.is_dir():
-        for path in sorted(docs_root.rglob("*.md")):
-            rel_parts = path.relative_to(root).parts
-            if rel_parts[:3] == ("docs", "agents", "memory"):
+    # Union the document corpus: configured record roots may sit outside docs.
+    # Resolve ownership through bounded discovery, not the first grouping folder.
+    roots = record_paths.load_record_roots(root)
+    wave_statuses = {
+        wave_dir: _wave_dir_status(wave_dir)
+        for wave_dir in record_paths.discover_wave_dirs(root, roots)
+        if (wave_dir / "wave.md").resolve()
+        == root.resolve() / (wave_dir / "wave.md").relative_to(root)
+    }
+    paths = set(memory_root.glob("*.md")) | set(root.glob("*.md"))
+    for corpus_root in (root / "docs", roots.plans, roots.waves):
+        paths.update(corpus_root.rglob("*.md"))
+    for path in sorted(paths):
+        # Do not follow file or ancestor aliases, including aliases into closed
+        # history. The repository root itself may legitimately be an OS alias.
+        if path.resolve() != root.resolve() / path.relative_to(root):
+            continue
+        if path.is_relative_to(memory_root):
+            if path.parent != memory_root:
+                continue  # Archived memories retain their historical ids.
+        elif path.is_relative_to(roots.waves):
+            owner = next((parent for parent in path.parents if parent in wave_statuses), None)
+            if owner is None or wave_statuses[owner] in (None, "closed"):
                 continue
-            if rel_parts[:2] == ("docs", "waves"):
-                if len(rel_parts) < 3:
-                    continue
-                status = _wave_dir_status(root / Path(*rel_parts[:3]))
-                if status != "closed" and status is not None:
-                    _repair_and_record(path)
-                continue
-            _repair_and_record(path)
-    for path in sorted(root.glob("*.md")):
         _repair_and_record(path)
 
     db_path = root / ".wavefoundry" / "index" / "memory-state.sqlite"

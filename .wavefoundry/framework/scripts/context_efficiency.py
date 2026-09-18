@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
+import record_paths  # record roots (wave 1y0gz)
 
 
 STORE_RELATIVE_PATH = Path(".wavefoundry/logs/context-efficiency.sqlite")
@@ -391,13 +392,11 @@ def resolve_open_wave(root: Path) -> Optional[tuple[str, str]]:
             return cached[1]
     resolved: Optional[tuple[str, str]] = None
     try:
-        waves_dir = Path(root) / "docs" / "waves"
         open_dirs: list[Path] = []
-        if waves_dir.is_dir():
-            for entry in waves_dir.iterdir():
+        if record_paths.load_record_roots(Path(root)).waves.is_dir():
+            # Wave 1y043: the shared discovery walk (flat or nested).
+            for entry in record_paths.discover_wave_dirs(Path(root)):
                 wave_md = entry / "wave.md"
-                if not entry.is_dir() or not wave_md.is_file():
-                    continue
                 try:
                     head = wave_md.read_text(encoding="utf-8", errors="replace")[:2048]
                 except OSError:

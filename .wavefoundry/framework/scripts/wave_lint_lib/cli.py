@@ -16,11 +16,13 @@ from .design_system_surface_validators import check_design_surface
 from .constants import DOCS_LINT_MAX_FILE_BYTES_DEFAULT
 from .helpers import (
     _ENTRY_FILES,
+    is_under_markdown_scan_root,
     iter_linkable_docs,
     iter_markdown_docs,
     load_json,
     read_text_cache_clear,
     relative_to_root,
+    resolve_record_roots,
     write_if_changed,
 )
 from .link_validators import check_markdown_links
@@ -193,13 +195,19 @@ def _run_incremental_checks(root: Path):
     # edit — secrets live in code as well as docs, so this must not be gated on a docs change.
     failures.extend(check_hardcoded_secrets(root, scan_all=False, record_only=True))
 
-    docs_root = root / "docs"
-    changed_docs = {p for p in changed if p.suffix == ".md" and docs_root in p.parents}
+    # Wave 1y0gz: an invalid record layout fails closed on the incremental path too — nothing below
+    # may scan a guessed waves/plans root.
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return (failures, warnings)
+
+    # Wave 1y0gz: a changed doc under a record root relocated outside `docs/` is linted too.
+    changed_docs = {p for p in changed if p.suffix == ".md" and is_under_markdown_scan_root(root, p)}
     changed_event_wave_docs = {
         path.parent / "wave.md"
         for path in changed
         if path.name == "events.jsonl"
-        and path.parent.parent == root / "docs" / "waves"
+        and path.parent.parent == roots.waves
         and (path.parent / "wave.md").is_file()
     }
     changed_entry = {p for p in changed if p.parent == root and p.name in _ENTRY_FILES}
@@ -267,7 +275,16 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all, record_only=True))
     # Wave 1p9c6: the corpus-wide + structural checks are grouped as one timing phase; the two per-file
     # loops (metadata/links) are timed separately since those are the parallelization candidates.
+    # Wave 1y0gz: the record layout (the `record_paths` constants applied to this root) is
+    # validated once, fail-closed. `check_workflow_config` reports the `record_layout_invalid:`
+    # diagnostics; when the layout is invalid the root-aware validators are skipped here rather
+    # than each re-reporting the same lines, and nothing scans a guessed root.
+    layout_ok = resolve_record_roots(root) is not None
+
     with _timed(timings, "corpus"):
+        if not layout_ok:
+            failures.extend(check_workflow_config(root))
+            return failures, warnings, infos
         failures.extend(check_required_files(root))
         failures.extend(check_forbidden_root_wrappers(root))
         failures.extend(check_prompt_file_extensions(root))

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-08
+Last verified: 2026-09-17
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -242,9 +242,9 @@ clean-looking record.
 
 <!-- wave:context-efficiency begin -->
 
-Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+Estimated context avoided uses whole eligible text-file, workflow-prompt and derived-artifact credits, minus recorded request and response tokens. This baseline does not prove what an agent otherwise would have read or spent. Any quality-equivalent paired-evaluation residual is recorded separately in the checkpoint state and included in the total.
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | plan | 121 | 2,482,203 |
 | implement | 430 | 8,268,996 |

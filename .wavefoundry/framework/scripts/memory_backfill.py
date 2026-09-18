@@ -125,7 +125,15 @@ def _connect(root: Path) -> sqlite3.Connection:
 def _canonical_waves_dir(root: Path) -> Path | None:
     """Return the contained physical waves root, rejecting parent escapes."""
 
-    waves_dir = root / "docs" / "waves"
+    import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
+
+    try:
+        waves_dir = record_paths.load_record_roots(root).waves
+    except record_paths.RecordLayoutInvalid as exc:
+        # The resolver already refused (for example the waves root is a symlink
+        # escaping the repository); keep this site's OSError contract so the
+        # inventory callers report historical_memory_inventory_failed.
+        raise OSError(f"historical-memory waves directory refused: {exc}") from exc
     if not waves_dir.exists() and not waves_dir.is_symlink():
         return None
     try:
@@ -186,12 +194,13 @@ def inventory_closed_waves(root: Path) -> tuple[dict[str, Any], ...]:
     if waves_dir is None:
         return ()
     rows: list[dict[str, Any]] = []
+    import record_paths  # lazy like the other sibling imports (wave 1y043)
+
+    # The shared discovery walk (flat or nested). The flat listing matches the
+    # pre-change ``iterdir`` enumeration, so this site keeps its own symlink
+    # exclusion as before.
     for wave_dir in sorted(
-        (
-            path
-            for path in waves_dir.iterdir()
-            if path.is_dir() and not path.is_symlink()
-        ),
+        (path for path in record_paths.walk_wave_candidates(root) if not path.is_symlink()),
         key=lambda path: path.name,
     ):
         status, error = _wave_status(root, wave_dir)

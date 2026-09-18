@@ -41,6 +41,7 @@ for _wll_key in list(sys.modules):
             "public_contract",
             "gardener_metadata",
             "operator_identity",
+            "record_paths",
         }
     ):
         del sys.modules[_wll_key]
@@ -58,6 +59,7 @@ import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 from operator_identity import resolve_operator
 import setup_readiness
+import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 
 # Capture once even when the implementation module is hot-reloaded. The thin
 # runner supplies its earlier pre-import identity when it builds the handler.
@@ -2814,15 +2816,16 @@ class WaveIndex:
         # drop-off operate on the adjusted relevance and the demoted prose tail falls below the cutoff.
         # Wave 1p66s: extended from explanatory-only to navigational ("where is X implemented") and to
         # architecture/spec/ADR paths, so a spec no longer outranks the implementing source.
+        _prefixes = _record_prefixes(self.root)
         if question_type in _DOC_DEMOTION_INTENTS:
-            all_candidates, _ = _demote_doc_results(all_candidates, question_type)
+            all_candidates, _ = _demote_doc_results(all_candidates, question_type, _prefixes)
         # Assessment questions prefer report-class records over old delivery narratives. Apply a
         # bounded score-only prior after reranking/doc demotion and before the source floors:
         # docs/reports/ records recover their generic observational-doc down-weight as a path
         # class (no currentness predicate), while archived wave records receive an additional
         # historical down-weight. No candidate is excluded.
         all_candidates, _ = _apply_assessment_evidence_prior(
-            all_candidates, query, question_type
+            all_candidates, query, question_type, _prefixes
         )
         # Low-information repository artifacts can win on shared vocabulary while carrying little
         # implementation evidence. Keep them available, but apply a bounded prior before the source
@@ -3048,6 +3051,63 @@ def _read_workflow_config(root: Path) -> dict:
         except (json.JSONDecodeError, OSError):
             pass
     return {}
+
+
+# Wave 1y0gz (1y042): the record layout (the `record_paths` module constants)
+# is fail-closed. A tool that constructs a record path under an invalid layout
+# returns this diagnostic and performs no read or write; nothing falls back to
+# the shipped defaults.
+def _record_layout_error_response(tool: str, exc: "record_paths.RecordLayoutInvalid") -> dict[str, Any]:
+    return _response(
+        "error",
+        {"tool": tool, "record_layout_valid": False, "diagnostics_detail": list(exc.diagnostics)},
+        diagnostics=[
+            _diagnostic(
+                record_paths.DIAGNOSTIC_CODE,
+                "; ".join(exc.diagnostics)
+                + ". Fix the layout constants in record_paths.py (WAVES_ROOT, PLANS_ROOT, NESTED, "
+                "MAX_DEPTH); no record was read or written.",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )
+        ],
+        next_tools=["wf_validate_docs"],
+        usage="wf_validate_docs()",
+    )
+
+
+def _fail_closed_on_record_layout(tool: str):
+    """Decorator for lifecycle response functions: convert an invalid record
+    layout, or a wave id that appears at two paths (wave 1y043), into the
+    structured refusal instead of a raised exception."""
+
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except record_paths.RecordLayoutInvalid as exc:
+                return _record_layout_error_response(tool, exc)
+            except record_paths.AmbiguousWaveId as exc:
+                return _ambiguous_wave_id_lines_response(tool, exc.diagnostics)
+
+        return wrapped
+
+    return decorate
+
+
+def _record_prefixes(root: Optional[Path]) -> tuple[str, str]:
+    """``(waves_prefix, plans_prefix)`` for repo-relative path checks. With no
+    root (or an invalid layout) the ranking helpers use the default layout:
+    ranking is observational and must never refuse a search."""
+    if root is not None:
+        try:
+            roots = record_paths.load_record_roots(root)
+            return roots.waves_prefix, roots.plans_prefix
+        except record_paths.RecordLayoutInvalid:
+            pass
+    default = record_paths.unvalidated_record_roots(Path("."))
+    return default.waves_prefix, default.plans_prefix
 
 
 # Wave 1p9iu: generous default timeout (seconds) for the server-side FULL-corpus docs-lint subprocess
@@ -3725,18 +3785,73 @@ def _lifecycle_sort_key(name: str) -> tuple[int, int, str]:
     return (1, 0, name)
 
 
-def list_waves(root: Path) -> list[dict]:
-    waves_root = root / "docs" / "waves"
-    if not waves_root.exists():
-        return []
+def list_waves(root: Path, wave_dirs: Optional[list[Path]] = None) -> list[dict]:
+    # Wave 1y043: discovery is the single walk (flat or nested per the
+    # `record_paths` constants); a caller that already walked passes
+    # `wave_dirs`. wf_current_wave, wf_list_waves, wf_audit, wf_get_change,
+    # wf_add_change and wf_pause_wave walk once per invocation; prepare,
+    # implement and close re-resolve the wave through `_find_wave_md_detailed`
+    # after their guards and walk again.
+    if wave_dirs is None:
+        wave_dirs = record_paths.discover_wave_dirs(root)
     result = []
-    for wave_dir in sorted(waves_root.iterdir(), key=lambda p: _lifecycle_sort_key(p.name)):
-        if not wave_dir.is_dir():
-            continue
-        wave_md = wave_dir / "wave.md"
-        if wave_md.exists():
-            result.append(_read_wave_record(root, wave_md))
+    for wave_dir in sorted(wave_dirs, key=lambda p: _lifecycle_sort_key(p.name)):
+        result.append(_read_wave_record(root, wave_dir / "wave.md"))
     return result
+
+
+def _waves_and_dirs(root: Path, cache: "Optional[McpRepoCache]") -> tuple[list[dict], list[Path]]:
+    """``(wave records, wave folders)`` from ONE discovery walk (wave 1y043)."""
+    if cache is not None:
+        return cache.list_waves_cached(), cache.wave_dirs_cached()
+    wave_dirs = record_paths.discover_wave_dirs(root)
+    return list_waves(root, wave_dirs=wave_dirs), wave_dirs
+
+
+def _ambiguous_wave_id_response(tool: str, root: Path, wave_dirs: list[Path]) -> Optional[dict[str, Any]]:
+    """The refusal for a wave id that appears at two paths, or ``None``."""
+    lines = record_paths.ambiguous_wave_id_diagnostics(root, wave_dirs)
+    if not lines:
+        return None
+    return _ambiguous_wave_id_lines_response(tool, lines)
+
+
+def _ambiguous_wave_id_markdown(lines: list[str]) -> str:
+    """The ``# Ambiguous Wave`` markdown the read-only resources serve when a
+    wave id appears at two paths (finding ``wave-current-resource-serves-one-
+    twin``): the same heading shape as the ``wave/{wave_id}`` template, one
+    bullet per ``ambiguous_wave_id`` diagnostic line (each names both
+    repo-relative paths), so a resource never serves one twin as THE wave."""
+    out = [
+        "# Ambiguous Wave",
+        "",
+        "One wave id appears at more than one path. Move or rename one folder "
+        "before any lifecycle mutation; `wf_validate_docs()` reports the same lines.",
+        "",
+    ]
+    for line in lines:
+        out.append(f"- `{line}`")
+    return "\n".join(out) + "\n"
+
+
+def _ambiguous_wave_id_lines_response(tool: str, lines: list[str]) -> dict[str, Any]:
+    """The ``ambiguous_wave_id`` refusal envelope for already-computed
+    diagnostic lines (each names both repo-relative paths)."""
+    return _response(
+        "error",
+        {"tool": tool, "ambiguous_wave_ids": lines},
+        diagnostics=[
+            _diagnostic(
+                record_paths.AMBIGUOUS_WAVE_ID_CODE,
+                "; ".join(lines) + ". Two wave folders share an id; move or rename one "
+                "before any lifecycle mutation.",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )
+        ],
+        next_tools=["wf_validate_docs"],
+        usage="wf_validate_docs()",
+    )
 
 
 def _parse_plan_record(root: Path, plan_md: Path) -> dict:
@@ -3771,16 +3886,23 @@ def _parse_plan_record(root: Path, plan_md: Path) -> dict:
     }
 
 
-def list_plans(root: Path) -> list[dict]:
-    plans_root = root / "docs" / "plans"
+def _plan_doc_paths(root: Path) -> list[Path]:
+    """The plan documents directly under the plans root, in listing order.
+    One enumeration serves both ``list_plans`` and the plans cache key."""
+    plans_root = record_paths.load_record_roots(root).plans
     if not plans_root.exists():
         return []
-    result = []
-    for plan_md in sorted(plans_root.glob("*.md"), key=lambda p: _lifecycle_sort_key(p.name)):
-        if plan_md.name == "plan-template.md":
-            continue
-        result.append(_parse_plan_record(root, plan_md))
-    return result
+    return [
+        plan_md
+        for plan_md in sorted(plans_root.glob("*.md"), key=lambda p: _lifecycle_sort_key(p.name))
+        if plan_md.name != "plan-template.md"
+    ]
+
+
+def list_plans(root: Path, plan_docs: Optional[list[Path]] = None) -> list[dict]:
+    if plan_docs is None:
+        plan_docs = _plan_doc_paths(root)
+    return [_parse_plan_record(root, plan_md) for plan_md in plan_docs]
 
 
 def _dir_fingerprint(
@@ -3830,9 +3952,10 @@ class McpRepoCache:
         self.root = root.resolve()
         self._index = index
         self._waves: Optional[list[dict]] = None
-        self._waves_key: Optional[tuple[int, int]] = None
+        self._waves_key: Optional[tuple[Any, ...]] = None
+        self._wave_dirs: list[Path] = []
         self._plans: Optional[list[dict]] = None
-        self._plans_key: Optional[tuple[int, int]] = None
+        self._plans_key: Optional[tuple[Any, ...]] = None
         self._prompt_cache: dict[str, Any] = {}
         self._prompt_key: Optional[tuple[int, int]] = None
 
@@ -3840,6 +3963,7 @@ class McpRepoCache:
         """Clear all cached data and mark the semantic index for reload."""
         self._waves = None
         self._waves_key = None
+        self._wave_dirs = []
         self._plans = None
         self._plans_key = None
         self._prompt_cache = {}
@@ -3847,14 +3971,24 @@ class McpRepoCache:
         if self._index is not None:
             self._index._loaded = False
 
-    def _wave_fingerprint(self) -> tuple[int, int]:
-        return _dir_fingerprint(
-            self.root / "docs" / "waves", "wave.md", recursive=True
-        )
+    def _wave_fingerprint(self, wave_dirs: Optional[list[Path]] = None) -> tuple[int, int]:
+        # Fingerprint only the discovered records. A recursive glob here
+        # would repeat the walk and bypass its depth/hidden/evidence guards.
+        if wave_dirs is None:
+            wave_dirs = record_paths.discover_wave_dirs(self.root)
+        count, best_ns = 0, 0
+        for directory in wave_dirs:
+            try:
+                st = (directory / "wave.md").stat()
+            except OSError:
+                continue
+            count += 1
+            best_ns = max(best_ns, int(st.st_mtime_ns))
+        return count, best_ns
 
     def _plans_fingerprint(self) -> tuple[int, int]:
         return _dir_fingerprint(
-            self.root / "docs" / "plans", "*.md", skip={"plan-template.md"}
+            record_paths.load_record_roots(self.root).plans, "*.md", skip={"plan-template.md"}
         )
 
     def _prompts_fingerprint(self) -> tuple[int, int]:
@@ -3875,19 +4009,48 @@ class McpRepoCache:
         return text
 
     def list_waves_cached(self) -> list[dict]:
-        key = self._wave_fingerprint()
+        # Wave 1y043 / 1y0gz: ONE discovery walk per call (cold or warm),
+        # threaded into list_waves and kept for the ambiguity check in the
+        # same invocation. The walk runs FIRST and its result is part of the
+        # key, so a layout change (the constants) or a wave folder moved
+        # between two paths with an identical fingerprint re-reads instead
+        # of serving the stale record set.
+        wave_dirs = record_paths.discover_wave_dirs(self.root)
+        key = (
+            self._wave_fingerprint(wave_dirs=wave_dirs),
+            record_paths.layout_constants(),
+            tuple(str(d) for d in wave_dirs),
+        )
+        self._wave_dirs = wave_dirs
         if self._waves is not None and self._waves_key == key:
             return self._waves
-        waves = list_waves(self.root)
+        waves = list_waves(self.root, wave_dirs=wave_dirs)
         self._waves = waves
         self._waves_key = key
         return waves
 
+    def wave_dirs_cached(self) -> list[Path]:
+        """The wave folders discovered by the last ``list_waves_cached``
+        (walking only when nothing has been listed yet, so one tool
+        invocation still walks exactly once)."""
+        if self._waves is None:
+            self.list_waves_cached()
+        return list(self._wave_dirs)
+
     def list_plans_cached(self) -> list[dict]:
-        key = self._plans_fingerprint()
+        # Finding `plans-cache-layout-key`: mirror the waves key. The
+        # enumeration runs FIRST and its paths are part of the key, so a
+        # plans root moved by the constants (an identical fingerprint under
+        # another directory) re-reads instead of serving the stale set.
+        plan_docs = _plan_doc_paths(self.root)
+        key = (
+            self._plans_fingerprint(),
+            record_paths.layout_constants(),
+            tuple(sorted(str(p) for p in plan_docs)),
+        )
         if self._plans is not None and self._plans_key == key:
             return self._plans
-        plans = list_plans(self.root)
+        plans = list_plans(self.root, plan_docs=plan_docs)
         self._plans = plans
         self._plans_key = key
         return plans
@@ -3931,13 +4094,23 @@ def resolve_path_under_root(repo_root: Path, user_path: str) -> tuple[Optional[P
     return candidate, None
 
 
-def current_wave(root: Path, cache: Optional[McpRepoCache] = None) -> Optional[dict]:
-    waves = cache.list_waves_cached() if cache else list_waves(root)
+def _current_wave_from(waves: list[dict]) -> Optional[dict]:
+    """The open wave if any, else the first planned one, from listed records."""
     for allowed in (("active", "implementing"), ("planned",)):
         for wave in waves:
             if wave["status"] in allowed:
                 return wave
     return None
+
+
+def current_wave(
+    root: Path, cache: Optional[McpRepoCache] = None, waves: Optional[list[dict]] = None
+) -> Optional[dict]:
+    """The current wave; a caller that already listed passes ``waves`` so one
+    tool invocation walks once."""
+    if waves is None:
+        waves = cache.list_waves_cached() if cache else list_waves(root)
+    return _current_wave_from(waves)
 
 
 def _find_other_active_wave(
@@ -4252,14 +4425,15 @@ def server_identity(root: Path, *, server_runner_version: str | None = None) -> 
     return data
 
 
-def _trust_label(path: str, *, kind: str = "") -> str:
+def _trust_label(path: str, *, kind: str = "", prefixes: tuple[str, str] | None = None) -> str:
     normalized = path.replace("\\", "/")
     if kind == "seed" or normalized.startswith(".wavefoundry/framework/"):
         return TRUSTED_FRAMEWORK
+    waves_prefix, plans_prefix = prefixes or _record_prefixes(None)
     if (
         normalized == "docs/workflow-config.json"
-        or normalized.startswith("docs/waves/")
-        or normalized.startswith("docs/plans/")
+        or normalized.startswith(waves_prefix)
+        or normalized.startswith(plans_prefix)
     ):
         return TRUSTED_PROJECT_METADATA
     return UNTRUSTED_PROJECT_CONTENT
@@ -4279,7 +4453,7 @@ def _result_id(prefix: str, chunk: dict[str, Any]) -> str:
     return f"{prefix}:{path}"
 
 
-def _search_result(prefix: str, chunk: dict[str, Any]) -> dict[str, Any]:
+def _search_result(prefix: str, chunk: dict[str, Any], prefixes: tuple[str, str] | None = None) -> dict[str, Any]:
     payload = {
         "result_id": _result_id(prefix, chunk),
         "path": chunk.get("path"),
@@ -4287,7 +4461,7 @@ def _search_result(prefix: str, chunk: dict[str, Any]) -> dict[str, Any]:
         "section": chunk.get("section"),
         "lines": chunk.get("lines"),
         "excerpt": str(chunk.get("text") or "")[:600],
-        "trust_label": _trust_label(str(chunk.get("path") or ""), kind=str(chunk.get("kind") or "")),
+        "trust_label": _trust_label(str(chunk.get("path") or ""), kind=str(chunk.get("kind") or ""), prefixes=prefixes),
     }
     if "language" in chunk:
         payload["language"] = chunk.get("language")
@@ -4549,9 +4723,17 @@ def _background_build_progress(root: Path) -> str:
     return ""
 
 
-def _infer_tags(path: str) -> list[str]:
-    """Return classification tags for a file path. Delegates to _tag_utils — single source of truth."""
-    return _load_script("_tag_utils").infer_tags(path)
+def _infer_tags(path: str, root: Optional[Path] = None) -> list[str]:
+    """Return classification tags for a file path. Delegates to _tag_utils — single source of truth.
+
+    Wave 1y0gz: with a repository ``root`` the ``wave`` tag follows that
+    repository's waves root (``_record_prefixes``); without one the
+    ``_tag_utils`` default (the shipped layout) applies."""
+    infer = _load_script("_tag_utils").infer_tags
+    if root is None:
+        return infer(path)
+    waves_prefix, _plans_prefix = _record_prefixes(root)
+    return infer(path, waves_prefix=waves_prefix)
 
 
 _script_cache: dict[str, Any] = {}
@@ -6250,7 +6432,7 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             usage=f"docs_search(query={query!r})",
         )
     _mode = "lexical" if search_mode != "semantic" else "semantic"
-    _results_out = [_search_result("doc", result) for result in results]
+    _results_out = [_search_result("doc", result, _record_prefixes(index.root)) for result in results]
     # 1ro43: per-citation freshness (batched, silent absence; skipped on
     # live_fallback inside the helper). The drift partition runs only on the
     # healthy reranked path — degraded/exact envelopes are annotation-only.
@@ -6468,7 +6650,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
             next_tools=["wf_help"],
             usage=f"code_search(query={query!r})",
         )
-    _results_out = [_search_result("code", result) for result in results]
+    _results_out = [_search_result("code", result, _record_prefixes(index.root)) for result in results]
     # 1ro43: freshness annotation only — code chunks are ground truth for
     # themselves and are never drift-partitioned.
     _annotate_freshness(_results_out, index.root, search_mode=search_mode)
@@ -6611,8 +6793,12 @@ def _wf_current_wave_sort_key(wave: dict) -> tuple[int, str]:
     return (priority.get(wave["status"], 3), wave.get("wave_id", ""))
 
 
+@_fail_closed_on_record_layout("wf_current_wave")
 def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    all_waves = cache.list_waves_cached() if cache else list_waves(root)
+    all_waves, wave_dirs = _waves_and_dirs(root, cache)
+    ambiguous = _ambiguous_wave_id_response("wf_current_wave", root, wave_dirs)
+    if ambiguous is not None:
+        return ambiguous
     open_waves = [w for w in all_waves if w["status"] != "closed"]
     open_waves.sort(key=_wf_current_wave_sort_key)
     entries = [
@@ -6694,9 +6880,13 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
     )
 
 
+@_fail_closed_on_record_layout("wf_list_waves")
 def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     n = max(1, min(int(limit), 200))  # clamp to [1, 200]
-    all_waves = cache.list_waves_cached() if cache else list_waves(root)
+    all_waves, wave_dirs = _waves_and_dirs(root, cache)
+    ambiguous = _ambiguous_wave_id_response("wf_list_waves", root, wave_dirs)
+    if ambiguous is not None:
+        return ambiguous
     has_more = len(all_waves) > n
     waves = all_waves[:n]
     metrics: dict[str, dict[str, Any]] = {}
@@ -6706,7 +6896,7 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
         exploration = None
     for wave in waves:
         wave_id = str(wave.get("wave_id") or wave.get("id") or "")
-        wave_md = _find_wave_md(root, wave_id)
+        wave_md = _find_wave_md(root, wave_id, wave_dirs)
         if not wave_id or wave_md is None:
             continue
         metrics[wave_id] = {}
@@ -6758,6 +6948,7 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     )
 
 
+@_fail_closed_on_record_layout("wf_list_plans")
 def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     n = max(1, min(int(limit), 200))  # clamp to [1, 200]
     all_plans = cache.list_plans_cached() if cache else list_plans(root)
@@ -6783,6 +6974,7 @@ def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     )
 
 
+@_fail_closed_on_record_layout("wf_get_change")
 def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -> dict[str, Any]:
     """Look up a single change doc by ID, or return all changes for a wave.
 
@@ -6817,6 +7009,14 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             )
         sibling_diagnostics = _unreadable_wave_sibling_diagnostics(unreadable_waves)
         if len(wave_matches) > 1:
+            # Wave 1y043: one wave id at two paths is the same refusal every
+            # decorated tool emits (status error, both paths named); only a
+            # prefix matching DISTINCT ids is the advisory below.
+            duplicated = record_paths.ambiguous_wave_id_diagnostics(
+                root, [(root / str(m["path"])).parent for m in wave_matches]
+            )
+            if duplicated:
+                return _ambiguous_wave_id_lines_response("wf_get_change", duplicated)
             candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in wave_matches)
             return _response(
                 "ok",
@@ -6852,7 +7052,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                     doc_path = p
                     break
             if doc_path is None:
-                doc_path_candidate = root / "docs" / "plans" / f"{cid}.md"
+                doc_path_candidate = record_paths.load_record_roots(root).plans / f"{cid}.md"
                 if doc_path_candidate.exists():
                     doc_path = doc_path_candidate
             if doc_path is not None and doc_path.exists():
@@ -7153,7 +7353,7 @@ def wf_map_response(root: Path, address: str, index: WaveIndex) -> dict[str, Any
     rel = str(resolved.relative_to(root_r)).replace("\\", "/")
     chunk = _index_chunk_matching_address(index, addr, parsed)
     kind_for_trust = "seed" if parsed["scheme"] == "seed" else (str(chunk.get("kind") or "") if chunk else "")
-    trust = _trust_label(rel, kind=kind_for_trust)
+    trust = _trust_label(rel, kind=kind_for_trust, prefixes=_record_prefixes(root))
     excerpt = ""
     if chunk:
         excerpt = str(chunk.get("text") or "")[:1600]
@@ -7215,7 +7415,7 @@ def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
 
 
 def _resolve_wave_md_matches(
-    root: Path, wave_id_or_prefix: str
+    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Resolve wave records by id/dirname prefix: ``(matches, unreadable)``.
 
@@ -7230,12 +7430,11 @@ def _resolve_wave_md_matches(
     token = (wave_id_or_prefix or "").strip().lower()
     if not token:
         return [], []
-    waves_root = root / "docs" / "waves"
-    if not waves_root.exists():
-        return [], []
+    if wave_dirs is None:
+        wave_dirs = record_paths.discover_wave_dirs(root)
     matches: list[dict[str, Any]] = []
     unreadable: list[dict[str, Any]] = []
-    for wave_md in waves_root.glob("*/wave.md"):
+    for wave_md in (d / "wave.md" for d in wave_dirs):
         try:
             wave_md, _ = _contained_wave_review_paths(root, wave_md)
         except ValueError as exc:
@@ -7264,7 +7463,7 @@ def _resolve_wave_md_matches(
 
 
 def _find_wave_md_detailed(
-    root: Path, wave_id_or_prefix: str
+    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None
 ) -> tuple[Optional[Path], Optional[str], list[dict[str, Any]]]:
     """``(wave_md, requested_read_error, unreadable_siblings)`` for one token.
 
@@ -7272,10 +7471,18 @@ def _find_wave_md_detailed(
     read; ``unreadable_siblings`` are skipped non-matching unreadable records
     the caller must surface as diagnostics (wave 1v0lw).
     """
-    matches, unreadable = _resolve_wave_md_matches(root, wave_id_or_prefix)
+    matches, unreadable = _resolve_wave_md_matches(root, wave_id_or_prefix, wave_dirs)
     if not matches:
         return None, None, unreadable
     if len(matches) > 1:
+        # Wave 1y043: the same wave id at two paths is `ambiguous_wave_id`
+        # (raised so EVERY decorated lifecycle tool refuses identically); a
+        # prefix that matches distinct ids stays the plain ValueError.
+        ambiguous = record_paths.ambiguous_wave_id_diagnostics(
+            root, [(root / str(m["path"])).parent for m in matches]
+        )
+        if ambiguous:
+            raise record_paths.AmbiguousWaveId(ambiguous)
         candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in matches)
         raise ValueError(f"Multiple wave records match {wave_id_or_prefix!r}: {candidates}")
     return (
@@ -7285,8 +7492,10 @@ def _find_wave_md_detailed(
     )
 
 
-def _find_wave_md(root: Path, wave_id_or_prefix: str) -> Optional[Path]:
-    wave_md, _read_error, _unreadable = _find_wave_md_detailed(root, wave_id_or_prefix)
+def _find_wave_md(
+    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None
+) -> Optional[Path]:
+    wave_md, _read_error, _unreadable = _find_wave_md_detailed(root, wave_id_or_prefix, wave_dirs)
     return wave_md
 
 
@@ -7391,7 +7600,8 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
     if not token:
         return []
     matches: list[dict[str, Any]] = []
-    search_dirs = [root / "docs" / "plans", root / "docs" / "waves"]
+    roots = record_paths.load_record_roots(root)
+    search_dirs = [roots.plans, roots.waves]
     for base in search_dirs:
         if not base.exists():
             continue
@@ -7506,6 +7716,7 @@ def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
     return wave_md.parent / f"{change_id}.md"
 
 
+@_fail_closed_on_record_layout("wf_mark_item")
 def _mark_change_item_response(
     root: Path, wave_id: str, change_id: str, item_label: str, state: str,
     *, target_section: str, reason: str = "", mode: str = "dry_run",
@@ -7783,7 +7994,7 @@ def _mark_change_item_response(
 
 
 def _plan_change_doc_path(root: Path, change_id: str) -> Path:
-    return root / "docs" / "plans" / f"{change_id}.md"
+    return record_paths.load_record_roots(root).plans / f"{change_id}.md"
 
 
 def _read_error_detail(exc: BaseException) -> str:
@@ -8912,13 +9123,23 @@ def _contained_wave_review_paths(root: Path, wave_md: Path) -> tuple[Path, Path]
     """Resolve the fixed wave/event paths and reject any repository escape."""
 
     root_resolved = root.resolve()
-    expected_waves_root = root_resolved / "docs" / "waves"
-    waves_root = (root / "docs" / "waves").resolve(strict=False)
+    roots = record_paths.load_record_roots(root)
+    expected_waves_root = root_resolved.joinpath(*roots.waves_rel.split("/"))
+    waves_root = roots.waves.resolve(strict=False)
     if waves_root != expected_waves_root:
-        raise ValueError("docs/waves must resolve to the canonical in-repository directory")
+        raise ValueError(f"{roots.waves_rel} must resolve to the canonical in-repository directory")
     wave_dir = wave_md.parent.resolve(strict=False)
-    if wave_dir.parent != waves_root:
-        raise ValueError("wave directory must resolve to one direct child of docs/waves")
+    # Wave 1y043: a wave folder sits at depth 1 (flat) or within `max_depth`
+    # (nested) of the waves root; the default layout keeps the direct-child rule.
+    allowed_depth = roots.max_depth if roots.nested else 1
+    try:
+        depth_parts = wave_dir.relative_to(waves_root).parts
+    except ValueError as exc:
+        raise ValueError(f"wave directory must resolve inside {roots.waves_rel}") from exc
+    if not (1 <= len(depth_parts) <= allowed_depth):
+        raise ValueError(
+            f"wave directory must resolve to a wave folder within {allowed_depth} level(s) of {roots.waves_rel}"
+        )
     try:
         wave_dir.relative_to(root_resolved)
     except ValueError as exc:
@@ -8944,7 +9165,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     wave_id = _lifecycle_module().build_id(
         "wave", slug_s, legacy=False, commit=(mode_s == "create"), repo_root=root,
     )
-    wave_dir = root / "docs" / "waves" / wave_id
+    wave_dir = record_paths.load_record_roots(root).waves / wave_id
     wave_md = wave_dir / "wave.md"
     rel_path = str(wave_md.relative_to(root)).replace("\\", "/")
     exists = wave_md.exists()
@@ -9034,6 +9255,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     }
 
 
+@_fail_closed_on_record_layout("wf_create_wave")
 def wf_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     try:
         result = create_wave(root, slug, mode)
@@ -9097,6 +9319,7 @@ def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
     return text[:section_start] + new_section + text[section_end:]
 
 
+@_fail_closed_on_record_layout("wf_add_change")
 def wf_add_change_response(
     root: Path,
     wave_id: str,
@@ -9154,7 +9377,7 @@ def wf_add_change_response(
         )
     existing = _extract_change_ids_from_wave_text(text)
     location = _change_location_state(root, wave_md, canonical_change_id)
-    if source_path.parent.name != wave_md.parent.name and "docs/waves/" in str(change_matches[0]["path"]).replace("\\", "/") and source_path != target_path:
+    if source_path.parent.name != wave_md.parent.name and record_paths.load_record_roots(root).waves_prefix in str(change_matches[0]["path"]).replace("\\", "/") and source_path != target_path:
         return _response(
             "error",
             {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
@@ -9311,6 +9534,7 @@ def wf_add_change_response(
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
+@_fail_closed_on_record_layout("wf_remove_change")
 def wf_remove_change_response(
     root: Path,
     wave_id: str,
@@ -9417,7 +9641,7 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
         # Wave 1p45b — pass repo_root so the on-disk dedup scan runs (else a
         # duplicate stem can be minted; observed: 1p44w handed out twice).
         change_id = _lifecycle_module().build_id(kind, slug, legacy=False, repo_root=root)
-    plans_dir = root / "docs" / "plans"
+    plans_dir = record_paths.load_record_roots(root).plans
     plans_dir.mkdir(parents=True, exist_ok=True)
 
     template_path = plans_dir / "plan-template.md"
@@ -9453,7 +9677,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
     change_id = _lifecycle_module().build_id(
         kind, slug, legacy=False, commit=(mode == "create"), repo_root=root,
     )
-    plans_dir = root / "docs" / "plans"
+    plans_dir = record_paths.load_record_roots(root).plans
     plans_dir.mkdir(parents=True, exist_ok=True)
     rel_path = str((plans_dir / f"{change_id}.md").relative_to(root)).replace("\\", "/")
     out_path = root / rel_path
@@ -9484,6 +9708,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
     }
 
 
+@_fail_closed_on_record_layout("wf_new_change")
 def _change_create_response(
     root: Path,
     kind: str,
@@ -12380,6 +12605,7 @@ def memory_consolidate_response(
         usage="memory_search(include_history=True)")
 
 
+@_fail_closed_on_record_layout("wf_audit")
 def wf_audit_response(
     root: Path,
     wave_id: str = "",
@@ -12402,10 +12628,16 @@ def wf_audit_response(
     Safe to call at any time; does not trigger writes or reindexes.
     """
     # --- Wave sub-check ---
+    # Finding `audit-wave-snapshot-picks-one-twin`: one discovery walk, and a
+    # wave id at two paths is refused the same way every other tool refuses
+    # it instead of the snapshot silently reporting one of the twins.
+    waves, wave_dirs = _waves_and_dirs(root, cache)
+    ambiguous = _ambiguous_wave_id_response("wf_audit", root, wave_dirs)
+    if ambiguous is not None:
+        return ambiguous
     wave_data: dict[str, Any] = {}
     wave_ok = False
     if wave_id:
-        waves = cache.list_waves_cached() if cache else list_waves(root)
         wid = wave_id.strip().lower()
         matched = next(
             (w for w in waves if w["wave_id"].lower().startswith(wid) or wid in w["wave_id"].lower()),
@@ -12418,7 +12650,7 @@ def wf_audit_response(
         else:
             wave_data = {"id": wave_id, "status": "not_found"}
     else:
-        wave = current_wave(root, cache=cache)
+        wave = current_wave(root, cache=cache, waves=waves)
         if wave:
             next_action = _WAVE_CURRENT_NEXT_ACTION.get(wave["status"], "prepare_wave")
             wave_data = {**wave, "next_action": next_action}
@@ -15996,11 +16228,10 @@ def _audit_commit_governance(root: Path) -> dict[str, Any]:
     except Exception:
         return {"available": False, "reason": "git unavailable"}
 
-    # Collect known wave/change ID prefixes from docs/waves/
+    # Collect known wave/change ID prefixes from the waves root
     known_ids: set[str] = set()
-    waves_dir = root / "docs" / "waves"
-    if waves_dir.is_dir():
-        for entry in waves_dir.iterdir():
+    if record_paths.load_record_roots(root).waves.is_dir():
+        for entry in record_paths.walk_wave_candidates(root):
             if entry.is_dir():
                 # wave-id prefix like "12ecs"
                 parts = entry.name.split(" ", 1)
@@ -17392,6 +17623,7 @@ def _review_event_recovery_phase(
     )
 
 
+@_fail_closed_on_record_layout("wf_review_event")
 def wf_review_event_response(
     root: Path,
     wave_id: str,
@@ -17912,6 +18144,7 @@ def wf_review_event_response(
     return response
 
 
+@_fail_closed_on_record_layout("wf_prepare_wave")
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     diagnostics: list[dict[str, Any]] = []
 
@@ -18427,6 +18660,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
+@_fail_closed_on_record_layout("wf_pause_wave")
 def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
@@ -18671,6 +18905,7 @@ def _evaluate_shared_delivery_state(
 _REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
 
 
+@_fail_closed_on_record_layout("wf_review_wave")
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
     phase_s = (phase or "implementation").strip().lower()
     phase_s = _REVIEW_PHASE_ALIASES.get(phase_s, phase_s)
@@ -19082,6 +19317,7 @@ def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]
     }
 
 
+@_fail_closed_on_record_layout("wf_implement_wave")
 def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     """Gate and context builder for starting wave implementation (12sqb).
 
@@ -19806,6 +20042,7 @@ def _framework_test_receipt_diagnostic(status: Mapping[str, Any]) -> Optional[di
     )
 
 
+@_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     from scanner_skips import scanner_skip_notice
 
@@ -20063,6 +20300,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     return envelope
 
 
+@_fail_closed_on_record_layout("wf_reopen_wave")
 def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
@@ -27420,12 +27658,13 @@ def _partition_tests(results: list[dict]) -> list[dict]:
     return non_test + test
 
 
-def _doc_demotion_weight(path: str, kind: str) -> float:
+def _doc_demotion_weight(path: str, kind: str, prefixes: tuple[str, str] | None = None) -> float:
     """Return the demotion multiplier for a result based on its path and kind."""
     normalized = (path or "").replace("\\", "/")
-    if normalized.startswith("docs/waves/"):
+    waves_prefix, plans_prefix = prefixes or _record_prefixes(None)
+    if normalized.startswith(waves_prefix):
         return _DEMOTION_WAVES
-    if normalized.startswith("docs/plans/"):
+    if normalized.startswith(plans_prefix):
         return _DEMOTION_PLANS
     if kind == "seed" or normalized.startswith(".wavefoundry/framework/seeds/"):
         return _DEMOTION_SEEDS
@@ -27451,7 +27690,9 @@ _EXPLANATORY_LIKE_QUESTION_TYPES = ("explanatory", "assessment")
 _DOC_DEMOTION_INTENTS = (*_EXPLANATORY_LIKE_QUESTION_TYPES, "navigational")
 
 
-def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[dict], int]:
+def _demote_doc_results(
+    results: list[dict], question_type: str, prefixes: tuple[str, str] | None = None
+) -> tuple[list[dict], int]:
     """Down-weight narrative/reference doc sources for code-implementation intents so the
     implementing source is not outranked by prose (1p66s extends this from explanatory-only
     to navigational "where is X" and to architecture/spec/ADR paths). Demotion is a
@@ -27461,7 +27702,7 @@ def _demote_doc_results(results: list[dict], question_type: str) -> tuple[list[d
 
     demotion_count = 0
     for r in results:
-        weight = _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower())
+        weight = _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower(), prefixes)
         if weight < 1.0:
             r["score"] = (r.get("score") or 0.0) * weight
             demotion_count += 1
@@ -27483,7 +27724,7 @@ def _query_names_result_path(query: str, path: str) -> bool:
     return bool((normalized and normalized in q) or (name and name in q))
 
 
-def _assessment_evidence_weight(path: str, query: str) -> float:
+def _assessment_evidence_weight(path: str, query: str, prefixes: tuple[str, str] | None = None) -> float:
     """Return the assessment-only report-class versus wave-history score prior.
 
     The report recovery applies to every ``docs/reports/`` path; no currentness or
@@ -27493,13 +27734,14 @@ def _assessment_evidence_weight(path: str, query: str) -> float:
         return 1.0
     if normalized.startswith(_ASSESSMENT_EVIDENCE_PATH_PREFIX):
         return _ASSESSMENT_REPORT_RECOVERY_WEIGHT
-    if normalized.startswith("docs/waves/"):
+    waves_prefix, _plans_prefix = prefixes or _record_prefixes(None)
+    if normalized.startswith(waves_prefix.casefold()):
         return _ASSESSMENT_HISTORICAL_WAVE_WEIGHT
     return 1.0
 
 
 def _apply_assessment_evidence_prior(
-    results: list[dict], query: str, question_type: str
+    results: list[dict], query: str, question_type: str, prefixes: tuple[str, str] | None = None
 ) -> tuple[list[dict], int]:
     """Prefer report-class records over historical wave records by score only.
 
@@ -27519,7 +27761,7 @@ def _apply_assessment_evidence_prior(
         # either way, because the sort already reads a missing score as 0.0.
         if result.get("score") is None:
             continue
-        weight = _assessment_evidence_weight(result.get("path", ""), query)
+        weight = _assessment_evidence_weight(result.get("path", ""), query, prefixes)
         if weight != 1.0:
             result["score"] = result["score"] * weight
             adjusted_count += 1
@@ -28264,7 +28506,7 @@ def _code_ask_response_body(
     # report how many of the returned candidates carry the demotion weight.
     demotion_count = (
         sum(1 for r in broad_hits
-            if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower()) < 1.0)
+            if _doc_demotion_weight(r.get("path", ""), str(r.get("kind") or "").strip().lower(), _record_prefixes(root)) < 1.0)
         if question_type in _DOC_DEMOTION_INTENTS else 0
     )
     partition_applied = bool(demotion_count)
@@ -29107,7 +29349,13 @@ def _record_tracking_context(
 
     if tool_name not in _TRACKING_CONTEXT_TOOLS:
         return response
-    wave_md = _find_wave_md(handler.root, wave_id)
+    # Finding `fail-closed-wrapper-telemetry`: the mark response has already
+    # refused an invalid layout, a duplicated id, or an ambiguous prefix; the
+    # telemetry re-resolution must not raise what the caller already handled.
+    try:
+        wave_md = _find_wave_md(handler.root, wave_id)
+    except (ValueError, record_paths.RecordLayoutInvalid, record_paths.AmbiguousWaveId):
+        wave_md = None
     resolved = wave_md.parent.name if wave_md is not None else str(wave_id)
     # A dry run also returns status "ok" with `changed`, so the write mode is
     # part of the milestone test; otherwise previewing a mark would earn credit
@@ -30067,10 +30315,12 @@ def _lifecycle_context_result(
     ``ready_for_council_review``, which both publishes and focuses its target.
     """
 
-    # 1. Canonical-target resolution.
+    # 1. Canonical-target resolution. Finding `fail-closed-wrapper-telemetry`:
+    # the decorated response already refused an invalid layout or a duplicated
+    # id; telemetry must never change the caller's result by re-raising it.
     try:
         wave_md = _find_wave_md(handler.root, wave_id)
-    except ValueError:
+    except (ValueError, record_paths.RecordLayoutInvalid, record_paths.AmbiguousWaveId):
         wave_md = None
     target_resolved = wave_md is not None
     if wave_md is not None:
@@ -30611,12 +30861,17 @@ def _state_sources_memory_propose(root: Path, result: Mapping[str, Any]) -> list
             if len(parts) >= 2 and parts[1]:
                 change_ids.add(parts[1])
     paths: list[str] = []
-    waves_dir = root / "docs" / "waves"
+    # Finding `commit-provenance-nested-wave-dir`: the shared discovery walk
+    # (flat or nested) locates the wave folders; the change-id prefix glob is
+    # kept, now applied inside each discovered folder.
+    wave_dirs = record_paths.discover_wave_dirs(root)
     try:
         for change_id in sorted(change_ids):
-            for match in waves_dir.glob(f"*/{change_id}*.md"):
-                paths.append(str(match.relative_to(root)))
-                break
+            for wave_dir in wave_dirs:
+                matches = sorted(wave_dir.glob(f"{change_id}*.md"))
+                if matches:
+                    paths.append(str(matches[0].relative_to(root)))
+                    break
     except OSError:
         pass
     return paths
@@ -35012,7 +35267,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     )
     def resource_current_wave() -> str:
         """Return the current active wave.md as markdown text."""
-        wave_info = current_wave(get_handler().root, cache=get_handler().cache)
+        root = get_handler().root
+        # Finding `wave-current-resource-serves-one-twin`: one discovery walk
+        # feeds both the listing and the duplicate-id check, so a duplicated
+        # wave id is reported instead of one twin being served as current.
+        waves, wave_dirs = _waves_and_dirs(root, get_handler().cache)
+        ambiguous = record_paths.ambiguous_wave_id_diagnostics(root, wave_dirs)
+        if ambiguous:
+            return _ambiguous_wave_id_markdown(ambiguous)
+        wave_info = current_wave(root, waves=waves)
         if wave_info is None:
             return "# No Active Wave\n\nNo active wave found. Use `wf_create_wave` to start one.\n"
         wave_path = get_handler().root / wave_info["path"]
@@ -35421,9 +35684,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def resource_waves() -> str:
         """Return a markdown summary of all waves — one ## heading per wave with status and change list."""
         _root = get_handler().root
-        waves = list_waves(_root)
+        # Finding `wave-current-resource-serves-one-twin`: same walk, same
+        # duplicate-id refusal as `wave/current`; the "none found" message
+        # names the resolved waves root rather than a literal.
+        waves, wave_dirs = _waves_and_dirs(_root, get_handler().cache)
+        ambiguous = record_paths.ambiguous_wave_id_diagnostics(_root, wave_dirs)
+        if ambiguous:
+            return _ambiguous_wave_id_markdown(ambiguous)
         if not waves:
-            return "# Waves\n\nNo wave records found in `docs/waves/`.\n"
+            waves_rel = record_paths.unvalidated_record_roots(_root).waves_rel
+            return f"# Waves\n\nNo wave records found in `{waves_rel}/`.\n"
         lines: list[str] = ["# Waves\n\n"]
         for wave in waves:
             wave_id = wave.get("wave_id") or "unknown"

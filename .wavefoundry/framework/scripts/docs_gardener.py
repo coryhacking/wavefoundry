@@ -20,6 +20,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import record_paths  # record roots (wave 1y0gz)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
@@ -60,7 +61,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--all-docs",
         action="store_true",
-        help="Stamp Last verified on every docs/**/*.md file instead of git-changed docs",
+        help="Stamp Last verified on every markdown doc under docs/ and the record roots instead of git-changed docs",
     )
     return parser.parse_args(argv)
 
@@ -70,18 +71,49 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("docs-gardener: --all-docs and --paths are mutually exclusive")
 
 
-def iter_markdown_docs(root: Path):
+def markdown_scan_roots(root: Path) -> list[Path]:
+    """Directories the gardener walks (wave 1y0gz): ``docs/`` plus each record
+    root (waves, plans) that lies outside ``docs/``, so a relocated layout is
+    stamped like the shipped one. Fail-closed: an invalid layout stops the run
+    with its ``record_layout_invalid:`` diagnostics rather than gardening a
+    guessed root."""
     docs_root = root / "docs"
-    if not docs_root.exists():
-        return
-    for path in docs_root.rglob("*.md"):
-        if path.is_file():
-            yield path
+    try:
+        roots = record_paths.load_record_roots(root)
+    except record_paths.RecordLayoutInvalid as exc:
+        raise SystemExit("docs-gardener: " + "; ".join(exc.diagnostics)) from exc
+    scan_roots = [docs_root]
+    for record_root in (roots.waves, roots.plans):
+        try:
+            record_root.relative_to(docs_root)
+        except ValueError:
+            if record_root not in scan_roots:
+                scan_roots.append(record_root)
+    return scan_roots
+
+
+def _under_a_scan_root(scan_roots: list[Path], candidate: Path) -> bool:
+    for scan_root in scan_roots:
+        try:
+            candidate.relative_to(scan_root.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def iter_markdown_docs(root: Path):
+    for scan_root in markdown_scan_roots(root):
+        if not scan_root.exists():
+            continue
+        for path in scan_root.rglob("*.md"):
+            if path.is_file():
+                yield path
 
 
 def collect_changed_markdown_paths(root: Path) -> list[Path]:
-    docs_root = root / "docs"
-    if not docs_root.exists():
+    scan_roots = markdown_scan_roots(root)
+    if not (root / "docs").exists():
         return []
     try:
         proc = subprocess_util.isolated_run(
@@ -101,9 +133,7 @@ def collect_changed_markdown_paths(root: Path) -> list[Path]:
         if not line.endswith(".md"):
             continue
         candidate = (root / line).resolve()
-        try:
-            candidate.relative_to(docs_root.resolve())
-        except ValueError:
+        if not _under_a_scan_root(scan_roots, candidate):
             continue
         if candidate.is_file():
             out.append(candidate)
@@ -111,14 +141,12 @@ def collect_changed_markdown_paths(root: Path) -> list[Path]:
 
 
 def resolve_path_args(root: Path, rel_parts: list[str]) -> list[Path]:
-    docs_root = (root / "docs").resolve()
+    scan_roots = markdown_scan_roots(root)
     resolved: list[Path] = []
     for raw in rel_parts:
         p = (root / raw).resolve()
-        try:
-            p.relative_to(docs_root)
-        except ValueError as exc:
-            raise SystemExit(f"docs-gardener: path must be under docs/: {raw}") from exc
+        if not _under_a_scan_root(scan_roots, p):
+            raise SystemExit(f"docs-gardener: path must be under docs/ or a record root: {raw}")
         if not p.is_file():
             raise SystemExit(f"docs-gardener: not a file: {raw}")
         if p.suffix.lower() != ".md":
@@ -148,14 +176,21 @@ def manifest_path(root: Path) -> Path:
     return root / "docs" / "prompts" / "prompt-surface-manifest.json"
 
 
-def default_manifest_payload(date_value: str) -> dict:
+def default_manifest_payload(date_value: str, root: Path | None = None) -> dict:
+    # Wave 1y0gz: the waves entries follow the record layout (validated against
+    # the root when one is given; the raw constant otherwise).
+    waves_rel = (
+        record_paths.load_record_roots(root).waves_rel
+        if root is not None
+        else record_paths.WAVES_ROOT
+    )
     return {
         "schema_version": 1,
         "generated_artifacts": [
             "docs/prompts/prompt-surface-manifest.json",
             "docs/agents/session-handoff.md",
-            "docs/waves/",
-            "docs/waves/README.md",
+            f"{waves_rel}/",
+            f"{waves_rel}/README.md",
             "docs/agents/personas/",
             "docs/agents/personas/README.md",
             "docs/reports/",
@@ -169,8 +204,10 @@ def default_manifest_payload(date_value: str) -> dict:
 # 1v7a0: keys whose CONTENT the framework owns, so an existing manifest is
 # reconciled against `default_manifest_payload` rather than left as installed.
 # Scoped deliberately: every other key in a real manifest has a live consumer
-# outside this module (`wave_root` is read by wave_lint_lib, so clobbering it
-# breaks docs-lint itself; `framework_revision` is read by check_version and
+# outside this module or in installed targets (`wave_root` is an installed
+# manifest key that nothing in this repository reads, since the record layout is
+# the `record_paths` constants; it is preserved for target-side consumers rather
+# than clobbered; `framework_revision` is read by check_version and
 # dashboard_lib; `upgrade_merge_notes` is why reconcile_scan excludes this
 # file), and a wholesale payload replacement would be a working-behaviour
 # regression rather than a metadata refresh.
@@ -222,7 +259,7 @@ def ensure_manifest(
     path = manifest_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        payload = default_manifest_payload(date_value)
+        payload = default_manifest_payload(date_value, root)
         path.write_text(normalize_manifest_json(payload), encoding="utf-8")
         return path, True
     try:
@@ -244,7 +281,7 @@ def ensure_manifest(
     # The date stamp stays gated, so a non-bumping run still does not churn
     # `last_gardened_at`, and the change-only write below means a manifest that
     # needs neither reconciliation nor a stamp is not rewritten at all.
-    reconcile_manifest_payload(data, default_manifest_payload(date_value))
+    reconcile_manifest_payload(data, default_manifest_payload(date_value, root))
     if bump_last_gardened:
         data["last_gardened_at"] = date_value
     new_text = normalize_manifest_json(data)

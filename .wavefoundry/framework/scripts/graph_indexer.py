@@ -29,6 +29,7 @@ if _GI_SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _GI_SCRIPTS_DIR)
 import subprocess_util  # noqa: E402
 import graph_store  # noqa: E402  shared graph/derived table DDL + table census
+import record_paths  # noqa: E402  record roots (wave 1y0gz)
 
 try:
     from tree_sitter import Language, Parser as _TSParser
@@ -188,9 +189,16 @@ _DOC_PATH_SUFFIXES = (
     ".md", ".markdown", ".py", ".json", ".jsonc", ".js", ".jsx", ".mjs", ".cjs",
     ".ts", ".tsx", ".css", ".html", ".txt", ".yaml", ".yml", ".toml",
 )
+# The record roots (waves, plans) are added per session from the resolved
+# layout by ``_doc_scan_exclude_prefixes`` (wave 1y0gz).
 _DOC_SCAN_EXCLUDE_PREFIXES = frozenset({
-    "docs/waves/", "docs/plans/", "docs/contributing/", "docs/reports/",
+    "docs/contributing/", "docs/reports/",
 })
+
+
+def _doc_scan_exclude_prefixes(root: Path) -> frozenset[str]:
+    roots = record_paths.load_record_roots(root)
+    return _DOC_SCAN_EXCLUDE_PREFIXES | {roots.waves_prefix, roots.plans_prefix}
 _MIN_DOC_MATCH_TERM_LEN = 6
 _SHORT_SYMBOL_MAX_LEN = 2
 _MINIFIED_FILE_RE = re.compile(
@@ -11712,6 +11720,7 @@ class GraphIndexSession:
             raise ValueError(f"Unsupported graph layer: {layer}")
         self.selected_paths = selected_paths
         self.root = root
+        self._doc_scan_exclude_prefixes = _doc_scan_exclude_prefixes(root)
         self.index_dir = index_dir
         self.layer = layer
         self.files = files
@@ -11895,7 +11904,7 @@ class GraphIndexSession:
         # Framework seeds are explicitly included even though they start with '.'
         if rel.startswith(".wavefoundry/framework/seeds/"):
             return False
-        for prefix in _DOC_SCAN_EXCLUDE_PREFIXES:
+        for prefix in self._doc_scan_exclude_prefixes:
             if rel.startswith(prefix):
                 return True
         # Exclude paths with any component starting with '.'

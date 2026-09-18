@@ -1599,6 +1599,124 @@ class _HandlerHarnessMixin:
         return Harness(store, path)
 
 
+class DashboardDocumentLayoutTests(_HandlerHarnessMixin, unittest.TestCase):
+    """Exercise the actual GET router and document reader against real files."""
+
+    def setUp(self):
+        _, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.snapshot = {}
+        self.layout = patch.multiple(self.srv.record_paths,
+                                     WAVES_ROOT="project/records/waves",
+                                     PLANS_ROOT="project/records/plans", NESTED=True)
+        self.layout.start()
+        self.addCleanup(self.layout.stop)
+
+    def _get_doc(self, **params):
+        from urllib.parse import urlencode
+        handler = self._make_handler("/api/doc?" + urlencode(params))
+        handler.server.snapshot_store._record_roots = self.srv.record_paths.load_record_roots(self.root)
+        handler.do_GET()
+        return handler
+
+    def test_relocated_and_nested_wave_and_legacy_change_reads(self):
+        for folder in ("1abcd direct", "team/1abce nested"):
+            wave = self.root / "project/records/waves" / folder
+            _write(wave / "wave.md", "# " + folder)
+            _write(wave / "1abcd-enh change.md", "# Change " + folder)
+            for identifier in (wave.name, wave.name.split()[0]):
+                with self.subTest(folder=folder, identifier=identifier):
+                    h = self._get_doc(type="wave", id=identifier)
+                    self.assertEqual(h.response_code, 200)
+                    self.assertEqual(h.wfile.getvalue().decode(), "# " + folder)
+                    h = self._get_doc(type="change", id="1abcd-enh change", wave=identifier)
+                    self.assertEqual(h.response_code, 200)
+                    self.assertEqual(h.wfile.getvalue().decode(), "# Change " + folder)
+
+    def test_explicit_paths_allow_relocated_plans_changes_and_ordinary_docs(self):
+        for rel in ("project/records/plans/1abcd-enh plan.md",
+                    "project/records/waves/team/1abcd wave/1abcd-enh change.md",
+                    "docs/reference.md"):
+            _write(self.root / rel, "# " + rel)
+            h = self._get_doc(type="change", id="1abcd-enh change", path=rel)
+            self.assertEqual(h.response_code, 200)
+            self.assertEqual(h.wfile.getvalue().decode(), "# " + rel)
+
+    def test_nested_wave_under_docs_and_flat_default_control(self):
+        for nested, rel in ((True, "team/1abcd wave"), (False, "1abcd wave")):
+            with patch.multiple(self.srv.record_paths, WAVES_ROOT="docs/waves",
+                                PLANS_ROOT="docs/plans", NESTED=nested):
+                _write(self.root / "docs/waves" / rel / "wave.md", "# Control")
+                h = self._get_doc(type="wave", id="1abcd wave")
+                self.assertEqual(h.response_code, 200)
+                self.assertEqual(h.wfile.getvalue(), b"# Control")
+
+    def test_duplicate_wave_ids_refuse_even_exact_folder_name(self):
+        for folder in ("a/1abcd first", "b/1abcd second"):
+            _write(self.root / "project/records/waves" / folder / "wave.md", "# Ambiguous")
+        for identifier in ("1abcd", "1abcd first", "1abcd second"):
+            for kind in ("wave", "change"):
+                params = dict(type=kind, id=identifier) if kind == "wave" else dict(
+                    type=kind, id="1abcd-enh change", wave=identifier)
+                h = self._get_doc(**params)
+                self.assertEqual(h.response_code, 409)
+                self.assertIn("ambiguous_wave_id", h.error_message)
+                self.assertEqual(h.wfile.getvalue(), b"")
+
+    def test_document_escape_and_non_markdown_denied_with_existing_targets(self):
+        _write(self.root / "private.md", "SECRET")
+        _write(self.root / "project/records/plans/plain.txt", "SECRET")
+        for rel in ("private.md", "project/records/plans/../../../private.md",
+                    "project/records/plans/plain.txt", str(self.root / "private.md")):
+            h = self._get_doc(type="change", id="change", path=rel)
+            self.assertEqual(h.response_code, 403)
+            self.assertEqual(h.wfile.getvalue(), b"")
+        for identifier in ("../private", "..\\private"):
+            h = self._get_doc(type="wave", id=identifier)
+            self.assertEqual(h.response_code, 403)
+
+    def test_wave_id_reads_obey_nested_depth_and_missing_record(self):
+        _write(self.root / "project/records/waves/team/1abcd wave/wave.md", "# Deep")
+        with patch.object(self.srv.record_paths, "MAX_DEPTH", 1):
+            h = self._get_doc(type="wave", id="1abcd wave")
+            self.assertEqual(h.response_code, 404)
+        with patch.object(self.srv.record_paths, "MAX_DEPTH", 2):
+            h = self._get_doc(type="wave", id="1abcd wave")
+            self.assertEqual(h.response_code, 200)
+            self.assertEqual(h.wfile.getvalue(), b"# Deep")
+        h = self._get_doc(type="wave", id="1ffff missing")
+        self.assertEqual(h.response_code, 404)
+
+    def test_flat_wave_symlink_cannot_escape_allowed_document_roots(self):
+        secret = self.root / "private/wave.md"
+        _write(secret, "SECRET")
+        alias = self.root / "project/records/waves/1abcd alias"
+        alias.parent.mkdir(parents=True)
+        try:
+            alias.symlink_to(secret.parent, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with patch.object(self.srv.record_paths, "NESTED", False):
+            h = self._get_doc(type="wave", id="1abcd alias")
+            self.assertEqual(h.response_code, 403)
+            self.assertEqual(h.wfile.getvalue(), b"")
+
+    def test_symlink_escape_denied(self):
+        secret = self.root / "private.md"
+        _write(secret, "SECRET")
+        alias = self.root / "project/records/plans/alias.md"
+        alias.parent.mkdir(parents=True)
+        try:
+            alias.symlink_to(secret)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        h = self._get_doc(type="change", id="change", path=str(alias.relative_to(self.root)))
+        self.assertEqual(h.response_code, 403)
+        self.assertEqual(h.wfile.getvalue(), b"")
+
+
 class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
     def setUp(self):
         self.lib, self.srv = load_dashboard_modules()

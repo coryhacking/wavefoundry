@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-17
 
 ## Allowed Dependencies
 
@@ -50,6 +50,61 @@ transaction combining every one of their mutations. `graph_snapshot` is the only
 runtime generation-bound read path for graph and community rows: it opens read-only, reads
 one SQLite snapshot, and returns immutable content rather than a live handle. Query
 consumers open read-only connections and cannot repair or migrate persistent data.
+
+## Shared path resolution (waves 1t3gt, 1xjmm, 1y0gz)
+
+Three stdlib-only modules are the single owners of path resolution and no other
+module may re-derive what they answer: `repo_root` discovers the repository root,
+`index_paths` names the index database, and `record_paths` resolves the wave and
+plan record roots from its own module constants (`WAVES_ROOT = "docs/waves"`,
+`PLANS_ROOT = "docs/plans"`, `NESTED = False`, `MAX_DEPTH = 4`). The constants
+are the only definition of the layout: a downstream fork edits them at merge
+time, nothing is read from `docs/workflow-config.json` at runtime (a
+`record_layout` block or `wave_implement.wave_root` is inert), and the layout of
+a process is fixed at import. `record_paths` validates the constants against the
+repository fail-closed: an absolute, `..`, or empty root, a root or an ancestor of
+an absent root that is a file or a dangling symlink, a root that escapes through
+a symlink, a root or ancestor that is a symlink alias or case alias of the
+canonical in-repository directory (an in-repository symlink is no longer
+accepted), equal or nested roots (by spelling or by inode, judged against the
+nearest existing ancestor of an absent root), a non-boolean `NESTED`, or a
+`MAX_DEPTH` outside 1 to 8 raises
+`RecordLayoutInvalid`; docs-lint reports it as the `record_layout_invalid` error
+and every lifecycle tool returns the same `record_layout_invalid` diagnostic and
+performs no read or write; nothing falls back silently. `layout_constants()`
+returns the four values at call time and every cache keyed on record discovery
+(the lint roots cache, `McpRepoCache`) folds it into its key. For the shipped
+constants it builds paths exactly as the call sites did before it existed, so
+cache fingerprints and rendered paths are byte-identical. A census test forbids
+the `docs/waves` and `docs/plans` literals in every other non-test module outside
+an explicit allowlist whose reasons are comment, docstring, user-facing message,
+or `pinned_evidence` (a shipped report pins the module's SHA-256). Docs-lint
+requires `<waves_root>/README.md`, and the lint and gardener walkers union
+`docs/` with the resolved roots when a root lies outside `docs/`.
+
+Wave record discovery is one walk (wave 1y043): `record_paths.walk_wave_candidates`
+enumerates the waves root's child directories (flat, the shipped `NESTED = False`)
+or, when `NESTED` is true, a depth-first walk bounded by `MAX_DEPTH` (1 to 8,
+shipped 4; it counts the wave folder's own depth below the waves root, so 1 means
+direct children only) that never enters a symlink or a dot-prefixed directory and
+never descends into a folder that holds a `wave.md`; `discover_wave_dirs` keeps
+the folders that hold one. The server, docs-lint (every `wave_lint_lib`
+enumerator, including `_collect_wave_state`, `check_closed_wave_requirements`,
+`check_wave_docs`, `check_prepare_council_verdict`, and
+`check_prepare_council_roster_evidence`), memory backfill, memory supply,
+lifecycle-id minting, commit provenance, and the review-policy upgrade planner all
+enumerate through it, and no module discovers wave records by enumerating the
+waves root itself with `iterdir`, `rglob`, or a `*/wave.md` glob of its own;
+change-doc lookup (`_resolve_change_doc_matches`) and the docs-lint and gardener
+corpus walks stay recursive over the roots by design, because they look for
+documents, not for wave folders. A wave id at two paths is
+`ambiguous_wave_id` from docs-lint and from every lifecycle tool that resolves a
+wave (`wf_current_wave`, `wf_list_waves`, `wf_prepare_wave`, `wf_add_change`,
+`wf_review_event`, `wf_close_wave`, `wf_pause_wave`, and the rest), and no
+lifecycle mutation proceeds on it. A tool invocation walks at most once:
+`McpRepoCache.list_waves_cached` performs the walk, keys the cache on the
+directory fingerprint, `layout_constants()`, and the discovered paths, and threads
+the result as `wave_dirs` to `list_waves` and the record lookups.
 
 The standalone `graph_call_census.py` diagnostic is an explicit exception: in its
 own process, it uses stdlib SQLite to inspect relational graph rows in one

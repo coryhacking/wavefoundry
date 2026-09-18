@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from gardener_metadata import _fenced_line_flags, canonical_review_policy_body
+import record_paths  # record roots (wave 1y0gz)
 
 
 DELIVERY_MODES = ("disabled", "targeted", "universal")
@@ -431,7 +432,20 @@ def extract_requested_review_lanes(wave_text: str) -> tuple[str, ...]:
 # FIXES one. If those sets ever diverge, the blocking set can grow past the
 # repairable set and strand a repository at the docs gate with nothing the
 # upgrade can do — the precise failure the rule exists to prevent.
-SCAFFOLD_DOCS: tuple[str, ...] = ("docs/plans/plan-template.md",)
+# Wave 1y0gz: the scaffolds live under the PLANS root. ``SCAFFOLD_DOCS`` is the
+# default-layout set (the one shared constant both consumers agree on);
+# ``scaffold_docs(root)`` is the same set under the configured layout.
+SCAFFOLD_DOC_NAMES: tuple[str, ...] = ("plan-template.md",)
+SCAFFOLD_DOCS: tuple[str, ...] = tuple(
+    f"{record_paths.PLANS_ROOT}/{name}" for name in SCAFFOLD_DOC_NAMES
+)
+
+
+def scaffold_docs(root: Path) -> tuple[str, ...]:
+    """Repo-relative scaffold docs under the resolved plans root."""
+    plans_rel = record_paths.load_record_roots(root).plans_rel
+    return tuple(f"{plans_rel}/{name}" for name in SCAFFOLD_DOC_NAMES)
+
 
 _SERIALIZATION_POINTS_HEADING_RE = re.compile(
     r"(?mi)^##[ \t]+Serialization Points\s*$"
@@ -1075,6 +1089,7 @@ __all__ = [
     "FULL_COUNCIL_TRIGGER_FIELDS", "FULL_COUNCIL_TRIGGER_TOKENS",
     "GENESIS_RECEIPT_PARENT",
     "LIFECYCLE_RECONCILER_CARRIERS", "RETIRED_LIFECYCLE_TOKENS", "SCAFFOLD_DOCS",
+    "SCAFFOLD_DOC_NAMES", "scaffold_docs",
     "REVIEW_LANE_ORDER", "REVIEW_POLICY_CARRIER_REGISTRY",
     "REVIEW_POLICY_EVALUATOR_VERSION", "REVIEW_POLICY_RECEIPT_RECORD_TYPE",
     "REVIEW_POLICY_REPREPARE_MARKER", "REVIEW_POLICY_SCHEMA_VERSION",

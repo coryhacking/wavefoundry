@@ -1129,6 +1129,23 @@ def _migrate_journals(root: Path) -> None:
     journals_dir = root / "docs" / "agents" / "journals"
     if not journals_dir.is_dir():
         return
+    # Wave 1y0gz: the waves root comes from the record-layout resolver in the
+    # EXTRACTED tree, guarded like the other sibling imports in this module.
+    # Without it a wave journal is left in place and listed for the operator
+    # rather than relocated to a guessed root (never fatal to an upgrade).
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    record_roots = None
+    try:
+        import record_paths  # noqa: PLC0415
+
+        record_roots = record_paths.load_record_roots(root)
+    except Exception as exc:  # noqa: BLE001 — never fatal to an upgrade
+        print(
+            f"journal migration: wave-journal relocation skipped (record roots unavailable: {exc})",
+            flush=True,
+        )
     deleted = 0
     moved: list[str] = []
     left: list[str] = []
@@ -1151,7 +1168,7 @@ def _migrate_journals(root: Path) -> None:
                 path.unlink()
                 deleted += 1
                 continue
-        if wave_m:
+        if wave_m and record_roots is not None:
             # Relocation needs only the wave identity — older journals may
             # lack template fields and must still move, never delete. A WAVE
             # journal is identified by its filename equalling its wave id
@@ -1161,7 +1178,7 @@ def _migrate_journals(root: Path) -> None:
             # reference and was mis-relocated before this filename check).
             wave_id = wave_m.group(1)
             is_wave_journal = path.name == f"{wave_id.replace(' ', '-')}.md"
-            wave_dir = root / "docs" / "waves" / wave_id
+            wave_dir = record_roots.waves / wave_id
             # Wave 1t76w: the relocated artifact carries the lifecycle type
             # suffix like every other typed artifact in a wave folder
             # (`<prefix>-jrnl <slug>.md`, space form).
@@ -1171,7 +1188,9 @@ def _migrate_journals(root: Path) -> None:
             if is_wave_journal and wave_dir.is_dir() and not destination.exists():
                 destination.write_text(text, encoding="utf-8")
                 path.unlink()
-                moved.append(f"{path.name} -> docs/waves/{wave_id}/{destination_name}")
+                moved.append(
+                    f"{path.name} -> {record_roots.waves_rel}/{wave_id}/{destination_name}"
+                )
                 continue
         left.append(path.name)
     if deleted or moved:

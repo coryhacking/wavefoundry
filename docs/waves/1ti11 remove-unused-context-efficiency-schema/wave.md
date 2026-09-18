@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-08
+Last verified: 2026-09-17
 review-evidence-source: events.jsonl
 
 wave-id: `1ti11 remove-unused-context-efficiency-schema`
@@ -90,9 +90,9 @@ Wave `1ti11` (Remove Unused Context Efficiency Schema) delivered two changes: Re
 
 <!-- wave:context-efficiency begin -->
 
-Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+Estimated context avoided uses whole eligible text-file, workflow-prompt and derived-artifact credits, minus recorded request and response tokens. This baseline does not prove what an agent otherwise would have read or spent. Any quality-equivalent paired-evaluation residual is recorded separately in the checkpoint state and included in the total.
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | plan | 7 | 0 |
 | implement | 38 | 1,563,484 |

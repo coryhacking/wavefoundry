@@ -10,6 +10,24 @@ import sys
 
 sys.dont_write_bytecode = True
 
+# Wave 1y0gz: the waves root comes from the stdlib-only resolver. Loaded the
+# same two ways chunker.py loads THIS module (package import first, sibling
+# path second) so the tag rule works in every host that can load _tag_utils.
+try:
+    import record_paths as _record_paths
+except ImportError:  # scripts dir not on sys.path: load the sibling by path
+    import importlib.util as _ilu
+    from pathlib import Path as _Path
+
+    _rp_path = _Path(__file__).resolve().with_name("record_paths.py")
+    _rp_spec = _ilu.spec_from_file_location("record_paths", _rp_path)
+    if _rp_spec is None or _rp_spec.loader is None:
+        raise ImportError(f"cannot load record_paths from {_rp_path}")
+    _record_paths = _ilu.module_from_spec(_rp_spec)
+    _rp_spec.loader.exec_module(_record_paths)
+
+_DEFAULT_WAVES_PREFIX = _record_paths.WAVES_ROOT + "/"
+
 _TEST_RE = re.compile(
     r"(?:^|/)tests?/"
     r"|(?:^|/)test_[^/]+$"
@@ -21,12 +39,17 @@ _TEST_RE = re.compile(
 _CONFIG_RE = re.compile(r"\.(ya?ml|toml|env)$", re.IGNORECASE)
 
 
-def infer_tags(path: str) -> list[str]:
+def infer_tags(path: str, *, waves_prefix: str = _DEFAULT_WAVES_PREFIX) -> list[str]:
     """Return classification tags for a file path from the controlled vocabulary.
 
     Tags are inferred purely from path patterns — no content inspection needed.
     A file may receive zero or more tags. All chunks from the same file share
     the same tags.
+
+    ``waves_prefix`` is the repo-relative waves root with a trailing slash
+    (wave 1y0gz): callers that own a repository root pass
+    ``record_paths.load_record_roots(root).waves_prefix``; the default is the
+    resolver's default layout.
 
     Vocabulary:
       wave      — docs/waves/ subtree
@@ -45,7 +68,7 @@ def infer_tags(path: str) -> list[str]:
     tags: list[str] = []
 
     # Doc-centric tags
-    if "docs/waves/" in p:
+    if waves_prefix in p:
         tags.append("wave")
     if "docs/prompts/agents/" in p or "docs/agents/" in p:
         tags.append("agent")

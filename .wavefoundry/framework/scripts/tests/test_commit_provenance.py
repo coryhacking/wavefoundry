@@ -53,9 +53,10 @@ class _RepoCase(unittest.TestCase):
              "commit", "-q", "-m", message)
         return _git(self.root, "rev-parse", "HEAD")
 
-    def _wave(self, wave_id: str, slug: str, decisions: list[str]) -> None:
+    def _wave(self, wave_id: str, slug: str, decisions: list[str], group: str = "") -> None:
         rows = "\n".join(f"| 2026-01-0{i+1} | {d} | reason | alt |"
                          for i, d in enumerate(decisions))
+        folder = f"docs/waves/{group + '/' if group else ''}{wave_id} {slug}"
         change = (
             f"# {slug}\n\nChange ID: `{wave_id}a-feat {slug}`\n\n"
             "## Decision Log\n\n"
@@ -63,8 +64,8 @@ class _RepoCase(unittest.TestCase):
             "| ---- | -------- | ------ | ------------ |\n"
             f"{rows}\n"
         )
-        self._write(f"docs/waves/{wave_id} {slug}/{wave_id}a-feat {slug}.md", change)
-        self._write(f"docs/waves/{wave_id} {slug}/wave.md",
+        self._write(f"{folder}/{wave_id}a-feat {slug}.md", change)
+        self._write(f"{folder}/wave.md",
                     f"# Wave Record\n\nwave-id: `{wave_id} {slug}`\n")
 
 
@@ -165,6 +166,39 @@ class ReasoningSurfacingTests(_RepoCase):
         row = with_content[0]
         self.assertIn("chose X over Y", "\n".join(row["decisions"]))
         self.assertIn("excerpt", row)  # content-bearing → credited by the metric census
+
+    def test_provenance_rows_for_a_wave_grouped_below_the_waves_root(self):
+        # Finding `commit-provenance-nested-wave-dir`: `_wave_dir_for_id` uses
+        # the shared discovery walk, so a wave at `docs/waves/team/<id> deep`
+        # is found under the nested layout (the flat sibling still is too).
+        from record_layout_support import apply_layout
+
+        # The module object `cp` holds may differ from `sys.modules` after a
+        # server-backed test loaded its own copy, so patch it explicitly.
+        apply_layout(self, modules=(cp.record_paths,), nested=True, max_depth=4)
+        self._wave("1abcd", "flat", ["flat decision"])
+        self._wave("1abce", "deep", ["deep decision"], group="team")
+        sha = self._commit("Land wave 1abce: deep")
+        deep_dir = cp._wave_dir_for_id(self.root, "1abce")
+        self.assertEqual(deep_dir, self.root / "docs" / "waves" / "team" / "1abce deep")
+        self.assertEqual(cp._wave_dir_for_id(self.root, "1abcd"), self.root / "docs" / "waves" / "1abcd flat")
+        self.assertIsNone(cp._wave_dir_for_id(self.root, "1abc"), "the id token matches exactly, not by prefix")
+        v = cp.provenance_for_sha(self.root, sha)
+        self.assertEqual(v["waves"], ["1abce"])
+        rows = v["provenance"]
+        self.assertTrue(rows, "the deep wave's rows must be non-empty")
+        self.assertEqual(sorted(r["path"] for r in rows), [
+            "docs/waves/team/1abce deep/1abcea-feat deep.md",
+            "docs/waves/team/1abce deep/wave.md",
+        ])
+        self.assertIn("deep decision", "\n".join(rows[0]["decisions"] + rows[1]["decisions"]))
+
+    def test_flat_layout_does_not_see_a_grouped_wave(self):
+        # Under the shipped flat layout the grouped folder is not a wave.
+        self._wave("1abce", "deep", ["deep decision"], group="team")
+        sha = self._commit("Land wave 1abce: deep")
+        self.assertIsNone(cp._wave_dir_for_id(self.root, "1abce"))
+        self.assertEqual(cp.provenance_for_sha(self.root, sha)["provenance"], [])
 
 
 class BlameTests(_RepoCase):

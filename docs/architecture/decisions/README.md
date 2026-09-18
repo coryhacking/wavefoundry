@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-17
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -40,3 +40,4 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1v22e-adr](1v22e-adr%20int8-encoding-is-batch-composition-sensitive.md) | INT8 activation scales are per-tensor across the batch, so the INT8 path encodes one row per call; batch shape is part of the vector contract, not an implementation detail | accepted |
 | [1xjmn-adr](1xjmn-adr%20unified-sqlite-vector-storage.md) | Unified SQLite storage for docs and code retrieval | accepted |
 | [1xny4-adr](1xny4-adr%20sqlite-graph-evaluation.md) | Separate graph storage consolidation from query-cache replacement | accepted |
+| [1yb8v-adr](1yb8v-adr%20record-layout-config-over-resolver-protocol.md) | Record roots are fork-editable constants in `record_paths.py`, neither runtime configuration nor a discovered resolver | accepted |

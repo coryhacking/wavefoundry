@@ -17,6 +17,7 @@ from typing import Any
 
 import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import record_paths  # record roots (wave 1y0gz)
 from runtime_lock import (
     RuntimeFileLock,
     RuntimeLockBusy,
@@ -1126,7 +1127,8 @@ def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
     tasks = _parse_tasks(tasks_section, change_status)
     progress = _parse_progress_log(_extract_section(text, "Progress Log"))
     latest = progress[-1] if progress else None
-    scope = "wave" if "docs/waves/" in str(change_path).replace("\\", "/") else "plan"
+    waves_prefix = record_paths.load_record_roots(root).waves_prefix
+    scope = "wave" if waves_prefix in str(change_path).replace("\\", "/") else "plan"
     return ChangeRecord(
         change_id=change_id,
         title=title,
@@ -1171,7 +1173,12 @@ def _unreadable_change_record(
         description="",
         status="unknown",
         path=_repo_rel_or_name(root, change_path),
-        scope="wave" if "docs/waves/" in str(change_path).replace("\\", "/") else "plan",
+        scope=(
+            "wave"
+            if record_paths.load_record_roots(root).waves_prefix
+            in str(change_path).replace("\\", "/")
+            else "plan"
+        ),
         wave_id=change_path.parent.name if change_path.parent.name != "plans" else None,
         kind=kind,
         owner="unknown",

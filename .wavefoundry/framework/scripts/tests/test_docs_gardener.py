@@ -376,3 +376,92 @@ class ManifestReconciliationTests(unittest.TestCase):
         })
         dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=False)
         self.assertEqual(self._read()["last_gardened_at"], "2026-01-01")
+
+
+class RecordLayoutGardenerTests(unittest.TestCase):
+    """Wave 1y0gz: the gardener walks the record roots, not only ``docs/``.
+
+    The layout is the ``record_paths`` constants; these cases patch them
+    through ``record_layout_support`` (in-process for the payload/run pins, in
+    the child interpreter for the CLI pins) and relocate the waves root outside
+    ``docs/``.
+    """
+
+    WAVES = "project/records/waves"
+    PLANS = "project/records/plans"
+    LAYOUT = {"waves_root": WAVES, "plans_root": PLANS}
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="docs-gardener-layout-"))
+        (self.root / "docs").mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _write_doc(self, rel: str, last_verified: str = "2000-01-01") -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            f"# T\n\nOwner: Engineering\nStatus: draft\nLast verified: {last_verified}\n",
+            encoding="utf-8",
+        )
+        return p
+
+    def _run_cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        from record_layout_support import run_script_with_layout
+
+        env = os.environ.copy()
+        env["PROJECT_ROOT"] = str(self.root)
+        return run_script_with_layout(SCRIPTS_ROOT / "docs_gardener.py", list(args), layout=self.LAYOUT, env=env)
+
+    def test_default_manifest_payload_names_the_relocated_waves_root(self) -> None:
+        from record_layout_support import patch_layout
+
+        (self.root / "project" / "records" / "waves").mkdir(parents=True)
+        with patch_layout(**self.LAYOUT):
+            artifacts = dg.default_manifest_payload("2020-01-01", self.root)["generated_artifacts"]
+        self.assertIn(f"{self.WAVES}/", artifacts)
+        self.assertIn(f"{self.WAVES}/README.md", artifacts)
+        self.assertFalse(any(entry.startswith("docs/waves") for entry in artifacts), artifacts)
+        # The shipped layout is unchanged.
+        default = dg.default_manifest_payload("2020-01-01", self.root)["generated_artifacts"]
+        self.assertIn("docs/waves/", default)
+        self.assertIn("docs/waves/README.md", default)
+
+    def test_paths_accepts_a_doc_under_the_relocated_waves_root(self) -> None:
+        rel = f"{self.WAVES}/1abcd wave/wave.md"
+        target = self._write_doc(rel)
+        proc = self._run_cli("--paths", rel, "--date", "2020-01-03")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn(f"docs-gardener: updated {rel}", proc.stdout)
+        self.assertIn("Last verified: 2020-01-03", target.read_text(encoding="utf-8"))
+
+    def test_paths_outside_docs_and_record_roots_is_refused(self) -> None:
+        rel = "elsewhere/note.md"
+        self._write_doc(rel)
+        proc = self._run_cli("--paths", rel, "--date", "2020-01-03")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("path must be under docs/ or a record root", proc.stderr)
+
+    def test_all_docs_walks_the_relocated_record_roots(self) -> None:
+        in_docs = self._write_doc("docs/a.md")
+        in_waves = self._write_doc(f"{self.WAVES}/1abcd wave/wave.md")
+        in_plans = self._write_doc(f"{self.PLANS}/1abce-feat thing.md")
+        outside = self._write_doc("elsewhere/note.md")
+        proc = self._run_cli("--all-docs", "--date", "2020-01-03")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        for path in (in_docs, in_waves, in_plans):
+            self.assertIn("Last verified: 2020-01-03", path.read_text(encoding="utf-8"), path)
+        self.assertIn("Last verified: 2000-01-01", outside.read_text(encoding="utf-8"))
+        self.assertIn("docs-gardener: stamped 3 doc(s)", proc.stdout)
+
+    def test_invalid_layout_fails_closed_before_any_stamp(self) -> None:
+        from record_layout_support import patch_layout
+
+        doc = self._write_doc("docs/a.md")
+        args = dg.parse_args(["--all-docs", "--date", "2020-01-03"])
+        with patch_layout(waves_root="../outside-waves"):
+            with self.assertRaises(SystemExit) as ctx:
+                dg.gardener_run(self.root, args)
+        self.assertIn("record_layout_invalid:", str(ctx.exception))
+        self.assertIn("Last verified: 2000-01-01", doc.read_text(encoding="utf-8"))

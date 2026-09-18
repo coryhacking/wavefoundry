@@ -37,7 +37,7 @@ class DocsLintFixtureTests(unittest.TestCase):
     BASELINE_WAVE_ID = "00000 wave-zero-plans-and-specs"
     VALID_CHANGE_ID = "00058-bug fixture-core"
     FOLLOW_UP_CHANGE_ID = "00059-enh fixture-follow-up"
-    WAVE_DOC_PATH = Path("docs/waves/waves/change-2026-03/wave.md")
+    WAVE_DOC_PATH = Path("docs/waves/change-2026-03/wave.md")
     PERSONA_DOC_PATH = Path("docs/agents/personas/wave-coordinator.md")
 
     def copy_fixture(self) -> Path:
@@ -642,7 +642,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_ac_priority_row_count_mismatch_fails(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
@@ -660,7 +660,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_plain_bullet_ac_syntax_fails(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
@@ -676,7 +676,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("uses plain bullet format", result.stderr)
         self.assertIn("checkbox syntax", result.stderr)
 
-    AC_REPO_STATE_DOC = "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+    AC_REPO_STATE_DOC = "docs/waves/change-2026-03/00058-bug fixture-core.md"
 
     def _replace_acs(self, root, acs: str, priorities: str) -> None:
         change_doc = root / self.AC_REPO_STATE_DOC
@@ -877,7 +877,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_plain_bullet_task_syntax_fails(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
             + "\n## Tasks\n\n- Inspect parser behavior.\n- Keep fixtures readable.\n",
@@ -895,7 +895,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         """Wave 1p31b (1p32k): a `[~]` AC at required priority with an inline italic
         status note must lint clean."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "- [x] AC-1: Fixture criterion satisfied.",
@@ -913,7 +913,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         """Wave 1p31b (1p32k): the inline-note requirement is satisfied by 40+ chars of
         prose after the AC label, even without italic markup."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "- [x] AC-1: Fixture criterion satisfied.",
@@ -931,7 +931,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         """Wave 1p31b (1p32k): a `[~]` AC at required priority with no inline note
         (or only a trivial label) must produce a lint error naming the AC."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "- [x] AC-1: Fixture criterion satisfied.",
@@ -952,7 +952,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         priorities does not require the inline note (mechanical enforcement applies
         only to required-priority ACs)."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
             .replace(
@@ -976,7 +976,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         — asymmetric with the AC rule per Req-12. Task `[~]` is for implementation
         hints that were streamlined out; the AC system carries the audit trail."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
             + "\n## Tasks\n\n- [x] Inspect parser behavior.\n- [~] Run the 5,000-row bench fixture\n",
@@ -1030,7 +1030,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_ac_priority_placeholder_priority_fails(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8").replace(
                 "| AC-1 | required |",
@@ -1048,7 +1048,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_activated_wave_requires_sibling_change_docs(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.unlink()
         try:
             result = self.run_docs_lint(root)
@@ -1057,7 +1057,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(
             f"wave-owned change `{self.VALID_CHANGE_ID}` must exist at "
-            "`docs/waves/waves/change-2026-03/00058-bug fixture-core.md`",
+            "`docs/waves/change-2026-03/00058-bug fixture-core.md`",
             result.stderr,
         )
         self.assertIn("Prepare wave", result.stderr)
@@ -1077,7 +1077,7 @@ class DocsLintFixtureTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.unlink()
         try:
             result = self.run_docs_lint(root)
@@ -1972,7 +1972,7 @@ class DocsLintFixtureTests(unittest.TestCase):
 
     def test_checkbox_task_syntax_passes(self) -> None:
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
             + "\n## Tasks\n\n- [ ] Inspect parser behavior.\n- [ ] Keep fixtures readable.\n",
@@ -2108,7 +2108,7 @@ class DocsLintFixtureTests(unittest.TestCase):
     def test_change_doc_with_wave_id_prose_not_flagged_as_wave_record(self) -> None:
         """A change doc that mentions wave-id in prose must not be misclassified as a wave record."""
         root = self.copy_fixture()
-        change_doc = root / "docs/waves/waves/change-2026-03/00058-bug fixture-core.md"
+        change_doc = root / "docs/waves/change-2026-03/00058-bug fixture-core.md"
         change_doc.write_text(
             change_doc.read_text(encoding="utf-8")
             + "\n## Notes\n\n"
@@ -2502,7 +2502,7 @@ class LinkValidatorIntegrationTests(DocsLintFixtureTests):
 class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
     """AC-7: check_prepare_council_verdict — at least one passing and one failing test."""
 
-    ACTIVE_WAVE = Path("docs/waves/waves/change-2026-03/wave.md")
+    ACTIVE_WAVE = Path("docs/waves/change-2026-03/wave.md")
 
     def _make_legacy(self, root: Path) -> None:
         wave_md = root / self.ACTIVE_WAVE
@@ -5632,3 +5632,457 @@ class ScaffoldDeclaresNothingTests(unittest.TestCase):
             any("scaffold declares review targets" in f for f in failures),
             f"the corpus path must report a declaring scaffold; got {failures}",
         )
+
+
+class RecordLayoutLintTests(unittest.TestCase):
+    """Wave 1y0gz / 1y042: docs-lint validates the record layout CONSTANTS.
+
+    The layout is the ``record_paths`` module constants (``WAVES_ROOT``,
+    ``PLANS_ROOT``, ``NESTED``, ``MAX_DEPTH``); nothing is read from
+    configuration. The default layout is covered by the unchanged base corpus
+    above (``test_base_fixture_passes``); these cases patch the constants
+    through ``tests/record_layout_support.py`` (``apply_layout`` for direct
+    validator calls, ``run_script_with_layout`` for subprocess runs), relocate
+    the roots, exercise every invalid class fail-closed, and pin that a
+    relocated corpus is linted and gardened exactly like the shipped one.
+    Reuses the fixture helpers by reference (not subclassing) so the base
+    corpus is not re-run under this class.
+    """
+
+    copy_fixture = DocsLintFixtureTests.copy_fixture
+    run_docs_lint = DocsLintFixtureTests.run_docs_lint
+    run_docs_lint_with_args = DocsLintFixtureTests.run_docs_lint_with_args
+
+    RELOCATED_WAVES = "project/records/waves"
+    RELOCATED_PLANS = "project/records/plans"
+    RELOCATED_LAYOUT = {"waves_root": RELOCATED_WAVES, "plans_root": RELOCATED_PLANS}
+    FIXTURE_WAVE_DIR = "change-2026-03"
+
+    # -- helpers -----------------------------------------------------------
+
+    def _run_lint_with_layout(
+        self, root: Path, layout: dict[str, object], *args: str
+    ) -> subprocess.CompletedProcess[str]:
+        """The docs-lint CLI as a child process whose constants are ``layout``."""
+        from record_layout_support import run_script_with_layout
+
+        env = os.environ.copy()
+        env["PROJECT_ROOT"] = str(root)
+        env["PYTHONPATH"] = str(SCRIPTS_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+        return run_script_with_layout(DOCS_LINT_SCRIPT, list(args), layout=layout, cwd=PROJECT_ROOT, env=env)
+
+    def _apply(self, **layout: object) -> None:
+        from record_layout_support import apply_layout
+
+        apply_layout(self, **layout)
+
+    def _relocate_waves(self, root: Path, waves_rel: str) -> Path:
+        """Move the fixture waves root to ``waves_rel`` and regenerate the manifest
+        through the real producer (``docs_gardener.default_manifest_payload``,
+        which ``wf_garden_docs`` reconciles before lint) so the fixture matches a
+        gardened relocated repository rather than a hand-edited one. The
+        constants must already be patched to the relocated layout."""
+        import docs_gardener
+
+        target = root.joinpath(*waves_rel.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(root / "docs" / "waves"), str(target))
+        manifest = root / "docs" / "prompts" / "prompt-surface-manifest.json"
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["generated_artifacts"] = docs_gardener.default_manifest_payload("2026-03-21", root)[
+            "generated_artifacts"
+        ]
+        manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return target
+
+    def _relocated_fixture(self) -> Path:
+        root = self.copy_fixture()
+        self._apply(**self.RELOCATED_LAYOUT)
+        self._relocate_waves(root, self.RELOCATED_WAVES)
+        return root
+
+    @staticmethod
+    def _error_lines(result: subprocess.CompletedProcess[str]) -> list[str]:
+        return [line for line in result.stderr.splitlines() if line.startswith("ERROR: ")]
+
+    @staticmethod
+    def _break_wave_md(wave_md: Path) -> None:
+        """A known-bad wave record: one broken relative link and no ``Last verified:``."""
+        text = wave_md.read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if not line.startswith("Last verified:")]
+        lines.append("")
+        lines.append("See [the missing target](./definitely-missing-target.md).")
+        wave_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # (a) default layout: the resolver hands the validators byte-identical paths.
+    def test_default_layout_paths_are_byte_identical(self) -> None:
+        from wave_lint_lib.helpers import resolve_record_roots
+        from wave_lint_lib.wave_validators import check_wave_roots
+
+        root = self.copy_fixture()
+        try:
+            roots = resolve_record_roots(root)
+            self.assertIsNotNone(roots)
+            self.assertEqual(roots.waves, root / "docs" / "waves")
+            self.assertEqual(roots.plans, root / "docs" / "plans")
+            self.assertEqual(roots.waves_prefix, "docs/waves/")
+            self.assertEqual(check_wave_roots(root), [])
+            shutil.rmtree(root / "docs" / "waves")
+            self.assertIn(
+                "docs/waves: missing required Wavefoundry generated artifact",
+                check_wave_roots(root),
+            )
+        finally:
+            shutil.rmtree(root)
+
+    # (b) relocated roots: the full lint passes and the validators FIND the wave there.
+    def test_relocated_roots_pass_and_wave_validators_find_the_wave(self) -> None:
+        from wave_lint_lib.helpers import resolve_record_roots
+        from wave_lint_lib.wave_validators import check_wave_docs, check_wave_roots
+
+        root = self._relocated_fixture()
+        try:
+            result = self._run_lint_with_layout(root, self.RELOCATED_LAYOUT)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("docs-lint: ok", result.stdout)
+
+            roots = resolve_record_roots(root)
+            self.assertEqual(roots.waves, root / "project" / "records" / "waves")
+            self.assertEqual(check_wave_roots(root), [])
+
+            wave_md = root / "project" / "records" / "waves" / self.FIXTURE_WAVE_DIR / "wave.md"
+            self.assertTrue(wave_md.is_file())
+            wave_md.write_text(
+                wave_md.read_text(encoding="utf-8").replace("Change Status: `ready`", "Change Status: `bogus`"),
+                encoding="utf-8",
+            )
+            failures = check_wave_docs(root)
+            self.assertTrue(
+                any(f.startswith(f"project/records/waves/{self.FIXTURE_WAVE_DIR}/wave.md") for f in failures),
+                failures,
+            )
+            result = self._run_lint_with_layout(root, self.RELOCATED_LAYOUT)
+            self.assertEqual(result.returncode, 1)
+            self.assertTrue(
+                any(
+                    f"project/records/waves/{self.FIXTURE_WAVE_DIR}/wave.md" in line
+                    for line in self._error_lines(result)
+                ),
+                result.stderr,
+            )
+
+            shutil.rmtree(root / "project" / "records" / "waves")
+            self.assertIn(
+                "project/records/waves: missing required Wavefoundry generated artifact",
+                check_wave_roots(root),
+            )
+        finally:
+            shutil.rmtree(root)
+
+    # (b') the relocated corpus is linted like the shipped one: a known-bad wave
+    # record fails with the SAME two per-file errors (metadata + links) it fails
+    # with under docs/waves. Pins finding `lint-corpus-docs-only`.
+    def test_relocated_known_bad_wave_md_reports_the_same_errors(self) -> None:
+        wave_rel = f"{self.FIXTURE_WAVE_DIR}/wave.md"
+
+        default_root = self.copy_fixture()
+        try:
+            self._break_wave_md(default_root / "docs" / "waves" / self.FIXTURE_WAVE_DIR / "wave.md")
+            default_result = self.run_docs_lint(default_root)
+        finally:
+            shutil.rmtree(default_root)
+        self.assertEqual(default_result.returncode, 1, default_result.stdout + default_result.stderr)
+        default_errors = sorted(
+            line.replace(f"docs/waves/{wave_rel}", "<waves>/wave.md")
+            for line in self._error_lines(default_result)
+            if f"docs/waves/{wave_rel}" in line
+        )
+        self.assertEqual(len(default_errors), 2, default_errors)
+        self.assertTrue(any("definitely-missing-target.md" in line for line in default_errors), default_errors)
+        self.assertTrue(any("Last verified" in line for line in default_errors), default_errors)
+
+        relocated_root = self._relocated_fixture()
+        try:
+            self._break_wave_md(relocated_root / "project" / "records" / "waves" / self.FIXTURE_WAVE_DIR / "wave.md")
+            relocated_result = self._run_lint_with_layout(relocated_root, self.RELOCATED_LAYOUT)
+        finally:
+            shutil.rmtree(relocated_root)
+        self.assertEqual(relocated_result.returncode, 1, relocated_result.stdout + relocated_result.stderr)
+        relocated_errors = sorted(
+            line.replace(f"project/records/waves/{wave_rel}", "<waves>/wave.md")
+            for line in self._error_lines(relocated_result)
+            if f"project/records/waves/{wave_rel}" in line
+        )
+        self.assertEqual(relocated_errors, default_errors)
+
+    # (b'') the incremental (`--changed`) path lints a changed doc under the relocated root.
+    def test_changed_detects_bogus_change_status_under_relocated_root(self) -> None:
+        import unittest.mock as mock
+        import wave_lint_lib.cli as cli
+
+        root = self._relocated_fixture()
+        try:
+            wave_md = root / "project" / "records" / "waves" / self.FIXTURE_WAVE_DIR / "wave.md"
+            wave_md.write_text(
+                wave_md.read_text(encoding="utf-8").replace("Change Status: `ready`", "Change Status: `bogus`"),
+                encoding="utf-8",
+            )
+            with mock.patch.object(cli, "_get_changed_files", return_value=[wave_md]):
+                failures, _warnings = cli._run_incremental_checks(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertTrue(
+            any(
+                f.startswith(f"project/records/waves/{self.FIXTURE_WAVE_DIR}/wave.md") and "bogus" in f
+                for f in failures
+            ),
+            failures,
+        )
+
+    # (c) every invalid class is a lint FAILURE and nothing scans a guessed root.
+    def test_invalid_layout_classes_fail_closed(self) -> None:
+        cases: dict[str, dict[str, object]] = {
+            "absolute": {"waves_root": "/tmp/waves"},
+            "dotdot": {"waves_root": "docs/../waves"},
+            "equal": {"waves_root": "docs/records", "plans_root": "docs/records"},
+            "nested": {"waves_root": "docs/records", "plans_root": "docs/records/plans"},
+            "file_as_root": {"waves_root": "docs/records-file"},
+            "max_depth_out_of_range": {"max_depth": 0},
+        }
+        for name, layout in cases.items():
+            with self.subTest(case=name):
+                root = self.copy_fixture()
+                try:
+                    if name == "file_as_root":
+                        (root / "docs" / "records-file").write_text("not a directory\n", encoding="utf-8")
+                    result = self._run_lint_with_layout(root, layout)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    errors = self._error_lines(result)
+                    self.assertTrue(
+                        any(line.startswith("ERROR: record_layout_invalid:") for line in errors),
+                        result.stderr,
+                    )
+                    # Fail-closed: no validator probed the default root instead.
+                    self.assertFalse(
+                        any("docs/waves" in line and "missing required" in line for line in errors),
+                        result.stderr,
+                    )
+                    self.assertEqual(
+                        len([line for line in errors if line.startswith("ERROR: record_layout_invalid:")]),
+                        len(set(line for line in errors if line.startswith("ERROR: record_layout_invalid:"))),
+                        "record_layout_invalid diagnostics must not be duplicated across validators",
+                    )
+                finally:
+                    shutil.rmtree(root)
+
+    @unittest.skipIf(os.name == "nt", "symlink escape is a POSIX case")
+    def test_escaping_symlink_root_fails_closed(self) -> None:
+        root = self.copy_fixture()
+        outside = Path(tempfile.mkdtemp(prefix="wave-docs-lint-outside-"))
+        try:
+            # The constant's path must EXIST to pass through the symlink: `records` -> outside the
+            # repository, and the wave records really live there.
+            shutil.move(str(root / "docs" / "waves"), str(outside / "waves"))
+            (root / "records").symlink_to(outside, target_is_directory=True)
+            self.assertTrue((root / "records" / "waves").is_dir())
+            result = self._run_lint_with_layout(root, {"waves_root": "records/waves"})
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertTrue(
+                any("record_layout_invalid:" in line and "outside the repository" in line for line in self._error_lines(result)),
+                result.stderr,
+            )
+        finally:
+            shutil.rmtree(root)
+            shutil.rmtree(outside)
+
+    def test_direct_validator_calls_fail_closed_on_invalid_layout(self) -> None:
+        from wave_lint_lib.core_validators import check_required_files
+        from wave_lint_lib.docs_constants_validators import check_wave_scaffolding_integrity
+        from wave_lint_lib.link_validators import check_markdown_links
+        from wave_lint_lib.wave_validators import (
+            check_closed_wave_requirements,
+            check_orphan_wave_ledgers,
+            check_plan_filenames,
+            check_prepare_council_roster_evidence,
+            check_prepare_council_verdict,
+            check_wave_docs,
+            check_wave_roots,
+        )
+
+        root = self.copy_fixture()
+        try:
+            self._apply(waves_root="docs/records", plans_root="docs/records")
+            shutil.rmtree(root / "docs" / "waves")  # a guessed default root would now report "missing"
+            single = [
+                check_required_files,
+                check_wave_roots,
+                check_wave_docs,
+                check_closed_wave_requirements,
+                check_plan_filenames,
+                check_orphan_wave_ledgers,
+                check_wave_scaffolding_integrity,
+            ]
+            for fn in single:
+                with self.subTest(validator=fn.__name__):
+                    failures = fn(root)
+                    self.assertTrue(all(f.startswith("record_layout_invalid:") for f in failures), failures)
+                    self.assertTrue(failures, fn.__name__)
+            for fn in (check_prepare_council_verdict, check_prepare_council_roster_evidence):
+                with self.subTest(validator=fn.__name__):
+                    errors, _warnings = fn(root)
+                    self.assertTrue(errors and all(e.startswith("record_layout_invalid:") for e in errors), errors)
+            link_failures = check_markdown_links(root, root / "docs" / "README.md")
+            self.assertTrue(
+                link_failures and all(f.startswith("record_layout_invalid:") for f in link_failures),
+                link_failures,
+            )
+        finally:
+            shutil.rmtree(root)
+
+    # (d') a sub-wave folder NESTED INSIDE a discovered wave folder (finding
+    # `cycle2-adjacent-gaps` 4b): discovery never descends past a `wave.md`, so the
+    # per-document walk must not either -- `_collect_wave_state` sees only the outer wave.
+    def test_nested_sub_wave_inside_a_wave_folder_is_not_a_lint_record(self) -> None:
+        import record_paths
+        from wave_lint_lib.helpers import resolve_record_roots
+        from wave_lint_lib.wave_validators import _collect_wave_state, _wave_record_docs
+
+        root = self.copy_fixture()
+        try:
+            waves = root / "docs" / "waves"
+            original = (waves / self.FIXTURE_WAVE_DIR / "wave.md").read_text(encoding="utf-8")
+            self.assertIn("wave-id: `00057 routine-behavior-contract`", original)
+            outer = waves / "1aaaa demo"
+            (outer / "evidence").mkdir(parents=True)
+            (outer / "wave.md").write_text(
+                original.replace("wave-id: `00057 routine-behavior-contract`", "wave-id: `1aaaa demo`"),
+                encoding="utf-8",
+            )
+            (outer / "evidence" / "notes.md").write_text("# Evidence\n\nwave-id: `1aaaa demo`\n", encoding="utf-8")
+            inner = outer / "evidence" / "1bbbb sub"
+            inner.mkdir()
+            (inner / "wave.md").write_text(
+                original.replace("wave-id: `00057 routine-behavior-contract`", "wave-id: `1bbbb sub`"),
+                encoding="utf-8",
+            )
+            (inner / "detail.md").write_text("# Detail\n\nwave-id: `1bbbb sub`\n", encoding="utf-8")
+
+            self._apply(nested=True, max_depth=4)
+            roots = resolve_record_roots(root)
+            discovered = record_paths.discover_wave_dirs(root, roots)
+            self.assertEqual(discovered, [outer, waves / self.FIXTURE_WAVE_DIR])
+
+            docs = _wave_record_docs(root, roots)
+            self.assertIn(outer / "wave.md", docs)
+            self.assertIn(outer / "evidence" / "notes.md", docs)  # evidence sub-docs are still linted
+            self.assertFalse([d for d in docs if inner in d.parents or d.parent == inner], docs)
+
+            wave_state, _records = _collect_wave_state(root)
+            self.assertEqual(set(wave_state), {"00057 routine-behavior-contract", "1aaaa demo"})
+        finally:
+            shutil.rmtree(root)
+
+    # (e) the incremental (`--changed`) path fails closed BEFORE scanning: an invalid
+    # layout on a git-initialised fixture with a changed wave record reports the
+    # `record_layout_invalid:` line and nothing else (finding `cycle2-adjacent-gaps` 4d).
+    def test_changed_fails_closed_on_invalid_layout_before_scanning(self) -> None:
+        root = self.copy_fixture()
+        try:
+            git_env = {
+                **os.environ,
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+            }
+            for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-q", "-m", "fixture"]):
+                subprocess.run(cmd, cwd=root, env=git_env, check=True, capture_output=True, text=True)
+            wave_md = root / "docs" / "waves" / self.FIXTURE_WAVE_DIR / "wave.md"
+            wave_md.write_text(
+                wave_md.read_text(encoding="utf-8").replace("Change Status: `ready`", "Change Status: `bogus`"),
+                encoding="utf-8",
+            )
+            result = self._run_lint_with_layout(root, {"waves_root": "../x"}, "--changed")
+        finally:
+            shutil.rmtree(root)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        errors = self._error_lines(result)
+        self.assertTrue(errors, result.stdout + result.stderr)
+        self.assertTrue(all(line.startswith("ERROR: record_layout_invalid:") for line in errors), errors)
+        # Exactly ONE diagnostic: the incremental path returned before any per-file validator ran
+        # (each of those would fail closed on its own and re-report the same line).
+        self.assertEqual(len(errors), 1, errors)
+        self.assertNotIn("bogus", result.stderr)  # the changed record was never scanned
+        self.assertNotIn("docs-lint: ok", result.stdout)
+
+    # (d) the validators' own walk is the discovery walk (finding `lint-validators-own-walk`):
+    # under NESTED=True, MAX_DEPTH=1 a wave at depth 3 and one under `.archive/` are
+    # outside the layout, so lint must see exactly the set `discover_wave_dirs` sees.
+    def test_nested_divergence_lint_walk_matches_discovery(self) -> None:
+        import record_paths
+        from wave_lint_lib.helpers import resolve_record_roots
+        from wave_lint_lib.wave_validators import (
+            _collect_wave_state,
+            _wave_record_docs,
+            check_closed_wave_requirements,
+            check_prepare_council_verdict,
+        )
+
+        root = self.copy_fixture()
+        try:
+            waves = root / "docs" / "waves"
+            source = waves / self.FIXTURE_WAVE_DIR / "wave.md"
+            original = source.read_text(encoding="utf-8")
+            self.assertIn("wave-id: `00057 routine-behavior-contract`", original)
+
+            def plant(rel_dir: str, wave_id: str, status: str = "active") -> Path:
+                target = waves.joinpath(*rel_dir.split("/"))
+                target.mkdir(parents=True)
+                # A legacy (prose-gated) record: no ledger declaration, so the verdict
+                # validator reports it whenever the walk reaches it.
+                text = (
+                    original.replace("wave-id: `00057 routine-behavior-contract`", f"wave-id: `{wave_id}`")
+                    .replace("Status: active", f"Status: {status}", 1)
+                    .replace("review-evidence-source: events.jsonl\n", "")
+                )
+                (target / "wave.md").write_text(text, encoding="utf-8")
+                return target
+
+            # Depth 3 (two containers without a wave.md above it) and a dot-prefixed archive;
+            # `implementing` without a prepare-council verdict so the council validator
+            # would report each one it walks.
+            plant("deep/deeper/00061 deep-wave", "00061 deep-wave", status="implementing")
+            plant(".archive/00062 archived-wave", "00062 archived-wave", status="implementing")
+
+            self._apply(nested=True, max_depth=1)
+            roots = resolve_record_roots(root)
+            discovered = record_paths.discover_wave_dirs(root, roots)
+            self.assertEqual(discovered, [waves / self.FIXTURE_WAVE_DIR])
+
+            wave_state, _records = _collect_wave_state(root)
+            self.assertEqual(set(wave_state), {"00057 routine-behavior-contract"})
+            self.assertEqual(
+                sorted({p.parent for p in _wave_record_docs(root, roots)}), discovered
+            )
+            council_errors, _council_warnings = check_prepare_council_verdict(root)
+            self.assertFalse(
+                any("00061" in e or "00062" in e or ".archive" in e or "deeper" in e for e in council_errors),
+                council_errors,
+            )
+            self.assertFalse(
+                any("deeper" in f or ".archive" in f for f in check_closed_wave_requirements(root)),
+            )
+
+            # Raising the bound brings the deep wave (not the archive) into lint's view too.
+            self._apply(nested=True, max_depth=3)
+            roots = resolve_record_roots(root)
+            discovered = record_paths.discover_wave_dirs(root, roots)
+            self.assertEqual(
+                discovered, [waves / self.FIXTURE_WAVE_DIR, waves / "deep" / "deeper" / "00061 deep-wave"]
+            )
+            wave_state, _records = _collect_wave_state(root)
+            self.assertEqual(set(wave_state), {"00057 routine-behavior-contract", "00061 deep-wave"})
+            council_errors, _council_warnings = check_prepare_council_verdict(root)
+            self.assertTrue(any("00061 deep-wave" in e for e in council_errors), council_errors)
+            self.assertFalse(any(".archive" in e for e in council_errors), council_errors)
+        finally:
+            shutil.rmtree(root)

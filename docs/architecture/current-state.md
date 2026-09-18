@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-17
 
 ## Runtime Topology
 
@@ -12,6 +12,7 @@ Last verified: 2026-09-11
 Developer/agent
   │
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
+  ├── record_paths.py (imported by the server, docs-lint, gardener, indexer, memory backfill, dashboard, upgrade)  →  reads no config; its module constants `WAVES_ROOT`, `PLANS_ROOT`, `NESTED`, `MAX_DEPTH` are the single owner of the wave and plan record roots, edited by a fork at merge time (wave 1y0gz)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
   ├── python3 .wavefoundry/framework/scripts/build_pack.py     →  .wavefoundry/framework/VERSION (write), source-only feature ZIP and optional independently versioned model-set asset (write)

@@ -1042,24 +1042,47 @@ def claude_stop_source() -> str:
             import subprocess_util as _wf_subprocess_util
         except Exception:
             _wf_subprocess_util = None
+        # Wave 1y0gz: the waves root comes from the stdlib-only record-layout resolver, guarded the
+        # same way. Without it the hook still finds a root by its `.wavefoundry/` marker and reports
+        # no active wave (capture-only, never a failure).
+        try:
+            import record_paths as _wf_record_paths
+        except Exception:
+            _wf_record_paths = None
+
+
+        def _waves_root(root: Path) -> Path | None:
+            if _wf_record_paths is None:
+                return None
+            try:
+                return _wf_record_paths.load_record_roots(root).waves
+            except Exception:
+                return None
 
 
         def _find_repo_root(start: Path) -> Path | None:
             cur = start.resolve()
             for cand in [cur, *cur.parents]:
-                if (cand / "docs" / "waves").is_dir() or (cand / ".wavefoundry").is_dir():
+                waves = _waves_root(cand)
+                if (waves is not None and waves.is_dir()) or (cand / ".wavefoundry").is_dir():
                     return cand
             return None
 
 
+        def _wave_dirs(root: Path) -> list:
+            # Wave 1y0gz: the same discovery walk as the lifecycle tools (flat or nested per the
+            # `record_paths` constants), guarded the same way as the root lookup.
+            if _wf_record_paths is None:
+                return []
+            try:
+                return list(_wf_record_paths.discover_wave_dirs(root))
+            except Exception:
+                return []
+
+
         def _active_wave(root: Path):
-            waves = root / "docs" / "waves"
-            if not waves.is_dir():
-                return None
-            for wave_dir in sorted(waves.iterdir()):
+            for wave_dir in _wave_dirs(root):
                 wave_md = wave_dir / "wave.md"
-                if not wave_md.is_file():
-                    continue
                 try:
                     text = wave_md.read_text(encoding="utf-8")
                 except Exception:

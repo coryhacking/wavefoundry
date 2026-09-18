@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-08
+Last verified: 2026-09-17
 review-evidence-source: events.jsonl
 
 wave-id: `1tis8 memory-eval-mcp-tool-and-decision-log-target`
@@ -110,9 +110,9 @@ Wave `1tis8` (Memory Eval Mcp Tool And Decision Log Target) delivered 3 changes:
 
 <!-- wave:context-efficiency begin -->
 
-Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+Estimated context avoided uses whole eligible text-file, workflow-prompt and derived-artifact credits, minus recorded request and response tokens. This baseline does not prove what an agent otherwise would have read or spent. Any quality-equivalent paired-evaluation residual is recorded separately in the checkpoint state and included in the total.
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | plan | 21 | 40,490 |
 | implement | 14 | 350,453 |

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
+import record_paths  # record roots (wave 1y0gz)
 from review_policy import (
     REVIEW_POLICY_CARRIER_REGISTRY,
     REVIEW_POLICY_SURFACE_BLOCKS,
@@ -247,9 +248,15 @@ REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = (
     ("early-trigger-phrases-contract", REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES),
 )
 
-SCAFFOLD_BASELINES: tuple[tuple[str, str], ...] = (
-    ("docs/plans/plan-template.md", "plan-template.md"),
-)
+# Scaffold templates materialized under the PLANS root (wave 1y0gz): the
+# destination is resolved per repository by ``scaffold_baselines``.
+SCAFFOLD_BASELINE_TEMPLATES: tuple[str, ...] = ("plan-template.md",)
+
+
+def scaffold_baselines(repo_root: Path) -> tuple[tuple[str, str], ...]:
+    """``(destination, template_name)`` pairs under the resolved plans root."""
+    plans_rel = record_paths.load_record_roots(repo_root).plans_rel
+    return tuple((f"{plans_rel}/{name}", name) for name in SCAFFOLD_BASELINE_TEMPLATES)
 
 PLAN_TEMPLATE_REQUIRED_HEADINGS: tuple[str, ...] = (
     "Rationale",
@@ -1842,7 +1849,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
     destinations = [
         *(carrier.destination for carrier in review_protocol_carriers(repo_root)),
         *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
-        *(destination for destination, _template in SCAFFOLD_BASELINES),
+        *(destination for destination, _template in scaffold_baselines(repo_root)),
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
         *_skill_output_destinations(repo_root),
@@ -1991,7 +1998,7 @@ def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
 
     written: list[str] = []
     today = time.strftime("%Y-%m-%d")
-    for destination, template_name in SCAFFOLD_BASELINES:
+    for destination, template_name in scaffold_baselines(repo_root):
         path = _contained_review_carrier_path(repo_root, destination)
         if path.is_file():
             continue

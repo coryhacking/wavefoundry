@@ -936,9 +936,17 @@ class SessionCaptureHookTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _run(self, cwd: Path):
+        # Wave 1y0gz: the hook resolves the waves root through `record_paths`
+        # (in a real repo HOOK_BOOTSTRAP puts the scripts dir on sys.path); the
+        # script is rendered into a bare temp dir here, so supply that path.
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (str(Path(SCRIPT_PATH).parent), env.get("PYTHONPATH", "")) if p
+        )
         return subprocess.run(
             ["python3", str(self.script)],
             cwd=str(cwd), text=True, capture_output=True, input="{}", timeout=15,
+            env=env,
         )
 
     def test_captures_active_wave_and_ac_progress(self) -> None:
@@ -960,6 +968,43 @@ class SessionCaptureHookTests(unittest.TestCase):
             self.assertIn("1abc demo", text)
             self.assertIn("1/2", text)
             self.assertIn("memory candidate", text)
+
+    def _run_with_layout(self, cwd: Path, **layout):
+        # Wave 1y0gz: run the rendered hook in a child whose `record_paths`
+        # constants are set first (the hook imports the same module object).
+        from record_layout_support import layout_prelude
+
+        code = "\n".join([
+            layout_prelude(**layout),
+            "import runpy",
+            f"sys.argv = [{str(self.script)!r}]",
+            f"runpy.run_path({str(self.script)!r}, run_name='__main__')",
+        ])
+        return subprocess.run(
+            ["python3", "-B", "-c", code],
+            cwd=str(cwd), text=True, capture_output=True, input="{}", timeout=15,
+        )
+
+    def test_captures_a_nested_wave_through_the_shared_discovery(self) -> None:
+        # Finding `cycle2-adjacent-gaps` (e): the hook walks through
+        # `record_paths.discover_wave_dirs`, so a wave one level deeper is
+        # found under NESTED=True (a flat `iterdir` would report no wave).
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            wave_dir = root / "docs" / "waves" / "team" / "1abc nested"
+            wave_dir.mkdir(parents=True)
+            (wave_dir / "wave.md").write_text(
+                "# Wave Record\nStatus: active\nwave-id: `1abc nested`\n", encoding="utf-8"
+            )
+            (wave_dir / "1abc-enh thing.md").write_text("- [x] AC-1: done\n", encoding="utf-8")
+            res = self._run_with_layout(root, nested=True)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            text = (root / ".wavefoundry" / "logs" / "last-session-capture.md").read_text(encoding="utf-8")
+            self.assertIn("1abc nested", text)
+            self.assertIn("1/1", text)
+            flat = self._run_with_layout(root, nested=False)
+            self.assertEqual(flat.returncode, 0, flat.stdout + flat.stderr)
+            self.assertIn("No active wave", (root / ".wavefoundry" / "logs" / "last-session-capture.md").read_text())
 
     def test_no_active_wave_is_clean_exit(self) -> None:
         with tempfile.TemporaryDirectory() as d:

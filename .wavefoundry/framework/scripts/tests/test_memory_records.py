@@ -479,6 +479,79 @@ class LifecycleMemoryIdTests(_MemoryCase):
             [{"path": "docs/live.md", "token": "mem-nonexistent-thing"}],
         )
 
+    def test_migration_configured_corpus_and_nested_wave_ownership(self):
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        for waves, plans in (("project/waves", "project/plans"), ("docs/waves", "docs/plans")):
+            with self.subTest(waves=waves), patch.multiple(
+                self.mem.record_paths, WAVES_ROOT=waves, PLANS_ROOT=plans, NESTED=True, MAX_DEPTH=3
+            ):
+                live = [
+                    f"{waves}/1abcd flat/wave.md",
+                    f"{waves}/team/1abce nested/wave.md",
+                    f"{waves}/team/1abce nested/evidence/report.md",
+                    f"{plans}/1abcf-enh plan.md", "docs/live.md", "NOTES.md",
+                ]
+                frozen = [
+                    f"{waves}/team/1abcg closed/wave.md",
+                    f"{waves}/team/1abcg closed/evidence/report.md",
+                    f"{waves}/team/1abch unknown/wave.md",
+                    f"{waves}/team/orphan.md",
+                    f"{waves}/a/b/c/1abci deep/wave.md",
+                    "docs/agents/memory/archive/history.md",
+                ]
+                original = "`mem-alpha-lesson` and `mem-missing-lesson`\n"
+                for rel in live + frozen:
+                    path = self.root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    status = "closed" if "closed" in rel else "active"
+                    prefix = "" if "unknown" in rel else f"Status: {status}\n"
+                    path.write_text(prefix + original, encoding="utf-8")
+                ledger = self.root / waves / "team/1abce nested/events.jsonl"
+                ledger.write_text(original, encoding="utf-8")
+                snapshots = {rel: (self.root / rel).read_bytes() for rel in frozen}
+                result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+                # The second layout pass repairs references after the legacy file
+                # is already gone, reproducing interrupted-migration recovery.
+                new_id = self.mem.resolve_migrated_memory_id(self.root, "mem-alpha-lesson")
+                for rel in live:
+                    self.assertIn(f"`{new_id}`", (self.root / rel).read_text(), rel)
+                for rel, before in snapshots.items():
+                    self.assertEqual((self.root / rel).read_bytes(), before, rel)
+                self.assertEqual(ledger.read_text(), original)
+                residual_paths = [r["path"] for r in result["residual_references"]]
+                for rel in live:
+                    self.assertEqual(residual_paths.count(rel), 1, rel)
+                again = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+                self.assertEqual(again["renamed"], 0)
+                self.assertEqual(again["references_repaired"], 0)
+
+    def test_migration_reference_corpus_does_not_follow_symlinks(self):
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        with tempfile.TemporaryDirectory() as external, patch.multiple(
+            self.mem.record_paths, WAVES_ROOT="project/waves", PLANS_ROOT="project/plans"
+        ):
+            outside = Path(external)
+            original = "Status: active\n`mem-alpha-lesson`\n"
+            (outside / "wave.md").write_text(original)
+            for rel in ("docs/escape.md", "project/plans/escape.md", "NOTES.md"):
+                alias = self.root / rel
+                alias.parent.mkdir(parents=True, exist_ok=True)
+                alias.symlink_to(outside / "wave.md")
+            wave_alias = self.root / "project/waves/1abcd linked"
+            wave_alias.parent.mkdir(parents=True)
+            wave_alias.symlink_to(outside, target_is_directory=True)
+            archive = self.root / "docs/agents/memory/archive/history.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text(original)
+            (self.root / "docs/history-alias.md").symlink_to(archive)
+            result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+            self.assertEqual(result["renamed"], 1)
+            self.assertEqual(result["references_repaired"], 0)
+            self.assertEqual((outside / "wave.md").read_text(), original)
+            self.assertEqual(archive.read_text(), original)
+
 
 class RecordRoundTripTests(_MemoryCase):
     def test_render_parse_round_trip_all_kinds(self):

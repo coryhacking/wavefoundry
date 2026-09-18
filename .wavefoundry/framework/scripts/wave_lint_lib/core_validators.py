@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .constants import (
     ADDITIONAL_REQUIRED_DOCS,
+    WAVES_ROOT_REQUIRED_DOCS,
     FORBIDDEN_ROOT_WRAPPERS_RELOCATED,
     FORBIDDEN_ROOT_WRAPPERS_RETIRED,
     MANIFEST_REQUIRED_KEYS,
@@ -13,7 +14,8 @@ from .constants import (
     PROMPT_SURFACE_FILES,
     WORKFLOW_REQUIRED_KEYS,
 )
-from .helpers import load_json
+from .helpers import load_json, resolve_record_roots
+from record_paths import validate_record_layout
 from review_policy import (
     REVIEW_POLICY_OBLIGATION_ANCHORS,
     REVIEW_POLICY_SURFACE_MARKER_BEGIN,
@@ -229,18 +231,22 @@ def check_seed_prefix_uniqueness(root: Path) -> list[str]:
 
 def check_required_files(root: Path) -> list[str]:
     failures: list[str] = []
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed, never probe a guessed root
     init_or_upgrade_started = any(
         (root / candidate).exists()
         for candidate in (
             "docs/prompts/install-wavefoundry.prompt.md",
             "docs/prompts/upgrade-wavefoundry.prompt.md",
             "docs/prompts/prompt-surface-manifest.json",
-            "docs/waves",
+            roots.waves_rel,
             "docs/agents/journals",
             "docs/agents/personas",
         )
     )
-    for relative in (*PROMPT_SURFACE_FILES, *ADDITIONAL_REQUIRED_DOCS):
+    waves_root_docs = tuple(f"{roots.waves_rel}/{name}" for name in WAVES_ROOT_REQUIRED_DOCS)
+    for relative in (*PROMPT_SURFACE_FILES, *ADDITIONAL_REQUIRED_DOCS, *waves_root_docs):
         path = root / relative
         if not path.exists():
             failures.append(f"{relative}: missing required Wavefoundry file")
@@ -289,6 +295,10 @@ def check_workflow_config(root: Path) -> list[str]:
         return [f"docs/workflow-config.json: unreadable or invalid JSON ({error})"]
     assert data is not None
     policy_failures = _check_lifecycle_id_policy(data)
+    # Wave 1y0gz: the record layout (the `record_paths` constants applied to this root) is
+    # validated fail-closed here; every root-aware validator returns the same
+    # `record_layout_invalid:` code and scans nothing when it is invalid.
+    policy_failures.extend(validate_record_layout(root))
     if "wave_review" in data:
         _normalized_review, review_errors = normalize_wave_review_policy(
             data.get("wave_review")

@@ -21,6 +21,8 @@ import ast
 import re
 from pathlib import Path
 
+from .helpers import resolve_record_roots
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -245,13 +247,15 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
     """1seau AC-5: Wave-reference integrity on admitted docs; no unbracketed
     pre-approval signoff phrasing in wave records. Non-closed waves only."""
     failures: list[str] = []
-    waves_root = root / "docs" / "waves"
-    if not waves_root.is_dir():
+    roots = resolve_record_roots(root, failures)
+    if roots is None:
+        return failures  # invalid record layout: fail closed
+    if not roots.waves.is_dir():
         return failures
-    for wave_dir in sorted(waves_root.iterdir()):
+    import record_paths  # discovery walk (wave 1y043); sibling import as in helpers
+
+    for wave_dir in record_paths.discover_wave_dirs(root, roots):
         wave_md = wave_dir / "wave.md"
-        if not wave_dir.is_dir() or not wave_md.is_file():
-            continue
         try:
             wave_text = wave_md.read_text(encoding="utf-8")
         except OSError:

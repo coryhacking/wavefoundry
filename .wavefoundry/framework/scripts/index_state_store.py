@@ -29,6 +29,7 @@ import secrets
 import sqlite3
 import graph_store
 import index_paths
+import record_paths  # record roots (wave 1y0gz)
 import sqlite_runtime
 import sqlite_vector_store
 from sqlite_storage_migration import LEGACY_SCHEMA_VERSIONS
@@ -4647,7 +4648,9 @@ def derive_wave_attribution(
 # an indexed file is never a drift ref).
 _DOC_PATH_REF_TOKEN = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]*/[A-Za-z0-9_./-]*[A-Za-z0-9]")
 
-_HISTORICAL_DOC_PREFIX = "docs/waves/"
+# The historical-doc prefix is the resolved waves root with a trailing slash
+# (``record_paths.load_record_roots(root).waves_prefix``, wave 1y0gz); every
+# consumer below takes it from the root it already has.
 
 # Census finding (1ro43 AC-8, this repo): generated point-in-time artifacts
 # under docs/reports/ dominated the false-positive tail — a dated reindex
@@ -4670,9 +4673,9 @@ def _extract_doc_path_refs(text: str, known_paths: set[str], self_path: str) -> 
     return sorted(refs)
 
 
-def _wave_id_for_historical_path(rel: str) -> Optional[str]:
+def _wave_id_for_historical_path(rel: str, waves_prefix: str) -> Optional[str]:
     """Wave id from a ``docs/waves/<wave-id> <slug>/…`` path, if shaped so."""
-    remainder = rel[len(_HISTORICAL_DOC_PREFIX):]
+    remainder = rel[len(waves_prefix):]
     top = remainder.split("/", 1)[0]
     first_token = top.split(" ", 1)[0]
     if WAVE_ID_TOKEN.fullmatch(first_token):
@@ -4708,6 +4711,14 @@ def compute_doc_drift(
     ``gardener_pairs`` (the ``_gardener_only_pairs`` result) is injected by the
     build path; when None it is computed best-effort here for direct callers.
     """
+    record_roots = record_paths.load_record_roots(root)
+    waves_prefix = record_roots.waves_prefix
+    # Group names are not wave identities. Resolve nested ownership through
+    # the same bounded discovery used by lifecycle tools, once per build.
+    nested_wave_prefixes = {
+        directory.relative_to(root).as_posix() + "/": record_paths.wave_id_of(directory)
+        for directory in record_paths.discover_wave_dirs(root, record_roots)
+    } if record_roots.nested else {}
     known_paths = {str(p) for p in all_paths}
     sha_pos: dict[str, int] = {}          # sha → log position (0 = newest); pruning key only
     parents_by_sha: dict[str, list[str]] = {}
@@ -4782,7 +4793,7 @@ def compute_doc_drift(
 
     living_docs = [
         str(p) for p in docs_paths
-        if not str(p).startswith(_HISTORICAL_DOC_PREFIX)
+        if not str(p).startswith(waves_prefix)
     ]
     if gardener_pairs is None:
         _ok, gardener_pairs = _gardener_only_pairs(root, commits, living_docs)
@@ -4797,8 +4808,11 @@ def compute_doc_drift(
 
     entries: dict[str, dict[str, Any]] = {}
     for rel in sorted({str(p) for p in docs_paths}):
-        if rel.startswith(_HISTORICAL_DOC_PREFIX):
-            wave_id = _wave_id_for_historical_path(rel)
+        if rel.startswith(waves_prefix):
+            wave_id = (
+                next((wid for prefix, wid in nested_wave_prefixes.items() if rel.startswith(prefix)), None)
+                if record_roots.nested else _wave_id_for_historical_path(rel, waves_prefix)
+            )
             landing_sha = wave_landing_sha.get(wave_id or "")
             if wave_id and landing_sha:
                 refs = wave_files.get(wave_id, set())
@@ -5140,7 +5154,8 @@ def update_drift_from_build(
             if store.get_meta(META_DRIFT_FINGERPRINT) == fingerprint:
                 summary["skipped"] = True
                 return summary
-            living_docs = [d for d in docs_set if not d.startswith(_HISTORICAL_DOC_PREFIX)]
+            waves_prefix = record_paths.load_record_roots(root).waves_prefix
+            living_docs = [d for d in docs_set if not d.startswith(waves_prefix)]
             # BOTH git walks must succeed before ANY of attribution / drift
             # rows / fingerprint is replaced (delivery-review finding: neither
             # walk may fail open). A failure preserves the prior state — the

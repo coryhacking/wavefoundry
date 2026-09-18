@@ -6644,6 +6644,7 @@ _DELEGATE_CHILD_MODULES = (
     "subprocess_util.py",
     "cli_stdio.py",
     "reconcile_scan.py",
+    "record_paths.py",  # wave 1y0gz: reconcile_scan resolves the record roots through it
     "render_platform_surfaces.py",
     "check_version.py",
 )

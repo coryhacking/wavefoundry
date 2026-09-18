@@ -38,6 +38,7 @@ venv_bootstrap.activate_tool_venv()
 cli_stdio.configure_utf8_stdio()
 
 import dashboard_lib
+import record_paths  # record roots (wave 1y0gz)
 
 
 ASSET_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
@@ -210,8 +211,23 @@ class SnapshotStore:
     whenever mtime polling detects a file change.
     """
 
+    @property
+    def _record_roots(self) -> "record_paths.RecordRoots":
+        """The configured record roots (wave 1y0gz). Resolved eagerly by
+        ``__init__`` so an invalid layout fails construction with its
+        diagnostic instead of killing the watcher thread; resolved lazily here
+        for the reader tests that build a store without ``__init__``."""
+        cached = getattr(self, "_record_roots_cache", None)
+        if cached is None:
+            cached = self._record_roots_cache = record_paths.load_record_roots(self._root)
+        return cached
+
     def __init__(self, root: Path) -> None:
         self._root = root
+        # Wave 1y0gz: resolved ONCE, before the watcher thread starts, so an
+        # invalid `record_layout` fails construction with its diagnostic rather
+        # than killing the watcher thread and leaving `get()` waiting forever.
+        self._record_roots_cache = record_paths.load_record_roots(root)
         self._lock = threading.RLock()
         self._snapshot: dict[str, Any] = {}
         self._ready = threading.Event()
@@ -283,8 +299,8 @@ class SnapshotStore:
     def _watched_paths(self) -> list[Path]:
         r = self._root
         return [
-            r / "docs" / "waves",
-            r / "docs" / "plans",
+            self._record_roots.waves,
+            self._record_roots.plans,
             r / "docs" / "agents",
             r / ".claude" / "agents",
             r / "docs" / "workflow-config.json",
@@ -310,8 +326,8 @@ class SnapshotStore:
         git fallback."""
         r = self._root
         return [
-            r / "docs" / "waves",
-            r / "docs" / "plans",
+            self._record_roots.waves,
+            self._record_roots.plans,
             r / "docs" / "agents",
             r / ".claude" / "agents",
         ]
@@ -890,26 +906,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
         wave_id   = unquote((params.get("wave") or [""])[0]).strip()
         doc_path  = unquote((params.get("path") or [""])[0]).strip()
 
-        root      = self._store._root
-        docs_root = (root / "docs").resolve()
+        root = self._store._root
+        roots = self._store._record_roots
+        allowed_roots = [(root / "docs").resolve(), roots.waves.resolve(), roots.plans.resolve()]
 
-        if doc_type == "wave" and doc_id:
-            target = root / "docs" / "waves" / doc_id / "wave.md"
-        elif doc_type == "change" and doc_id and doc_path:
-            # Prefer the explicit path from the change record (works for both
-            # wave-scoped and plan-scoped changes).
+        if doc_type == "change" and doc_id and doc_path:
+            # The snapshot carries repository-relative paths for both plans
+            # and admitted changes, including relocated record trees.
             target = root / doc_path
-        elif doc_type == "change" and doc_id and wave_id:
-            # Fallback: reconstruct path from wave_id (legacy callers).
-            target = root / "docs" / "waves" / wave_id / f"{doc_id}.md"
+        elif (doc_type == "wave" and doc_id) or (doc_type == "change" and doc_id and wave_id):
+            requested_wave = doc_id if doc_type == "wave" else wave_id
+            # IDs are names, never paths (also reject Windows separators).
+            if any(char in requested_wave + doc_id for char in "/\\") or doc_id in (".", ".."):
+                self.send_error(HTTPStatus.FORBIDDEN, "Path traversal denied")
+                return
+            candidates = record_paths.discover_wave_dirs(root, roots)
+            token = requested_wave.split(" ", 1)[0].lower()
+            matches = [d for d in candidates if record_paths.wave_id_of(d) == token]
+            if len(matches) > 1:
+                self.send_error(HTTPStatus.CONFLICT, "ambiguous_wave_id")
+                return
+            if not matches or requested_wave not in (matches[0].name, record_paths.wave_id_of(matches[0])):
+                self.send_error(HTTPStatus.NOT_FOUND, "Document not found")
+                return
+            target = matches[0] / ("wave.md" if doc_type == "wave" else f"{doc_id}.md")
         else:
             self.send_error(HTTPStatus.BAD_REQUEST, "Missing or invalid type/id parameters")
             return
 
-        # Security: resolved path must stay within docs/ and be a markdown file.
+        # Resolve symlinks before checking the document-root allowlist. Merely
+        # being inside the repository is insufficient (source/config are private).
         try:
-            target.resolve().relative_to(docs_root)
-        except ValueError:
+            target = target.resolve()
+            if not any(target.is_relative_to(base) for base in allowed_roots):
+                raise ValueError("outside document roots")
+        except (ValueError, OSError, RuntimeError):
             self.send_error(HTTPStatus.FORBIDDEN, "Path traversal denied")
             return
         if target.suffix.lower() != ".md":

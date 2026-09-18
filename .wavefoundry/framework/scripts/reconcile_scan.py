@@ -50,6 +50,7 @@ from typing import Iterator
 # Imported, never re-authored. ``_RETIRED_SURFACE_REPLACEMENTS`` is co-located with
 # ``_RETIRED_BIN_WRAPPERS`` in render_platform_surfaces.py; ``retired_surface_suggestion`` resolves
 # the human-facing replacement form (``wf <subcommand>`` or the no-replacement guidance).
+import record_paths  # noqa: E402  record roots (wave 1y0gz)
 from render_platform_surfaces import (  # noqa: E402 — SCRIPTS_DIR is on sys.path
     PERMISSIONS_PROVENANCE_KEY,
     _RENAMED_MCP_TOOLS,
@@ -283,17 +284,25 @@ def _stale_prompt_extension_hits(
 # over-excludes in-scope operator docs: e.g. `docs/reports-overview.md` is NOT under `docs/reports/`,
 # and a substring check would wrongly drop it. The framework pack tree, generated index, wave/report
 # history, and vcs/build dirs are excluded; ``docs/reports`` is the change doc's added history root.
-EXCLUDED_DIRS: tuple[str, ...] = (
+_STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     ".git",
     "__pycache__",
     "node_modules",
     ".wavefoundry/framework",  # the framework pack tree — its own source legitimately names them
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
     ".wavefoundry/upgrade-assets",  # retained protocol-bridge payload/recovery artifacts
-    "docs/waves",              # wave history records
     "docs/reports",            # report history
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop
 )
+# Wave 1y0gz: the wave history root comes from the resolved record layout.
+# ``EXCLUDED_DIRS`` is the default-layout set; ``excluded_dirs_for(root)`` the
+# resolved one the scan walk uses.
+EXCLUDED_DIRS: tuple[str, ...] = _STATIC_EXCLUDED_DIRS + (record_paths.WAVES_ROOT,)
+
+
+def excluded_dirs_for(root: Path) -> tuple[str, ...]:
+    """The exclusion set with the wave history root resolved for ``root``."""
+    return _STATIC_EXCLUDED_DIRS + (record_paths.load_record_roots(root).waves_rel,)
 # Protocol-bridge upgrades retain the previous framework tree under a generated sibling such as
 # ``.wavefoundry/framework.rollback-bridge-pfps-p2/``.  It is inactive recovery state, not a live
 # project carrier.  Keep this separate from ``EXCLUDED_DIRS`` because it is a component prefix, not
@@ -695,7 +704,9 @@ def _finding_context(text: str, line_number: int) -> tuple[str, str]:
     return lines[target_index], heading_context
 
 
-def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
+def is_excluded(
+    rel: str, *, name: str, suffix: str, excluded_dirs: tuple[str, ...] = EXCLUDED_DIRS
+) -> bool:
     """Return True when a repo-relative path is outside the reconciliation scan scope.
 
     ``rel`` is the POSIX repo-relative path; ``name`` the file name; ``suffix`` the file extension.
@@ -716,7 +727,7 @@ def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
         return True
     # Directory exclusions: exact path or path-prefix (mirror build_pack.should_exclude). The single-
     # component dirs (.git/__pycache__/node_modules) are also matched as a path component anywhere.
-    for d in EXCLUDED_DIRS:
+    for d in excluded_dirs:
         if rel == d or rel.startswith(d + "/"):
             return True
         if "/" not in d and d in parts:
@@ -738,11 +749,12 @@ def is_excluded(rel: str, *, name: str, suffix: str) -> bool:
 
 def _iter_scannable_files(root: Path) -> Iterator[tuple[Path, str]]:
     """Yield ``(path, repo_relative_posix)`` for every in-scope file under ``root``."""
+    excluded_dirs = excluded_dirs_for(root)
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        if is_excluded(rel, name=path.name, suffix=path.suffix):
+        if is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs):
             continue
         yield path, rel
 

@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from chunker import _EXT_TO_LANGUAGE
 from review_evidence import read_review_event_ledger, current_synthesis_heads
+import record_paths  # record roots (wave 1y0gz)
 
 DEFAULT_DRAFT_LIMIT = 20
 _CANONICAL_TEST_RUNNER_ENTRIES = frozenset({"run_tests.py"})
@@ -70,16 +71,17 @@ def resolve_wave_dir(root: Path, wave_id: str) -> tuple[Optional[Path], Optional
     query = (wave_id or "").strip()
     if not query:
         return None, "wave_not_found"
-    waves_dir = root / "docs" / "waves"
-    if not waves_dir.is_dir():
+    if not record_paths.load_record_roots(root).waves.is_dir():
         return None, "wave_not_found"
     try:
         root_real = root.resolve(strict=True)
+        # Wave 1y043: the shared discovery walk (flat or nested). The flat
+        # listing matches the pre-change ``iterdir`` enumeration, so symlinks
+        # are excluded here as before and containment is re-checked.
         dirs = [
             path
-            for path in sorted(waves_dir.iterdir())
-            if path.is_dir()
-            and not path.is_symlink()
+            for path in record_paths.walk_wave_candidates(root)
+            if not path.is_symlink()
             and path.resolve(strict=True).is_relative_to(root_real)
         ]
     except (OSError, RuntimeError):

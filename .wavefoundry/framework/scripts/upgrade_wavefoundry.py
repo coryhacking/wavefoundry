@@ -2069,22 +2069,29 @@ def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
     candidate refuses cleanup, and an outside-root sentinel is left untouched.
     """
 
+    import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
+
+    try:
+        roots = record_paths.load_record_roots(root)
+    except record_paths.RecordLayoutInvalid as exc:
+        return str(exc)
+    waves_rel = roots.waves_rel
     try:
         root_real = root.resolve(strict=True)
-        waves_dir = root / "docs" / "waves"
+        waves_dir = roots.waves
         if waves_dir.is_symlink():
-            return "docs/waves may not be a symlink"
+            return f"{waves_rel} may not be a symlink"
         if not waves_dir.exists():
             return None
         waves_real = waves_dir.resolve(strict=True)
         if not waves_real.is_relative_to(root_real):
-            return "docs/waves escapes the repository root"
+            return f"{waves_rel} escapes the repository root"
         if candidate.is_symlink():
             return f"{candidate.name} may not be a symlink"
         if candidate.exists() and not candidate.resolve(strict=True).is_relative_to(
             waves_real
         ):
-            return f"{candidate.name} escapes docs/waves"
+            return f"{candidate.name} escapes {waves_rel}"
     except (OSError, RuntimeError) as exc:
         return f"retired sidecar path is not safely resolvable: {exc}"
     return None
@@ -2197,7 +2204,12 @@ def phase_review_evidence_sidecar_cleanup(
     try:
         _acquire_held("v1.13 root", legacy_lock)
         try:
-            waves_dir = root / "docs" / "waves"
+            import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
+
+            try:
+                waves_dir = record_paths.load_record_roots(root).waves
+            except record_paths.RecordLayoutInvalid as exc:
+                raise SystemExit(f"refusing retired-sidecar cleanup: {exc}")
             for name in (
                 "review-evidence-adoptions.json",
                 "review-evidence-migration.json",
