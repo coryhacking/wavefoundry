@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 ## Allowed Dependencies
 
@@ -17,6 +17,7 @@ Last verified: 2026-09-17
 
 | Edge | Invariant | Verified / Inferred |
 |------|-----------|----------------------|
+| `lifecycle_gates.py`, `lifecycle_gate_support.py`, `sensor_runner.py` → `server_impl.py` | Extracted gates and support never import the orchestrator. Evidence is consumed through the `review_evidence` facade; configuration comes through unit inputs or support readers. Gates call support helpers through module attributes, and support imports neither gates nor orchestrator. Context contains only the six shared data fields. | Mechanical import-direction, facade-only, context-reader and reload tests in `test_lifecycle_gates_structure.py` (wave `1y044`); behavioral polarity coverage in `test_lifecycle_gates.py`. The same scans cover `sensor_runner.py`. |
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
 | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
@@ -30,10 +31,13 @@ Last verified: 2026-09-17
 | Upgrade → project publishers | Upgrade acquires lifecycle then publication ownership; registered publishers fail fast from the durable checkpoint, except the two memory-recovery writers at the exact memory pause | Verified by lock-order, checkpoint, and public-wrapper tests |
 | FROM-runner → TO-tree summary producer | The pre-extraction parent produces the primary-phase summary only through the pinned `--emit-summary` contract on the freshly extracted tree (argv, sentinel prefix, `summary_schema_version` token, pinned timeout; upgrade lock as the sole state carrier, old-schema tolerant); the surface never changes silently (deliberate versioned evolution bumps the schema token); any contract failure degrades to the parent's marked in-process fallback, never a second sentinel and never unlabeled old-schema output. This boundary governs the PRIMARY-phase producer only; wave 1uf68 additionally has the separate cleanup process carry the same token at its own emit site, which is not a second sentinel in this stream (each subprocess invocation's stdout is parsed on its own) and does not make the token exclusive to this boundary | Verified by the permanent `DelegatedSummaryContractTests` plus the degradation and mutual-exclusion tests |
 | `index_state_store` publication → upgrade cleanup | `index.sqlite` is the sole durable semantic AND graph authority. The freshly loaded cleanup process may inspect one stable complete docs-and-code token and bounded layer summary, but it must not create a second receipt or treat the upgrade lock's audit copy as authority | Verified by upgrade stable-token, incomplete-epoch, active-manifest, and cleanup-retry tests |
+| `docs/workflow-config.json` → lifecycle gates | Project policy enters through typed configuration only; the server never imports repository Python. Prepare `ready`/`create` may execute list-form sensors named in `phase_gates`; close `create` executes them only when no blocking diagnostic has accumulated at the gate stage; read-only `dry_run` and its `evaluate` alias execute nothing. | Clause by clause. Typed-configuration entry: `1y0bd` AC-2, prepare clause; `1y0bd` AC-3; `1y0bd` AC-4 (the exclusivity "only" is **Inferred**: refusing malformed entries inside the key is not the proposition that no other entry path exists). No repository-Python import: **Inferred** from `1yb53-adr` and the absence of any import site; no criterion asserts it. Prepare execution: `1y0bd` AC-2, prepare clause; `1y0bd` AC-6, mutating-outcome clause, prepare portion; `1y0bd` AC-4; `1y0bd` AC-1. Close execution and its precondition: `1yd98` AC-1; `1yd98` AC-4; `1y0bd` AC-4. Read-only: `1y0bd` AC-6, read-only clause. |
+
+> **Amended 2026-09-18 by wave `1yd97 phase-gate-follow-ups` (`1yd98-enh`).** The `docs/workflow-config.json` → lifecycle gates row gained the close precondition and its clause-by-clause Verified column; the row was corrected in place. Superseded wording, preserved verbatim: "| `docs/workflow-config.json` → lifecycle gates | Project policy enters through typed configuration only; the server never imports repository Python. Prepare `ready`/`create` and close `create` may execute list-form sensors named in `phase_gates`; read-only `dry_run` and its `evaluate` alias execute nothing. | Phase-gate execution, validation and provenance tests (`1y0bd` AC-2 and AC-6). |"
 
 ## Violation Detection
 
-- Dependency violations: currently informal (no import linter); enforce through code review using this doc.
+- Lifecycle boundaries: AST checks in `test_lifecycle_gates_structure.py` verify import direction, facade-only evidence and data-only context; behavior tests verify gate polarity. Other dependency edges remain code-reviewed rather than covered by a general import linter.
 - Boundary invariants: enforced through MCP **`wf_validate_docs`** (agents) or **`wf docs-lint`** (hooks/CI), plus seed protection hook and framework plan gate hook.
 
 ## Shared index storage (waves 1xjmm, 1xny6)

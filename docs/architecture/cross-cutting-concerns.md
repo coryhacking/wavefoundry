@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-18
 
 ## Configuration
 
@@ -15,6 +15,28 @@ Last verified: 2026-09-11
 
 All layers may access: `docs/workflow-config.json`.
 Only `render_platform_surfaces.py` writes to platform config files.
+
+### Configured phase gates
+
+Project policy enters through typed configuration, never through imported repository Python. Optional `phase_gates` in `docs/workflow-config.json` names existing list-form `sensors`:
+
+```json
+{
+  "sensors": [{"name": "release-check", "dimension": "reliability", "command": ["python3", "scripts/release_check.py"]}],
+  "phase_gates": {"close": {"required_sensors": ["release-check"]}},
+  "subprocess_ops": {"sensor_timeout_seconds": 120}
+}
+```
+
+Only `prepare` and `close` are accepted phase keys, each with only `required_sensors`, a list of known sensor names. Unknown fields (including `required_lanes`), unknown sensors, and required sensors with string commands are rejected by docs lint and prepare. Sensor declarations must be list-form when required sensors are named; unrelated legacy sensor configuration retains its existing behavior. Review-lane policy remains in `required_review_lanes`.
+
+Prepare `ready`/`create` executes required sensors with the server's environment and `PATH`, using the repository root as the working directory; close `create` (alias `apply`) executes them on the same terms, but only when no blocking diagnostic has accumulated by the time its sensor gate runs. Required commands use argument lists, never a shell. Nonzero exits, timeouts, and launch failures block the phase. Prefer fast checks: `subprocess_ops.sensor_timeout_seconds` defaults to 120 seconds. Explicit `wf_run_sensors` shares this runner and timeout; its existing string-command support remains available there.
+
+Read-only `dry_run` (including prepare alias `evaluate`) executes nothing. Reached gates report `would_run` and a `phase_sensor_not_executed` advisory; this is not proof that a sensor passes. A blocked close `create` reports the same row shape and the same advisory code, with the message naming the blocking-diagnostic condition rather than read-only mode, and read-only takes precedence when both apply. Every prepare, review and close response produced by the handler includes `configured_gates`; review's list is always empty, and a handler response that returns before the gate stage carries an empty list. Entries identify the phase, sensor, configuration source, outcome and duration. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. The rule is stated over the producing layer rather than over call order, because one of its own members is returned from an `except` clause after the handler was invoked and raised: the upgrade-publication guard's busy refusal. It currently resolves to five members, today the lifecycle mutation lock's busy and unavailable refusals, the upgrade-publication guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. A consumer therefore reads the key defensively rather than unconditionally.
+
+Prepare sensors run at its existing readiness stage. A failed sensor can leave an already-published policy receipt, which is not an approval. Legacy waves without a valid council verdict do not reach that stage and report an empty list. Close runs its sensor stage only when no blocking diagnostic has accumulated at that point, so a doomed close reports its sensors as `would_run` rather than executing them; the bound is what the gate stage can see, and two later checks can still fail a close whose sensors already ran. Policy digests include nonempty phase-gate declarations and the referenced sensor definitions; editing either invalidates readiness. With no phase gates, existing digests remain unchanged.
+
+> **Amended 2026-09-18 by wave `1yd97 phase-gate-follow-ups` (`1yd98-enh`).** Close-phase sensor execution gained a precondition on the absence of blocking diagnostics. Superseded wording, preserved verbatim: "Prepare `ready`/`create` and close `create` (alias `apply`) execute required sensors with the server's environment and `PATH`, using the repository root as the working directory." and "Close runs its sensor stage even when earlier checks found blockers."
 
 ## Logging / Output
 

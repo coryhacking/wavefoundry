@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 ## Runtime Topology
 
@@ -75,6 +75,8 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
                       wavefoundry://prompt/{slug}, wavefoundry://seed/{slug}, wavefoundry://architecture/{slug}
                       └── docs/ + .wavefoundry/framework/seeds/ (read-only, raw markdown)
 ```
+
+**Lifecycle gate modules:** `server_impl.py` retains prepare/review/close orchestration, writes and early returns. `lifecycle_gates.py` owns named checks in static phase tuples and a six-field data-only `GateContext`; `lifecycle_gate_support.py` owns their shared helpers and config readers. Close keeps shared and hard checks in separate stages, and prepare keeps four stages around its existing writes. Both modules, plus `sensor_runner.py` for bounded sensor subprocess execution, are purged and freshly imported with the implementation on MCP reload. Review evidence is consumed through the existing facade; the extraction preserves the default checks; optional typed `phase_gates` add required sensors without changing tool parameter schemas.
 
 **Index build flow:**
 

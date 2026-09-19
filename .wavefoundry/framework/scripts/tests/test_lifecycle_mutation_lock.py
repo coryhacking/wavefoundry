@@ -212,9 +212,10 @@ class ForwardRecoverabilityTests(unittest.TestCase):
                 "# Session Handoff\n\nActive wave: `1aaaa demo`\n", encoding="utf-8"
             )
             with patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
-                 patch.object(srv, "_review_evidence_diagnostics", return_value=[]), \
+                 patch.object(srv.lifecycle_gates, "_review_evidence_diagnostics", return_value=[]) as _gate_mock_1, \
                  patch.object(srv, "_close_wave_secrets_gate", return_value=({}, [])) if hasattr(srv, "_close_wave_secrets_gate") else patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 out = srv.wf_close_wave_response(root, "1aaaa", mode="create")
+                _gate_mock_1.assert_called()
             # Whatever gates fire, the handoff convergence must have run for a
             # closed wave when the close path reached the convergence point.
             if out["status"] == "ok":

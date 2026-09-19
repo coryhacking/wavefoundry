@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -60,3 +60,5 @@ Update this hub and relevant child docs when:
 - [Unified SQLite storage ADR](architecture/decisions/1xjmn-adr%20unified-sqlite-vector-storage.md) — proposed docs/code consolidation, database location, migration and cleanup constraints
 - [SQLite graph evaluation ADR](architecture/decisions/1xny4-adr%20sqlite-graph-evaluation.md) — accepted: measured graph storage, the production representation, the `index.sqlite` filename and schema 8, generation-bound reads, the migration contract and the rejected query-language option
 - [Record layout ADR](architecture/decisions/1yb8v-adr%20record-layout-config-over-resolver-protocol.md) — accepted: wave and plan record roots are fork-editable module constants in `record_paths.py`, validated fail-closed; neither runtime configuration nor a discovered repository module
+
+- [Configured phase gates ADR](architecture/decisions/1yb53-adr%20config-declared-phase-gates.md) — accepted: typed project sensor requirements, bounded execution and read-only previews

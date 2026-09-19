@@ -2,18 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 ## Current Session
 
-**Active wave:** *(none — idle)*
-**Last closed wave:** `1y0gz record-layout-roots` — project-relative fork-editable record roots and bounded nested wave discovery, consistently used by lifecycle, dashboard, lint, memory and historical attribution.
+**Active wave:** *(none)*
+**Last closed waves:** `1y0h0 typed-phase-gates` and `1yd97 phase-gate-follow-ups`, both closed 2026-09-18 by explicit operator instruction after independent delivery review, and committed 2026-09-19. `1y0h0` extracted the close, review and prepare checks into named gate units (`lifecycle_gates.py`, `lifecycle_gate_support.py`) and added config-declared `phase_gates` sensors run by `sensor_runner.py`. `1yd97` gave close-phase sensor execution a precondition: a close that has already accumulated a blocking diagnostic reports its sensors `would_run` instead of executing them. It also cleared the eleven observations `1y0h0` carried. Full suite green at 9,335 tests, receipt current.
 
-Closed by explicit operator instruction after independent code/QA/council approvals. Both changes and all 17 ACs complete; no AC deferrals. Full framework receipt current: 9,277 tests, 12 skips. Memory checkpoint respects eight validated dispositions and has zero pending candidates. Framework gate closed; changes remain uncommitted.
+**Next:** Remaining Waveforge order: `1y0h1 tool-registry-dispatch`, then `1y0h2 handler-module-split`. Both are readied, but against a tree that predates the gate extraction, which removed roughly 2,000 lines from `server_impl.py`. Their receipts are current only in the sense that their documents are unchanged, so re-verify each plan's code claims against the tree before opening. `1yd24 fixture-fidelity` is planned only, with no receipt and no readiness approval. `1ycrj task-fit-agent-model-policy` (separate session) remains readied and unimplemented.
 
-MCP restart verified: runner `23e4b4c351ad` matches disk, implementation current, index ready, schema 8 integrity OK, no missing/orphan vectors, graph and semantic generation aligned. The earlier stale-runner warning is resolved. Supplemental evidence: `docs/waves/1y0gz record-layout-roots/supplemental-goal-review.md`.
-
-Remaining Waveforge implementation order: `1y0h0 typed-phase-gates`, `1y0h1 tool-registry-dispatch`, then `1y0h2 handler-module-split`. The OPEN slot is free. Wave `1ycrj task-fit-agent-model-policy` is separately prepared/reviewed; implementation was intentionally held while this wave was open.
+The operator asked on 2026-09-19 for a review of how readiness rounds work, targeting at most one round once the code is settled. `1yd97` took ten readiness rounds, and every round after the fourth was spent on the amendment-record criteria rather than code.
 
 ## Release
 

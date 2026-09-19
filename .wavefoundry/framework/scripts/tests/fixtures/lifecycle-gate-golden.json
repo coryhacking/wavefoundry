@@ -1,0 +1,2001 @@
+{
+  "fixture_schema": "1",
+  "fixtures": {
+    "active_typed_approvals": {
+      "close:create": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "create",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "close:dry_run": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "prepare:create": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxl fixture-active"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint": {
+            "mode": "stubbed"
+          },
+          "lint_passed": true,
+          "mode": "create",
+          "readied": false,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": false,
+          "updated": true,
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "ok",
+        "usage": "wf_current_wave()"
+      },
+      "prepare:dry_run": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxl fixture-active"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "readied": false,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": false,
+          "updated": false,
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "dry_run",
+        "usage": "wf_current_wave()"
+      },
+      "prepare:ready": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxl fixture-active"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint": {
+            "mode": "stubbed"
+          },
+          "lint_passed": true,
+          "mode": "ready",
+          "readied": true,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": false,
+          "updated": true,
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "ok",
+        "usage": "wf_current_wave()"
+      },
+      "review:implementation": {
+        "data": {
+          "configured_gates": [],
+          "council_results": [],
+          "implement_stage_telemetry": {
+            "retrieval_calls": null,
+            "stage_totals": {}
+          },
+          "lane_results": [
+            {
+              "lane": "operator",
+              "recorded_signoff": false
+            },
+            {
+              "lane": "code-reviewer",
+              "recorded_signoff": false
+            }
+          ],
+          "lint_passed": true,
+          "max_severity": "none",
+          "phase": "implementation",
+          "required_council_signoffs": [],
+          "required_lanes": [
+            "operator",
+            "code-reviewer"
+          ],
+          "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
+          "review_actions": {
+            "action_cap": 50,
+            "available": true,
+            "caller_input_schema": {
+              "action_required_inputs": {
+                "approval": [
+                  "context_id",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ],
+                "repair_start": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks"
+                ],
+                "reverification": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ]
+              },
+              "evidence": {
+                "approval": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "observed",
+                    "artifact_or_test_id"
+                  ]
+                },
+                "finding": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "proposition",
+                    "failure_condition",
+                    "public_path",
+                    "command_or_fixture",
+                    "expected",
+                    "observed",
+                    "artifact_or_test_id",
+                    "limitations",
+                    "safety_and_authorization",
+                    "disposition_rationale"
+                  ]
+                }
+              },
+              "integrity_checks": {
+                "assertions_non_vacuous": {
+                  "kind": "boolean"
+                },
+                "boundary_values_realistic": {
+                  "kind": "boolean"
+                },
+                "known_bad_detected": {
+                  "kind": "boolean"
+                },
+                "known_bad_detection_method": {
+                  "kind": "string"
+                },
+                "public_path_reached": {
+                  "kind": "boolean"
+                },
+                "test_ran_without_unintended_skip": {
+                  "kind": "boolean"
+                }
+              },
+              "judgment": {
+                "attacker_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "authority_delta": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "authority_domain": {
+                  "allowed_values": [
+                    "availability",
+                    "confidentiality",
+                    "integrity",
+                    "none",
+                    "privilege",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "benefit_vs_fix_risk": {
+                  "allowed_values": [
+                    "equal",
+                    "greater",
+                    "less",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "containment": {
+                  "allowed_values": [
+                    "detect_only",
+                    "impact_bounding",
+                    "none",
+                    "preventive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "contract_relevance": {
+                  "allowed_values": [
+                    "important_ac",
+                    "none",
+                    "public_contract",
+                    "required_ac"
+                  ],
+                  "kind": "enum"
+                },
+                "fix_risk": {
+                  "allowed_values": [
+                    "comparable",
+                    "higher",
+                    "lower",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "introduced_or_worsened_by_wave": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "observable_impact": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "optional_value": {
+                  "allowed_values": [
+                    "none",
+                    "positive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "rejection_basis": {
+                  "allowed_values": [
+                    "categorical",
+                    "disproportionate_repair",
+                    "insufficient_evidence",
+                    "none",
+                    "unsupported_reachability"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_safety": {
+                  "allowed_values": [
+                    "safe",
+                    "unsafe",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_scope_bounded": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "scope_relation": {
+                  "allowed_values": [
+                    "adjacent",
+                    "admitted",
+                    "outside"
+                  ],
+                  "kind": "enum"
+                },
+                "supported_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "validation_status": {
+                  "allowed_values": [
+                    "conforming",
+                    "invalid",
+                    "real"
+                  ],
+                  "kind": "enum"
+                }
+              },
+              "name": "review_event_inputs"
+            },
+            "next_actions": [],
+            "omitted_current_actions": 0,
+            "phase": "delivery",
+            "recommended_next_action": null,
+            "returned_current_actions": 0,
+            "total_current_actions": 0,
+            "truncated": false
+          },
+          "wave_id": "0exxl fixture-active"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      }
+    },
+    "missing_lane": {
+      "close:create": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "create",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); wave-council-readiness=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "missing_wave_council_signoff",
+            "message": "Required delivery Council approval missing: wave-council-readiness",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "close:dry_run": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); wave-council-readiness=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "missing_wave_council_signoff",
+            "message": "Required delivery Council approval missing: wave-council-readiness",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "prepare:create": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxm fixture-missing-lane"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "create",
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "missing_wave_council_signoff",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "prepare:dry_run": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxm fixture-missing-lane"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "missing_wave_council_signoff",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "prepare:ready": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxm fixture-missing-lane"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "ready",
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "missing_wave_council_signoff",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "review:implementation": {
+        "data": {
+          "configured_gates": [],
+          "council_results": [],
+          "implement_stage_telemetry": {
+            "retrieval_calls": null,
+            "stage_totals": {}
+          },
+          "lane_results": [
+            {
+              "lane": "operator",
+              "recorded_signoff": false
+            },
+            {
+              "lane": "code-reviewer",
+              "recorded_signoff": false
+            }
+          ],
+          "lint_passed": true,
+          "max_severity": "none",
+          "phase": "implementation",
+          "required_council_signoffs": [],
+          "required_lanes": [
+            "operator",
+            "code-reviewer"
+          ],
+          "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
+          "review_actions": {
+            "action_cap": 50,
+            "available": true,
+            "caller_input_schema": {
+              "action_required_inputs": {
+                "approval": [
+                  "context_id",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ],
+                "repair_start": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks"
+                ],
+                "reverification": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ]
+              },
+              "evidence": {
+                "approval": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "observed",
+                    "artifact_or_test_id"
+                  ]
+                },
+                "finding": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "proposition",
+                    "failure_condition",
+                    "public_path",
+                    "command_or_fixture",
+                    "expected",
+                    "observed",
+                    "artifact_or_test_id",
+                    "limitations",
+                    "safety_and_authorization",
+                    "disposition_rationale"
+                  ]
+                }
+              },
+              "integrity_checks": {
+                "assertions_non_vacuous": {
+                  "kind": "boolean"
+                },
+                "boundary_values_realistic": {
+                  "kind": "boolean"
+                },
+                "known_bad_detected": {
+                  "kind": "boolean"
+                },
+                "known_bad_detection_method": {
+                  "kind": "string"
+                },
+                "public_path_reached": {
+                  "kind": "boolean"
+                },
+                "test_ran_without_unintended_skip": {
+                  "kind": "boolean"
+                }
+              },
+              "judgment": {
+                "attacker_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "authority_delta": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "authority_domain": {
+                  "allowed_values": [
+                    "availability",
+                    "confidentiality",
+                    "integrity",
+                    "none",
+                    "privilege",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "benefit_vs_fix_risk": {
+                  "allowed_values": [
+                    "equal",
+                    "greater",
+                    "less",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "containment": {
+                  "allowed_values": [
+                    "detect_only",
+                    "impact_bounding",
+                    "none",
+                    "preventive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "contract_relevance": {
+                  "allowed_values": [
+                    "important_ac",
+                    "none",
+                    "public_contract",
+                    "required_ac"
+                  ],
+                  "kind": "enum"
+                },
+                "fix_risk": {
+                  "allowed_values": [
+                    "comparable",
+                    "higher",
+                    "lower",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "introduced_or_worsened_by_wave": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "observable_impact": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "optional_value": {
+                  "allowed_values": [
+                    "none",
+                    "positive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "rejection_basis": {
+                  "allowed_values": [
+                    "categorical",
+                    "disproportionate_repair",
+                    "insufficient_evidence",
+                    "none",
+                    "unsupported_reachability"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_safety": {
+                  "allowed_values": [
+                    "safe",
+                    "unsafe",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_scope_bounded": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "scope_relation": {
+                  "allowed_values": [
+                    "adjacent",
+                    "admitted",
+                    "outside"
+                  ],
+                  "kind": "enum"
+                },
+                "supported_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "validation_status": {
+                  "allowed_values": [
+                    "conforming",
+                    "invalid",
+                    "real"
+                  ],
+                  "kind": "enum"
+                }
+              },
+              "name": "review_event_inputs"
+            },
+            "next_actions": [],
+            "omitted_current_actions": 0,
+            "phase": "delivery",
+            "recommended_next_action": null,
+            "returned_current_actions": 0,
+            "total_current_actions": 0,
+            "truncated": false
+          },
+          "wave_id": "0exxm fixture-missing-lane"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      }
+    },
+    "planned_with_verdict": {
+      "close:create": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "create",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "close:dry_run": {
+        "data": {
+          "configured_gates": [],
+          "framework_test_receipt": {
+            "detail": "`.wavefoundry/framework/scripts/run_tests.py` is absent (the distribution excludes it), so the framework test receipt is not checked here.",
+            "scope": "framework",
+            "state": "not_applicable"
+          },
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          },
+          {
+            "code": "open_changes_remaining",
+            "message": "Wave has unresolved change statuses: planned.",
+            "recovery_tools": [
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      },
+      "prepare:create": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxk fixture-planned"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint": {
+            "mode": "stubbed"
+          },
+          "lint_passed": true,
+          "mode": "create",
+          "readied": false,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": true,
+          "updated": true,
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "ok",
+        "usage": "wf_current_wave()"
+      },
+      "prepare:dry_run": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxk fixture-planned"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint_passed": true,
+          "mode": "dry_run",
+          "readied": false,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": false,
+          "updated": false,
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "dry_run",
+        "usage": "wf_current_wave()"
+      },
+      "prepare:ready": {
+        "data": {
+          "change_count": 1,
+          "configured_gates": [],
+          "council_brief": {
+            "change_count": 1,
+            "council_seats": [
+              "red-team (fixed)"
+            ],
+            "fixed_seat": "red-team",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "rotating_seat": null,
+            "rotating_seat_reason": "Bound to the current review-policy receipt.",
+            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "wave_id": "0exxk fixture-planned"
+          },
+          "council_verdict_present": false,
+          "council_verdict_valid": false,
+          "garden_passed": true,
+          "lint": {
+            "mode": "stubbed"
+          },
+          "lint_passed": true,
+          "mode": "ready",
+          "readied": true,
+          "repaired": 0,
+          "repairs_needed": 0,
+          "required_council_signoffs": [
+            "wave-council-readiness"
+          ],
+          "review_policy": {
+            "delivery_council_required": false,
+            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "reasons": {
+              "code-reviewer": [
+                "required by project policy"
+              ]
+            },
+            "receipt": {
+              "council_seats": [
+                "red-team"
+              ],
+              "delivery_council_required": false,
+              "delivery_mode": "targeted",
+              "evaluator_version": 7,
+              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "primer_depth": "standard",
+              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "record_type": "review_policy_receipt",
+              "requested_lanes": [],
+              "required_lanes": [
+                "code-reviewer"
+              ],
+              "schema_version": 1
+            },
+            "receipt_append_required": false,
+            "requested_lanes": [],
+            "required_lanes": [
+              "code-reviewer"
+            ]
+          },
+          "transitioned_to_active": false,
+          "updated": true,
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [],
+        "next_tools": [
+          "wf_current_wave"
+        ],
+        "status": "ok",
+        "usage": "wf_current_wave()"
+      },
+      "review:implementation": {
+        "data": {
+          "configured_gates": [],
+          "council_results": [],
+          "implement_stage_telemetry": {
+            "retrieval_calls": null,
+            "stage_totals": {}
+          },
+          "lane_results": [
+            {
+              "lane": "operator",
+              "recorded_signoff": false
+            },
+            {
+              "lane": "code-reviewer",
+              "recorded_signoff": false
+            }
+          ],
+          "lint_passed": true,
+          "max_severity": "none",
+          "phase": "implementation",
+          "required_council_signoffs": [],
+          "required_lanes": [
+            "operator",
+            "code-reviewer"
+          ],
+          "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
+          "review_actions": {
+            "action_cap": 50,
+            "available": true,
+            "caller_input_schema": {
+              "action_required_inputs": {
+                "approval": [
+                  "context_id",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ],
+                "repair_start": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks"
+                ],
+                "reverification": [
+                  "context_id",
+                  "judgment",
+                  "evidence",
+                  "integrity_checks",
+                  "fresh_context",
+                  "independent"
+                ]
+              },
+              "evidence": {
+                "approval": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "observed",
+                    "artifact_or_test_id"
+                  ]
+                },
+                "finding": {
+                  "field_kind": "non-empty string",
+                  "required_fields": [
+                    "proposition",
+                    "failure_condition",
+                    "public_path",
+                    "command_or_fixture",
+                    "expected",
+                    "observed",
+                    "artifact_or_test_id",
+                    "limitations",
+                    "safety_and_authorization",
+                    "disposition_rationale"
+                  ]
+                }
+              },
+              "integrity_checks": {
+                "assertions_non_vacuous": {
+                  "kind": "boolean"
+                },
+                "boundary_values_realistic": {
+                  "kind": "boolean"
+                },
+                "known_bad_detected": {
+                  "kind": "boolean"
+                },
+                "known_bad_detection_method": {
+                  "kind": "string"
+                },
+                "public_path_reached": {
+                  "kind": "boolean"
+                },
+                "test_ran_without_unintended_skip": {
+                  "kind": "boolean"
+                }
+              },
+              "judgment": {
+                "attacker_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "authority_delta": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "authority_domain": {
+                  "allowed_values": [
+                    "availability",
+                    "confidentiality",
+                    "integrity",
+                    "none",
+                    "privilege",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "benefit_vs_fix_risk": {
+                  "allowed_values": [
+                    "equal",
+                    "greater",
+                    "less",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "containment": {
+                  "allowed_values": [
+                    "detect_only",
+                    "impact_bounding",
+                    "none",
+                    "preventive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "contract_relevance": {
+                  "allowed_values": [
+                    "important_ac",
+                    "none",
+                    "public_contract",
+                    "required_ac"
+                  ],
+                  "kind": "enum"
+                },
+                "fix_risk": {
+                  "allowed_values": [
+                    "comparable",
+                    "higher",
+                    "lower",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "introduced_or_worsened_by_wave": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "observable_impact": {
+                  "allowed_values": [
+                    "critical",
+                    "low",
+                    "material",
+                    "none",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "optional_value": {
+                  "allowed_values": [
+                    "none",
+                    "positive",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "rejection_basis": {
+                  "allowed_values": [
+                    "categorical",
+                    "disproportionate_repair",
+                    "insufficient_evidence",
+                    "none",
+                    "unsupported_reachability"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_safety": {
+                  "allowed_values": [
+                    "safe",
+                    "unsafe",
+                    "unverified"
+                  ],
+                  "kind": "enum"
+                },
+                "repair_scope_bounded": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "scope_relation": {
+                  "allowed_values": [
+                    "adjacent",
+                    "admitted",
+                    "outside"
+                  ],
+                  "kind": "enum"
+                },
+                "supported_reachability": {
+                  "allowed_values": [
+                    false,
+                    true,
+                    "unverified"
+                  ],
+                  "kind": "tristate"
+                },
+                "validation_status": {
+                  "allowed_values": [
+                    "conforming",
+                    "invalid",
+                    "real"
+                  ],
+                  "kind": "enum"
+                }
+              },
+              "name": "review_event_inputs"
+            },
+            "next_actions": [],
+            "omitted_current_actions": 0,
+            "phase": "delivery",
+            "recommended_next_action": null,
+            "returned_current_actions": 0,
+            "total_current_actions": 0,
+            "truncated": false
+          },
+          "wave_id": "0exxk fixture-planned"
+        },
+        "diagnostics": [
+          {
+            "code": "review_evidence_invalid",
+            "message": "marked wave requires a `initial_delivery` Review Run Record at this lifecycle phase",
+            "recovery_tools": [
+              "wf_current_wave",
+              "wf_validate_docs"
+            ],
+            "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "missing_executable_approval_evidence",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval).",
+            "recovery_tools": [
+              "wf_review_wave",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_review_wave()"
+          },
+          {
+            "code": "missing_operator_signoff",
+            "message": "Operator review approval is required. Record wf_review_event(event='approval', signoff_key='operator-signoff', approval_phase='delivery', mode='create').",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          },
+          {
+            "code": "missing_required_lane",
+            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "recovery_tools": [
+              "wf_review_event",
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+          }
+        ],
+        "isError": true,
+        "next_tools": [
+          "wf_validate_docs",
+          "wf_current_wave"
+        ],
+        "status": "error",
+        "usage": "wf_validate_docs()"
+      }
+    }
+  }
+}

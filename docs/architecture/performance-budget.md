@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -41,7 +41,7 @@ with a static [1,512] graph, scoring one real passage per inference (batch 1).
 | Graph-only rebuild COMMAND, wall clock (`index_build(content='graph', mode='rebuild')`) | the graph phase above plus a few seconds; budget against the restated rebuild rows, not the historical 52 s | this repo, 2026-09-04, same machine, both after graph builder 49: **before** wave `1x4ol`, 203 s, of which the secrets scan was 198.5 s (`full`, 0 cache-skipped) because the graph's `full` flag was forwarded to the scanner; **after** `1x4oj`, 52 s, secrets 6.4 s (`incremental`, 2,069 cache-skipped, 1 scanned). The two phase rows above measure the graph alone and never showed this cost; an operator waits on the command, so this row is the one to compare against. The 52 s graph phase in that pair is a graph-builder-49 measurement and is retained only as the before/after evidence for the secrets-scan repair; the current graph-phase expectation is the restated row above. |
 | Secrets full scan (`wf_scan_secrets(mode='full')`, or any escalation to full) | tens of seconds on this corpus | this repo, 2026-09-04, same machine, 8 workers, isolated (no concurrent build): **before** wave `1x4ol`, 198.8 s over 2,373 files, of which one 1.15 MB identifier-dense evidence artifact was 173.6 s; **after** `1x4ok`, 18.2 s over 2,377 files, zero findings both sides. The saving is the load-time collapse of a redundant nested lazy prefix in eleven rules, proven language-preserving by differential test; no file is skipped and no time bound exists. A serial (1-worker) run of the unmodified engine measured 369.1 s, so the pool bought only 1.85x before the fix because a single file pinned one worker. |
 | `wf docs-lint` full corpus | < 300 s bound (config-tunable `docs_lint.full_scan_timeout_seconds`) | typically seconds; the bound guards the subprocess |
-| Gardener / surface render subprocesses | < 180 s bound (config-tunable `subprocess_ops.*_timeout_seconds`, wave 1seax) | typically seconds; generous bound for slow machines |
+| Gardener / surface render / sensor subprocesses | Defaults: gardener/render 180 s, sensors 120 s; configurable via `subprocess_ops.*_timeout_seconds`, including `sensor_timeout_seconds` | Prefer fast phase sensors; configured limits bound each subprocess |
 | Framework script test suite | ~4.5 min full (6 workers, ~6,000 tests) | 2026-07-20 runs: 260–320 s |
 
 ## Memory retrieval qualification (wave 1yad2)

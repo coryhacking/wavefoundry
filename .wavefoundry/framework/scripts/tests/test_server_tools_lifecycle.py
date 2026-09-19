@@ -170,6 +170,12 @@ def _append_typed_approval(
 # Wave inspection
 # ---------------------------------------------------------------------------
 
+
+def _evidence_wave_md(srv, root, wave_key):
+    """Resolve once at the test boundary; extracted evidence units take paths."""
+    return srv._find_wave_md(root, wave_key)
+
+
 class ListWavesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1028,8 +1034,9 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
-             patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]):
+             patch.object(self.srv.lifecycle_gate_support, "_required_wave_council_signoffs", return_value=[]) as _gate_mock_1:
             response = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
+            _gate_mock_1.assert_called()
         self.assertEqual(
             response["data"]["required_lanes"][:4],
             ["operator", "code-reviewer", "qa-reviewer", "security-reviewer"],
@@ -1054,8 +1061,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         for gate, call in calls.items():
             with self.subTest(gate=gate):
                 with patch.object(self.srv, "run_validate", return_value=advisory), \
-                     patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]):
+                     patch.object(self.srv.lifecycle_gate_support, "_required_wave_council_signoffs", return_value=[]) as _gate_mock_9:
                     response = call()
+                    if gate != "review_prepare":
+                        _gate_mock_9.assert_called()
+                    else:
+                        # inert-by-design: prepare review checks lanes, not council currency.
+                        _gate_mock_9.assert_not_called()
                 diagnostics = response.get("diagnostics", [])
                 warnings = [d for d in diagnostics if d["code"] == "docs_lint_warning"]
                 self.assertEqual(1, len(warnings), (gate, diagnostics))
@@ -1078,10 +1090,17 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
-             patch.object(self.srv, "_required_wave_council_signoffs", return_value=[]), \
-             patch.object(self.srv, "_extract_required_review_lanes", return_value=[]), \
-             patch.object(self.srv, "_read_project_required_review_lanes", return_value=[]):
+             patch.object(self.srv.lifecycle_gate_support, "_required_wave_council_signoffs", return_value=[]) as _gate_mock_2, \
+             patch.object(self.srv, "_extract_required_review_lanes", return_value=[]) as _gate_mock_3_server, \
+             patch.object(self.srv.lifecycle_gate_support, "_extract_required_review_lanes", return_value=[]) as _gate_mock_3, \
+             patch.object(self.srv, "_read_project_required_review_lanes", return_value=[]) as _gate_mock_4_server, \
+             patch.object(self.srv.lifecycle_gate_support, "_read_project_required_review_lanes", return_value=[]) as _gate_mock_4:
             response = self.srv.wf_review_wave_response(self.root, wave_id)
+            _gate_mock_2.assert_called()
+            _gate_mock_3.assert_called()
+            _gate_mock_3_server.assert_called()
+            _gate_mock_4.assert_called()
+            _gate_mock_4_server.assert_called()
         self.assertEqual(response["status"], "error", response)
         self.assertIn(
             "missing_executable_approval_evidence",
@@ -1093,16 +1112,16 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "operator-signoff", actor="implementer", fresh=False, independent=False
         )
         self.assertTrue(
-            self.srv._approval_evidence_diagnostics(
-                "", ["operator-signoff"], root=self.root, wave_key=forged_operator
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                "", ["operator-signoff"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, forged_operator)
             )
         )
         valid_operator = self._marked_wave_with_approval(
             "operator-signoff", actor="operator", fresh=False, independent=False
         )
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
-                "", ["operator-signoff"], root=self.root, wave_key=valid_operator
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                "", ["operator-signoff"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, valid_operator)
             ), []
         )
 
@@ -1110,24 +1129,24 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "qa-reviewer", actor="code-reviewer", fresh=True, independent=True
         )
         self.assertTrue(
-            self.srv._approval_evidence_diagnostics(
-                "", ["qa-reviewer"], root=self.root, wave_key=forged_lane
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, forged_lane)
             )
         )
         stale_lane = self._marked_wave_with_approval(
             "qa-reviewer", actor="qa-reviewer", fresh=False, independent=False
         )
         self.assertTrue(
-            self.srv._approval_evidence_diagnostics(
-                "", ["qa-reviewer"], root=self.root, wave_key=stale_lane
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, stale_lane)
             )
         )
         valid_lane = self._marked_wave_with_approval(
             "qa-reviewer", actor="qa-reviewer", fresh=True, independent=True
         )
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
-                "", ["qa-reviewer"], root=self.root, wave_key=valid_lane
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                "", ["qa-reviewer"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, valid_lane)
             ), []
         )
 
@@ -1145,13 +1164,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "blocking_required_lanes": [],
             "repair_execution_state": "completed",
         }
-        diagnostics = self.srv._approval_evidence_diagnostics(
+        diagnostics = self.srv.lifecycle_gates._approval_evidence_diagnostics(
             "marked", ["qa-reviewer"], records=(approval, repair)
         )
         self.assertTrue(diagnostics)
         self.assertIn("chronology", diagnostics[0]["message"])
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked", ["qa-reviewer"], records=(repair, approval)
             ), []
         )
@@ -1169,7 +1188,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "review_depth": "focused",
         }
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked", ["qa-reviewer"], records=(approval, unrelated_repair)
             ), []
         )
@@ -1192,7 +1211,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "blocking_required_lanes": [],
             "repair_execution_state": "completed",
         }
-        diagnostics = self.srv._approval_evidence_diagnostics(
+        diagnostics = self.srv.lifecycle_gates._approval_evidence_diagnostics(
             "marked",
             ["operator-signoff", "wave-council-delivery"],
             records=(operator, council, full_repair),
@@ -1244,7 +1263,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             independent=True,
         )
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked",
                 ["wave-council-readiness", "wave-council-delivery"],
                 records=(readiness, delivery_finding, delivery_run, full_repair, delivery),
@@ -1252,7 +1271,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             [],
         )
         self.assertTrue(
-            self.srv._approval_evidence_diagnostics(
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked",
                 ["wave-council-readiness", "wave-council-delivery"],
                 records=(readiness, delivery_finding, delivery_run, delivery, full_repair),
@@ -1290,16 +1309,16 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             + text[match.end():]
         )
         wave_md.write_text(legacy, encoding="utf-8")
-        diagnostics = self.srv._review_evidence_diagnostics(
-            legacy, root=self.root, wave_key=wave_id
+        diagnostics = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            legacy, root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, wave_id)
         )
         rendered = json.dumps(diagnostics)
         self.assertNotIn("stale", rendered, diagnostics)
         # A genuinely stale projection is still detected through the same path.
         broken = legacy.replace("Machine review state", "Machine review state TAMPERED", 1)
         wave_md.write_text(broken, encoding="utf-8")
-        diagnostics = self.srv._review_evidence_diagnostics(
-            broken, root=self.root, wave_key=wave_id
+        diagnostics = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            broken, root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, wave_id)
         )
         self.assertIn("stale", json.dumps(diagnostics), diagnostics)
 
@@ -1318,8 +1337,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_md.write_text(text, encoding="utf-8")
 
-        diagnostics = self.srv._review_evidence_diagnostics(
-            text, root=self.root, wave_key=wave_id
+        diagnostics = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            text, root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, wave_id)
         )
 
         self.assertNotIn("Review Status projection is stale", json.dumps(diagnostics))
@@ -1530,8 +1549,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         self.assertNotIn("- qa-reviewer: approved —", text)
         self.assertEqual(
-            self.srv._approval_evidence_diagnostics(
-                text, ["qa-reviewer"], root=self.root, wave_key=wave_id
+            self.srv.lifecycle_gates._approval_evidence_diagnostics(
+                text, ["qa-reviewer"], root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, wave_id)
             ), []
         )
 
@@ -2419,11 +2438,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
                 with patch.object(
-                    self.srv,
+                    self.srv.lifecycle_gates,
                     "_review_evidence_diagnostics",
-                    wraps=self.srv._review_evidence_diagnostics,
+                    wraps=self.srv.lifecycle_gates._review_evidence_diagnostics,
                 ) as evidence_diagnostics:
                     result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
+                    evidence_diagnostics.assert_called()
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"]["lint_passed"])
         self.assertIn("required_lanes", result["data"])
@@ -2711,7 +2731,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         shutil.copy2(self.real_runner, self.framework / "scripts" / "run_tests.py")
 
     def _current_hash(self) -> str:
-        module = self.srv._load_framework_test_runner(self.framework / "scripts" / "run_tests.py")
+        module = self.srv.lifecycle_gate_support._load_framework_test_runner(self.framework / "scripts" / "run_tests.py")
         self.assertIsNotNone(module)
         return module._hash_inputs()
 
@@ -2722,36 +2742,36 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         (self.framework / "test-cache.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
     def test_absent_runner_is_a_documented_no_op(self):
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("not_applicable", status["state"])
-        self.assertIsNone(self.srv._framework_test_receipt_diagnostic(status))
+        self.assertIsNone(self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status))
         self.assertIn("distribution excludes it", status["detail"])
 
     def test_green_receipt_for_the_current_tree_is_proven(self):
         self._install_runner()
         self._write_receipt()
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("proven", status["state"])
         self.assertEqual(7889, status["test_count"])
-        self.assertIsNone(self.srv._framework_test_receipt_diagnostic(status))
+        self.assertIsNone(self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status))
         self.assertIn(".wavefoundry/framework/", status["detail"])
 
     def test_missing_receipt_is_not_proven_and_blocks(self):
         self._install_runner()
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("missing", status["state"])
-        diagnostic = self.srv._framework_test_receipt_diagnostic(status)
+        diagnostic = self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status)
         self.assertEqual("framework_test_receipt_not_proven", diagnostic["code"])
         self.assertIn("never runs a suite", diagnostic["message"])
 
     def test_receipt_goes_stale_when_a_framework_file_changes(self):
         self._install_runner()
         self._write_receipt()
-        self.assertEqual("proven", self.srv._framework_test_receipt_status(self.root)["state"])
+        self.assertEqual("proven", self.srv.lifecycle_gates._framework_test_receipt_status(self.root)["state"])
         (self.framework / "scripts" / "sample_module.py").write_text("VALUE = 2\n", encoding="utf-8")
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("stale", status["state"])
-        diagnostic = self.srv._framework_test_receipt_diagnostic(status)
+        diagnostic = self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status)
         self.assertEqual("framework_test_receipt_not_proven", diagnostic["code"])
         # Reverification A2: this previously asserted a phrase the round-2 rewrite
         # removed, so the rewrite left the tree red. The assertion now guards the
@@ -2764,7 +2784,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
     def test_a_red_receipt_is_not_proven(self):
         self._install_runner()
         self._write_receipt(result="failed")
-        self.assertEqual("not_ok", self.srv._framework_test_receipt_status(self.root)["state"])
+        self.assertEqual("not_ok", self.srv.lifecycle_gates._framework_test_receipt_status(self.root)["state"])
 
     def test_loading_the_runner_restores_every_import_side_effect(self):
         # Delivery review ARCH-DEL-1 / CODE-DEL-2: the first version of this test
@@ -2784,7 +2804,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
             saved_path = list(sys.path)
             sys.dont_write_bytecode = False
             try:
-                self.assertIsNotNone(self.srv._load_framework_test_runner(runner))
+                self.assertIsNotNone(self.srv.lifecycle_gate_support._load_framework_test_runner(runner))
                 self.assertFalse(sys.dont_write_bytecode)
                 self.assertNotIn(env_name, os.environ)
                 self.assertEqual(saved_path, sys.path,
@@ -2795,7 +2815,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
                 sys.dont_write_bytecode = True
         self.assertNotIn("wavefoundry_close_gate_run_tests", sys.modules)
         with patch.dict(os.environ, {env_name: "0"}):
-            self.srv._load_framework_test_runner(runner)
+            self.srv.lifecycle_gate_support._load_framework_test_runner(runner)
             self.assertEqual("0", os.environ[env_name])
 
     def test_the_side_effect_inventory_is_stated_consistently(self):
@@ -2833,7 +2853,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         saved_modules = set(sys.modules)
         saved_path = list(sys.path)
         try:
-            self.assertIsNotNone(self.srv._load_framework_test_runner(runner))
+            self.assertIsNotNone(self.srv.lifecycle_gate_support._load_framework_test_runner(runner))
             self.assertNotIn("wf_close_gate_probe_module", sys.modules,
                              "the borrow must not leave a foreign module registered")
             self.assertEqual(saved_modules, set(sys.modules))
@@ -2852,13 +2872,13 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         runner = self.framework / "scripts" / "run_tests.py"
         runner.write_text("raise KeyboardInterrupt\n", encoding="utf-8")
         with self.assertRaises(KeyboardInterrupt):
-            self.srv._load_framework_test_runner(runner)
+            self.srv.lifecycle_gate_support._load_framework_test_runner(runner)
         runner.write_text(
             "def _hash_inputs():\n    raise KeyboardInterrupt\n"
             "\n\ndef _read_cache():\n    return None\n",
             encoding="utf-8")
         with self.assertRaises(KeyboardInterrupt):
-            self.srv._framework_test_receipt_status(self.root)
+            self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
     def test_a_runner_that_exits_on_import_is_not_proven_rather_than_fatal(self):
         # ARCH-DEL-2 / CODE-DEL-1 / REL-DEL-1: activate_tool_venv() calls
         # sys.exit(2) on a venv/interpreter mismatch. SystemExit is a
@@ -2867,11 +2887,11 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         (self.framework / "scripts" / "run_tests.py").write_text(
             "import sys\nsys.exit(2)\n", encoding="utf-8")
         self.assertIsNone(
-            self.srv._load_framework_test_runner(self.framework / "scripts" / "run_tests.py"))
-        status = self.srv._framework_test_receipt_status(self.root)
+            self.srv.lifecycle_gate_support._load_framework_test_runner(self.framework / "scripts" / "run_tests.py"))
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("unreadable", status["state"])
         self.assertEqual("framework_test_receipt_not_proven",
-                         self.srv._framework_test_receipt_diagnostic(status)["code"])
+                         self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status)["code"])
 
     def test_a_runner_with_a_drifted_call_contract_is_not_proven(self):
         # REL-DEL-1: presence was checked, the call contract was not. An older or
@@ -2880,7 +2900,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         (self.framework / "scripts" / "run_tests.py").write_text(
             "def _hash_inputs(root):\n    return 'x'\n\n\ndef _read_cache():\n    return {}\n",
             encoding="utf-8")
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("unreadable", status["state"])
         self.assertIn("TypeError", status["detail"])
 
@@ -2895,10 +2915,10 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         shutil.copy2(self.real_runner, target)
         link = self.framework / "scripts" / "run_tests.py"
         link.symlink_to(target)
-        status = self.srv._framework_test_receipt_status(self.root)
+        status = self.srv.lifecycle_gates._framework_test_receipt_status(self.root)
         self.assertEqual("unreadable", status["state"])
         self.assertIn("resolves outside this repository", status["detail"])
-        self.assertIsNotNone(self.srv._framework_test_receipt_diagnostic(status))
+        self.assertIsNotNone(self.srv.lifecycle_gates._framework_test_receipt_diagnostic(status))
 
     def test_the_gate_spawns_no_subprocess(self):
         # AC-3 states this in words; QA-DEL-11 found it unasserted.
@@ -2907,7 +2927,7 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         with patch("subprocess.run", side_effect=AssertionError("gate spawned a subprocess")):
             with patch("subprocess.Popen", side_effect=AssertionError("gate spawned a subprocess")):
                 self.assertEqual("proven",
-                                 self.srv._framework_test_receipt_status(self.root)["state"])
+                                 self.srv.lifecycle_gates._framework_test_receipt_status(self.root)["state"])
 
     def test_close_response_carries_the_receipt_and_blocks_on_a_stale_one(self):
         # REL-DEL-8 / QA-DEL-2: every existing test called the helpers directly,
@@ -4098,8 +4118,8 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
         text = self.wave_md.read_text(encoding="utf-8")
         closed_text = text.replace("Status: planned", "Status: closed", 1)
         self.wave_md.write_text(closed_text, encoding="utf-8")
-        closed_diags = self.srv._review_evidence_diagnostics(
-            closed_text, root=self.root, wave_key=self.wave_id, closure=True
+        closed_diags = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            closed_text, root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, self.wave_id), closure=True
         )
         self.assertNotIn(
             "review_evidence_independence_invalid",
@@ -4109,8 +4129,8 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
         # Explicit reopen makes the forward audit apply before it can close.
         reopened_text = closed_text.replace("Status: closed", "Status: active", 1)
         self.wave_md.write_text(reopened_text, encoding="utf-8")
-        reopened_diags = self.srv._review_evidence_diagnostics(
-            reopened_text, root=self.root, wave_key=self.wave_id, closure=True
+        reopened_diags = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            reopened_text, root=self.root, wave_md=_evidence_wave_md(self.srv, self.root, self.wave_id), closure=True
         )
         self.assertIn(
             "review_evidence_independence_invalid",
@@ -5731,12 +5751,12 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
         self.change_path = self.wave_md.parent / f"{self.change_id}.md"
         _append_review_run(self.root, self.wave_id, kind="readiness")
         wave_text = self.wave_md.read_text(encoding="utf-8")
-        state, errors = self.srv._prepare_policy_state(
+        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(
             self.root,
             self.wave_md,
             wave_text,
             [self.change_id],
-            self.srv._build_prepare_council_brief(self.wave_id, wave_text, [self.change_id]),
+            self.srv.lifecycle_gate_support._build_prepare_council_brief(self.wave_id, wave_text, [self.change_id]),
         )
         self.assertEqual(errors, ())
         self.assertIsNotNone(state)
@@ -6542,7 +6562,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 self._fresh_root()
                 bad = self._unreadable_admitted_wave(mode=mode)
                 wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
-                findings = self.srv._collect_silent_unchecked_items_for_close(
+                findings = self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(
                     wave_md, wave_md.read_text(encoding="utf-8"))
                 unreadable = [f for f in findings
                               if f.get("change_id") == "ch1xx-feat first"]
@@ -6726,11 +6746,12 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         (wave_dir / "ch9ra-feat racer.md").write_bytes(b"\xff\xfe not utf-8")
         with _patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
              _patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
-             _patch.object(self.srv, "_collect_silent_unchecked_items_for_close", return_value=[]):
+             _patch.object(self.srv.lifecycle_gate_support, "_collect_silent_unchecked_items_for_close", return_value=[]) as _gate_mock_5:
             try:
                 resp = self.srv.wf_close_wave_response(self.root, "race-wave", mode="dry_run")
             except (OSError, UnicodeError, ValueError) as exc:
                 self.fail(f"the summary boundary catch must report, not raise: {exc!r}")
+            _gate_mock_5.assert_called()
         self.assertEqual(resp["status"], "error")
         codes = [d["code"] for d in resp.get("diagnostics") or []]
         self.assertIn("change_doc_unreadable", codes, codes)
@@ -6809,7 +6830,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         from unittest.mock import patch as _patch
 
         wave_dir = self._ghost_wave()
-        items = self.srv._collect_silent_unchecked_items_for_close(
+        items = self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(
             wave_dir / "wave.md",
             (wave_dir / "wave.md").read_text(encoding="utf-8"),
         )
@@ -6923,14 +6944,14 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         for a synthetic single-arg one."""
         real = FileNotFoundError(2, "No such file or directory", "/abs/secret/path")
         with self.subTest(shape="real-oserror-strerror"):
-            detail = self.srv._read_error_detail(real)
+            detail = self.srv.lifecycle_gate_support._read_error_detail(real)
             self.assertIn("FileNotFoundError", detail)
             self.assertIn("No such file or directory", detail)
             self.assertNotIn("/abs/secret/path", detail)
         with self.subTest(shape="synthetic-single-arg-verbatim"):
             synthetic = OSError("verbatim message with /some/path")
             self.assertIsNone(synthetic.strerror)
-            detail = self.srv._read_error_detail(synthetic)
+            detail = self.srv.lifecycle_gate_support._read_error_detail(synthetic)
             self.assertIn("verbatim message with /some/path", detail)
 
     def test_close_summary_raises_on_a_ghost_instead_of_fabricating(self):
@@ -7676,7 +7697,11 @@ class WaveRecordReadSeamCensusTests(unittest.TestCase):
     }
 
     def test_every_wave_record_read_routes_through_the_seam(self):
-        module = ast.parse(Path(self.srv.__file__).read_text(encoding="utf-8"))
+        module = ast.Module(body=[
+            node
+            for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support)
+            for node in ast.parse(Path(owner.__file__).read_text(encoding="utf-8")).body
+        ], type_ignores=[])
         parents = {}
         for node in ast.walk(module):
             for child in ast.iter_child_nodes(node):
@@ -8817,8 +8842,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             wave_id = created["data"]["wave_id"]
             wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
             wave_text = wave_md.read_text(encoding="utf-8")
-            brief = self.srv._build_prepare_council_brief(wave_id, wave_text, [])
-            policy_state, policy_errors = self.srv._prepare_policy_state(
+            brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, [])
+            policy_state, policy_errors = self.srv.lifecycle_gate_support._prepare_policy_state(
                 self.root, wave_md, wave_text, [], brief
             )
             self.assertEqual(policy_errors, ())
@@ -8893,7 +8918,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 self.assertEqual(finding["status"], "ok", finding)
 
             with self.subTest(state=state):
-                actual = self.srv._required_wave_council_signoffs(
+                actual = self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                     self.root,
                     "close",
                     wave_text=wave_md.read_text(encoding="utf-8"),
@@ -8917,7 +8942,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             return self.srv.wf_prepare_wave_response(self.root, **kwargs)
 
     def _close_roster(self, wave_md):
-        return self.srv._required_wave_council_signoffs(
+        return self.srv.lifecycle_gate_support._required_wave_council_signoffs(
             self.root,
             "close",
             wave_text=wave_md.read_text(encoding="utf-8"),
@@ -8935,8 +8960,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id = created["data"]["wave_id"]
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         wave_text = wave_md.read_text(encoding="utf-8")
-        brief = self.srv._build_prepare_council_brief(wave_id, wave_text, [])
-        policy_state, policy_errors = self.srv._prepare_policy_state(
+        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, [])
+        policy_state, policy_errors = self.srv.lifecycle_gate_support._prepare_policy_state(
             self.root, wave_md, wave_text, [], brief
         )
         self.assertEqual(policy_errors, ())
@@ -9054,10 +9079,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         wave_text = wave_md.read_text(encoding="utf-8")
-        change_ids = self.srv._extract_change_ids_from_wave_text(wave_text)
+        change_ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(wave_text)
         self.assertEqual(change_ids, [change_id])
-        brief = self.srv._build_prepare_council_brief(wave_id, wave_text, change_ids)
-        state, errors = self.srv._prepare_policy_state(
+        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, change_ids)
+        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(
             self.root, wave_md, wave_text, change_ids, brief
         )
         self.assertEqual(errors, ())
@@ -9403,7 +9428,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
             self.assertIn(
                 "wave-council-readiness",
-                self.srv._required_wave_council_signoffs(
+                self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                     self.root, "close", wave_md=wave_md
                 ),
                 "an undecodable wave record must not be read as never-prepared",
@@ -9413,7 +9438,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             wave_md.write_bytes(readable)
             os.chmod(wave_md, 0)
             try:
-                roster = self.srv._required_wave_council_signoffs(
+                roster = self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                     self.root, "close", wave_md=wave_md
                 )
             finally:
@@ -9583,11 +9608,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             if value is not None:
                 diagnostic["advisory"] = value
             with self.subTest(value=value), patch.object(
-                self.srv, "_wave_review_policy_diagnostics", return_value=[diagnostic]
-            ):
+                self.srv.lifecycle_gates, "_wave_review_policy_diagnostics", return_value=[diagnostic]
+            ) as _gate_mock_8:
                 response = self._run_prepare(wave_id=wave_id, mode="dry_run")
                 self.assertEqual(response["status"], expected_status, response)
                 self.assertIn(diagnostic, response.get("diagnostics") or [])
+                _gate_mock_8.assert_called()
 
     def test_every_prepare_return_routes_through_the_envelope_helper(self):
         """1uugg AC-4: asserted per RETURN NODE, derived from source.
@@ -9683,7 +9709,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         sanctioned set", so this resolves each tag to the diagnostic code it
         actually marks.
         """
-        module = ast.parse(Path(self.srv.__file__).read_text(encoding="utf-8"))
+        module = ast.Module(body=[
+            node
+            for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support)
+            for node in ast.parse(Path(owner.__file__).read_text(encoding="utf-8")).body
+        ], type_ignores=[])
         owner: dict[int, str] = {}
         for fn in ast.walk(module):
             if isinstance(fn, ast.FunctionDef):
@@ -9711,9 +9741,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(
             tagged,
             {
-                ("wf_prepare_wave_response", "_diagnostic", "ac_priority_unpopulated"),
+                ("change_sections_gate", "_diagnostic", "ac_priority_unpopulated"),
+                ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
-                ("wf_prepare_wave_response", "_review_policy_receipt_diagnostics", "<helper-call>"),
+                ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
                 # Wave 1vbuu (1vbut): code_impact's test-visibility note is a
                 # read-only retrieval advisory on a query tool, not a lifecycle
                 # gate; it can soften nothing because code_impact gates nothing.
@@ -9752,9 +9783,19 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
 
     def test_prepare_advisory_predicate_and_workaround_removal(self):
-        """1uugg AC-7 and the predicate direction, kept from the original pin."""
+        """1uugg AC-7 and the predicate direction, kept from the original pin.
+
+        Wave 1yd98 extracted the predicate into `lifecycle_gates`, so the
+        direction half of this pin now reads its single implementation there.
+        The spelling it used to read lived only in prepare's closure, which now
+        delegates.  The two workaround-symbol absence checks stay on
+        `server_impl.py`, which is what 1uugg was protecting.
+        """
+        import lifecycle_gates
+
+        gate_source = Path(lifecycle_gates.__file__).read_text(encoding="utf-8")
+        self.assertIn('diagnostic.get("advisory") is not True', gate_source)
         source = Path(self.srv.__file__).read_text(encoding="utf-8")
-        self.assertIn('diagnostic.get("advisory") is not True', source)
         # AC-7 is scoped to Python sources, not to prepare's own body: an
         # earlier version checked only `inspect.getsource(prepare)`, so a
         # reintroduction elsewhere in `server_impl.py` would have passed. The
@@ -9812,7 +9853,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "a wave must not ready on a stale approval",
         )
         self.assertEqual(
-            tuple(self.srv._extract_required_review_lanes(wave_text)),
+            tuple(self.srv.lifecycle_gate_support._extract_required_review_lanes(wave_text)),
             tuple(after["required_lanes"]),
             "the persisted roster must match the published receipt",
         )
@@ -9836,8 +9877,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         def republish():
             text = wave_md.read_text(encoding="utf-8")
-            ids = self.srv._extract_change_ids_from_wave_text(text)
-            state, errors = self.srv._prepare_policy_state(
+            ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(text)
+            state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(
                 self.root, wave_md, text, ids, {}
             )
             self.assertEqual(errors, ())
@@ -9889,8 +9930,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         text = wave_md.read_text(encoding="utf-8")
-        ids = self.srv._extract_change_ids_from_wave_text(text)
-        state, errors = self.srv._prepare_policy_state(self.root, wave_md, text, ids, {})
+        ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(text)
+        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(self.root, wave_md, text, ids, {})
         self.assertEqual(errors, ())
         self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
 
@@ -10024,10 +10065,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, _wave_md, _change_path = self._prepared_wave_with_change("none-empty")
-        with patch.object(self.srv, "_prepare_policy_state", return_value=(None, ())):
+        with patch.object(self.srv, "_prepare_policy_state", return_value=(None, ())) as _gate_mock_6:
             refused = self._record_readiness_approval(
                 wave_id, "wave-council-readiness", "noneempty"
             )
+            _gate_mock_6.assert_called()
         self.assertEqual(refused["status"], "error", refused)
         message = " ".join(d["message"] for d in refused["diagnostics"])
         self.assertIn("no state and no error", message)
@@ -10188,8 +10230,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         text = wave_md.read_text(encoding="utf-8")
-        ids = self.srv._extract_change_ids_from_wave_text(text)
-        state, errors = self.srv._prepare_policy_state(self.root, wave_md, text, ids, {})
+        ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(text)
+        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(self.root, wave_md, text, ids, {})
         self.assertEqual(errors, ())
         self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
         self._record_readiness_approval(wave_id, "wave-council-readiness", f"adv-{slug}")
@@ -10293,10 +10335,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 return _RecordingDiagnostic(payload)
             return payload
 
-        with patch.object(self.srv, "_diagnostic", side_effect=_recording):
+        with patch.object(self.srv.lifecycle_gate_support, "_diagnostic", side_effect=_recording) as _gate_mock_7:
             wave_id, _wave_md, _cp = self._wave_with_an_advisory_only_create("ac5c-obs")
             _RecordingDiagnostic.probes = 0
             resp = self._run_prepare(wave_id=wave_id, mode="create")
+            _gate_mock_7.assert_called()
 
         self.assertEqual(resp["status"], "ok", resp)
         self.assertEqual(
@@ -10322,7 +10365,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, _cp = self._prepared_wave_with_change("ac3b-drift")
         text = wave_md.read_text(encoding="utf-8")
-        persisted = self.srv._extract_required_review_lanes(text)
+        persisted = self.srv.lifecycle_gate_support._extract_required_review_lanes(text)
         self.assertTrue(persisted, "fixture must persist a roster to drift from")
         # The edit must land BEFORE the approval: hand-editing `wave.md`
         # desyncs the Review Status projection, and the approval's write is what
@@ -10451,7 +10494,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # invocation inside `transact()` without surfacing it. Check that seam
         # directly rather than through a response that never carries it.
         text = wave_md.read_text(encoding="utf-8")
-        default = self.srv._review_policy_receipt_diagnostics(self.root, wave_md, text)
+        default = self.srv.lifecycle_gate_support._review_policy_receipt_diagnostics(self.root, wave_md, text)
         self.assertTrue(default, "the fixture must produce a pending mint")
         for d in default:
             self.assertNotIn("advisory", d, "the default invocation must not tag")
@@ -10479,10 +10522,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
     def test_policy_input_errors_carry_a_typed_cause(self):
         """1upba Requirement 2: discriminate by cause, never by message prose."""
-        tagged = self.srv.PolicyInputError("ambiguous_headings", "boom")
+        tagged = self.srv.lifecycle_gate_support.PolicyInputError("ambiguous_headings", "boom")
         self.assertIsInstance(tagged, str)
-        self.assertEqual(self.srv.policy_input_error_cause(tagged), "ambiguous_headings")
-        self.assertEqual(self.srv.policy_input_error_cause("legacy"), "unknown")
+        self.assertEqual(self.srv.lifecycle_gate_support.policy_input_error_cause(tagged), "ambiguous_headings")
+        self.assertEqual(self.srv.lifecycle_gate_support.policy_input_error_cause("legacy"), "unknown")
         self.assertNotIn(
             "ambiguous_headings", self.srv.POLICY_INPUT_DEGRADABLE_CAUSES,
             "an authoring defect must never degrade to a warning",
@@ -10492,7 +10535,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
     def test_policy_reader_no_longer_exposes_required_for_all_waves(self):
         """1tsyx AC-5 red-first: the parsed-but-unused flag is removed."""
         self._write_config()
-        self.assertNotIn("required_for_all_waves", self.srv._read_wave_council_policy(self.root))
+        self.assertNotIn("required_for_all_waves", self.srv.lifecycle_gate_support._read_wave_council_policy(self.root))
 
     def test_projection_keys_follow_explicit_review_policy(self):
         """1tsbu: disabled policy has no phantom Council projection rows."""
@@ -10538,7 +10581,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """Wave 1p337 (1p336) AC-1: `_read_wave_council_policy()` reads `wave_review`
         first and returns its policy dict when present."""
         self._write_config_with_new_key(enabled=True)
-        policy = self.srv._read_wave_council_policy(self.root)
+        policy = self.srv.lifecycle_gate_support._read_wave_council_policy(self.root)
         self.assertTrue(policy, msg="policy must be returned when `wave_review` is set and enabled")
         self.assertIn("phases", policy)
 
@@ -10552,7 +10595,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                "wave_council_policy": {"enabled": True,
                                        "phases": {"prepare": {"signoff_key": "wave-council-readiness"}}}}
         (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
-        policy = self.srv._read_wave_council_policy(self.root)
+        policy = self.srv.lifecycle_gate_support._read_wave_council_policy(self.root)
         self.assertEqual(policy, {}, msg="legacy `wave_council_policy` must no longer resolve")
 
     def test_reader_prefers_new_key_when_both_present(self):
@@ -10572,7 +10615,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "wave_council_policy": {"enabled": False},
         }
         (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
-        policy = self.srv._read_wave_council_policy(self.root)
+        policy = self.srv.lifecycle_gate_support._read_wave_council_policy(self.root)
         self.assertTrue(policy, msg="new-key precedence: `wave_review.enabled=True` must win over legacy `enabled=False`")
 
 
@@ -10912,7 +10955,7 @@ class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
         wave_md.write_text(wave_text, encoding="utf-8")
         (wave_dir / f"{self.CHANGE_ID}.md").write_text(doc_text, encoding="utf-8")
         (wave_dir / "events.jsonl").write_text("", encoding="utf-8")
-        state, errors = self.srv._prepare_policy_state(
+        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(
             root, wave_md, wave_text, [self.CHANGE_ID], {},
             change_text_overrides={self.CHANGE_ID: doc_text},
         )
@@ -10986,7 +11029,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         cls.srv = load_server()
 
     def _template_seats_field(self, rotating_seat):
-        template = self.srv._prepare_council_verdict_template(rotating_seat)
+        template = self.srv.lifecycle_gate_support._prepare_council_verdict_template(rotating_seat)
         match = re.search(r"seats: (?P<seats>[^;]*);", template)
         self.assertIsNotNone(match, f"template has no seats: field: {template}")
         return template, match.group("seats")
@@ -11001,7 +11044,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         recorded a verdict the seat-alignment check then rejected against the
         very roster the same response had bound.
         """
-        brief = self.srv._build_prepare_council_brief(
+        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(
             "w1", "Wave text naming a security-reviewer boundary", ["c1"]
         )
         self.assertEqual(brief["rotating_seat"], "security-reviewer")
@@ -11059,7 +11102,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
     def test_template_still_parses_as_valid_verdict_line(self):
         """The de-dup'd placeholder template still matches the structured verdict parser
         (the example the brief hands out must be a syntactically valid line)."""
-        template = self.srv._prepare_council_verdict_template("security-reviewer")
+        template = self.srv.lifecycle_gate_support._prepare_council_verdict_template("security-reviewer")
         info = self.srv._prepare_council_verdict_info(
             "## Review Checkpoints\n\n" + template + "\n"
         )
@@ -11068,7 +11111,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
 
     def test_brief_instructions_require_code_grounded_verification(self):
         """AC-5: the prepare-council brief instructions carry the code-grounded verification contract."""
-        brief = self.srv._build_prepare_council_brief("w1", "wave text", ["c1"])
+        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief("w1", "wave text", ["c1"])
         instructions = brief["instructions"]
         self.assertIn("code-grounded", instructions)
         self.assertIn("file:line sites and symbols must resolve", instructions)
@@ -11088,7 +11131,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         the anchor vocabulary, the resolvability reason, and the carve-outs
         carrying the name-the-case-inline obligation.
         """
-        instructions = self.srv._build_prepare_council_brief(
+        instructions = self.srv.lifecycle_gate_support._build_prepare_council_brief(
             "w1", "wave text", ["c1"])["instructions"]
         for clause in (
             "cite a resolvable anchor",
@@ -11115,7 +11158,7 @@ class PrepareCouncilVerdictTemplateTests(unittest.TestCase):
         not.  Wording here intentionally differs from seed 237's rule ("each
         plan's" vs "the artifact's"); one pin cannot cover both sites.
         """
-        brief = self.srv._build_prepare_council_brief("w1", "wave text", ["c1"])
+        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief("w1", "wave text", ["c1"])
         pinned = (
             "Verification must be code-grounded: verify each plan's load-bearing "
             "claims against the actual tree, not against the plan's own prose — "
@@ -11189,11 +11232,11 @@ class WaveImplementTests(unittest.TestCase):
         selected_lanes = list(lanes)
         if receipt is None:
             wave_text = wave_md.read_text(encoding="utf-8")
-            change_ids = self.srv._extract_change_ids_from_wave_text(wave_text)
-            brief = self.srv._build_prepare_council_brief(
+            change_ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(wave_text)
+            brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(
                 wave_id, wave_text, change_ids
             )
-            state, state_errors = self.srv._prepare_policy_state(
+            state, state_errors = self.srv.lifecycle_gate_support._prepare_policy_state(
                 self.root, wave_md, wave_text, change_ids, brief
             )
             assert not state_errors, state_errors
@@ -11270,7 +11313,7 @@ class WaveImplementTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Participants", text)
-        self.assertEqual(self.srv._extract_required_review_lanes(text), [])
+        self.assertEqual(self.srv.lifecycle_gate_support._extract_required_review_lanes(text), [])
         review = sys.modules["review_evidence"]
         keys = review.required_review_status_keys(self.root, text, ())
         projected_lanes = [
@@ -11293,7 +11336,7 @@ class WaveImplementTests(unittest.TestCase):
             "| security-reviewer | review | trust |\n"
             "| code-reviewer | review | code |\n"
         )
-        server_lanes = self.srv._extract_required_review_lanes(text)
+        server_lanes = self.srv.lifecycle_gate_support._extract_required_review_lanes(text)
         review = sys.modules["review_evidence"]
         keys = review.required_review_status_keys(self.root, text, ())
         projection_lanes = [
@@ -11316,7 +11359,7 @@ class WaveImplementTests(unittest.TestCase):
         mismatches = []
         for wave_md in wave_paths:
             text = wave_md.read_text(encoding="utf-8")
-            server_lanes = self.srv._extract_required_review_lanes(text)
+            server_lanes = self.srv.lifecycle_gate_support._extract_required_review_lanes(text)
             keys = review.required_review_status_keys(repo, text, ())
             projection_lanes = [
                 key for key in keys
@@ -12555,7 +12598,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         with patch.object(
             review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 1
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 1
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 1
         ):
             legacy = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -12570,7 +12613,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         with patch.object(
             review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 2
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 2
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 2
         ):
             upgraded = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -12618,7 +12661,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         with patch.object(
             review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 5
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ):
             legacy = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -12683,7 +12726,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         with patch.object(
             review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 4
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 4
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 4
         ):
             legacy = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -12698,7 +12741,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         with patch.object(
             review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ), patch.object(
-            self.srv, "REVIEW_POLICY_EVALUATOR_VERSION", 5
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 5
         ):
             upgraded = self._run(
                 self.srv.wf_prepare_wave_response,
@@ -12768,7 +12811,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertTrue(receipt["delivery_council_required"])
         self.assertIn(
             "wave-council-delivery",
-            self.srv._required_wave_council_signoffs(
+            self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                 self.root,
                 "review",
                 wave_text=self.wave_md.read_text(encoding="utf-8"),
@@ -13173,8 +13216,8 @@ class DeclaredWaveTreeSweepTests(unittest.TestCase):
                 continue  # open/readied waves are still moving
             authority = self.review.resolve_review_authority(self.repo, wave_md, wave_text=text)
             self.assertTrue(authority.typed, wave_md)
-            lanes = tuple(sorted(self.srv._extract_required_review_lanes(text)))
-            council = self.srv._required_wave_council_signoffs(
+            lanes = tuple(sorted(self.srv.lifecycle_gate_support._extract_required_review_lanes(text)))
+            council = self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                 self.repo, "close", wave_text=text, wave_md=wave_md
             )
             required_keys = ["operator-signoff", *lanes, *council]
@@ -15271,8 +15314,13 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
     def test_review_and_close_both_consume_the_single_evaluator(self):
         review_source = inspect.getsource(self.srv.wf_review_wave_response)
         close_source = inspect.getsource(self.srv.wf_close_wave_response)
-        self.assertEqual(review_source.count("_evaluate_shared_delivery_state("), 1)
-        self.assertEqual(close_source.count("_evaluate_shared_delivery_state("), 1)
+        self.assertEqual(review_source.count("_evaluate_shared_delivery_state("), 0)
+        self.assertEqual(close_source.count("_evaluate_shared_delivery_state("), 0)
+        gates = self.srv.lifecycle_gates
+        unit_source = inspect.getsource(gates.shared_delivery_gate)
+        self.assertEqual(unit_source.count("_evaluate_shared_delivery_state("), 1)
+        self.assertIn(gates.shared_delivery_gate, gates.REVIEW_GATES)
+        self.assertIn(gates.shared_delivery_gate, gates.CLOSE_SHARED_GATES)
 
 
 if __name__ == "__main__":

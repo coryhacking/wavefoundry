@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -746,6 +746,8 @@ change remains active outside the wave.
 
 `wf_prepare_wave(wave_id: str, mode: str = "dry_run")` — modes: `dry_run` (alias: `evaluate`) / `ready` / `create`
 
+- Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy and unavailable refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
+
 - Validates that every admitted change doc is wave-owned.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
 during `ready`/`create` (readiness mutations); `dry_run` is read-only.
@@ -796,6 +798,8 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 `wf_review_wave(wave_id: str, phase: str = "implementation")`
 
+- Every handler response includes `configured_gates: []`: review is read-only and has no configurable sensor phase. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all.
+
 - Sole guided inspection entry point for review work. `phase="prepare"` derives readiness actions and `phase="implementation"` derives delivery actions. The approval-phase vocabulary is accepted and mapped onto these: `phase="readiness"` resolves to `prepare` and `phase="delivery"` resolves to `implementation`, so a caller reaching for the word it uses on approvals succeeds instead of being rejected. It runs the existing full docs validation once, validates the declared authority, and returns the lane summary plus bounded `data.review_actions`.
 - Each action is discriminated as `repair_start`, `reverification`, or `approval`, and separates state-derived `state_args` from `required_caller_inputs`. The response emits `caller_input_schema` once and actions reference it with `input_schema_ref`; it enumerates every action's required top-level caller inputs plus required finding/approval evidence fields and all integrity-check fields before a write. A reverification also carries its current-head `judgment_template` and a blocking constraint. Judgment, evidence, integrity, freshness, and independence remain caller-authored. A successful `wf_review_event(mode="create")` returns the next post-commit projection, so the normal path does not call `wf_review_wave`, `event="list"`, or full validation after every accepted write. Failed or stale writes recover through a fresh phase-correct `wf_review_wave` call.
 - `review_evidence.py` is the field-vocabulary authority: `REVIEW_FINDING_CORE_JUDGMENT_FIELDS`, `REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS`, `REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS`, `REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS`, `INTEGRITY_CHECK_FIELDS`, `REVIEW_ACTION_FIELDS`, `REVIEW_ACTION_STATE_FIELDS`, and `REVIEW_ACTION_CALLER_INPUTS` drive validation or action construction. Core judgment is exactly `validation_status`, `scope_relation`, `introduced_or_worsened_by_wave`, `contract_relevance`, `supported_reachability`, `attacker_reachability`, `authority_domain`, `authority_delta`, `observable_impact`, and `containment`; conditional repair judgment is `fix_risk`, `optional_value`, `repair_scope_bounded`, `repair_safety`, `benefit_vs_fix_risk`, and `rejection_basis`; finding evidence is `proposition`, `failure_condition`, `public_path`, `command_or_fixture`, `expected`, `observed`, `artifact_or_test_id`, `limitations`, `safety_and_authorization`, and `disposition_rationale`; approval evidence requires `observed` and `artifact_or_test_id`. Semantic contract tests compare seed 209, this specification, and the registered tool description with those exported registries so copied prose cannot silently drift.
@@ -834,6 +838,8 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - A successful `wf_mark_ac(state="~")` on a declared wave with review policy configured atomically writes the deferred AC, publishes its new review-policy receipt, and reprojects review state. Its `review_receipt_refreshed` object identifies that receipt and gives the fresh readiness review actions, and the supersession is **also reported as a diagnostic** rather than only as that payload field, because publishing the receipt moves any current readiness approval to non-current, and reporting that only in the payload field left it out of the diagnostics an agent actually reads. It does **not** create or carry forward approvals for the changed contract. If this publication fails, the AC is not changed; inspect the returned recovery diagnostic, correct the named review-state problem, and retry the same call rather than manually editing the checkbox, ledger, or projection. Completion and task marks remain receipt-neutral; legacy or policy-disabled waves retain their ordinary tracking-only behavior.
 
 `wf_close_wave(wave_id: str, mode: str = "dry_run")`
+
+- Every handler response includes `configured_gates`. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. Required sensors execute in `create` (alias `apply`) only when no blocking diagnostic has accumulated by the time the sensor gate runs; on a blocked close they report `would_run` with a not-executed advisory naming that condition, and `dry_run` reports `would_run` with the read-only advisory and never launches them. Reached entries carry `phase`, `gate`, `source`, `outcome`, and `duration_ms` (null unless passed or failed).
 
 - Dry-run or close a wave after docs validation passes.
 - The close gate's signoff reads (operator presence, per-lane and council
@@ -1758,6 +1764,8 @@ are now applied to all tools. Whether annotations are consistently consumed acro
 Claude, Cursor, Copilot, Codex, Junie, and other MCP clients remains to be validated;
 correctness of the hints in `server.py` is no longer an open question.
 - ~~Whether a dedicated `wf_audit` tool should be added in this wave or deferred~~ **Resolved:** `wf_audit` is shipped; it aggregates `wf_current_wave`-class wave state, `wf_validate_docs` output, and the bounded index readiness snapshot (`metadata_ready`; freshness deliberately unverified, see wave 1t59p) in one read-only call. Lifecycle mutation tools remain separate; agents use `wf_audit` as the preferred post-mutation landing check.
+
+> **Amended 2026-09-18 by wave `1yd97 phase-gate-follow-ups` (`1yd98-enh`).** The close-phase `configured_gates` bullet gained the blocking-diagnostic precondition and was corrected in place. Superseded wording, preserved verbatim: "Required sensors execute in `create` (alias `apply`); `dry_run` reports `would_run` with a not-executed advisory and never launches them."
 
 <!-- wavefoundry:review-policy:begin -->
 ## Review-policy tool baseline

@@ -157,7 +157,7 @@ class DefaultLayoutUnchangedTests(_RepoCase):
     def test_default_paths_are_byte_identical(self):
         roots = self.srv.record_paths.load_record_roots(self.root)
         self.assertEqual(roots.waves, self.root / "docs" / "waves")
-        self.assertEqual(self.srv._plan_change_doc_path(self.root, "1abcd-enh x"), self.root / "docs" / "plans" / "1abcd-enh x.md")
+        self.assertEqual(self.srv.lifecycle_gate_support._plan_change_doc_path(self.root, "1abcd-enh x"), self.root / "docs" / "plans" / "1abcd-enh x.md")
         cache = self.srv.McpRepoCache(self.root)
         self.assertEqual(cache._wave_fingerprint(), self.srv._dir_fingerprint(self.root / "docs" / "waves", "wave.md", recursive=True))
 

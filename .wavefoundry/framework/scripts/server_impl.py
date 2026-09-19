@@ -42,6 +42,9 @@ for _wll_key in list(sys.modules):
             "gardener_metadata",
             "operator_identity",
             "record_paths",
+            "lifecycle_gate_support",
+            "lifecycle_gates",
+            "sensor_runner",
         }
     ):
         del sys.modules[_wll_key]
@@ -60,6 +63,64 @@ import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 from operator_identity import resolve_operator
 import setup_readiness
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
+
+import lifecycle_gate_support
+import sensor_runner
+import lifecycle_gates
+from lifecycle_gate_support import (
+    SUBPROCESS_OPS_TIMEOUT_DEFAULT,
+    subprocess_ops_timeout_seconds,
+    _read_project_sensors,
+    _read_phase_gates,
+    POLICY_INPUT_DEGRADABLE_CAUSES,
+    PolicyInputError,
+    _CHANGE_ID_PATTERN,
+    _CLOSE_GATE_AC_ID_RE,
+    _CLOSE_GATE_CHECKBOX_LINE_RE,
+    _FRAMEWORK_TEST_RECEIPT_REL,
+    _FRAMEWORK_TEST_RUNNER_REL,
+    _RUN_TESTS_IMPORT_ENV,
+    _build_prepare_council_brief,
+    _change_location_state,
+    _close_gate_parse_ac_priority,
+    _collect_silent_unchecked_items_for_close,
+    _diagnostic,
+    _docs_lint_warning_diagnostics,
+    _extract_change_ids_from_wave_text,
+    _extract_close_gate_section,
+    _extract_required_review_lanes,
+    _load_framework_test_runner,
+    _missing_required_change_sections,
+    _plan_change_doc_path,
+    _prepare_council_instructions,
+    _prepare_council_verdict_template,
+    _prepare_policy_state,
+    _read_error_detail,
+    _read_project_required_review_lanes,
+    _read_wave_council_policy,
+    _read_wave_record_text,
+    _read_workflow_config,
+    _repo_rel,
+    _required_wave_council_signoffs,
+    _review_policy_receipt_diagnostics,
+    _review_status_signoff_keys,
+    _select_prepare_council_rotating_seat,
+    _wave_change_doc_path,
+    _wave_uses_external_review_evidence,
+    policy_input_error_cause,
+    receipt_supersession_attribution,
+)
+from lifecycle_gates import (
+    CLOSURE_ONLY_DIAGNOSTIC_CODES,
+    SHARED_DELIVERY_DIAGNOSTIC_CODES,
+    _approval_evidence_diagnostics,
+    _evaluate_shared_delivery_state,
+    _framework_test_receipt_diagnostic,
+    _framework_test_receipt_status,
+    _review_evidence_diagnostics,
+    _wave_review_policy_diagnostics,
+)
+
 
 # Capture once even when the implementation module is hot-reloaded. The thin
 # runner supplies its earlier pre-import identity when it builds the handler.
@@ -3043,14 +3104,6 @@ class WaveIndex:
 # Wave inspection helpers
 # ---------------------------------------------------------------------------
 
-def _read_workflow_config(root: Path) -> dict:
-    cfg = root / "docs" / "workflow-config.json"
-    if cfg.is_file():
-        try:
-            return json.loads(cfg.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
 
 
 # Wave 1y0gz (1y042): the record layout (the `record_paths` module constants)
@@ -3143,7 +3196,6 @@ def docs_lint_full_scan_timeout_seconds(root: Path) -> float:
 # full rebuilds) and stay EXEMPT — their observability is persistent progress
 # logs plus status tools, never deadlines. Defaults are generous for slow
 # machines and config-tunable per op (the 1p9bg/1p9iu fail-safe contract).
-SUBPROCESS_OPS_TIMEOUT_DEFAULT = 180.0
 SUBPROCESS_OPS_OUTPUT_CAP_CHARS = 200_000
 UPGRADE_OUTPUT_CAP_CHARS = 60_000
 UPGRADE_SUMMARY_CAP_CHARS = 24_000
@@ -3225,19 +3277,6 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
 }
 
 
-def subprocess_ops_timeout_seconds(root: Path, op: str) -> float:
-    """Timeout (seconds) for a bounded short-op subprocess (``gardener`` or
-    ``surface_render``). Reads ``docs/workflow-config.json``
-    ``subprocess_ops.<op>_timeout_seconds``; any error / missing key /
-    non-positive value falls back to the generous default and never raises."""
-    try:
-        cfg = _read_workflow_config(root)
-        val = (cfg.get("subprocess_ops") or {}).get(f"{op}_timeout_seconds")
-        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
-            return float(val)
-    except Exception:
-        pass
-    return SUBPROCESS_OPS_TIMEOUT_DEFAULT
 
 
 def _bounded_subprocess_output(
@@ -3360,368 +3399,18 @@ def docs_lint_hook_timeout_seconds(root: Path) -> float:
         return DOCS_LINT_HOOK_TIMEOUT_FALLBACK
 
 
-def _read_project_required_review_lanes(root: Path) -> list[str]:
-    """Return project-declared required review lanes from workflow-config.json."""
-    cfg = _read_workflow_config(root)
-    raw = cfg.get("required_review_lanes", [])
-    if not isinstance(raw, list):
-        return []
-    return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
-
-
-def _read_wave_council_policy(root: Path) -> dict[str, Any]:
-    """Return normalized Wave Council policy from workflow-config.json.
-
-    Reads the canonical ``wave_review`` key. (Wave 1p5b4: the legacy
-    ``wave_council_policy`` reader-fallback was removed along with the canonical-names
-    rename mechanism — the one-shot upgrade convergence rewrites legacy configs to
-    canonical, so the runtime only ever sees ``wave_review``.)
-    """
-    cfg = _read_workflow_config(root)
-    raw = cfg.get("wave_review")
-    if raw is None:
-        # Undeclared legacy/minimal fixtures keep the pre-policy compatibility
-        # path. Canonical project lint requires the key on real installations.
-        return {}
-    normalized, policy_errors = normalize_wave_review_policy(raw)
-    if normalized is None:
-        # Fail closed: lifecycle callers retain the strongest council gates
-        # and surface the configuration defect through their normal policy
-        # diagnostics instead of interpreting malformed policy as disabled.
-        return {
-            "enabled": True,
-            "delivery_mode": "universal",
-            "invalid": True,
-            "errors": list(policy_errors),
-            "phases": {
-                "prepare": {
-                    "signoff_key": "wave-council-readiness",
-                    "moderator_role": "wave-council",
-                },
-                "review": {
-                    "signoff_key": "wave-council-delivery",
-                    "moderator_role": "wave-council",
-                },
-            },
-        }
-    if not normalized["enabled"]:
-        return {
-            "enabled": False,
-            "delivery_mode": "disabled",
-            "evidence_section": str(raw.get("evidence_section", "## Review Evidence")).strip() or "## Review Evidence",
-            "transition_policy": str(raw.get("transition_policy", "")).strip(),
-            "phases": {},
-        }
-
-    phases_raw = normalized.get("phases", {})
-    if not isinstance(phases_raw, dict):
-        phases_raw = {}
-
-    phase_defaults = {
-        "prepare": "wave-council-readiness",
-        "review": "wave-council-delivery",
-    }
-    phases: dict[str, dict[str, str]] = {}
-    for phase, default_key in phase_defaults.items():
-        phase_raw = phases_raw.get(phase, {})
-        if not isinstance(phase_raw, dict):
-            phase_raw = {}
-        signoff_key = str(phase_raw.get("signoff_key", default_key)).strip()
-        moderator_role = str(phase_raw.get("moderator_role", "wave-council")).strip()
-        if signoff_key:
-            phases[phase] = {
-                "signoff_key": signoff_key,
-                "moderator_role": moderator_role or "wave-council",
-            }
-
-    return {
-        "enabled": True,
-        "delivery_mode": normalized["delivery_mode"],
-        "evidence_section": str(raw.get("evidence_section", "## Review Evidence")).strip() or "## Review Evidence",
-        "transition_policy": str(raw.get("transition_policy", "")).strip(),
-        "phases": phases,
-    }
-
-
-def _wave_review_policy_diagnostics(root: Path) -> list[dict[str, Any]]:
-    policy = _read_wave_council_policy(root)
-    if not policy.get("invalid"):
-        return []
-    return [
-        _diagnostic(
-            "review_policy_reprepare_required",
-            str(error),
-            recovery_tools=["wf_get_change", "wf_validate_docs"],
-            recovery_usage="Fix docs/workflow-config.json wave_review.enabled/delivery_mode, then call wf_validate_docs().",
-        )
-        for error in policy.get("errors", ["wave_review policy is invalid"])
-    ]
-
-
-def _required_wave_council_signoffs(
-    root: Path,
-    lifecycle_phase: str,
-    wave_text: Optional[str] = None,
-    wave_md: Optional[Path] = None,
-) -> list[str]:
-    """Council signoff keys required at ``lifecycle_phase``.
-
-    Wave 1to78: the transition-policy branch probes signoff PRESENCE, which is
-    review-evidence content, so it resolves through the review authority
-    facade — typed records on declared waves, prose on legacy waves. Callers
-    pass ``wave_md`` (the wave identity) so the facade can reach the typed
-    ledger; text-only callers keep the legacy prose probe via the facade's
-    text-only resolution (a declared wave without a path fails closed).
-    """
-    policy = _read_wave_council_policy(root)
-    if not policy or not policy.get("enabled"):
-        return []
-    phase_map = {
-        "prepare": ["prepare"],
-        "review": ["review"],
-        "close": ["prepare", "review"],
-    }
-    required: list[str] = []
-    for phase in phase_map.get(lifecycle_phase, []):
-        signoff_key = policy.get("phases", {}).get(phase, {}).get("signoff_key")
-        if signoff_key and signoff_key not in required:
-            required.append(signoff_key)
-    if policy.get("delivery_mode") == "targeted" and lifecycle_phase in {"review", "close"}:
-        records: tuple[Mapping[str, Any], ...] = ()
-        if wave_md is not None:
-            records, _errors = read_review_event_ledger(wave_md)
-        receipt = current_policy_receipt(records)
-        if receipt is not None:
-            council_required = receipt.get("delivery_council_required") is True
-        else:
-            # Compatibility-only fallback for legacy prose waves that have no
-            # typed receipt authority.
-            heads = current_synthesis_heads(records).values()
-            council_required = delivery_council_required(
-                "targeted",
-                delivered_boundary_triggers=extract_full_council_triggers(
-                    (wave_text or "",)
-                ),
-                current_heads=heads,
-            )
-        if not council_required:
-            review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
-            required = [key for key in required if key != review_key]
-    if not required:
-        return required
-
-    transition_policy = str(policy.get("transition_policy", "")).strip().lower()
-    if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not (wave_text or wave_md):
-        return required
-
-    prepare_key = policy.get("phases", {}).get("prepare", {}).get("signoff_key")
-    review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
-    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
-    prepare_signoff_recorded = bool(
-        prepare_key
-        and authority.signoff_recorded(
-            prepare_key, approval_phase="readiness"
-        )
-    )
-    has_review_signoff = bool(
-        review_key
-        and authority.signoff_current(
-            review_key, approval_phase="delivery"
-        )
-    )
-
-    if lifecycle_phase == "review":
-        return required
-    if lifecycle_phase == "close":
-        # A present-but-stale readiness approval remains required and therefore
-        # blocks through the normal currency diagnostic.
-        if prepare_signoff_recorded:
-            return required
-        # The carve-out exists for waves that were in flight BEFORE the policy
-        # applied, and absence of an approval is a poor proxy for that: a
-        # readiness approval refused as stale is also absent, so keying on
-        # absence would make refusing the approval WEAKEN the close gate below
-        # what the silent accept required.  Key on never-prepared-under-policy
-        # instead.  The ledger-health conjunct is not optional --
-        # `resolve_review_authority` empties `records` on any ledger error, so a
-        # receipt check alone reads a corrupt ledger as "never prepared" and
-        # fails open inside a fail-closed design.
-        never_prepared_under_policy = (
-            current_policy_receipt(authority.records) is None
-            and not authority.ledger_errors
-        )
-        if not never_prepared_under_policy:
-            return required
-        # Both exits below drop the readiness key, so the carve-out must gate
-        # both.  The `has_review_signoff` exit is not a corner case: it is the
-        # normal end-state of a wave whose readiness approval was refused and
-        # which then completed delivery review.
-        if has_review_signoff and review_key:
-            return [review_key]
-        return [key for key in required if key != prepare_key]
-    return required
-
-
-def _read_project_sensors(root: Path) -> list[dict]:
-    """Return registered sensor definitions from workflow-config.json."""
-    cfg = _read_workflow_config(root)
-    raw = cfg.get("sensors", [])
-    if not isinstance(raw, list):
-        return []
-    out = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        command = item.get("command")
-        if not name or not command:
-            continue
-        out.append({
-            "name": name,
-            "command": command if isinstance(command, list) else str(command),
-            "dimension": str(item.get("dimension", "maintainability")),
-            "description": str(item.get("description", "")),
-        })
-    return out
 
 
 _WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
 _STATUS_PATTERN = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
-_CHANGE_ID_PATTERN = re.compile(r"^Change ID:\s+`([^`]+)`", re.MULTILINE)
 _CHANGE_STATUS_PATTERN = re.compile(r"^(?:Change|Item) Status:\s+`([^`]+)`", re.MULTILINE)
 
 # Wave 1p31b (1p32k): close-time hard gate — every AC and task across the wave's admitted
 # changes must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block
 # close. `not-this-scope` priority ACs are exempt (the priority encodes the exclusion).
-_CLOSE_GATE_CHECKBOX_LINE_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX~])\]\s+(?P<text>.+?)\s*$", re.MULTILINE)
-_CLOSE_GATE_AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
 
 
-def _extract_close_gate_section(text: str, heading: str) -> str:
-    """Extract H2 section content by heading name (without `## ` prefix)."""
-    pattern = re.compile(rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
-    match = pattern.search(text)
-    return match.group(1) if match else ""
-
-
-def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
-    """Return `AC-id -> priority` map from a markdown AC priority table (normalized lowercase)."""
-    result: dict[str, str] = {}
-    for raw in priority_section.splitlines():
-        line = raw.strip()
-        if not line.startswith("|") or line.count("|") < 2:
-            continue
-        # Skip the markdown separator row.
-        if set(line.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) < 2:
-            continue
-        id_match = _CLOSE_GATE_AC_ID_RE.search(cells[0])
-        if not id_match:
-            continue
-        result[id_match.group(1)] = cells[1].lower().replace(" ", "-")
-    return result
-
-
-def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> list[dict[str, str]]:
-    """Walk admitted change docs; return silent ``[ ]`` items that block close.
-
-    Wave 1p31b (1p32k): the close-time hard gate. Every AC and task must be ``[x]`` or
-    ``[~]`` at close. AC items at ``not-this-scope`` priority are exempt. Returns a list of
-    ``{'change_id', 'item_type' ('AC' or 'task'), 'item_id', 'item_text'}`` dicts.
-    """
-    findings: list[dict[str, str]] = []
-    for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
-        change_path = wave_md.parent / f"{change_id}.md"
-        if not change_path.exists():
-            # 1v0lx: absent is not "nothing to check". The gate cannot verify
-            # ACs and tasks it cannot see, so a ghost blocks close exactly as
-            # an unreadable document does, under its own item id (the recovery
-            # differs: restore or wf_remove_change, not repair).
-            findings.append({
-                "change_id": change_id,
-                "item_type": "change document",
-                "item_id": "missing",
-                "item_text": (
-                    f"no file at {wave_md.parent.name}/{change_path.name}; "
-                    "restore the document or remove the change via wf_remove_change"
-                ),
-            })
-            continue
-        try:
-            change_text = change_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            # BOTH causes block. An earlier revision kept the legacy silent skip
-            # for I/O failures and surfaced only decode failures, which left the
-            # close hard gate fail-open for a permission-denied admitted
-            # document -- the same hole, reachable by `chmod 000`. The stated
-            # reason (close cannot verify an admitted document it cannot read)
-            # does not distinguish the two, so neither does this.
-            findings.append({
-                    "change_id": change_id,
-                    "item_type": "change document",
-                    # Non-empty so the renderer tags it `[unreadable]` rather
-                    # than `[task]`, which told the operator to mark an
-                    # unreadable file `[x]` or `[~]`.
-                    "item_id": "unreadable",
-                    "item_text": (
-                        f"could not read {change_path.name}: "
-                        + _read_error_detail(exc)
-                    ),
-                })
-            continue
-
-        ac_section = _extract_close_gate_section(change_text, "Acceptance Criteria")
-        priority_section = _extract_close_gate_section(change_text, "AC Priority")
-        priorities = _close_gate_parse_ac_priority(priority_section)
-
-        # Walk AC items — silent `[ ]` at non-exempt priority blocks close.
-        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(ac_section):
-            if match.group("mark") != " ":
-                continue
-            text_part = match.group("text").strip()
-            id_match = _CLOSE_GATE_AC_ID_RE.search(text_part)
-            ac_id = id_match.group(1) if id_match else "<unidentified>"
-            priority = priorities.get(ac_id, "unknown")
-            if priority == "not-this-scope":
-                continue
-            findings.append({
-                "change_id": change_id,
-                "item_type": "AC",
-                "item_id": ac_id,
-                "item_text": text_part[:120],
-            })
-
-        # Walk task items — every silent `[ ]` blocks close (no priority exemption for tasks).
-        task_section = _extract_close_gate_section(change_text, "Tasks")
-        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(task_section):
-            if match.group("mark") != " ":
-                continue
-            text_part = match.group("text").strip()
-            findings.append({
-                "change_id": change_id,
-                "item_type": "task",
-                "item_id": "",
-                "item_text": text_part[:120],
-            })
-    return findings
 _TITLE_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
-
-
-def _read_wave_record_text(wave_md: Path) -> tuple[Optional[str], Optional[str]]:
-    """Sole raw-read boundary for wave records (wave 1v0lw).
-
-    Returns ``(text, None)`` on success or ``(None, read_error)`` on failure,
-    where ``read_error`` is the operator-safe cause from ``_read_error_detail``
-    (exception type plus detail, never an absolute path).  Every ``wave.md``
-    read in this module must route through here; the residue census test keys
-    on the resolved read target, so a new raw read cannot land unreviewed.
-    """
-    try:
-        return wave_md.read_text(encoding="utf-8"), None
-    except (OSError, UnicodeError) as exc:
-        return None, _read_error_detail(exc)
 
 
 class _WaveRecordUnreadableError(Exception):
@@ -4167,25 +3856,6 @@ def get_prompt(root: Path, shortcut: str) -> Optional[str]:
         if shortcut_lower in text.lower():
             return text
     return None
-
-
-def _diagnostic(
-    code: str,
-    message: str,
-    *,
-    recovery_tools: list[str] | None = None,
-    recovery_usage: str = "",
-    advisory: bool = False,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {"code": code, "message": message}
-    if recovery_tools:
-        payload["recovery_tools"] = recovery_tools
-    if recovery_usage:
-        payload["recovery_usage"] = recovery_usage
-    if advisory is True:
-        payload["advisory"] = True
-    return payload
-
 
 
 def _graph_unavailable_fields(gq, layer: str, index) -> dict[str, Any]:
@@ -4656,8 +4326,6 @@ def wf_help_response(goal: str = "") -> dict[str, Any]:
         next_tools=list(workflow["recommended_chain"]),
         usage=str(workflow["usage"]),
     )
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -7591,10 +7259,6 @@ def _wave_resolution_unreadable_response(
     )
 
 
-def _extract_change_ids_from_wave_text(text: str) -> list[str]:
-    return _CHANGE_ID_PATTERN.findall(text)
-
-
 def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[str, Any]]:
     token = (change_id_prefix or "").strip().lower()
     if not token:
@@ -7710,10 +7374,6 @@ def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dic
         candidates = ", ".join(f"{m['change_id']} ({m['path']})" for m in matches)
         return None, _diagnostic("ambiguous_change_id", f"Multiple change docs match '{change_id}': {candidates}. Use a more specific ID.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")
     return matches[0], None
-
-
-def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
-    return wave_md.parent / f"{change_id}.md"
 
 
 @_fail_closed_on_record_layout("wf_mark_item")
@@ -7930,6 +7590,29 @@ def _mark_change_item_response(
                 policy_state,
                 change_updates=((path, text, updated),),
             )
+    except ProjectPublicationUnavailable as exc:
+        # Wave 1yd99: `ProjectPublicationUnavailable` derives from `RuntimeError`,
+        # so the narrow tuple below never caught it and this call site raised
+        # unhandled.  The clause is distinct rather than a widening of that tuple:
+        # folding contention into it would re-label a busy lock as a stale receipt
+        # and hide the real cause from an operator.  `wf_mark_ac` is not a
+        # registered publication writer, so unlike the prepare call site it has no
+        # wrapper to fall back on.  Non-advisory, and pre-write: the lock is taken
+        # before anything is published, so nothing partial is left behind.
+        return _response(
+            "error",
+            {**data, "changed": False, "review_receipt_refreshed": False},
+            diagnostics=[_diagnostic(
+                "project_publication_busy",
+                "The AC was not deferred because another process holds the project "
+                f"publication lock: {_read_error_detail(exc)}. Retry the same wf_mark_ac "
+                "call once the other lifecycle write finishes; nothing was changed.",
+                recovery_tools=["wf_mark_ac"],
+                recovery_usage=(
+                    f"wf_mark_ac(wave_id={wave_md.parent.name!r}, change_id=..., ac_id=..., state='~')"
+                ),
+            )],
+        )
     except (OSError, ValueError) as exc:
         return _response(
             "error",
@@ -7991,31 +7674,6 @@ def _mark_change_item_response(
         ],
         next_tools=["wf_review_event", "wf_review_wave"],
     )
-
-
-def _plan_change_doc_path(root: Path, change_id: str) -> Path:
-    return record_paths.load_record_roots(root).plans / f"{change_id}.md"
-
-
-def _read_error_detail(exc: BaseException) -> str:
-    """Operator-safe one-line cause for a failed document read.
-
-    An OSError's ``str`` embeds the absolute filesystem path
-    ("[Errno 13] Permission denied: '/…'"), which re-leaks the path the
-    surrounding message just rendered repo-relative.  ``strerror`` carries the
-    cause alone; decode errors have no path in their ``str`` and stay verbatim.
-    """
-    if isinstance(exc, OSError) and exc.strerror:
-        return f"{type(exc).__name__}: {exc.strerror}"
-    return f"{type(exc).__name__}: {exc}"
-
-
-def _repo_rel(root: Path, path: Path) -> str:
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        relative = path.resolve(strict=False).relative_to(root.resolve())
-    return str(relative).replace("\\", "/")
 
 
 def _install_artifact_display(root: Path, artifact: Path) -> str:
@@ -8576,17 +8234,6 @@ def _maybe_project_context_efficiency(
     }
 
 
-def _change_location_state(root: Path, wave_md: Path, change_id: str) -> dict[str, Any]:
-    staged = _plan_change_doc_path(root, change_id)
-    wave_path = _wave_change_doc_path(root, wave_md, change_id)
-    return {
-        "staged_path": staged,
-        "wave_path": wave_path,
-        "staged_exists": staged.exists(),
-        "wave_exists": wave_path.exists(),
-    }
-
-
 def _move_change_doc(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     source.rename(target)
@@ -8616,60 +8263,6 @@ def _change_block_pattern(change_id: str) -> re.Pattern[str]:
         rf"\n?Change ID:\s+`{re.escape(change_id)}`\n(?:Previous Change Status:\s+`[^`]+`\n)?Change Status:\s+`[^`]+`\n?",
         re.MULTILINE,
     )
-
-
-def _missing_required_change_sections(change_text: str) -> list[str]:
-    required_headers = [
-        "## Rationale",
-        "## Requirements",
-        "## Scope",
-        "## Acceptance Criteria",
-        "## Tasks",
-        "## AC Priority",
-    ]
-    return [hdr for hdr in required_headers if hdr not in change_text]
-
-
-def _extract_required_review_lanes(wave_text: str) -> list[str]:
-    lanes: list[str] = []
-    in_participants = False
-    for raw in wave_text.splitlines():
-        line = raw.strip()
-        if line.startswith("## Participants"):
-            in_participants = True
-            continue
-        if in_participants and line.startswith("## "):
-            break
-        if not in_participants:
-            continue
-        bullet_match = re.match(
-            r"^-\s*Required review lanes\s*:\s*(?P<lanes>.+?)\s*$",
-            line,
-            re.IGNORECASE,
-        )
-        if bullet_match:
-            for lane in bullet_match.group("lanes").split(","):
-                normalized = lane.strip().strip("`").strip()
-                if normalized and normalized.lower() not in {"none", "—", "-"}:
-                    lanes.append(normalized)
-            continue
-        if not line.startswith("|") or line.startswith("|------"):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) < 2:
-            continue
-        role, lane = cells[0], cells[1]
-        if role.lower() == "role":
-            continue
-        if "review" not in lane.lower():
-            continue
-        lanes.append(role)
-    # preserve order, dedupe
-    out: list[str] = []
-    for lane in lanes:
-        if lane not in out:
-            out.append(lane)
-    return out
 
 
 def _replace_required_review_lanes(
@@ -8711,197 +8304,9 @@ def _staleness_recovery_usage(error: str, wave_id: str) -> str:
     return f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
 
 
-def receipt_supersession_attribution(
-    state: Mapping[str, Any],
-    change_ids: Sequence[str],
-    *,
-    labels: tuple[str, str] = ("current receipt", "pending receipt"),
-) -> str:
-    """Name what moved, and only what the persisted data actually supports.
-
-    A bare diagnostic code reproduces the confusion this exists to remove: the
-    operator sees approvals lapse and cannot tell which input moved.  Per-change
-    attribution is deliberately NOT claimed -- the per-change digests are
-    computed into a local and discarded, and the receipt validator enforces a
-    closed field set -- so this reports the change ids that were digested and
-    stops there rather than implying it knows which one changed.
-    """
-
-    pending = state.get("receipt") or {}
-    current = current_policy_receipt(state.get("records") or []) or {}
-    pending_fields = receipt_semantic_fields(pending) if pending else {}
-    current_fields = receipt_semantic_fields(current) if current else {}
-    differing = sorted(
-        key
-        for key in set(pending_fields) | set(current_fields)
-        if pending_fields.get(key) != current_fields.get(key)
-    )
-    parts = [
-        f"{labels[0]} {current.get('receipt_id') or 'none'}",
-        f"{labels[1]} {pending.get('receipt_id') or 'none'}",
-        (
-            "differing receipt_semantic_fields: " + ", ".join(differing)
-            if differing
-            else "no differing receipt_semantic_fields"
-        ),
-        (
-            "digested change ids: " + ", ".join(change_ids)
-            if change_ids
-            else "digested change ids: none"
-        ),
-    ]
-    return (
-        " (" + "; ".join(parts) + "). "
-        "Which specific document changed is not attributable from persisted data."
-    )
-
-
-class PolicyInputError(str):
-    """A policy-selection error that remembers WHY it could not be computed.
-
-    Callers that only report errors keep treating these as plain strings.  The
-    readiness-approval staleness check needs more: it degrades to a warning for
-    an environmental failure but must REFUSE for an authoring defect, and the
-    two arrive on the same `errors` channel.  Discriminating on message prose
-    would break the first time a message is reworded, so the cause travels with
-    the error instead.
-    """
-
-    __slots__ = ("cause",)
-
-    def __new__(cls, cause: str, message: str) -> "PolicyInputError":
-        item = super().__new__(cls, message)
-        item.cause = cause
-        return item
-
-
 #: Causes for which the staleness check degrades to a warning rather than
 #: refusing.  Environmental only: a plan that cannot be read is not the
 #: approver's fault and must never make approvals unrecordable.
-POLICY_INPUT_DEGRADABLE_CAUSES = frozenset({"read"})
-
-
-def policy_input_error_cause(error: str) -> str:
-    """Cause for one policy-selection error; `unknown` for untagged legacy strings."""
-
-    return getattr(error, "cause", "unknown")
-
-
-def _prepare_policy_state(
-    root: Path,
-    wave_md: Path,
-    wave_text: str,
-    change_ids: list[str],
-    council_brief: Mapping[str, Any],
-    *,
-    change_text_overrides: Mapping[str, str] | None = None,
-) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
-    config = _read_workflow_config(root)
-    policy, policy_errors = normalize_wave_review_policy(config.get("wave_review"))
-    if policy_errors or policy is None:
-        return None, tuple(PolicyInputError("config", e) for e in policy_errors)
-    requested = extract_requested_review_lanes(wave_text)
-    project_lanes = tuple(_read_project_required_review_lanes(root))
-    change_inputs: list[tuple[str, str, bytes]] = []
-    change_texts: list[str] = []
-    errors: list[PolicyInputError] = []
-    for change_id in change_ids:
-        path = _wave_change_doc_path(root, wave_md, change_id)
-        try:
-            override = (change_text_overrides or {}).get(change_id)
-            if override is None:
-                body = path.read_bytes()
-                text = body.decode("utf-8")
-            else:
-                text = override
-                body = text.encode("utf-8")
-        except (OSError, UnicodeError) as exc:
-            errors.append(PolicyInputError(
-                "read",
-                f"cannot read admitted change `{change_id}` for policy selection: {_read_error_detail(exc)}",
-            ))
-            continue
-        kind = change_id.split("-", 1)[0].rsplit("-", 1)[-1]
-        # Loud, not silent, and not fatal. The exclusion normalizers degrade by
-        # returning the text unchanged, which is right for a pure helper whose
-        # callers have no handler -- but a silent degrade means the churn comes
-        # back with no explanation. Report the ambiguity here instead, where the
-        # existing (None, errors) channel already reaches the operator.
-        for problem in ambiguous_excluded_headings(text):
-            errors.append(PolicyInputError(
-                "ambiguous_headings", f"admitted change `{change_id}`: {problem}"
-            ))
-        change_inputs.append((change_id, kind, body))
-        change_texts.append(text)
-    if errors:
-        return None, tuple(errors)
-    required_lanes, reasons = select_required_review_lanes(
-        requested_lanes=requested,
-        project_lanes=project_lanes,
-        change_texts=change_texts,
-    )
-    digest = policy_input_digest(
-        wave_review=policy,
-        project_lanes=project_lanes,
-        review_policies=config.get("review_policies", {}),
-        changes=change_inputs,
-        requested_lanes=requested,
-    )
-    records, ledger_errors = read_review_event_ledger(wave_md)
-    if ledger_errors:
-        return None, tuple(PolicyInputError("ledger", e) for e in ledger_errors)
-    record_errors = validate_review_evidence_records(records)
-    if record_errors:
-        return None, tuple(PolicyInputError("record", e) for e in record_errors)
-    heads = current_synthesis_heads(records).values()
-    mode = str(policy["delivery_mode"])
-    # One canonical representation feeds every receipt-semantic reader. Lane
-    # scoring already canonicalizes internally; these two did not, so a mandated
-    # Progress Log row could carry a trigger word (for example "windows"), flip
-    # `delivery_council_required`, and supersede the receipt while
-    # `policy_input_digest` stayed byte-identical, leaving no diagnostic able to
-    # explain why the approvals lapsed.
-    canonical_change_texts = [
-        canonical_review_policy_body(text.encode("utf-8")).decode("utf-8", "replace")
-        for text in change_texts
-    ]
-    delivery_council = delivery_council_required(
-        mode,
-        delivered_boundary_triggers=extract_full_council_triggers(canonical_change_texts),
-        current_heads=heads,
-    )
-    # Receipt seat selection is bound to admitted change bytes, never to the
-    # mutable wave projection (which later contains actor/lane vocabulary and
-    # must not change its own policy input).
-    stable_rotating, _stable_reason = _select_prepare_council_rotating_seat(
-        "\n".join(canonical_change_texts)
-    )
-    seats = ["red-team", *([stable_rotating] if stable_rotating else [])]
-    semantic = {
-        "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
-        "evaluator_version": REVIEW_POLICY_EVALUATOR_VERSION,
-        "policy_input_digest": digest,
-        "delivery_mode": mode,
-        "primer_depth": "standard",
-        "council_seats": seats,
-        "requested_lanes": list(requested),
-        "required_lanes": list(required_lanes),
-        "delivery_council_required": delivery_council,
-    }
-    receipt, append_required = build_policy_receipt(
-        semantic, current_policy_receipt(records)
-    )
-    return {
-        "policy": policy,
-        "requested_lanes": list(requested),
-        "required_lanes": list(required_lanes),
-        "reasons": {key: list(value) for key, value in reasons.items()},
-        "delivery_council_required": delivery_council,
-        "policy_input_digest": digest,
-        "receipt": receipt,
-        "receipt_append_required": append_required,
-        "records": records,
-    }, ()
 
 
 def _artifact_display_path(root: Path, path: Path) -> str:
@@ -9038,67 +8443,6 @@ def _publish_prepare_policy_state(
         )
         _replace_artifacts_transactionally(root, replacements)
         return final
-
-
-def _review_policy_receipt_diagnostics(
-    root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False
-) -> list[dict[str, Any]]:
-    """Recompute receipt inputs; downstream lifecycle gates never reselect."""
-
-    if not _wave_uses_external_review_evidence(root, wave_md):
-        return []
-    existing_records, existing_errors = read_review_event_ledger(wave_md)
-    if not existing_errors and current_policy_receipt(existing_records) is None and not has_reprepare_marker(wave_text):
-        # Pre-policy in-flight waves remain on their historical authority
-        # until Upgrade marks them for deterministic re-Prepare.
-        return []
-    change_ids = _extract_change_ids_from_wave_text(wave_text)
-    brief = _build_prepare_council_brief(
-        wave_md.parent.name, wave_text, change_ids
-    )
-    state, errors = _prepare_policy_state(
-        root, wave_md, wave_text, change_ids, brief
-    )
-    diagnostics = [
-        _diagnostic(
-            "review_policy_receipt_stale",
-            error,
-            recovery_tools=["wf_prepare_wave"],
-            recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
-        )
-        for error in errors
-    ]
-    if state is None:
-        return diagnostics
-    persisted = tuple(_extract_required_review_lanes(wave_text))
-    selected = tuple(state["required_lanes"])
-    if persisted != selected:
-        diagnostics.append(
-            _diagnostic(
-                "review_policy_receipt_stale",
-                "Persisted Required review lanes no longer match the current policy inputs; re-Prepare.",
-                recovery_tools=["wf_prepare_wave"],
-                recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
-                advisory=advisory,
-            )
-        )
-    if state["receipt_append_required"]:
-        # Only this site can build the full attribution payload: the error loop
-        # above has `state is None` (no current receipt, no pending receipt, no
-        # semantic fields) and the roster-drift site may have no distinct
-        # pending receipt id.  Demanding the same payload at all three would
-        # force an implementer to invent placeholder values.
-        diagnostics.append(
-            _diagnostic(
-                "review_policy_receipt_stale",
-                "The current review-policy receipt does not match the wave/config/change inputs; re-Prepare."
-                + receipt_supersession_attribution(state, change_ids),
-                recovery_tools=["wf_prepare_wave"],
-                recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
-                advisory=advisory,
-            )
-        )
-    return diagnostics
 
 
 def _atomic_replace_bytes(path: Path, payload: bytes, purpose: str) -> None:
@@ -12972,21 +12316,6 @@ def wf_audit_response(
     )
 
 
-def _docs_lint_warning_diagnostics(lint_result: Mapping[str, Any] | dict[str, Any],
-                                   *, recovery_tools: list[str] | None = None) -> list[dict[str, Any]]:
-    """Wave 1wuju (1wujs): render docs-lint ``WARNING:`` lines as ``docs_lint_warning``
-    diagnostics carrying ``advisory: true`` (the non-blocking flag the prepare contract
-    defines) at EVERY lifecycle gate caller of ``run_validate``, not only at
-    ``wf_validate_docs``. A sensor registered advisory would otherwise be visible in one
-    tool and invisible at Prepare, Review, Close, and audit, which is the hidden class a
-    non-blocking polarity must not create."""
-    return [
-        _diagnostic("docs_lint_warning", warning,
-                    recovery_tools=recovery_tools or ["wf_validate_docs"], advisory=True)
-        for warning in (lint_result.get("warnings") or [])
-    ]
-
-
 def wf_validate_docs_response(root: Path) -> dict[str, Any]:
     result = run_validate(root)
     status = "ok" if result["passed"] else "error"
@@ -16042,44 +15371,19 @@ def wf_run_sensors_response(root: Path) -> dict[str, Any]:
     ``description`` are optional.  Commands are run in a subprocess with ``cwd=root``.
     Results include per-sensor pass/fail, exit code, and stdout/stderr summary.
     """
-    import subprocess
     sensors = _read_project_sensors(root)
     if not sensors:
         return _response(
             "ok",
             {"sensors_run": 0, "results": [], "all_passed": True, "notice": "No sensors registered in workflow-config.json."},
-            next_tools=["wf_audit"],
-            usage="wf_audit()",
+            next_tools=["wf_audit"], usage="wf_audit()",
         )
-    results = []
-    all_passed = True
-    for sensor in sensors:
-        cmd = sensor["command"]
-        try:
-            proc = _mcp_subprocess_run(
-                cmd if isinstance(cmd, list) else cmd,
-                shell=not isinstance(cmd, list),
-                cwd=str(root),
-                timeout=120,
-            )
-            passed = proc.returncode == 0
-            output = (proc.stdout + proc.stderr).strip()
-            summary_lines = output.splitlines()
-            results.append({
-                "name": sensor["name"],
-                "dimension": sensor["dimension"],
-                "passed": passed,
-                "exit_code": proc.returncode,
-                "output_summary": "\n".join(summary_lines[:20]) if summary_lines else "",
-            })
-            if not passed:
-                all_passed = False
-        except subprocess.TimeoutExpired:
-            results.append({"name": sensor["name"], "dimension": sensor["dimension"], "passed": False, "exit_code": None, "output_summary": "Sensor timed out after 120s."})
-            all_passed = False
-        except Exception as exc:
-            results.append({"name": sensor["name"], "dimension": sensor["dimension"], "passed": False, "exit_code": None, "output_summary": f"Sensor failed to run: {exc}"})
-            all_passed = False
+    timeout_seconds = subprocess_ops_timeout_seconds(root, "sensor", default=120)
+    results = [sensor_runner.run_sensor(
+        root, sensor, timeout_seconds=timeout_seconds,
+        shell=not isinstance(sensor["command"], list),
+    ) for sensor in sensors]
+    all_passed = all(result["passed"] for result in results)
 
     diagnostics = []
     if not all_passed:
@@ -16822,31 +16126,6 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
     }
 
 
-def _select_prepare_council_rotating_seat(wave_text: str) -> tuple[str | None, str]:
-    """Select the rotating Wave Council seat for the prepare-phase review.
-
-    Heuristic (first match wins; documented explicitly per 12sp5 AC-2):
-    1. docs-contract-reviewer  — wave objective/watchpoints reference seeds, prompts, docs, or templates
-    2. security-reviewer       — wave objective/watchpoints reference auth, security, trust, vulnerability,
-                                  permission, credential, or secret
-    3. architecture-reviewer   — wave objective/watchpoints reference architecture, boundary, structural,
-                                  refactor, or layering
-    4. code-reviewer           — wave objective/watchpoints reference server_impl, MCP, api, endpoint,
-                                  or tool surface
-    5. (no rotating seat)      — no clear domain signal; red-team only
-    """
-    probe = wave_text.casefold()
-    if any(kw in probe for kw in ("seed", "prompt", "template", "doc authoring", "seed prompt")):
-        return "docs-contract-reviewer", "Wave references seed/prompt authoring or documentation changes"
-    if any(kw in probe for kw in ("auth", "security", "trust boundary", "vulnerability", "credential", "permission", "secret")):
-        return "security-reviewer", "Wave references authentication, security, or trust boundary changes"
-    if any(kw in probe for kw in ("architecture", "boundary", "structural", "refactor", "layering")):
-        return "architecture-reviewer", "Wave references architectural or structural changes"
-    if any(kw in probe for kw in ("server_impl", "mcp tool", "mcp surface", "api endpoint", "tool registration")):
-        return "code-reviewer", "Wave references MCP tool or API surface changes"
-    return None, "No clear domain signal; red-team fixed seat only"
-
-
 _PREPARE_COUNCIL_VERDICT_RE = re.compile(
     r"^\s*-\s*\*\*Prepare-phase Wave Council \[prepare-council\] — (?P<date>[^:]+): (?P<verdict>PASS(?: WITH NOTES)?|BLOCKED)\*\*(?:\s*\((?P<meta>.*)\))?\s*$",
     re.IGNORECASE,
@@ -16986,55 +16265,6 @@ def _prepare_council_verdict_present(wave_text: str) -> bool:
     return bool(_prepare_council_verdict_info(wave_text).get("valid"))
 
 
-def _prepare_council_instructions(rotating_seat: str | None) -> str:
-    """Council instructions for one rotating seat.
-
-    Keyed on the seat so every producer renders the same text for the same
-    roster; the receipt binding rebuilds this rather than inheriting a string
-    built from superseded wave text.
-    """
-
-    return (
-        "Run each council seat in isolation against the admitted change docs and wave record. "
-        "Verification must be code-grounded: verify each plan's load-bearing claims against the "
-        "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
-        "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
-        "censuses must be complete. Do not approve a plan whose claims were checked only against "
-        "its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a "
-        "function, class, method, constant, test name, or distinguishing expression — rather than "
-        "a bare file:line, because a symbol anchor resolves to today's text while a line anchor "
-        "drifts hardest when a sibling wave edits the target concurrently. A line number is still "
-        "correct for a module-level constant block, data file, specific line in a generated "
-        "artifact, prose in a hand-authored markdown document, or deliberately historical "
-        "citation; name that case inline so a reviewer can tell a deliberate line anchor from a "
-        "lapsed one. Have wave-council synthesize findings. "
-        "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
-        "whose seats: field lists the seats actually run, each at most once, with per-seat "
-        "evidence (or an explicit no-findings note) recorded in the wave record "
-        f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
-        "before calling wf_prepare_wave(mode='create')."
-    )
-
-
-def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
-    rotating_part = rotating_seat or "none"
-    seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]
-    # De-dup: the rotating pick can itself be a fixed seat (security-reviewer and
-    # architecture-reviewer are both in the fixed list). The roster lists distinct seats;
-    # a seat serving as both fixed and rotating is identified by the separate
-    # `rotating-seat:` field, so dropping the duplicate token loses no information.
-    if rotating_seat and rotating_seat not in seat_list:
-        seat_list.append(rotating_seat)
-    seats = ", ".join(seat_list)
-    return (
-        "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
-        "(moderator: wave-council; primer-depth: standard; "
-        f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
-        f"rotating-seat: {rotating_part}; "
-        "strongest-challenge: <summary>; strongest-alternative: <summary>)"
-    )
-
-
 def _bind_prepare_council_brief_to_receipt(
     council_brief: Mapping[str, Any], receipt: Mapping[str, Any] | None
 ) -> dict[str, Any]:
@@ -17069,205 +16299,6 @@ def _bind_prepare_council_brief_to_receipt(
         }
     )
     return bound
-
-
-def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[str]) -> dict[str, Any]:
-    """Build the council review brief returned by wf_prepare_wave when no verdict is recorded."""
-    rotating_seat, rotating_seat_reason = _select_prepare_council_rotating_seat(wave_text)
-    seats = ["red-team (fixed)"]
-    if rotating_seat:
-        seats.append(f"{rotating_seat} (rotating)")
-    return {
-        "wave_id": wave_id,
-        "change_count": len(change_ids),
-        "fixed_seat": "red-team",
-        "rotating_seat": rotating_seat,
-        "rotating_seat_reason": rotating_seat_reason,
-        "council_seats": seats,
-        "instructions": _prepare_council_instructions(rotating_seat),
-        "verdict_format": _prepare_council_verdict_template(rotating_seat),
-    }
-
-
-def _wave_uses_external_review_evidence(root: Path, wave_md: Path) -> bool:
-    """True for the new contract; unmarked pre-protocol waves remain prose-only legacy."""
-
-    # Wave 1v0lw: seam-routed; an unreadable record stays classified as
-    # legacy (the historical OSError behavior, now covering decode too) --
-    # callers gate on their own record read before any authority decision.
-    text, _read_error = _read_wave_record_text(wave_md)
-    if text is None:
-        return False
-    source, source_errors = parse_review_evidence_source(text)
-    legacy_inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
-    return source is not None or bool(source_errors) or legacy_inline_marker
-
-
-def _review_evidence_diagnostics(
-    text: str,
-    *,
-    root: Path | None = None,
-    wave_key: str | None = None,
-    closure: bool = False,
-    required_run_kind: str | None = None,
-) -> list[dict[str, Any]]:
-    """Translate the external-ledger validator's errors into lifecycle diagnostics."""
-
-    if root is None or wave_key is None:
-        errors = ["external review evidence validation requires repository root and wave key"]
-        result = None
-    else:
-        wave_md = _find_wave_md(root, wave_key)
-        if wave_md is None:
-            errors = [f"no wave record found for `{wave_key}`"]
-            result = None
-        elif not _wave_uses_external_review_evidence(root, wave_md):
-            errors = []
-            result = None
-        else:
-            result = validate_external_review_evidence(wave_md, closure=closure)
-            errors = list(result.errors)
-            if not result.errors:
-                # Wave 1v0lw: the projection re-read routes through the seam;
-                # a failure keeps the historical message shape with the
-                # sanitized cause instead of raising or leaking the path.
-                raw_projection, projection_read_error = _read_wave_record_text(wave_md)
-                if raw_projection is None:
-                    errors.append(
-                        "Finding Synthesis projection could not be checked: "
-                        f"{projection_read_error}"
-                    )
-            if not result.errors and raw_projection is not None:
-                try:
-                    # Compare in canonical form (wave 1tb4z, same seam as the
-                    # lint and dashboard paths): legacy marker namespaces and
-                    # the retired bodyless-details projection are current, not
-                    # stale — archives are never rewritten or flagged.
-                    canonical_projection = canonicalize_finding_synthesis_markers(
-                        raw_projection
-                    )
-                    if render_review_evidence_projection(canonical_projection, result.records) != canonical_projection:
-                        errors.append(
-                            "Finding Synthesis projection is stale relative to canonical events.jsonl; "
-                            "replay the last typed review event to reconcile it"
-                        )
-                    marker_present = (
-                        REVIEW_STATUS_MARKER_BEGIN in canonical_projection
-                        or REVIEW_STATUS_MARKER_END in canonical_projection
-                    )
-                    closed_archive = bool(
-                        re.search(r"(?mi)^Status:\s*closed\s*$", raw_projection)
-                    )
-                    if marker_present and not closed_archive and render_review_status_projection(
-                        canonical_projection,
-                        result.records,
-                        _review_status_signoff_keys(
-                            root, canonical_projection, result.records
-                        ),
-                    ) != canonical_projection:
-                        errors.append(
-                            "Review Status projection is stale relative to canonical "
-                            "events.jsonl; replay the last typed review event to reconcile it"
-                        )
-                except (OSError, ValueError) as exc:
-                    errors.append(f"Finding Synthesis projection could not be checked: {exc}")
-    if result is not None and required_run_kind is not None:
-        has_required_run = any(
-            record.get("record_type") == "review_run"
-            and record.get("run_kind") == required_run_kind
-            for record in result.records
-        )
-        if not has_required_run:
-            errors.append(
-                f"marked wave requires a `{required_run_kind}` Review Run Record at this lifecycle phase"
-            )
-    diagnostics = [
-        _diagnostic(
-            "review_evidence_invalid",
-            error,
-            recovery_tools=["wf_current_wave", "wf_validate_docs"],
-            recovery_usage="wf_current_wave()",
-        )
-        for error in errors
-    ]
-    # Wave 1tmb2: close-time repair/reverification independence audit.  Runs
-    # ONLY at the close gate (closure=True) and only while the target wave's
-    # lifecycle status is non-closed: sealed/closed archives are never
-    # retroactively invalidated by validation or upgrade — an archive becomes
-    # forward-audited only if an operator explicitly reopens it.  Generic
-    # ledger validation never runs this audit.
-    if (
-        closure
-        and result is not None
-        and not re.search(r"(?mi)^Status:\s*closed\s*$", text)
-    ):
-        for violation in repair_independence_violations(result.records):
-            diagnostics.append(
-                _diagnostic(
-                    REVIEW_EVIDENCE_INDEPENDENCE_INVALID,
-                    violation,
-                    recovery_tools=["wf_review_event"],
-                    recovery_usage=(
-                        f"wf_review_event(wave_id={wave_key!r}, event='finding', "
-                        "run_kind='repair_start', cycle=<next cycle>, ...)  # then a "
-                        "distinct-role/context reverification"
-                    ),
-                )
-            )
-    return diagnostics
-
-
-def _approval_evidence_diagnostics(
-    text: str,
-    required_signoff_keys: Iterable[str],
-    *,
-    root: Path | None = None,
-    wave_key: str | None = None,
-    records: Iterable[dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """Bind prose lane/council signoffs to executed evidence on marked waves."""
-
-    if records is None:
-        if root is None or wave_key is None:
-            return []
-        wave_md = _find_wave_md(root, wave_key)
-        if wave_md is None or not _wave_uses_external_review_evidence(root, wave_md):
-            return []
-        result = validate_external_review_evidence(wave_md)
-        if result.errors:
-            return []
-        rows = result.records
-    else:
-        rows = tuple(records)
-    status = review_status_rows(rows, required_signoff_keys)
-    blocked = [row for row in status if row["state"] != "approved"]
-    if not blocked:
-        return []
-    details = "; ".join(
-        f"{row['signoff_key']}={row['state']} ({row['why']})" for row in blocked
-    )
-    return [
-        _diagnostic(
-            "missing_executable_approval_evidence",
-            "Marked wave approval signoffs require executed delivery Evidence Records with "
-            "claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor "
-            "(`operator` for operator-signoff, `wave-council` for council signoffs, or the exact "
-            "specialist lane); specialist/council evidence must be fresh and independent, and its "
-            f"chronology must follow every affected repair; {details}.",
-            recovery_tools=["wf_review_wave", "wf_current_wave"],
-            recovery_usage="wf_review_wave()",
-        )
-    ]
-
-
-def _review_status_signoff_keys(
-    root: Path,
-    wave_text: str,
-    records: Iterable[Mapping[str, Any]] = (),
-) -> tuple[str, ...]:
-    """Return the canonical keys represented by the bounded status projection."""
-
-    return required_review_status_keys(root, wave_text, records)
 
 
 def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
@@ -18144,9 +17175,23 @@ def wf_review_event_response(
     return response
 
 
+def _configured_phase_envelope(handler):
+    """Keep provenance present even on record-layout and lookup refusals."""
+    from functools import wraps
+
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        response = handler(*args, **kwargs)
+        response.setdefault("data", {}).setdefault("configured_gates", [])
+        return response
+    return wrapped
+
+
+@_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_prepare_wave")
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     diagnostics: list[dict[str, Any]] = []
+    configured_gates: list[dict[str, Any]] = []
 
     def _prepare_envelope(
         status: str,
@@ -18157,14 +17202,14 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     ) -> dict[str, Any]:
         return _response(
             status,
-            data,
+            {**data, "configured_gates": configured_gates},
             diagnostics=diagnostics or None,
             next_tools=next_tools,
             usage=usage,
         )
 
     def _has_blocking_diagnostics() -> bool:
-        return any(diagnostic.get("advisory") is not True for diagnostic in diagnostics)
+        return lifecycle_gates.has_blocking_diagnostics(diagnostics)
 
     requested_mode = (mode or "").strip().lower()
     mode_s = {"apply": "create", "evaluate": "dry_run"}.get(requested_mode, requested_mode)
@@ -18203,72 +17248,40 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         )
         return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
     change_ids = _extract_change_ids_from_wave_text(text)
-    diagnostics.extend(_wave_review_policy_diagnostics(root))
-    diagnostics.extend(
-        _review_evidence_diagnostics(
-            text,
-            root=root,
-            wave_key=wave_md.parent.name,
-        )
-    )
+    gate_ctx = lifecycle_gates.GateContext(root, wave_md, text, mode_s, {}, "prepare")
+    for gate in lifecycle_gates.PREPARE_PREFLIGHT_GATES[:2]:
+        diagnostics.extend(gate(gate_ctx).diagnostics)
     repairs_needed = 0
     repaired = 0
     updated = False
     if not change_ids:
         diagnostics.append(_diagnostic("no_admitted_changes", "Wave has no admitted changes."))
     for admitted_change in change_ids:
-        location = _change_location_state(root, wave_md, admitted_change)
-        change_path: Optional[Path] = None
-        if location["staged_exists"] and location["wave_exists"]:
-            diagnostics.append(
-                _diagnostic(
-                    "duplicate_change_doc_locations",
-                    f"Admitted change '{admitted_change}' exists in both {_repo_rel(root, location['staged_path'])} and {_repo_rel(root, location['wave_path'])}.",
-                    recovery_tools=["wf_get_change"],
-                    recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
-                )
-            )
+        location_result = lifecycle_gates.PREPARE_PREFLIGHT_GATES[2](
+            gate_ctx, admitted_change=admitted_change
+        )
+        diagnostics.extend(location_result.diagnostics)
+        location = location_result.data["location"]
+        change_path = location_result.data["change_path"]
+        repairs_needed += int(location_result.data["needs_relocation"])
+        if location_result.data["skip"]:
             continue
-        if location["wave_exists"]:
-            change_path = location["wave_path"]
-        elif location["staged_exists"]:
-            repairs_needed += 1
-            if _mutating:
-                try:
-                    _move_change_doc(location["staged_path"], location["wave_path"])
-                except OSError as exc:
-                    diagnostics.append(
-                        _diagnostic(
-                            "change_relocation_failed",
-                            f"Failed to relocate admitted change '{admitted_change}' during prepare: {exc}",
-                            recovery_tools=["wf_get_change"],
-                            recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
-                        )
-                    )
-                    continue
-                repaired += 1
-                updated = True
-                change_path = location["wave_path"]
-            else:
+        if location_result.data["needs_relocation"]:
+            try:
+                _move_change_doc(location["staged_path"], location["wave_path"])
+            except OSError as exc:
                 diagnostics.append(
                     _diagnostic(
-                        "change_doc_not_relocated",
-                        f"Admitted change '{admitted_change}' is still staged at {_repo_rel(root, location['staged_path'])}; prepare must relocate it to {_repo_rel(root, location['wave_path'])}.",
-                        recovery_tools=["wf_prepare_wave"],
-                        recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='create')",
+                        "change_relocation_failed",
+                        f"Failed to relocate admitted change '{admitted_change}' during prepare: {exc}",
+                        recovery_tools=["wf_get_change"],
+                        recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
                     )
                 )
                 continue
-        else:
-            diagnostics.append(
-                _diagnostic(
-                    "change_not_found",
-                    f"Admitted change '{admitted_change}' was not found in {_repo_rel(root, location['staged_path'])} or {_repo_rel(root, location['wave_path'])}.",
-                    recovery_tools=["wf_get_change", "wf_list_plans"],
-                    recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
-                )
-            )
-            continue
+            repaired += 1
+            updated = True
+            gate_ctx.wave_text = text
         try:
             change_text = change_path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
@@ -18281,32 +17294,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 )
             )
             continue
-        missing_headers = _missing_required_change_sections(change_text)
-        if missing_headers:
-            diagnostics.append(
-                _diagnostic(
-                    "change_doc_missing_sections",
-                    f"Admitted change '{admitted_change}' is missing sections: {', '.join(missing_headers)}.",
-                    recovery_tools=["wf_get_change"],
-                    recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
-                )
-            )
-        # AC priority advisory (non-blocking): warn if every AC row still has unpopulated placeholder text
-        _AC_PLACEHOLDER = "required / important / nice-to-have / not-this-scope"
-        if "## AC Priority" in change_text:
-            ac_section_start = change_text.find("## AC Priority")
-            ac_section = change_text[ac_section_start:]
-            ac_rows = [line for line in ac_section.splitlines() if line.strip().startswith("| AC-")]
-            if ac_rows and all(_AC_PLACEHOLDER in row for row in ac_rows):
-                diagnostics.append(
-                    _diagnostic(
-                        "ac_priority_unpopulated",
-                        f"Change '{admitted_change}' AC priority table still contains only placeholder text. Fill in priority values (required / important / nice-to-have / not-this-scope) for each AC row before closing the wave.",
-                        recovery_tools=["wf_get_change"],
-                        recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
-                        advisory=True,
-                    )
-                )
+        diagnostics.extend(lifecycle_gates.PREPARE_PREFLIGHT_GATES[3](
+            gate_ctx, admitted_change=admitted_change, change_text=change_text
+        ).diagnostics)
     # Garden + lint are the last preflight before policy publication. A failed
     # docs gate must leave the roster, receipt ledger, projection, and
     # re-Prepare marker untouched.
@@ -18315,8 +17305,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     if _mutating:
         garden_result = run_garden(root)
         garden_passed = garden_result["passed"]
-        if not garden_passed:
-            diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during prepare.", recovery_tools=["wf_garden_docs", "wf_validate_docs"], recovery_usage="wf_garden_docs(mode='run')"))
+        diagnostics.extend(lifecycle_gates.PREPARE_PREFLIGHT_GATES[4](
+            gate_ctx, garden_passed=garden_passed
+        ).diagnostics)
         # Gardening may update verification metadata in the inspected packet.
         text, wave_read_error = _read_wave_record_text(wave_md)
         if text is None:
@@ -18328,9 +17319,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
     lint_result = run_validate(root)
     lint_passed = lint_result["passed"]
-    if not lint_passed:
-        diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
-    diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
+    gate_ctx.wave_text = text
+    gate_ctx.lint_result = lint_result
+    diagnostics.extend(lifecycle_gates.PREPARE_PREFLIGHT_GATES[5](gate_ctx).diagnostics)
 
     # Policy selection/publication follows the complete docs preflight. Dry-run stays read-only.
     council_brief = _build_prepare_council_brief(wave_id, text, change_ids)
@@ -18359,44 +17350,12 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         council_brief = _bind_prepare_council_brief_to_receipt(
             council_brief, policy_state.get("receipt")
         )
-    diagnostics.extend(
-        _diagnostic(
-            "review_policy_receipt_stale",
-            error,
-            recovery_tools=["wf_prepare_wave"],
-            recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
-        )
-        for error in policy_state_errors
-    )
-    # Placement is load-bearing: this runs AFTER the `policy_state_errors`
-    # loop above, because on the error-cause path that loop and
-    # `_review_policy_receipt_diagnostics` produce the byte-identical message.
-    # A dedupe snapshot taken before the loop is empty and therefore inert.
-    if mode_s == "dry_run" and policy_state is not None:
-        # Dry-run is the affordance an operator reaches for BEFORE mutating, and
-        # it was the one surface silent about the mutation it previews: the
-        # pending mint was reachable only as
-        # `data.review_policy.receipt_append_required`, buried in the payload.
-        #
-        # It is ADVISORY, not blocking. On the shared list it made prepare
-        # return `status: "error"`, dropping `readied`, `transitioned_to_active`
-        # and the council-verdict fields, and `error` is not in
-        # `LIFECYCLE_ENGAGED_STATUSES`, so every preflight after an ordinary
-        # change-doc edit silently reclassified as not-engaged in focus and
-        # context-efficiency telemetry.
-        #
-        # The `policy_state is not None` guard matches prepare's own policy
-        # block: `_prepare_policy_state` returns a state only from its single
-        # success return, which always carries `errors == ()`. So this runs only
-        # when prepare's `policy_state_errors` loop above produced nothing,
-        # which is why no dedupe is needed here -- the two producers are
-        # mutually exclusive by construction. An earlier revision carried a
-        # `_seen_stale` collision check; this guard made it unreachable.
-        #
-        # This reads only; it writes nothing.
-        diagnostics.extend(
-            _review_policy_receipt_diagnostics(root, wave_md, text, advisory=True)
-        )
+    diagnostics.extend(lifecycle_gates.PREPARE_POLICY_GATES[0](
+        gate_ctx, policy_state_errors=policy_state_errors, requested_wave_id=wave_id
+    ).diagnostics)
+    diagnostics.extend(lifecycle_gates.PREPARE_POLICY_GATES[1](
+        gate_ctx, policy_state=policy_state
+    ).diagnostics)
     if _mutating and policy_state is not None and not _has_blocking_diagnostics():
         try:
             text = _publish_prepare_policy_state(
@@ -18412,70 +17371,18 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                     recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
                 )
             )
-    _prepare_authority = resolve_review_authority(root, wave_md, wave_text=text)
-    required_council_signoffs = _required_wave_council_signoffs(root, "prepare", wave_text=text, wave_md=wave_md)
-    if (
-        _prepare_authority.typed
-        and not required_council_signoffs
-        and _read_workflow_config(root).get("wave_review") is None
-    ):
-        required_council_signoffs = ["wave-council-readiness"]
-    if required_council_signoffs:
-        # Wave 1to78: council-signoff currency is review-evidence content —
-        # typed-exclusive on declared waves, prose on legacy waves.
-        missing_council = [
-            signoff_key
-            for signoff_key in required_council_signoffs
-            if not _prepare_authority.signoff_current(
-                signoff_key, approval_phase="readiness"
-            )
-        ]
-        if missing_council:
-            # Wave 1to78 delivery repair (DF2, message-only): remediation text
-            # branches on the resolved authority; the gate predicate is
-            # unchanged. Declared waves need typed approval events; legacy
-            # waves keep the exact prose-line instruction.
-            if _prepare_authority.typed:
-                _council_remedy = (
-                    "Record a typed approval event per missing key via "
-                    "wf_review_event(event='approval', signoff_key=<missing key above>, "
-                    "mode='create'); the approval projects into `## Review Evidence`. "
-                    "Do this before the wave can become active."
-                )
-            else:
-                _council_remedy = "Record the signoff line(s) in `## Review Evidence` before the wave can become active."
-            diagnostics.append(
-                _diagnostic(
-                    "missing_wave_council_signoff",
-                    (
-                        "Required Wave Council signoff missing for prepare: "
-                        f"{', '.join(missing_council)}. {_council_remedy}"
-                    ),
-                    recovery_tools=["wf_current_wave"],
-                    recovery_usage="wf_current_wave()",
-                )
-            )
-    # Wave 1p45l: the single-OPEN guard runs ONLY on the activating path (`create`). `ready`
-    # and `dry_run` never take the slot, so any number of waves can be readied while one is
-    # OPEN. The same guard also lives at the other activation transitions (wf_implement_wave,
-    # wf_reopen_wave). Keyed on "is any OTHER wave OPEN (active/implementing)?" — self-transitions
-    # on the target wave are not blocked.
+    gate_ctx.wave_text = text
+    council_result = lifecycle_gates.PREPARE_ACTIVATION_GATES[0](gate_ctx)
+    diagnostics.extend(council_result.diagnostics)
+    _prepare_authority = council_result.data["authority"]
+    required_council_signoffs = council_result.data["required_council_signoffs"]
+    # Discovery remains an orchestration concern; only create claims the OPEN slot.
     other_active = _find_other_active_wave(root, wave_md, cache=cache) if _activating else None
-    guard_data: dict[str, Any] = {}
-    if other_active is not None:
-        guard_data = {
-            "active_wave_id": other_active["wave_id"],
-            "active_wave_path": _repo_rel(root, Path(other_active["path"])),
-        }
-        diagnostics.append(
-            _diagnostic(
-                "another_wave_active",
-                f"Wave {other_active['wave_id']!r} is already OPEN (active/implementing). Pause it first, "
-                f"or run wf_prepare_wave(wave_id={wave_id!r}, mode='ready') to ready {wave_id!r} without opening it.",
-                recovery_tools=["wf_prepare_wave", "wf_pause_wave", "wf_current_wave"],
-                recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
-            )
-        )
+    activation_result = lifecycle_gates.PREPARE_ACTIVATION_GATES[1](
+        gate_ctx, other_active=other_active, requested_wave_id=wave_id
+    )
+    diagnostics.extend(activation_result.diagnostics)
+    guard_data = activation_result.data
     if _has_blocking_diagnostics():
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired, "council_brief": council_brief, "review_policy": policy_response}
         error_data["required_council_signoffs"] = required_council_signoffs
@@ -18497,17 +17404,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         if seat_alignment_issues:
             verdict_valid = False
     if _prepare_authority.typed:
-        # Typed readiness is the complete machine authority on declared waves.
-        # The prose checkpoint may remain as narrative, but its presence,
-        # validity, and seat shape cannot change Prepare's outcome.
-        diagnostics.extend(
-            _review_evidence_diagnostics(
-                text,
-                root=root,
-                wave_key=wave_md.parent.name,
-                required_run_kind="readiness",
-            )
-        )
+        pass  # Readiness evidence is checked once after the verdict branches.
     elif not verdict_present:
         council_usage = (
             "Run the prepare-phase Wave Council review now (seats and scope in council_brief), "
@@ -18584,18 +17481,11 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 next_tools=["wf_prepare_wave"],
                 usage="wf_prepare_wave(mode='create')",
             )
-    else:
-        # The readiness run is evidence *for* the completed prepare review. Do
-        # not require it before the council has run: the no-verdict path above
-        # must remain able to return the brief that makes that review possible.
-        diagnostics.extend(
-            _review_evidence_diagnostics(
-                text,
-                root=root,
-                wave_key=wave_md.parent.name,
-                required_run_kind="readiness",
-            )
-        )
+    if _prepare_authority.typed or (verdict_present and verdict_valid):
+        for gate in lifecycle_gates.PREPARE_READINESS_GATES:
+            result = gate(gate_ctx)
+            diagnostics.extend(result.diagnostics)
+            configured_gates.extend(result.data.get("configured_gates", []))
     if _has_blocking_diagnostics():
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
         error_data["required_council_signoffs"] = required_council_signoffs
@@ -18730,170 +17620,6 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
-SHARED_DELIVERY_DIAGNOSTIC_CODES = (
-    "review_evidence_invalid",
-    "missing_executable_approval_evidence",
-    "docs_lint_error",
-    "missing_operator_signoff",
-    "missing_required_lane",
-    "missing_wave_council_signoff",
-    "review_policy_receipt_stale",
-    "review_policy_reprepare_required",
-)
-
-CLOSURE_ONLY_DIAGNOSTIC_CODES = (
-    "docs_gardener_failed",
-    "open_changes_remaining",
-    "missing_signoff_evidence",
-    "review_evidence_independence_invalid",
-    "memory_validation_candidates_missing",
-    "memory_validation_required",
-    "memory_validation_check_failed",
-    "secrets_gate_unresolved",
-    "silent_unchecked_items_at_close",
-    "gates_forced_closed",
-    "review_projection_failed",
-)
-
-
-def _evaluate_shared_delivery_state(
-    root: Path,
-    wave_md: Path,
-    wave_text: str,
-    lint_result: Mapping[str, Any],
-    *,
-    lifecycle_phase: str = "review",
-) -> dict[str, Any]:
-    """Return the one shared delivery-gate result consumed by Review and Close."""
-
-    wave_id = wave_md.parent.name
-    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
-    wave_lanes = _extract_required_review_lanes(wave_text)
-    project_lanes = _read_project_required_review_lanes(root)
-    required_lanes = list(
-        dict.fromkeys([*wave_lanes, *project_lanes])
-    )
-    required_council = _required_wave_council_signoffs(
-        root, lifecycle_phase, wave_text=wave_text, wave_md=wave_md
-    )
-    diagnostics = _review_evidence_diagnostics(
-        wave_text,
-        root=root,
-        wave_key=wave_id,
-        required_run_kind="initial_delivery",
-    )
-    diagnostics.extend(_wave_review_policy_diagnostics(root))
-    diagnostics.extend(
-        _review_policy_receipt_diagnostics(root, wave_md, wave_text)
-    )
-    if has_reprepare_marker(wave_text):
-        diagnostics.append(
-            _diagnostic(
-                "review_policy_reprepare_required",
-                "This wave must be re-Prepared before delivery review or close.",
-                recovery_tools=["wf_prepare_wave"],
-                recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
-            )
-        )
-    diagnostics.extend(
-        _approval_evidence_diagnostics(
-            wave_text,
-            ["operator-signoff", *required_lanes, *required_council],
-            root=root,
-            wave_key=wave_id,
-        )
-    )
-    if not lint_result.get("passed"):
-        diagnostics.extend(
-            _diagnostic("docs_lint_error", error, recovery_tools=["wf_validate_docs"])
-            for error in lint_result.get("errors", [])
-        )
-    diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
-    operator_current = authority.operator_signoff_present()
-    if not operator_current:
-        remedy = (
-            "Record wf_review_event(event='approval', signoff_key='operator-signoff', "
-            "approval_phase='delivery', mode='create')."
-            if authority.typed
-            else "Add `operator-signoff: approved` to `## Review Evidence` in wave.md."
-        )
-        diagnostics.append(
-            _diagnostic(
-                "missing_operator_signoff",
-                "Operator review approval is required. " + remedy,
-                recovery_tools=["wf_review_event", "wf_review_wave"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
-            )
-        )
-    lane_results = [
-        {
-            "lane": lane,
-            "recorded_signoff": authority.signoff_current(
-                lane, approval_phase="delivery"
-            ),
-        }
-        for lane in required_lanes
-    ]
-    missing_lanes = [
-        row["lane"] for row in lane_results if not row["recorded_signoff"]
-    ]
-    if missing_lanes:
-        diagnostics.append(
-            _diagnostic(
-                "missing_required_lane",
-                "Required delivery lanes without a current approval: "
-                + ", ".join(missing_lanes),
-                recovery_tools=["wf_review_event", "wf_review_wave"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
-            )
-        )
-    council_results = [
-        {
-            "signoff_key": key,
-            "recorded_signoff": authority.signoff_current(
-                key,
-                approval_phase=(
-                    "readiness"
-                    if key == "wave-council-readiness"
-                    else "delivery"
-                ),
-            ),
-        }
-        for key in required_council
-    ]
-    missing_council = [
-        row["signoff_key"]
-        for row in council_results
-        if not row["recorded_signoff"]
-    ]
-    if missing_council:
-        diagnostics.append(
-            _diagnostic(
-                "missing_wave_council_signoff",
-                "Required delivery Council approval missing: "
-                + ", ".join(missing_council),
-                recovery_tools=["wf_review_event", "wf_review_wave"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
-            )
-        )
-    blocking = [
-        diagnostic
-        for diagnostic in diagnostics
-        if diagnostic.get("code") in SHARED_DELIVERY_DIAGNOSTIC_CODES
-    ]
-    return {
-        "diagnostics": diagnostics,
-        "blocking_diagnostics": blocking,
-        "required_lanes": required_lanes,
-        "lane_results": lane_results,
-        "operator_current": operator_current,
-        "required_council_signoffs": required_council,
-        "council_results": council_results,
-        "max_severity": authority.max_severity(),
-        "authority": authority,
-    }
-
-
 #: The lifecycle names two axes with sibling vocabularies: a review *phase*
 #: (``prepare``/``implementation``) and an approval *phase*
 #: (``readiness``/``delivery``). Callers reasonably reach for the approval word
@@ -18905,6 +17631,7 @@ def _evaluate_shared_delivery_state(
 _REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
 
 
+@_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_review_wave")
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
     phase_s = (phase or "implementation").strip().lower()
@@ -18944,26 +17671,12 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     # Wave 1to78: every review-evidence CONTENT read below (operator/lane/
     # council signoff currency, max severity) goes through the single
     # authority facade — typed-exclusive on declared waves, prose on legacy.
-    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
-    review_evidence_diagnostics = _review_evidence_diagnostics(
-        wave_text,
-        root=root,
-        wave_key=wave_md.parent.name,
-        required_run_kind="readiness" if phase_s == "prepare" else "initial_delivery",
+    gate_ctx = lifecycle_gates.GateContext(root, wave_md, wave_text, "dry_run", lint_result, "review")
+    prelude = lifecycle_gates.REVIEW_GATES[0](
+        gate_ctx, review_phase=phase_s, requested_wave_id=wave_id
     )
-    review_evidence_diagnostics.extend(_wave_review_policy_diagnostics(root))
-    review_evidence_diagnostics.extend(
-        _review_policy_receipt_diagnostics(root, wave_md, wave_text)
-    )
-    if has_reprepare_marker(wave_text):
-        review_evidence_diagnostics.append(
-            _diagnostic(
-                "review_policy_reprepare_required",
-                "This wave must be re-Prepared before review.",
-                recovery_tools=["wf_prepare_wave"],
-                recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')",
-            )
-        )
+    authority = prelude.data["authority"]
+    review_evidence_diagnostics = prelude.diagnostics
     # Merge lanes from wave.md Participants table and project-declared required_review_lanes
     wave_lanes = _extract_required_review_lanes(wave_text)
     project_lanes = _read_project_required_review_lanes(root)
@@ -18984,36 +17697,17 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         # Prepare-phase: signoff currency via the authority facade (legacy
         # waves read ## Prepare Review Evidence; declared waves read typed
         # approvals only). No operator signoff required at this phase.
-        lane_results = [{"lane": lane, "recorded_signoff": authority.signoff_current(lane, section="prepare", approval_phase="readiness")} for lane in required_lanes]
         diagnostics = list(review_evidence_diagnostics)
-        if not lint_result["passed"]:
-            diagnostics.extend(_diagnostic("docs_lint_error", err, recovery_tools=["wf_validate_docs"]) for err in lint_result["errors"])
-        diagnostics.extend(_docs_lint_warning_diagnostics(lint_result))
-        missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
-        if missing:
-            # Wave 1to78 delivery repair (DF2, message-only): remediation
-            # text branches on the resolved authority (predicate unchanged).
-            # On a declared wave the fix is a typed approval event per lane;
-            # legacy waves keep the exact prose-section instruction. Tests
-            # assert the typed wording on a declared fixture and the legacy
-            # wording on prose fixtures.
-            if authority.typed:
-                _prepare_lane_message = (
-                    f"Prepare-phase review lanes without a current typed approval: {', '.join(missing)}. "
-                    "Record a typed approval event per lane via wf_review_event(event='approval', "
-                    "signoff_key=<lane name above>, mode='create') before running wf_implement_wave."
-                )
-            else:
-                _prepare_lane_message = (
-                    f"Prepare-phase review lanes without recorded signoff in `## Prepare Review Evidence`: {', '.join(missing)}. "
-                    "Record each lane signoff in the `## Prepare Review Evidence` section of wave.md before running wf_implement_wave."
-                )
-            diagnostics.append(_diagnostic(
-                "missing_required_lane",
-                _prepare_lane_message,
-                recovery_tools=["wf_current_wave"],
-                recovery_usage="wf_current_wave()",
-            ))
+        diagnostics.extend(lifecycle_gates.REVIEW_GATES[1](
+            gate_ctx, review_phase=phase_s
+        ).diagnostics)
+        lanes_result = lifecycle_gates.REVIEW_GATES[2](
+            gate_ctx, review_phase=phase_s, authority=authority,
+            required_lanes=required_lanes,
+        )
+        diagnostics.extend(lanes_result.diagnostics)
+        lane_results = lanes_result.data["lane_results"]
+        missing = lanes_result.data["missing"]
         if empty_roster_advisory is not None:
             diagnostics.append(empty_roster_advisory)
         action_blocker = _guided_review_authority_blocker(
@@ -19047,9 +17741,8 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
 
     # Implementation phase: consume the shared delivery evaluator. Close uses
     # this exact result and then adds its registered closure-only delta.
-    shared = _evaluate_shared_delivery_state(
-        root, wave_md, wave_text, lint_result
-    )
+    shared_result = lifecycle_gates.REVIEW_GATES[3](gate_ctx)
+    shared = {**shared_result.data, "diagnostics": shared_result.diagnostics}
     required_lanes = ["operator", *shared["required_lanes"]]
     lane_results = [
         {"lane": "operator", "recorded_signoff": shared["operator_current"]},
@@ -19867,196 +18560,32 @@ def _memory_validation_diagnostics(root: Path, wave_id: str) -> list[dict[str, A
 
 # Wave 1wur7 (1wuui Requirement 5): close VERIFIES the existing framework test
 # receipt.  It runs no suite and spawns no subprocess.
-_FRAMEWORK_TEST_RUNNER_REL = ".wavefoundry/framework/scripts/run_tests.py"
-_FRAMEWORK_TEST_RECEIPT_REL = ".wavefoundry/framework/test-cache.json"
 # run_tests.py sets this on import for its own subprocesses.  The close gate only
 # borrows the module's hash computation, so both of its import side effects are
 # restored rather than leaked into a long-lived server process.
-_RUN_TESTS_IMPORT_ENV = "WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"
 
 
-def _load_framework_test_runner(runner_path: Path) -> Any:
-    """Load the target repository's ``run_tests.py`` for its hash computation only.
-
-    The hash is REUSED rather than reimplemented so the gate and the writer
-    cannot drift.  The module is loaded from the target root's own path (never
-    imported by name) and is not registered in ``sys.modules``.
-
-    ``run_tests.py`` mutates FIVE pieces of interpreter state at import, and all
-    five are undone here.  Delivery review found the inventory short twice: first
-    at two (ARCH-DEL-1 / CODE-DEL-2 added ``sys.path`` and the tool-venv
-    activation), then at four, when reverification demonstrated that
-    ``sys.modules`` is an unrestored fifth channel whose safety rested only on
-    ``server_impl`` happening to import the same two scripts-directory modules
-    the runner does.  One added module-scope import in a future runner would
-    leak a foreign module permanently, surviving deletion of the foreign
-    repository.  The five: ``sys.dont_write_bytecode``, the dashboard-browser
-    suppression variable, a ``sys.path`` insert of the runner's own scripts
-    directory, ``venv_bootstrap.activate_tool_venv()`` (which prepends the tool
-    venv's ``site-packages``), and every module the borrow registers.
-
-    This matters because the MCP server may be launched from one repository
-    against a different ``--root``: leaving a foreign ``scripts/`` directory
-    ahead of the server's own on ``sys.path``, or a foreign module in
-    ``sys.modules``, would make later imports resolve against code the server
-    does not own.
-
-    ``activate_tool_venv`` also calls ``sys.exit(2)`` on a venv/interpreter
-    mismatch. ``SystemExit`` is a ``BaseException``, so it is caught explicitly
-    (ARCH-DEL-2 / CODE-DEL-1 / REL-DEL-1): a runner that cannot be loaded is
-    "not proven", never a terminated tool call.  The catch is deliberately
-    ``(Exception, SystemExit)`` rather than bare ``BaseException``: reverification
-    showed the broader form swallows a ``KeyboardInterrupt`` delivered on the
-    server's main thread during the borrow, costing the operator a Ctrl-C and
-    mislabelling it as a load failure, while catching nothing the wave needs.
-    """
-    saved_bytecode = sys.dont_write_bytecode
-    saved_path = list(sys.path)
-    saved_modules = set(sys.modules)
-    saved_env_present = _RUN_TESTS_IMPORT_ENV in os.environ
-    saved_env = os.environ.get(_RUN_TESTS_IMPORT_ENV)
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "wavefoundry_close_gate_run_tests", runner_path)
-        if spec is None or spec.loader is None:
-            return None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    except (Exception, SystemExit):  # noqa: BLE001 - a runner that cannot be loaded is "not proven"
-        return None
-    finally:
-        sys.dont_write_bytecode = saved_bytecode
-        sys.path[:] = saved_path
-        for name in [name for name in sys.modules if name not in saved_modules]:
-            sys.modules.pop(name, None)
-        if saved_env_present:
-            os.environ[_RUN_TESTS_IMPORT_ENV] = saved_env or ""
-        else:
-            os.environ.pop(_RUN_TESTS_IMPORT_ENV, None)
-
-
-def _framework_test_receipt_status(root: Path) -> dict[str, Any]:
-    """Verify the existing ``test-cache.json`` receipt without running anything.
-
-    ``run_tests.py`` writes the receipt only after a SUCCESSFUL run of the WHOLE
-    suite, with an ``inputs_hash`` covering every file under
-    ``.wavefoundry/framework/`` except ``VERSION``, ``MANIFEST``, the cache
-    itself, ``test-run.lock``, and the ``index`` / ``__pycache__`` /
-    ``.pytest_cache`` directories, so it self-invalidates the moment any
-    framework file changes.  A missing, red, stale, or unreadable receipt is reported as NOT
-    PROVEN rather than assumed green.
-
-    Scope has TWO halves and both matter (delivery reverification found the
-    first wording asserted one and negated the other).  The hash covers
-    ``.wavefoundry/framework/`` only, so a documentation edit never makes a
-    standing receipt stale -- but the receipt is written only on a whole-suite
-    pass, so a failure triggered by content under ``docs/`` prevents a NEW
-    receipt from being written.  The consequence: when the framework tree also
-    changed, the standing receipt is stale and close is blocked; in a
-    documentation-only wave a current green receipt persists and close is not
-    blocked despite a red suite.  A green receipt attests the framework code,
-    not the tree -- neither a whole-repository guarantee nor a whole-repository
-    exemption.
-
-    Where ``run_tests.py`` is absent this is a documented NO-OP that neither
-    blocks nor claims proof: ``build_pack.py`` excludes the runner, the tests,
-    and the receipt from the distribution under the standing policy that seeds
-    must not instruct target repositories to run framework tests, so a
-    pack-vendored target can never write the receipt and would otherwise be
-    hard-blocked at close forever.
-    """
-    runner = root / _FRAMEWORK_TEST_RUNNER_REL
-    if not runner.is_file():
-        return {"state": "not_applicable", "scope": "framework",
-                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` is absent (the distribution "
-                           "excludes it), so the framework test receipt is not checked here.")}
-    # Delivery review REL-DEL-2: `is_file()` follows symlinks, and the runner
-    # derives its framework directory and its receipt path from its own RESOLVED
-    # location.  A symlinked runner would therefore hash a foreign repository's
-    # tree and read a foreign receipt -- a false proof, which is the one direction
-    # a gate must never fail in.
-    try:
-        resolved_runner = runner.resolve()
-        resolved_root = root.resolve()
-        contained = resolved_runner.is_relative_to(resolved_root)
-    except OSError as exc:
-        return {"state": "unreadable", "scope": "framework",
-                "detail": f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not be resolved: {exc}"}
-    if not contained:
-        return {"state": "unreadable", "scope": "framework",
-                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` resolves outside this repository "
-                           f"({resolved_runner}); it would attest a different framework tree, "
-                           "so no proof is claimed.")}
-    module = _load_framework_test_runner(runner)
-    if module is None or not hasattr(module, "_hash_inputs") or not hasattr(module, "_read_cache"):
-        return {"state": "unreadable", "scope": "framework",
-                "detail": f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not be loaded to verify the receipt."}
-    # Delivery review REL-DEL-1: the borrowed call CONTRACT can drift too (an
-    # older or newer runner whose `_hash_inputs` takes an argument), so both
-    # calls degrade to "not proven" rather than raising out of the tool handler.
-    try:
-        current_hash = module._hash_inputs()
-        cached = module._read_cache()
-    except (Exception, SystemExit) as exc:  # noqa: BLE001 - any failure here is "not proven"
-        return {"state": "unreadable", "scope": "framework",
-                "detail": (f"`{_FRAMEWORK_TEST_RUNNER_REL}` could not verify the receipt "
-                           f"({type(exc).__name__}: {exc}).")}
-    if not isinstance(cached, dict):
-        return {"state": "missing", "scope": "framework",
-                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` is absent or unreadable; no "
-                           "successful framework test run has been recorded.")}
-    if cached.get("result") != "ok":
-        return {"state": "not_ok", "scope": "framework", "ran_at": cached.get("ran_at"),
-                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` records "
-                           f"result={cached.get('result')!r}, not 'ok'.")}
-    if cached.get("inputs_hash") != current_hash:
-        return {"state": "stale", "scope": "framework", "ran_at": cached.get("ran_at"),
-                "test_count": cached.get("test_count"),
-                "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` was written for a different "
-                           "framework tree (a file under `.wavefoundry/framework/` changed "
-                           "after that run), so it does not attest the current code.")}
-    return {"state": "proven", "scope": "framework", "ran_at": cached.get("ran_at"),
-            "test_count": cached.get("test_count"),
-            "detail": (f"`{_FRAMEWORK_TEST_RECEIPT_REL}` is green for the current framework "
-                       "tree. It attests the framework code, not the tree: the hash covers "
-                       "`.wavefoundry/framework/` only, and the receipt is written only on a "
-                       "whole-suite pass.")}
-
-
-def _framework_test_receipt_diagnostic(status: Mapping[str, Any]) -> Optional[dict[str, Any]]:
-    if status.get("state") in {"not_applicable", "proven"}:
-        return None
-    return _diagnostic(
-        "framework_test_receipt_not_proven",
-        (f"Wave close blocked: the framework test receipt is not proven ({status.get('state')}). "
-         f"{status.get('detail')} Close verifies the EXISTING receipt and never runs a suite; "
-         "record a fresh one with `python3 .wavefoundry/framework/scripts/run_tests.py`, "
-         "and run it LAST, because any edit under `.wavefoundry/framework/` invalidates it. "
-         "Scope note: the hash covers `.wavefoundry/framework/` only, so a documentation edit "
-         "never makes a receipt stale, but the receipt is written only on a whole-suite pass, "
-         "so a docs-triggered failure prevents a new one. A green receipt attests the "
-         "framework code, not the tree."),
-        recovery_tools=["wf_validate_docs", "wf_current_wave"],
-        recovery_usage="wf_current_wave()",
-    )
-
-
+@_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     from scanner_skips import scanner_skip_notice
 
+    configured_gates: list[dict[str, Any]] = []
+
+    def _close_envelope(status, data, **kwargs):
+        return _response(status, {**data, "configured_gates": configured_gates}, **kwargs)
+
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
     if mode_s not in {"dry_run", "create"}:
-        return _response("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _WAVE_CLOSE_VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_WAVE_CLOSE_VALID_MODES}.")], next_tools=["wf_help"], usage="wf_help()")
+        return _close_envelope("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _WAVE_CLOSE_VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_WAVE_CLOSE_VALID_MODES}.")], next_tools=["wf_help"], usage="wf_help()")
     wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
         if unreadable_waves:
             return _wave_resolution_unreadable_response(
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
-        return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _close_envelope("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     # Garden only runs on create — dry-run must stay read-only.
     garden_passed = True
     if mode_s == "create":
@@ -20072,16 +18601,17 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             root, wave_md, wave_read_error,
             data={"wave_id": wave_id, "mode": mode_s},
         )
-    shared = _evaluate_shared_delivery_state(
-        root, wave_md, text, lint_result, lifecycle_phase="close"
-    )
+    gate_ctx = lifecycle_gates.GateContext(root, wave_md, text, mode_s, lint_result, "close")
+    shared_result = lifecycle_gates.CLOSE_SHARED_GATES[0](gate_ctx)
+    shared = {**shared_result.data, "diagnostics": shared_result.diagnostics}
     authority = shared["authority"]
     statuses = [status.lower() for status in _CHANGE_STATUS_PATTERN.findall(text)]
     open_statuses = {"stub", "planned", "ready", "active"}
     unresolved = [s for s in statuses if s in open_statuses]
     diagnostics: list[dict[str, Any]] = list(shared["diagnostics"])
-    if not garden_passed:
-        diagnostics.append(_diagnostic("docs_gardener_failed", "docs_gardener failed during close.", recovery_tools=["wf_garden_docs", "wf_validate_docs"], recovery_usage="wf_garden_docs(mode='run')"))
+    diagnostics.extend(lifecycle_gates.CLOSE_SHARED_GATES[1](
+        gate_ctx, garden_passed=garden_passed
+    ).diagnostics)
     if unresolved:
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {', '.join(sorted(set(unresolved)))}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
     required_lanes = list(shared["required_lanes"])
@@ -20134,71 +18664,25 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         _close_posture_gap = None
     if _close_posture_gap is not None:
         secrets_notice = {**secrets_notice, "retrieval_posture_gap": _close_posture_gap}
-    # Wave 1p31b (1p32k): close-time hard gate — every AC and task across admitted changes
-    # must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block close.
-    silent_all = _collect_silent_unchecked_items_for_close(wave_md, text)
-    # 1uu9z follow-up: an unreadable admitted document is a different failure
-    # than an unchecked item and gets its own diagnostic. Folding it into the
-    # unchecked-items count produced a false count and an unactionable
-    # instruction ("mark it `[x]` or `[~]`") for a file that will not decode,
-    # under a code every sibling site does not use.
-    doc_findings = [i for i in silent_all if i["item_type"] == "change document"]
-    unreadable_docs = [i for i in doc_findings if i["item_id"] == "unreadable"]
-    missing_docs = [i for i in doc_findings if i["item_id"] == "missing"]
-    silent_unchecked = [i for i in silent_all if i["item_type"] != "change document"]
-    for item in missing_docs:
-        diagnostics.append(
-            _diagnostic(
-                "change_doc_missing",
-                (
-                    f"Wave close blocked: admitted change '{item['change_id']}' has no "
-                    f"document on disk ({item['item_text']}). The close hard gate cannot "
-                    "verify ACs and tasks it cannot see; restore the document, or remove "
-                    "the change via wf_remove_change, before close."
-                ),
-                recovery_tools=["wf_remove_change", "wf_current_wave"],
-                recovery_usage=f"wf_remove_change(change_id='{item['change_id']}')",
-            )
-        )
-    for item in unreadable_docs:
-        diagnostics.append(
-            _diagnostic(
-                "change_doc_unreadable",
-                (
-                    f"Wave close blocked: admitted change '{item['change_id']}' could not "
-                    f"be read ({item['item_text']}). The close hard gate cannot be "
-                    "verified over a document that cannot be read; repair or restore "
-                    "the file before close."
-                ),
-                recovery_tools=["wf_get_change", "wf_current_wave"],
-                recovery_usage=f"wf_get_change(change_id='{item['change_id']}')",
-            )
-        )
-    if silent_unchecked:
-        # Build a structured, operator-readable message naming up to 10 items inline; counts
-        # beyond that summarized. The diagnostic carries the full list in its data for tools.
-        sample_lines: list[str] = []
-        for item in silent_unchecked[:10]:
-            tag = f"[{item['item_id']}]" if item["item_id"] else "[task]"
-            sample_lines.append(f"  - {item['change_id']} {tag} {item['item_type']}: {item['item_text']}")
-        more = f"\n  ...and {len(silent_unchecked) - 10} more" if len(silent_unchecked) > 10 else ""
-        diagnostics.append(
-            _diagnostic(
-                "silent_unchecked_items_at_close",
-                (
-                    f"Wave close blocked: {len(silent_unchecked)} unchecked AC or task item(s) "
-                    "across admitted changes must be marked `[x]` (completed) or `[~]` (intentionally deferred) before close. "
-                    "Silent `[ ]` items are blocking findings per the close-time hard gate. "
-                    f"See seed `170-plan-feature.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
-                ),
-                recovery_tools=["wf_current_wave", "wf_validate_docs"],
-                recovery_usage="wf_current_wave()",
-            )
-        )
-    framework_test_receipt = _framework_test_receipt_status(root)
-    receipt_diagnostic = _framework_test_receipt_diagnostic(framework_test_receipt)
-    if receipt_diagnostic is not None:
-        diagnostics.append(receipt_diagnostic)
+    hard_gate_data: dict[str, Any] = {}
+    # Wave 1yd98: the sensor gate is the last member and is called explicitly, not
+    # iterated, because it needs the blocking state as a keyword.  The keyword is
+    # computed AFTER this loop, so a blocker produced by the checkbox or receipt
+    # gate inside it also withholds the sensor; computing it before the loop would
+    # pass every criterion on an approval-blocked fixture while silently losing
+    # that case.  Membership in the tuple is retained so the order pin holds.
+    for gate in lifecycle_gates.CLOSE_HARD_GATES[:-1]:
+        gate_result = gate(gate_ctx)
+        diagnostics.extend(gate_result.diagnostics)
+        hard_gate_data.update(gate_result.data)
+        configured_gates.extend(gate_result.data.get("configured_gates", []))
+    sensor_gate_result = lifecycle_gates.CLOSE_HARD_GATES[-1](
+        gate_ctx, blocked=lifecycle_gates.has_blocking_diagnostics(diagnostics)
+    )
+    diagnostics.extend(sensor_gate_result.diagnostics)
+    hard_gate_data.update(sensor_gate_result.data)
+    configured_gates.extend(sensor_gate_result.data.get("configured_gates", []))
+    framework_test_receipt = hard_gate_data["framework_test_receipt"]
     # Gate close runs unconditionally so open gates are always reported (and closed in
     # create mode) even when other diagnostics cause an early return.
     gate_diagnostics = _force_gates_closed(root, mode_s)
@@ -20208,13 +18692,13 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # non-emptiness, so a wave whose only lint output was one advisory line
     # closed with `error` (delivery review CODE-DEL-1 / ARCH-DEL-1).
     advisory_diagnostics = [d for d in diagnostics if d.get("advisory") is True]
-    if any(d.get("advisory") is not True for d in diagnostics):
-        return _response("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
+    if lifecycle_gates.has_blocking_diagnostics(diagnostics):
+        return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
     # Generate the wave summary from structured change doc fields (12sq4).
     try:
         wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
     except (OSError, UnicodeError, ValueError) as exc:
-        return _response(
+        return _close_envelope(
             "error",
             {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed},
             diagnostics=[_diagnostic(
@@ -20244,7 +18728,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             try:
                 text = _project_current_review_status(root, wave_md, text)
             except ValueError as exc:
-                return _response(
+                return _close_envelope(
                     "error",
                     {"wave_id": wave_id, "mode": mode_s},
                     diagnostics=[
@@ -20283,7 +18767,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # not (fail-safe — never affects the result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
-    envelope = _response(
+    envelope = _close_envelope(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
          "framework_test_receipt": framework_test_receipt,

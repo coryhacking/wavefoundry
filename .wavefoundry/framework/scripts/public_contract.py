@@ -35,3 +35,6 @@ LEXICAL_FALLBACK_REASONS: tuple[str, ...] = (
     "index_not_ready", "store_absent", "query_failed",
     "model_unavailable", "index_missing",
 )
+
+# Outcomes of declared lifecycle sensors.
+CONFIGURED_GATE_OUTCOMES: tuple[str, ...] = ("would_run", "passed", "failed", "invalid")

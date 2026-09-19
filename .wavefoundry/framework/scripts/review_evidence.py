@@ -1866,7 +1866,14 @@ def required_review_status_keys(
 # the call sites.
 # ---------------------------------------------------------------------------
 
-REVIEW_EVIDENCE_PROSE_MARKERS = ("## Review Evidence", "## Review Signoff Evidence")
+#: The canonical section a wave records review evidence under.  Wave 1yd99 named
+#: this separately from the marker tuple: every remedy message and configuration
+#: default previously read ``REVIEW_EVIDENCE_PROSE_MARKERS[0]``, so prepending a
+#: recognised legacy spelling to that tuple would have silently changed what the
+#: tool tells an operator to write.  The tuple is what is *recognised*; this is
+#: what is *canonical*, and the two are no longer coupled by position.
+REVIEW_EVIDENCE_SECTION = "## Review Evidence"
+REVIEW_EVIDENCE_PROSE_MARKERS = (REVIEW_EVIDENCE_SECTION, "## Review Signoff Evidence")
 PREPARE_REVIEW_EVIDENCE_MARKER = "## Prepare Review Evidence"
 SIGNOFF_TOKENS = ("sign-off", "signoff", "approved", "passed", "acceptance", "complete")
 SIGNOFF_POSITIVE_STATES = ("approved", "passed", "complete")

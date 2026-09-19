@@ -79,10 +79,14 @@ def isolated_run(cmd: Any, **kwargs: Any):
       inherited stream — and this helper leaves stdin alone in that case.
     - ``creationflags`` gets ``CREATE_NO_WINDOW`` OR-ed in on Windows (preserving
       any flags the caller already passed).
-    - When the spawn is captured as text (``text=True``/``capture_output=True``
-      and the caller did not pin an ``encoding``), ``encoding="utf-8",
-      errors="replace"`` are applied so child output decodes consistently across
-      OSes (wave 1p8gv).
+    - When the spawn is decoded as text (``text=True`` or
+      ``universal_newlines=True``, and the caller did not pin an ``encoding``),
+      ``encoding="utf-8", errors="replace"`` are applied so child output decodes
+      consistently across OSes (wave 1p8gv). ``capture_output=True`` alone does
+      **not** trigger this: it redirects the streams but leaves them as bytes, so
+      a caller who wants decoded text must pass ``text=True`` as well. Wave 1yd99
+      corrected this sentence, which had named capture as a trigger and cost a
+      carried implementation note in wave 1y0h0.
 
     Any kwarg the caller passes wins — this helper only fills the isolation
     defaults that are absent.

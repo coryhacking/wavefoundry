@@ -22,6 +22,7 @@ from review_policy import (
     RETIRED_LIFECYCLE_TOKENS,
     UPGRADE_POLICY_MARKER_BEGIN,
     normalize_wave_review_policy,
+    normalize_phase_gates,
     review_policy_carriers,
     serialization_point_paths,
     SCAFFOLD_DOCS,
@@ -306,6 +307,9 @@ def check_workflow_config(root: Path) -> list[str]:
         policy_failures.extend(
             f"docs/workflow-config.json: {error}" for error in review_errors
         )
+
+    _phase_gates, phase_errors = normalize_phase_gates(data)
+    policy_failures.extend(f"docs/workflow-config.json: {error}" for error in phase_errors)
 
     # Wave 1p337 (1p336): `WORKFLOW_REQUIRED_KEYS` entries are either strings (single
     # canonical key) or tuples (alias groups where any one key satisfies the requirement).

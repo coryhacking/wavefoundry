@@ -363,6 +363,60 @@ def normalize_wave_review_policy(
     return normalized, ()
 
 
+def normalize_phase_gates(config: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Validate only the opt-in phase policy, leaving unrelated config tolerant."""
+    if "phase_gates" not in config:
+        return {}, ()
+    raw = config["phase_gates"]
+    if not isinstance(raw, dict):
+        return {}, ("phase_gates must be an object",)
+    errors: list[str] = []
+    normalized: dict[str, Any] = {}
+    sensors = config.get("sensors", [])
+    for phase, block in raw.items():
+        path = f"phase_gates.{phase}"
+        if phase not in ("prepare", "close"):
+            errors.append(f"{path}: unknown phase")
+            continue
+        if not isinstance(block, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        for key in block:
+            if key != "required_sensors":
+                errors.append(f"{path}.{key}: unknown field")
+        names = block.get("required_sensors", [])
+        if not isinstance(names, list):
+            errors.append(f"{path}.required_sensors must be a list")
+            continue
+        normalized[phase] = {"required_sensors": []}
+        seen: set[str] = set()
+        for index, name in enumerate(names):
+            entry_path = f"{path}.required_sensors[{index}]"
+            if not isinstance(name, str) or not name.strip():
+                errors.append(f"{entry_path} must be a non-empty sensor name")
+                continue
+            if name in seen:
+                errors.append(f"{entry_path}: duplicate sensor {name!r}")
+                continue
+            seen.add(name)
+            normalized[phase]["required_sensors"].append(name)
+            if not isinstance(sensors, list):
+                errors.append(f"{entry_path}: sensors must be a list to declare required sensors")
+                continue
+            matches = [(i, item) for i, item in enumerate(sensors)
+                       if isinstance(item, dict) and str(item.get("name", "")).strip() == name]
+            if len(matches) != 1:
+                errors.append(f"{entry_path}: sensor {name!r} must name exactly one sensors entry")
+                continue
+            sensor_index, sensor = matches[0]
+            command = sensor.get("command")
+            if not isinstance(command, list) or not command or any(
+                not isinstance(arg, str) or "\x00" in arg for arg in command
+            ) or not command[0]:
+                errors.append(f"sensors[{sensor_index}].command ({entry_path}): required sensor must use a non-empty list of string arguments")
+    return normalized, tuple(errors)
+
+
 def migrate_wave_review_policy(value: object) -> dict[str, Any]:
     """Map a legacy boolean policy to its enforcement-preserving explicit mode."""
 
@@ -883,6 +937,8 @@ def policy_input_digest(
     review_policies: object,
     changes: Iterable[tuple[str, str, bytes]],
     requested_lanes: Iterable[str],
+    phase_gates: object = None,
+    sensors: object = (),
 ) -> str:
     payload = {
         "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
@@ -912,6 +968,17 @@ def policy_input_digest(
         ),
         "requested_lanes": list(requested_lanes),
     }
+    if phase_gates:
+        payload["phase_gates"] = phase_gates
+        referenced = {
+            name for block in phase_gates.values()
+            if isinstance(block, dict) and isinstance(block.get("required_sensors", []), list)
+            for name in block.get("required_sensors", []) if isinstance(name, str)
+        } if isinstance(phase_gates, dict) else set()
+        payload["phase_gate_sensors"] = [
+            {key: sensor.get(key) for key in ("name", "command", "dimension")}
+            for sensor in sensors if isinstance(sensor, dict) and str(sensor.get("name", "")).strip() in referenced
+        ] if isinstance(sensors, (list, tuple)) else []
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")

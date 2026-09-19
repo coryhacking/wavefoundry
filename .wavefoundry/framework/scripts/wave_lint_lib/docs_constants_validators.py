@@ -58,6 +58,12 @@ def _claims():
     pc = _public_contract()
     return (
         (
+            "docs/specs/mcp-tool-surface.md",
+            "configured_gates outcomes",
+            re.compile(r"configured_gates outcomes: `([^`]+)`"),
+            lambda: "/".join(pc.CONFIGURED_GATE_OUTCOMES),
+        ),
+        (
             "docs/architecture/performance-budget.md",
             "docs embedding model",
             re.compile(r"docs embedding model `([^`]+)`"),
