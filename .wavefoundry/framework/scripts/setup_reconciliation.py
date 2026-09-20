@@ -17,6 +17,7 @@ import uuid
 
 import sqlite_storage_migration as migration
 import upgrade_lib
+import storage_identity
 
 MigrationRequired = migration.MigrationRequired
 _TRANSIENT_DIRS = {"__pycache__", ".pytest_cache", "index"}
@@ -106,7 +107,7 @@ class session:
                 raise MigrationRequired("storage_setup_foreign_upgrade: finish the recorded upgrade before wf setup; checkpoint retained")
             if checkpoint.get("installed_framework_sha256") != framework_fingerprint(self.root):
                 raise MigrationRequired("storage_setup_source_changed: restore the recorded framework before wf setup")
-            if checkpoint.get("root_identity") != migration._identity(self.root):
+            if not storage_identity.compare_identity(checkpoint.get("root_identity"), migration._identity(self.root))["matches"]:
                 raise MigrationRequired("storage_setup_checkpoint_mismatch: repository identity changed")
             if (receipt and checkpoint.get("storage_migration_id") != receipt["migration_id"]):
                 # A crash can fall between writing the chained schema-8 fence
@@ -167,7 +168,8 @@ class session:
                 if checkpoint is None:
                     upgrade_lib.write_upgrade_lock(self.root, version, version, runner_protocol=2)
                 self._update(entry_path="setup", installed_framework_sha256=self._fingerprint,
-                             root_identity=migration._identity(self.root),
+                             root_identity=(checkpoint["root_identity"] if checkpoint is not None
+                                            else receipt["root_identity"] if receipt else migration._identity(self.root)),
                              setup_args=self.args, pid=os.getpid(), current_phase="setup_storage",
                              failed_phase=None,
                              **completed_parent,

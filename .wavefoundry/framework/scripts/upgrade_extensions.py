@@ -657,26 +657,54 @@ def _guard_owned_path(root: Path, path: Path) -> Path:
     return path
 
 
+def _storage_identity_helper(package, expected_sha256):
+    """Use the incoming helper before extraction, with the existing zip-source loader.
+
+    The extension loader gives archive modules a relative member filename;
+    installed modules have an absolute filename. Never import the old target's
+    missing or stale helper when running incoming source.
+    """
+    if Path(__file__).is_absolute():
+        import storage_identity
+        return storage_identity
+    from types import ModuleType
+    import io
+    member = str(Path(__file__).with_name("storage_identity.py")).replace("\\", "/")
+    # Execute only the bytes whose digest was checked, never reopen the path
+    # after validating it: the archive can be replaced between those operations.
+    package_bytes = Path(package).read_bytes()
+    if hashlib.sha256(package_bytes).hexdigest() != expected_sha256:
+        raise ValueError("index_guard_package_changed: resume with the recorded byte-identical --pack")
+    with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as archive:
+        source = archive.read(member).decode("utf-8")
+    helper = ModuleType("_incoming_storage_identity")
+    helper.__file__ = member
+    exec(compile(source, member, "exec"), helper.__dict__)
+    return helper
+
+
 def _validate_index_guard_handoff(root, lock, record, package=..., target=None):
     root = Path(root).resolve()
     identity = root.stat()
+    package = lock.get("zip_path") if package is ... else package
     if (not isinstance(record, dict) or type(record.get("version")) is not int or record.get("version") != 1
             or type(record.get("required")) is not bool
             or any(type(record.get(key)) is not bool for key in ("prior_runtime_present", "prior_capability", "prior_coordinator_capable"))
             or record.get("required") != (record.get("prior_runtime_present") and (not record.get("prior_capability") or not record.get("prior_coordinator_capable")))
-            or record.get("root") != str(root)
-            or record.get("root_identity") != {"device": identity.st_dev, "inode": identity.st_ino}
             or record.get("target_version") != (target if target is not None else lock.get("to_version"))
             or not isinstance(record.get("token"), str) or not record["token"]):
         raise ValueError("index_guard_checkpoint_invalid: preserve checkpoint and original package")
     expected = record.get("pack_sha256")
-    package = lock.get("zip_path") if package is ... else package
     if expected is not None:
         if (not re.fullmatch(r"[0-9a-f]{64}", str(expected)) or not package
                 or _pack_sha256(Path(package)) != expected):
             raise ValueError("index_guard_package_changed: resume with the recorded byte-identical --pack")
     elif package is not None:
         raise ValueError("index_guard_package_changed: checkpoint belongs to a current-tree upgrade")
+    storage_identity = _storage_identity_helper(package, expected)
+    if (not storage_identity.same_path(record.get("root"), root)
+            or not storage_identity.compare_identity(record.get("root_identity"), {"device": identity.st_dev, "inode": identity.st_ino})["matches"]):
+        raise ValueError("index_guard_checkpoint_invalid: preserve checkpoint and original package")
     if expected is not None:
         locator = record.get("pack_path")
         if not locator or _pack_sha256(Path(locator)) != expected:

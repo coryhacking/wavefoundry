@@ -67,6 +67,26 @@ class SetupReceiptTests(unittest.TestCase):
         self.assertIsNotNone(migration.read_restart_action(self.root, 3, action["invocation_token"]))
         self.assertEqual((self.index / "docs.lance/data").read_bytes(), b"preserve")
 
+    def test_device_drift_resume_preserves_producer_identity_and_action_binding(self):
+        self.legacy()
+        self.pause()
+        identity = migration._identity
+        def drift(path):
+            captured = identity(path)
+            return dict(captured, device=captured['device'] + 17)
+        receipt_path = self.index / migration.RECEIPT
+        before = receipt_path.read_bytes()
+        prior = upgrade_lib.read_upgrade_lock(self.root)
+        with patch.object(migration, '_identity', side_effect=drift):
+            action = prior['action_required']
+            self.assertIsNotNone(migration.read_restart_action(self.root, 3, action['invocation_token']))
+            with setup.session(self.root, ['--confirm-hosts-stopped']) as run:
+                checkpoint = upgrade_lib.read_upgrade_lock(self.root)
+                self.assertEqual(checkpoint['root_identity'], prior['root_identity'])
+                self.assertEqual(checkpoint['action_required'], prior['action_required'])
+                self.assertEqual(run._inspect()[0]['restart_action'], action)
+        self.assertEqual(receipt_path.read_bytes(), before)
+
     def test_setup_preflight_recovery_keeps_recorded_owner(self):
         import setup_index
         import sqlite_runtime
@@ -458,7 +478,13 @@ class NativeSetupTests(unittest.TestCase):
             receipt = migration.read_receipt(self.index)
             self.assertEqual(checkpoint["storage_migration_id"], prior["migration_id"])
             self.assertNotEqual(receipt["migration_id"], prior["migration_id"])
-            with setup.session(self.root, ["--confirm-hosts-stopped"]) as retry:
+            identity = migration._identity
+            def drift(path):
+                captured = identity(path)
+                return dict(captured, device=captured['device'] + 17)
+            parent_before = setup._receipt_fingerprint(receipt['supersedes'])
+            with patch.object(migration, '_identity', side_effect=drift), setup.session(self.root, ["--confirm-hosts-stopped"]) as retry:
+                self.assertEqual(setup._receipt_fingerprint(migration.read_receipt(self.index)['supersedes']), parent_before)
                 retry.prepare()
                 with retry.publication():
                     pass
@@ -491,7 +517,11 @@ class NativeSetupTests(unittest.TestCase):
         checkpoint_before = checkpoint_path.read_bytes()
         receipt_before = (self.index / migration.RECEIPT).read_bytes()
         source_before = source.read_bytes()
-        with self.assertRaisesRegex(setup.MigrationRequired, "checkpoint_mismatch"):
+        identity = migration._identity
+        def drift(path):
+            captured = identity(path)
+            return dict(captured, device=captured['device'] + 17)
+        with patch.object(migration, '_identity', side_effect=drift), self.assertRaisesRegex(setup.MigrationRequired, "checkpoint_mismatch"):
             with setup.session(self.root, ["--confirm-hosts-stopped"]):
                 self.fail("mismatched completed-parent digest accepted")
         self.assertEqual(checkpoint_before, checkpoint_path.read_bytes())

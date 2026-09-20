@@ -261,6 +261,23 @@ class SetupReadinessTests(unittest.TestCase):
         self.assertEqual(result['status'], 'indeterminate')
         self.assertEqual(result['actions'], [])
 
+    def test_storage_identity_diagnostics_preserve_record_bytes_on_accept_and_refusal(self):
+        identity = {'device': self.root.stat().st_dev + 17, 'inode': self.root.stat().st_ino}
+        receipt = {'receipt_version': 2, 'kind': 'index_sqlite_schema8', 'state': 'complete',
+                   'index_dir': str(self.index), 'root_identity': identity, 'migration_id': 'b' * 32}
+        path = self.index / 'sqlite-migration.json'
+        for changed_inode in (False, True):
+            if changed_inode:
+                identity['inode'] += 1
+            path.write_text(json.dumps(receipt))
+            before = path.read_bytes()
+            result = self.assess()
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(result['storage_identity']['receipt'],
+                             {'matches': not changed_inode, 'basis': 'path+inode', 'device_drift': True})
+            recovery_errors = [r for r in result['reasons'] if r['code'] == 'recovery_unproven']
+            self.assertEqual(bool(recovery_errors), changed_inode)
+
     def test_venv_executable_removal_invalidates_signature(self):
         before = readiness.assessment_signature(self.root)
         (self.venv / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')).unlink()

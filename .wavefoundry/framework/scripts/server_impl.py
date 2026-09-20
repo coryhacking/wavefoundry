@@ -13,7 +13,7 @@ import json
 import math
 import os
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import re
 import shlex
 import sys
@@ -45,6 +45,7 @@ for _wll_key in list(sys.modules):
             "lifecycle_gate_support",
             "lifecycle_gates",
             "sensor_runner",
+            "index_source_guard",
         }
     ):
         del sys.modules[_wll_key]
@@ -62,6 +63,7 @@ import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 from operator_identity import resolve_operator
 import setup_readiness
+import index_source_guard
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 
 import lifecycle_gate_support
@@ -5739,7 +5741,7 @@ def run_index_rebuild(
     if content == "graph":
         notice = (
             f"Rebuilding graph index ({layer} layer) — extracting nodes/edges and re-clustering communities. "
-            f"No semantic embedding — typically completes in ~10 seconds. "
+            f"No semantic embedding; duration depends on corpus size and graph work. "
             f"Watch progress: {log_path}"
         )
     elif full:
@@ -27967,7 +27969,8 @@ def _project_context_efficiency_wave(
         return {"persistence": "failed", "projection": "wave_not_found"}
     canonical_wave = wave_md.parent.name
     try:
-        with project_state_publication_lock(root, wait=not automatic):
+        with (index_source_guard.index_source_guard(root, wait=False) if automatic else nullcontext()), \
+                project_state_publication_lock(root, wait=not automatic):
             # Status, floor, and the durable generation are one publication
             # decision.  Read all three only after acquiring the shared lock;
             # otherwise a concurrent close can be overwritten with sealed=0.
@@ -28053,6 +28056,18 @@ def _project_context_efficiency_wave(
                 if focus_clear_error
                 else {}
             ),
+        }
+    except index_source_guard.RuntimeLockBusy as exc:
+        return {
+            "persistence": "durable", "projection": "pending",
+            "reason": "index_source_busy", "error": str(exc),
+            "wave_id": canonical_wave,
+        }
+    except index_source_guard.RuntimeLockError as exc:
+        return {
+            "persistence": "durable", "projection": "pending",
+            "reason": "index_source_unavailable", "error": str(exc),
+            "wave_id": canonical_wave,
         }
     except ProjectPublicationUnavailable as exc:
         return {
@@ -32106,7 +32121,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - ``code`` — rebuild the code semantic embedding index only.
         - ``all`` — rebuild both docs and code embedding indexes together (slowest; ~5–10 min).
         - ``graph`` — rebuild **only the graph index** (node/edge extraction + community clustering).
-          Skips all semantic embedding. Completes in ~10 seconds. Use this when you need to
+          Skips all semantic embedding; duration depends on corpus size and graph work. Use this when you need to
           refresh the codebase graph or community map without re-running the full embedding
           pipeline. **Distinct from the semantic embedding indexes:** the call/edge graph used
           by ``wf_graph_report``, ``code_impact``, ``code_callhierarchy``, ``code_graph_path``,
@@ -34090,7 +34105,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         out = _root / gen.OUTPUT_REL_PATH
         if not out.is_file():
             try:
-                gen.generate_safe(_root)
+                with index_source_guard.index_source_guard(_root, wait=False):
+                    gen.generate_safe(_root)
             except Exception:
                 pass
         if out.is_file():

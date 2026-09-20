@@ -30,6 +30,7 @@ import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 import model_bundle
+import index_source_guard
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -1582,10 +1583,11 @@ def _load_meta(index_dir: Path) -> dict:
 
 
 def _build_failed_result(files: list, reason: str) -> dict:
-    """Structured build failure (1sed6 Req 2): the build did NOT complete —
-    the epoch stays un-finalized (readers fail closed) and the caller must
-    not treat the index as current. Printed loudly and store-logged where
-    possible."""
+    """Report an unsuccessful build without claiming current-source freshness.
+
+    Normally readers fail closed; verified precommit recovery separately reports
+    availability of a historical snapshot.
+    """
     print(f"build_index: FAILED — {reason}", file=sys.stderr, flush=True)
     return {
         "files_indexed": 0,
@@ -3834,23 +3836,46 @@ def build_index(
             verbose=verbose,
             dry_run=True,
         )
-    with _index_build_lock(index_dir), vector_store.PreparedUpdates(index_dir) as prepared:
-        return _build_index_locked(
-            root,
-            full=full,
-            rechunk=rechunk,
-            content=content,
-            index_dir=index_dir,
-            include_prefixes=include_prefixes,
-            respect_ignore=respect_ignore,
-            include_tests=include_tests,
-            include_generated=include_generated,
-            project_include_prefixes=project_include_prefixes,
-            files=files,
-            verbose=verbose,
-            dry_run=dry_run,
-            prepared=prepared,
-        )
+    # Acquire source exclusion before the first walk. Keep it through both
+    # coherent attempts; each attempt owns fresh staging and graph preparation.
+    with _index_build_lock(index_dir), index_source_guard.index_source_guard(root):
+        for attempt in range(2):
+            with vector_store.PreparedUpdates(index_dir) as prepared:
+                result = _build_index_locked(
+                    root,
+                    full=full,
+                    rechunk=rechunk,
+                    content=content,
+                    index_dir=index_dir,
+                    include_prefixes=include_prefixes,
+                    respect_ignore=respect_ignore,
+                    include_tests=include_tests,
+                    include_generated=include_generated,
+                    project_include_prefixes=project_include_prefixes,
+                    files=files,
+                    verbose=verbose,
+                    dry_run=dry_run,
+                    prepared=prepared,
+                )
+            source_drift = result.pop("_source_drift", False)
+            if not source_drift:
+                return result
+            disposition = "retrying once with fresh preparation" if attempt == 0 else "refused after two attempts"
+            message = f"{result['failure']}; {disposition}; readers: {result['reader_state']}"
+            print(f"build_index: {message}", file=sys.stderr, flush=True)
+            if attempt == 1:
+                result["failure"] = message
+                return result
+
+
+class SourceChanged(RuntimeError):
+    """A prepared source no longer matches; safe to re-prepare, not publish."""
+
+
+def _is_source_drift(exc):
+    graph = sys.modules.get("graph_indexer")
+    graph_error = getattr(graph, "GraphSourceChanged", ())
+    return isinstance(exc, SourceChanged) or bool(graph_error and isinstance(exc, graph_error))
 
 
 def _validate_prepared_removals(
@@ -3897,7 +3922,7 @@ def _validate_prepared_removals(
         removed_by_layer.get("code", set()) & code_paths)
     invalid |= {path for path in removals if _shadowed_by_unreadable(path, unreadable)}
     if invalid:
-        raise RuntimeError("Removal source changed during embedding or became unreadable: "
+        raise SourceChanged("Removal source changed during embedding or became unreadable: "
                            + ", ".join(sorted(invalid)[:5]) + "; retry indexing")
 
 
@@ -5175,32 +5200,36 @@ def _build_index_locked(
         doc_chunks_removed_net = 0
         code_chunks_removed_net = 0
 
-    # --- 1sed6: durable pre-mutation fence ---
-    # Every path past this point mutates canonical/FTS/derived state; the FULL-
-    # durable `building` epoch must exist FIRST so a crash can never leave
-    # partially mutated data behind an apparently valid completed generation.
-    # Readers fail closed (no complete token) until finalization.
+    # The scanner commits its cache on another connection. Run it before the
+    # recovery baseline; it must not race the publication proof's data_version.
+    graph_layer = _graph_layer_for_index_dir(index_dir)
+    _run_secrets = graph_layer == "project" and selected_paths is None
+    _secrets_elapsed: list[float] = []
+    if _run_secrets:
+        _t0 = time.monotonic()
+        _build_secrets_artifacts(
+            root=root, index_dir=index_dir, changed=changed_broad,
+            removed=removed_broad, full=bool(full) and content != "graph", verbose=verbose,
+        )
+        _secrets_elapsed.append(time.monotonic() - _t0)
+
+    # Own one connection from the durable fence through rollback/recovery.
+    # Recovery refuses any intervening external commit or owned commit attempt.
     _iss_epoch = _get_index_state_store()
     if _iss_epoch is None:
         return _build_failed_result(files, "index-state store module unavailable — refusing to mutate without the build epoch")
     try:
-        _build_attempt = _iss_epoch.begin_build_epoch(index_dir, f"{content}{':full' if full else ''}")
-    except index_compatibility.IndexCompatibilityError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - fence failure fails the build
-        return _build_failed_result(files, f"could not open the build epoch: {exc}")
-
-    # Wave 1xny6: ONE connection carries this build from graph preparation to
-    # the publication commit. The graph pass reads its state through it (the
-    # single-binding rule: no second SQLite library on the shared file), and
-    # the same connection runs `BEGIN IMMEDIATE` below, so the prepared graph
-    # rows commit with the semantic rows instead of ahead of them.
-    try:
         store = _iss_epoch.IndexStateStore(index_dir)
+        recovery = _iss_epoch.begin_recoverable_build_epoch(store, f"{content}{':full' if full else ''}")
+        _build_attempt = recovery.attempt_id
     except index_compatibility.IndexCompatibilityError:
         raise
-    except Exception as exc:  # noqa: BLE001 - a store that will not open fails the build
-        return _build_failed_result(files, f"could not open the index store: {exc}")
+    except Exception as exc:
+        if "store" in locals():
+            _close_owned_build_store(store)
+        return _build_failed_result(files, f"could not open the build epoch: {exc}")
+    _commit_attempted = False
+    _rollback_confirmed = True  # no publication transaction has started yet
     try:
         try:
             import numpy as _np
@@ -5219,7 +5248,7 @@ def _build_index_locked(
             # threading the graph build added zero concurrency benefit anyway —
             # it just exposed the hazard. Docs/code embedding and preparation use
             # threads; semantic writes are serialized later in one SQLite transaction.
-            # Secrets scan runs as a threadpool future (project layer only).
+            # Secrets scanning ran before the recoverable fence (project layer only).
             # CORRECTION (wave 1p8gu review MP-4): the secrets scanner DOES use a
             # ProcessPoolExecutor (spawn) internally when the changed-file set is
             # >= 50 files (wave_lint_lib/secrets_validators.check_hardcoded_secrets) —
@@ -5230,14 +5259,10 @@ def _build_index_locked(
             # The scanner may escalate to a complete scan (missing ledger or
             # changed rules), so it cannot respect an explicit selection.
             # Leave its content-addressed cache for the next ordinary walk.
-            _run_secrets = graph_layer == "project" and selected_paths is None
-            pool_workers = (1 if build_docs else 0) + (1 if build_code else 0) + (1 if _run_secrets else 0)
+            pool_workers = (1 if build_docs else 0) + (1 if build_code else 0)
             _docs_elapsed: list[float] = []
             _code_elapsed: list[float] = []
-            _secrets_elapsed: list[float] = []
-            # pool_workers >= 1 whenever _run_secrets is True so ThreadPoolExecutor
-            # is always constructed — nullcontext path only applies to graph-only
-            # framework-layer runs where _run_secrets is False.
+            # Graph-only preparation needs no semantic worker pool.
             if pool_workers > 0:
                 _pool_cm = ThreadPoolExecutor(max_workers=pool_workers, thread_name_prefix="wavefoundry-index")
             else:
@@ -5249,15 +5274,13 @@ def _build_index_locked(
                     layers = ", ".join(filter(None, [
                         "docs" if build_docs else "",
                         "code" if build_code else "",
-                        "secrets" if _run_secrets else "",
                         "graph",
                     ]))
                     print(f"build_index: {layers} running concurrently ({graph_layer} layer)", flush=True)
                 if full:
                     # Wave 1p5ch: the full rebuild streams on the MAIN thread (see
-                    # _run_streaming_full_rebuild below, after the secrets future is submitted) so it
-                    # never materializes the whole chunk list. Nothing is submitted to the pool here;
-                    # the secrets scan still runs concurrently as its own future.
+                    # _run_streaming_full_rebuild below) so it never materializes
+                    # the whole chunk list. No semantic futures are needed here.
                     pass
                 else:
                     # Wave 1rsh9: drift-flagged paths are exempt from the registry
@@ -5302,46 +5325,7 @@ def _build_index_locked(
                             _prepare_incremental_vectors(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
                             _elapsed.append(time.monotonic() - _t0)
                         futures.append(executor.submit(_write_code_incr))
-                # Secrets scan runs as a future (project layer) — concurrent with graph.
-                # Uses ThreadPoolExecutor internally for file-read parallelism so it is
-                # safe to submit from here (no ProcessPoolExecutor spawn inside).
-                if _run_secrets:
-                    # Wave 1x4ol (1x4oj): `full` here means "rebuild the GRAPH from
-                    # scratch"; it says nothing about whether any file's CONTENT
-                    # changed, which is the only thing secret detection depends on.
-                    # Passing it through as a full SCAN bypassed the per-file
-                    # content-hash cache and re-read every tracked file on every
-                    # graph rebuild (198.5 s of a 203 s command on this repository,
-                    # 0 cache-skipped). A graph-only build now takes the scanner's
-                    # incremental path: `changed_broad` still names every file, so
-                    # every file is a candidate, and the cache skips exactly those
-                    # whose content hash AND rules fingerprint match. The scanner's
-                    # own escalations (rules hash, SCANNER_VERSION, missing ledger)
-                    # are untouched and still force a real full scan on their own.
-                    _secrets_full = bool(full) and content != "graph"
-                    def _write_secrets(
-                        _root=root,
-                        _index_dir=index_dir,
-                        _changed=changed_broad,
-                        _removed=removed_broad,
-                        _full=_secrets_full,
-                        _verbose=verbose,
-                        _elapsed=_secrets_elapsed,
-                    ) -> None:
-                        _t0 = time.monotonic()
-                        _build_secrets_artifacts(
-                            root=_root,
-                            index_dir=_index_dir,
-                            changed=_changed,
-                            removed=_removed,
-                            full=_full,
-                            verbose=_verbose,
-                        )
-                        _elapsed.append(time.monotonic() - _t0)
-                    futures.append(executor.submit(_write_secrets))
-                # Wave 1p5ch: the full rebuild streams the docs/code embed+write on the MAIN thread
-                # (bounded buffer; never holds the whole chunk list), concurrently with the in-flight
-                # secrets future. The incremental path used the docs/code futures submitted above.
+                # Full rebuild preparation runs on the main thread.
                 if full:
                     _run_streaming_full_rebuild(
                         db_path=semantic_db_path,
@@ -5363,7 +5347,7 @@ def _build_index_locked(
                     )
                 # Wave 1p2q3 (1p2wd post-ship 1.3.22 / Bug 4 part 2): graph
                 # extraction runs synchronously on the main thread, concurrently
-                # with the in-flight docs/code/secrets futures above. This is the
+                # with the in-flight docs/code futures above. This is the
                 # load-bearing fix for the field-reported hang — see the long comment at the
                 # top of this try-block.
                 _graph_artifacts = _build_graph_artifacts(
@@ -5483,6 +5467,7 @@ def _build_index_locked(
         _reap_deferred_build: dict = {}
         _reap_preserved_build: dict = {}
         _reap_paths_by_table: dict = {}
+        _orphan_plan_build: dict = {}
         if not full:
             reap_result = _reap_stranded_vector_rows(
                 semantic_db_path,
@@ -5527,7 +5512,7 @@ def _build_index_locked(
                 _sidecar_stats = _execute_orphan_store_reconcile(
                     root,
                     index_dir,
-                    _orphan_plan_build,
+                    dict(_orphan_plan_build, file_freshness=set(), secret_scan_cache=set()),
                     files_for_graph=files_for_graph,
                     current_file_meta=current_file_meta,
                     graph_layer=graph_layer,
@@ -5553,6 +5538,7 @@ def _build_index_locked(
         try:
             conn = store._conn
             conn.execute("BEGIN IMMEDIATE")
+            _rollback_confirmed = False
             _held_t0 = time.monotonic()
             try:
                 with index_compatibility.writer_transaction(conn):
@@ -5571,7 +5557,7 @@ def _build_index_locked(
                         for rel in chunks_emitted_by_file:
                             expected = current_file_meta.get(rel,{}).get("hash")
                             if expected and _sha256(root / rel) != expected:
-                                raise RuntimeError(f"Source changed during embedding: {rel}; retry indexing")
+                                raise SourceChanged(f"Source changed during embedding: {rel}; retry indexing")
                         _validate_prepared_removals(
                             root, index_dir, removed_broad,
                             {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]
@@ -5581,6 +5567,11 @@ def _build_index_locked(
                             include_tests=include_tests, include_generated=include_generated)
                     validate_sources()
                     prepared.apply(store)
+                    _sidecar_counts = _iss_epoch.remove_sidecar_paths_locked(
+                        conn, freshness_paths=_orphan_plan_build.get("file_freshness", ()),
+                        secret_scan_paths=_orphan_plan_build.get("secret_scan_cache", ()),
+                    )
+                    orphan_rows_reconciled.update(_sidecar_counts)
                     _state_store.write_build_bookkeeping_locked(conn,new_meta)
                     conn.execute("INSERT INTO meta(key,value) VALUES('targeted_corpus_policy',?) "
                                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (policy_identity,))
@@ -5635,6 +5626,7 @@ def _build_index_locked(
                         _graph_rows_written = _graph_publication.apply(conn)
                         _graph_rows_written["planned_total"] = _graph_publication.row_count()
                     index_compatibility.ensure_runtime_current()
+                _commit_attempted = True
                 conn.execute("COMMIT")
                 # The lock-held segment: BEGIN IMMEDIATE to COMMIT. Reported on
                 # every build so the incremental publication cost is observable in
@@ -5642,15 +5634,41 @@ def _build_index_locked(
                 _publication_held_ms = (time.monotonic() - _held_t0) * 1000.0
             except BaseException:
                 conn.execute("ROLLBACK")
+                _rollback_confirmed = True
                 raise
         except index_compatibility.IndexCompatibilityError:
             raise
         except Exception as exc:
+            if _is_source_drift(exc):
+                raise
             return _build_failed_result(files, f"Atomic semantic publication failed: {exc}")
         # Wave 1xny6 lane L6b: the transitional graph and cluster JSON writers that
         # ran here are retired. The committed rows are the graph's only authority
         # and every reader is on them, so ordinary indexing no longer recreates the
         # retired `.wavefoundry/index/graph/` directory.
+    except Exception as exc:
+        if not _is_source_drift(exc):
+            raise
+        recovery_error = None
+        try:
+            restored = recovery.restore_after_rollback(
+                rollback_confirmed=_rollback_confirmed, commit_attempted=_commit_attempted,
+            )
+        except Exception as repair_exc:
+            restored = False
+            recovery_error = str(repair_exc)
+        # A recovery COMMIT error can be uncertain; inspect actual availability
+        # rather than claiming that an exception necessarily left readers dark.
+        token = _iss_epoch.build_epoch_token(index_dir)
+        reader_state = ("previous completed snapshot (source may be stale)" if restored else
+                        "complete snapshot available; recovery outcome uncertain" if token else "fail-closed")
+        reason = f"Source drift: {exc}"
+        if recovery_error:
+            reason += (f"; refused without retry; recovery error: {recovery_error}; "
+                       f"readers: {reader_state}")
+        result = _build_failed_result(files, reason)
+        result.update(_source_drift=recovery_error is None, reader_state=reader_state)
+        return result
     finally:
         _close_owned_build_store(store)
     _counts = vector_store.layer_counts(index_dir)

@@ -49,6 +49,145 @@ class ReceiptTests(unittest.TestCase):
         with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
             return migration.prepare_upgrade(self.ctx)
 
+    def test_direct_identity_equalities_are_only_reviewed_boundaries(self):
+        # Bounded syntax guard, not arbitrary dataflow proof. Exact normalized
+        # comparisons are excluded: same-run snapshots, content/configuration
+        # hashes, owned path roles, and strict persisted-to-persisted binding.
+        # No whole function is exempt; adding a persisted comparison to a
+        # snapshot owner must still fail this guard.
+        import ast
+        modules = ("sqlite_storage_migration", "setup_readiness", "setup_reconciliation",
+                   "upgrade_extensions", "retrieval_eval")
+        sources = {name: (SCRIPTS / (name + ".py")).read_text() for name in modules}
+        def scan(name, source):
+            found = set()
+            for owner in ast.walk(ast.parse(source)):
+                if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(owner):
+                    if not isinstance(node, ast.Compare) or not any(
+                            isinstance(op, (ast.Eq, ast.NotEq)) for op in node.ops):
+                        continue
+                    expression = ast.unparse(node)
+                    if any(key in expression for key in ("identity", "st_dev", "st_ino")) or any(
+                            isinstance(part, ast.Name) and part.id in {"stored", "live", "retained", "published"}
+                            for part in ast.walk(node)):
+                        found.add((name, owner.name, expression))
+            return found
+        allowed = {('retrieval_eval', '_leftover_temporary_aliases', 'entry.st_dev == published.st_dev'),
+         ('retrieval_eval', '_leftover_temporary_aliases', 'entry.st_ino == published.st_ino'),
+         ('retrieval_eval',
+          '_validate_baseline_compatibility',
+          "baseline.get('evaluator_identity') == report.get('evaluator_identity')"),
+         ('retrieval_eval',
+          'read_baseline_bytes',
+          '(named.st_dev, named.st_ino) == (held.st_dev, held.st_ino)'),
+         ('retrieval_eval', 'run_evaluation', "end_identity['digest'] == production_identity['digest']"),
+         ('setup_readiness', 'assess_setup', 'loaded_identity != identity'),
+         ('setup_readiness', 'assess_setup', "stamp.get('configuration') != _configuration_identity(root)"),
+         ('setup_readiness', 'assess_setup', "stamp.get('environment') != _environment_identity()"),
+         ('setup_readiness', 'assess_setup', "stamp['sources'] != identity['sources']"),
+         ('sqlite_storage_migration',
+          '_candidate_build_scope',
+          "receipt.get('work_identity') != _identity(work)"),
+         ('sqlite_storage_migration', '_database_schema', '_identity(path) != identity'),
+         ('sqlite_storage_migration', '_migrate_schema8', '_identity(source) != source_snapshot'),
+         ('sqlite_storage_migration', '_migrate_schema8', 'live != source'),
+         ('sqlite_storage_migration', '_migrate_schema8', 'live == source'),
+         ('sqlite_storage_migration',
+          '_resume_schema8_cutover',
+          "_file_hash(live) == receipt.get('candidate_sha256')"),
+         ('sqlite_storage_migration', '_resume_schema8_cutover', 'live == source'),
+         ('sqlite_storage_migration',
+          '_validated_rebuild_proof',
+          "version != f'{model}@{precision}@{indexer._identity_fingerprint_for_class(precision)}'"),
+         ('sqlite_storage_migration',
+          'is_unpublished_candidate',
+          '_identity(_safe_sqlite(candidate)) != candidate_id'),
+         ('sqlite_storage_migration', 'is_unpublished_candidate', '_identity(staging) != staging_id'),
+         ('sqlite_storage_migration', 'is_unpublished_candidate', '_identity(work) != work_id'),
+         ('sqlite_storage_migration',
+          'is_unpublished_candidate',
+          "receipt.get('work_identity') != work_id"),
+         ('sqlite_storage_migration',
+          'migrate_legacy',
+          "_file_hash(live) == receipt.get('candidate_sha256')"),
+         ('sqlite_storage_migration', 'migrate_legacy', 'live == source_path'),
+         ('sqlite_storage_migration',
+          'read_restart_action',
+          "action.get('root_identity') != receipt['root_identity']")}
+        observed = set().union(*(scan(name, source) for name, source in sources.items()))
+        self.assertEqual(observed, allowed)
+        mutations = (
+            ("sqlite_storage_migration", "if source_identity is None or not source.exists() or not storage_identity.compare_identity(source_identity, _identity(source))[\"matches\"]:",
+             "if source_identity is None or not source.exists() or source_identity != _identity(source):"),
+            ("setup_readiness", "matches(receipt.get('root_identity'), 'receipt')", "receipt.get('root_identity') == identity"),
+            ("retrieval_eval", 'comparison["matches"]', 'stored == live'),
+        )
+        for name, old, replacement in mutations:
+            with self.subTest(module=name):
+                self.assertIn(old, sources[name])
+                mutant = sources[name].replace(old, replacement, 1)
+                self.assertTrue(scan(name, mutant) - allowed, "direct identity regression was not detected")
+
+    def test_device_drift_preserves_pending_records_and_later_refusals(self):
+        with patch.dict(os.environ, {migration.INVOCATION_ENV: "drift-nonce"}):
+            receipt = self.prepare()
+        files = [self.index / migration.RECEIPT,
+                 self.root / ".wavefoundry/upgrade-in-progress.json"]
+        original = {path: path.read_bytes() for path in files}
+        identity = migration._identity
+        def drift(path):
+            value = identity(path)
+            return {**value, "device": value["device"] + 1}
+        with patch.object(migration, "_identity", side_effect=drift):
+            self.assertEqual(migration.read_receipt(self.index), receipt)
+            report = migration.detect(self.index)
+            self.assertEqual(report["receipt"], receipt)
+            self.assertEqual(report["identity_comparison"],
+                             {"matches": True, "basis": "path+inode", "device_drift": True})
+            self.assertIsNotNone(migration.read_restart_action(self.root, 3, "drift-nonce"))
+            # A valid drifted root cannot relax a later continuation binding.
+            self.assertIsNone(migration.read_restart_action(self.root, 3, "wrong-nonce"))
+        self.assertEqual({path: path.read_bytes() for path in files}, original)
+        receipt["kind"] = "unsupported-kind"
+        files[0].write_text(json.dumps(receipt))
+        before = files[0].read_bytes()
+        with patch.object(migration, "_identity", side_effect=drift):
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_kind_unsupported"):
+                migration.read_receipt(self.index)
+        self.assertEqual(files[0].read_bytes(), before)
+
+    def test_persisted_identity_refusal_preserves_receipt_and_artifacts(self):
+        receipt = self.prepare()
+        path = self.index / migration.RECEIPT
+        identity = migration._identity
+        def replaced(target):
+            value = identity(target)
+            return {**value, "inode": value["inode"] + 1}
+        original = path.read_bytes()
+        with patch.object(migration, "_identity", side_effect=replaced):
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_identity_mismatch"):
+                migration.read_receipt(self.index)
+        self.assertEqual(path.read_bytes(), original)
+        def changed_artifact(target):
+            value = identity(target)
+            return {**value, "inode": value["inode"] + 1} if Path(target).name == "docs.lance" else value
+        with patch.object(migration, "_identity", side_effect=changed_artifact):
+            recovered = migration.read_receipt(self.index)
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_source_identity_changed"):
+                migration._assert_sources(self.index, recovered)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual((self.index / "docs.lance/data").read_bytes(), b"retained legacy source")
+        for malformed in (None, {}, {"device": 1, "inode": "0"},
+                          {"device": 1, "inode": False}, {"device": 1, "inode": -1}):
+            with self.subTest(identity=malformed):
+                receipt["root_identity"] = malformed
+                path.write_text(json.dumps(receipt)); before = path.read_bytes()
+                with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_identity_mismatch"):
+                    migration.read_receipt(self.index)
+                self.assertEqual(path.read_bytes(), before)
+
     def test_rebuild_selection_requires_original_target_and_archive(self):
         original = self.prepare()
         self.ctx.rebuild_storage = True
@@ -2059,6 +2198,27 @@ class SchemaEightKindTests(unittest.TestCase):
         self._verify_in_child()
         self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
         self.assertTrue(self.current.is_file())
+
+    def test_device_drift_before_cutover_preserves_authorized_rename(self):
+        self._seed("7")
+        with patch.object(migration.os, "replace", side_effect=self._interrupt_cutover_only()):
+            with self.assertRaises(KeyboardInterrupt):
+                self._run()
+        receipt = migration.read_receipt(self.index)
+        identity = migration._identity
+        def drift(path):
+            value = identity(path)
+            return {**value, "device": value["device"] + 1}
+        with patch.object(migration, "_identity", side_effect=drift):
+            resumed = migration.migrate_legacy(self.root)
+            self.assertEqual(resumed["state"], "published")
+            self.assertEqual(migration._file_hash(self.current), receipt["candidate_sha256"])
+            self.assertEqual(resumed["root_identity"], receipt["root_identity"])
+            self.assertEqual(resumed["published_sqlite_identity"], receipt["published_sqlite_identity"])
+            state = migration.detect(self.index)
+            self.assertEqual(state["authority_role"], "current")
+            self.assertIsNone(state["authority_diagnostic"])
+            self.assertIsNone(state["spurious_legacy"])
 
     def test_interruption_before_replace_publishes_the_recorded_candidate(self):
         self._check_interruption_before_replace(self.legacy)

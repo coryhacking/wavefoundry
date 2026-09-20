@@ -2081,30 +2081,35 @@ def remove_sidecar_paths(
     indexer (no store-side deletion entry point exists outside an epoch).
     Returns per-table deleted-row counts.
     """
-    fresh_list = [str(p) for p in freshness_paths]
-    secret_list = [str(p) for p in secret_scan_paths]
-    deleted = {"file_freshness": 0, "file_commits": 0, "secret_scan_cache": 0}
-    if not fresh_list and not secret_list:
-        return deleted
+    freshness_paths = list(freshness_paths)
+    secret_scan_paths = list(secret_scan_paths)
+    if not freshness_paths and not secret_scan_paths:
+        return {"file_freshness": 0, "file_commits": 0, "secret_scan_cache": 0}
     store = IndexStateStore(index_dir)
     try:
         store.ensure_current()
-        conn = store._conn
-        with index_compatibility.writer_transaction(conn):
-            for table, path_list in (
-                ("file_freshness", fresh_list),
-                ("file_commits", fresh_list),
-                ("secret_scan_cache", secret_list),
-            ):
-                for idx in range(0, len(path_list), 500):
-                    batch = path_list[idx:idx + 500]
-                    marks = ", ".join("?" for _ in batch)
-                    cur = conn.execute(
-                        f"DELETE FROM {table} WHERE path IN ({marks})", batch
-                    )
-                    deleted[table] += max(conn.changes(), 0)
+        with index_compatibility.writer_transaction(store._conn):
+            return remove_sidecar_paths_locked(store._conn,
+                freshness_paths=freshness_paths, secret_scan_paths=secret_scan_paths)
     finally:
         store.close()
+
+
+def remove_sidecar_paths_locked(conn, *, freshness_paths=(), secret_scan_paths=()) -> dict[str, int]:
+    """Retire sidecars inside the caller's publication transaction."""
+    if conn.get_autocommit():
+        raise RuntimeError("Sidecar removal requires a writer transaction")
+    index_compatibility.check_connection(conn)
+    fresh_list = [str(p) for p in freshness_paths]
+    secret_list = [str(p) for p in secret_scan_paths]
+    deleted = {"file_freshness": 0, "file_commits": 0, "secret_scan_cache": 0}
+    for table, paths in (("file_freshness", fresh_list), ("file_commits", fresh_list),
+                         ("secret_scan_cache", secret_list)):
+        for offset in range(0, len(paths), 500):
+            batch = paths[offset:offset + 500]
+            marks = ", ".join("?" for _ in batch)
+            conn.execute(f"DELETE FROM {table} WHERE path IN ({marks})", batch)
+            deleted[table] += max(conn.changes(), 0)
     return deleted
 
 
@@ -3134,17 +3139,7 @@ def _upgrade_publisher_granted(checkpoint: object) -> bool:
     )
 
 
-def begin_build_epoch(index_dir: Path, scope: str) -> str:
-    """Durably mark the store `building` BEFORE the first index mutation (1sed6).
-
-    Returns the attempt id the caller must present to finalize. NOT
-    fail-soft: a failure here must fail the build visibly (raising is the
-    contract — the caller may not mutate index data without the fence).
-    Committed with FULL-synchronous durability so a power failure cannot
-    lose the fence. Ensures the store exists/current first (creation or a
-    version-gated reset both land `uninitialized`, which this immediately
-    transitions).
-    """
+def _authorize_build_epoch(index_dir: Path) -> None:
     import publication_control
 
     root = index_dir.parent.parent
@@ -3165,6 +3160,131 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
         and not granted_upgrade_child
     ):
         raise RuntimeError(reason)
+
+
+class BuildEpochRecovery:
+    """Connection-bound proof for a caught, rolled-back publication refusal.
+
+    Not a crash journal. An observed own commit attempt, an external commit,
+    or a lost epoch prevents restoration even if the caller claims rollback.
+    """
+
+    def __init__(self, conn, attempt_id: str, previous, data_version: int) -> None:
+        self._conn = conn
+        self.attempt_id = attempt_id
+        self._previous = previous
+        self._data_version = data_version
+        self._commit_observed = False
+        self._finished = False
+        self._hook_id = object()
+        conn.set_commit_hook(self._observe_commit, id=self._hook_id)
+
+    def _observe_commit(self) -> bool:
+        self._commit_observed = True
+        return False  # Observation must never veto normal publication.
+
+    def restore_after_rollback(self, *, rollback_confirmed: bool,
+                               commit_attempted: bool) -> bool:
+        conn = self._conn
+        if (self._finished or not rollback_confirmed or commit_attempted
+                or self._commit_observed or self._previous is None
+                or not conn.get_autocommit()):
+            return False
+        prior = self._previous
+        old_sync = conn.execute("PRAGMA synchronous").fetchone()[0]
+        conn.execute("PRAGMA synchronous=FULL")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                index_compatibility.check_connection(conn)
+                current = conn.execute(
+                    "SELECT attempt_id,status,generation FROM build_state WHERE id=1"
+                ).fetchone()
+                version = conn.execute("PRAGMA data_version").fetchone()[0]
+                if (self._commit_observed or version != self._data_version
+                        or current != (self.attempt_id, "building", prior[3])):
+                    conn.execute("ROLLBACK")
+                    return False
+                import uuid
+                restored_attempt = uuid.uuid4().hex
+                conn.execute(
+                    "UPDATE build_state SET attempt_id=?,scope=?,status='complete',"
+                    "generation=?,started_at=?,completed_at=? WHERE id=1 "
+                    "AND attempt_id=? AND status='building' AND generation=?",
+                    (restored_attempt, prior[1], prior[3], prior[4], prior[5],
+                     self.attempt_id, prior[3]),
+                )
+                if conn.changes() != 1:
+                    conn.execute("ROLLBACK")
+                    return False
+                # Rebind only a valid cache belonging to the retained snapshot;
+                # never recalculate or bless unrelated cached statistics.
+                cached = _decode_lexical_statistics(
+                    IndexStateStore._get_meta(conn, META_LEXICAL_STATISTICS))
+                if cached is not None and (cached["attempt_id"], cached["generation"]) == (prior[0], prior[3]):
+                    cached["attempt_id"] = restored_attempt
+                    conn.execute("UPDATE meta SET value=? WHERE key=?",
+                                 (json.dumps(cached), META_LEXICAL_STATISTICS))
+                self._finished = True
+                conn.set_commit_hook(None, id=self._hook_id)
+                conn.execute("COMMIT")
+                return True
+            except BaseException:
+                self._finished = True
+                if not conn.get_autocommit():
+                    conn.execute("ROLLBACK")
+                raise
+        finally:
+            conn.execute(f"PRAGMA synchronous={int(old_sync)}")
+
+
+def begin_recoverable_build_epoch(store: IndexStateStore, scope: str) -> BuildEpochRecovery:
+    """Fence on the owned connection, capturing eligibility before any mutation.
+
+    Keep this store open through publication and recovery. Recovered attempts
+    may be fenced again for a bounded retry; their retained generation remains
+    the original content generation. Other callers keep begin_build_epoch.
+    """
+    _authorize_build_epoch(store.index_dir)
+    store.ensure_current()
+    conn = store._conn
+    if not conn.get_autocommit():
+        raise RuntimeError("Recoverable build requires an idle owned connection")
+    if not callable(getattr(conn, "set_commit_hook", None)):
+        raise RuntimeError("Recoverable build requires native commit observation")
+    import uuid
+    attempt = uuid.uuid4().hex
+    old_sync = conn.execute("PRAGMA synchronous").fetchone()[0]
+    conn.execute("PRAGMA synchronous=FULL")
+    try:
+        with index_compatibility.writer_transaction(conn):
+            prior = conn.execute(
+                "SELECT attempt_id,scope,status,generation,started_at,completed_at "
+                "FROM build_state WHERE id=1").fetchone()
+            version = conn.execute("PRAGMA data_version").fetchone()[0]
+            eligible = prior if prior and prior[2] == "complete" and prior[3] > 0 else None
+            conn.execute(
+                "UPDATE build_state SET attempt_id=?,scope=?,status='building',"
+                "started_at=?,completed_at=NULL WHERE id=1",
+                (attempt, str(scope or ""), time.time()),
+            )
+        return BuildEpochRecovery(conn, attempt, eligible, version)
+    finally:
+        conn.execute(f"PRAGMA synchronous={int(old_sync)}")
+
+
+def begin_build_epoch(index_dir: Path, scope: str) -> str:
+    """Durably mark the store `building` BEFORE the first index mutation (1sed6).
+
+    Returns the attempt id the caller must present to finalize. NOT
+    fail-soft: a failure here must fail the build visibly (raising is the
+    contract — the caller may not mutate index data without the fence).
+    Committed with FULL-synchronous durability so a power failure cannot
+    lose the fence. Ensures the store exists/current first (creation or a
+    version-gated reset both land `uninitialized`, which this immediately
+    transitions).
+    """
+    _authorize_build_epoch(index_dir)
 
     store = IndexStateStore(index_dir)
     try:

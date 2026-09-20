@@ -1900,6 +1900,34 @@ class IndexIdentityBindingTests(unittest.TestCase):
         baseline["run_id"] = subject._compute_run_id(baseline)
         return baseline, builder._report(current_generation, 100.0, 1000)
 
+    def test_device_drift_and_unavailable_inode_keep_historical_identity(self):
+        import copy
+        for generation in (8, 9):
+            for missing_inode in (None, "repository_inode", "state_store_inode"):
+                baseline, current = self._reports(8, generation)
+                current["index_identity"]["repository_device"] = 17
+                current["index_identity"]["state_store_device"] = 17
+                if missing_inode:
+                    current["index_identity"][missing_inode] = 0
+                before_baseline = copy.deepcopy(baseline)
+                before_identity = copy.deepcopy(current["index_identity"])
+                subject.apply_baseline_comparison(current, baseline)
+                diagnostics = current["comparison"]["identity_comparison"]
+                self.assertTrue(diagnostics["repository"]["device_drift"])
+                self.assertEqual("path" if missing_inode == "repository_inode" else "path+inode",
+                                 diagnostics["repository"]["basis"])
+                self.assertEqual(generation == 8, "state_store" in diagnostics)
+                self.assertEqual(before_baseline, baseline)
+                self.assertEqual(before_identity, current["index_identity"])
+
+    def test_malformed_repository_identity_is_refused(self):
+        for key in ("repository_device", "repository_inode"):
+            for value in (None, True, -1, "0"):
+                baseline, current = self._reports(8, 9)
+                current["index_identity"][key] = value
+                with self.assertRaises(subject.EvaluationInvalid):
+                    subject.apply_baseline_comparison(current, baseline)
+
     def test_cross_generation_pair_differing_only_in_store_inode_is_not_refused(self):
         # AC-1.  The identity shape is the one wave 1wpif recorded: the state
         # store file was recreated by a controlled rebuild (inode 634552732 ->
@@ -1915,7 +1943,7 @@ class IndexIdentityBindingTests(unittest.TestCase):
 
     def test_cross_generation_still_refuses_a_different_repository_or_index(self):
         for key, value in (("repository_root", "/other"), ("repository_inode", 999),
-                           ("repository_device", 999), ("index_directory", "/other/index"),
+                           ("index_directory", "/other/index"),
                            ("state_store", "/other/index/" + index_paths.RUNTIME_DATABASE_FILENAME)):
             with self.subTest(key=key):
                 baseline, current = self._reports(8, 9)
@@ -1928,7 +1956,7 @@ class IndexIdentityBindingTests(unittest.TestCase):
     def test_same_generation_pair_still_requires_one_physical_store(self):
         # AC-2, the built-in known-bad: the loosening must not reach the kind
         # where "one frozen physical store" is what makes jitter meaningful.
-        for key in ("state_store_inode", "state_store_device"):
+        for key in ("state_store_inode",):
             with self.subTest(key=key):
                 baseline, current = self._reports(8, 8)
                 current["index_identity"][key] = 99

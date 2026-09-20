@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import ExitStack
 import dataclasses
 import importlib
 import io
@@ -181,16 +182,44 @@ def _context_errors(source, fields):
     return errors
 
 
-def _purge_run(source):
+def _purge_entries(source):
     candidates = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Set)
                   and any(isinstance(e, ast.Constant) and e.value == "record_paths" for e in n.elts)]
     if len(candidates) != 1:
         raise AssertionError("Expected exactly one purge literal containing record_paths")
-    entries = [e.value for e in candidates[0].elts if isinstance(e, ast.Constant)]
+    return [e.value for e in candidates[0].elts if isinstance(e, ast.Constant)]
+
+
+def _purge_run(source):
+    entries = _purge_entries(source)
     run = entries[entries.index("record_paths") + 1:]
     if not set(MODULES).issubset(run):
         raise AssertionError("Purge additions must include both lifecycle modules")
     return run
+
+
+def _direct_local_imports(source):
+    """Independent census of module-body sibling imports, not the purge list.
+
+    Deliberately bounded to direct .py siblings; lazy and transitive imports
+    have different loading paths and are not covered by this census.
+    """
+    names = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split('.')[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module.split('.')[0])
+    return {name for name in names if (SCRIPTS / (name + '.py')).is_file()}
+
+
+# Retain the existing process-bootstrap boundary, independently of the purge
+# list. server.py is not reloaded: it retains repo_root and setup_readiness,
+# activates venv_bootstrap at launch, and setup_readiness retains subprocess_util.
+# Changing these dependencies still requires a process restart.
+_RELOAD_BOOTSTRAP_EXCLUSIONS = {
+    "repo_root", "setup_readiness", "venv_bootstrap", "subprocess_util",
+}
 
 
 def _patch_census(source, moved):
@@ -359,6 +388,49 @@ class LifecycleGateStructureTests(unittest.TestCase):
                 runner._get_handler().close()
         with self.assertRaises(AssertionError):
             _purge_run("purge = {'record_paths'}")
+
+    def test_reload_purge_covers_direct_sibling_imports(self):
+        source = _source("server_impl")
+        imports = _direct_local_imports(source)
+        self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS.issubset(imports))
+        reloadable = imports - _RELOAD_BOOTSTRAP_EXCLUSIONS
+        self.assertIn("index_source_guard", reloadable)
+        self.assertEqual(reloadable - set(_purge_entries(source)), set())
+        # The old purge-derived test silently lost coverage when an entry was
+        # omitted. Derive expected modules from imports even for this mutant.
+        omitted = source.replace('            "index_source_guard",\n', '')
+        self.assertNotEqual(omitted, source)
+        self.assertEqual(
+            (_direct_local_imports(omitted) - _RELOAD_BOOTSTRAP_EXCLUSIONS)
+            - set(_purge_entries(omitted)), {"index_source_guard"})
+
+    def test_reload_refreshes_imported_siblings_and_source_guard_callable(self):
+        from server_tools_support import _make_repo, load_server, load_thin_runner
+        names = _direct_local_imports(_source("server_impl")) - _RELOAD_BOOTSTRAP_EXCLUSIONS
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as patches:
+            root = _make_repo(Path(tmp))
+            impl = load_server()
+            runner = load_thin_runner()
+            try:
+                runner.build_server(root)
+                old_modules = {name: sys.modules[name] for name in names}
+                for module in old_modules.values():
+                    patches.enter_context(patch.object(module, "stale_reload_marker", True, create=True))
+                stale_guard = lambda *args, **kwargs: "stale-source-guard"
+                patches.enter_context(patch.object(impl.index_source_guard, "index_source_guard", stale_guard))
+                response = runner.perform_mcp_reload()
+                self.assertEqual(response["status"], "ok", response)
+                for name, old_module in old_modules.items():
+                    fresh = sys.modules[name]
+                    self.assertIsNot(fresh, old_module, name)
+                    self.assertFalse(hasattr(fresh, "stale_reload_marker"), name)
+                    self.assertEqual(Path(fresh.__file__).resolve(), (SCRIPTS / (name + ".py")).resolve())
+                guard = runner.server_impl.index_source_guard.index_source_guard
+                self.assertIsNot(guard, stale_guard)
+                with guard(root, wait=False):
+                    self.assertTrue((root / ".wavefoundry/locks/index-source-mutation.lock").is_file())
+            finally:
+                runner._get_handler().close()
 
     def test_sensor_gate_is_last_in_the_close_hard_gates(self):
         """1yd98 AC-5: the intra-tuple position the precondition depends on.

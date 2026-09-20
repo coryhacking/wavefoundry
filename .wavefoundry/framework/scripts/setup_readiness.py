@@ -26,6 +26,7 @@ import tomllib
 import subprocess_util
 import venv_bootstrap
 import runtime_advisory
+import storage_identity
 from provider_policy import REQUESTED_PROVIDER_ENV, SETUP_SELECTED_ENV
 
 from setup_requirements import REQUIRED_IMPORTS, CUDA_DEPENDENCY_IMPORTS, GPU_ACCEL_IMPORTS, parse_args as parse_setup_args
@@ -38,7 +39,7 @@ MAX_METADATA_BYTES = 256 * 1024
 MAX_ENV_ENTRIES = 4096
 SOURCE_FILES = (
     'setup_readiness.py', 'runtime_advisory.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
-    'setup_reconciliation.py', 'venv_bootstrap.py', 'subprocess_util.py', 'repo_root.py', 'wf_cli.py',
+    'setup_reconciliation.py', 'storage_identity.py', 'venv_bootstrap.py', 'subprocess_util.py', 'repo_root.py', 'wf_cli.py',
     'server.py', 'server_impl.py', 'index_compatibility.py', 'index_paths.py',
     'index_state_store.py', 'sqlite_vector_store.py', 'sqlite_runtime.py', 'chunker.py',
     'indexer.py', 'graph_indexer.py', 'graph_store.py', 'model_bundle.py',
@@ -325,16 +326,21 @@ def _storage_probe(path: Path, timeout_seconds: float) -> dict:
     return observation
 
 
-def _owner(root: Path) -> tuple[bool, list[str] | None]:
+def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str] | None]:
     checkpoint_path, receipt_path = (_safe(root, name) for name in OWNERSHIP_FILES)
     checkpoint = _json(checkpoint_path) if checkpoint_path.exists() else None
     receipt = _json(receipt_path) if receipt_path.exists() else None
     st = root.stat(); identity = {'device': st.st_dev, 'inode': st.st_ino}
+    def matches(stored, role):
+        comparison = storage_identity.compare_identity(stored, identity)
+        if diagnostics is not None:
+            diagnostics[role] = comparison
+        return comparison['matches']
     if receipt is not None:
         if (receipt.get('receipt_version') not in (1, 2)
                 or receipt.get('state') not in {'restart_required', 'quiesced', 'staged', 'validated', 'cutover_pending', 'published', 'verified', 'cleanup_pending', 'complete'}
-                or receipt.get('root_identity') != identity
-                or receipt.get('index_dir') != str(root / '.wavefoundry/index')
+                or not matches(receipt.get('root_identity'), 'receipt')
+                or not storage_identity.same_path(receipt.get('index_dir'), root / '.wavefoundry/index')
                 or not re.fullmatch('[0-9a-f]{32}', str(receipt.get('migration_id', '')))
                 or (receipt.get('receipt_version') == 2 and receipt.get('kind') != 'index_sqlite_schema8')):
             raise ObservationError('storage receipt identity/schema is unproven; preserve recovery records')
@@ -344,13 +350,13 @@ def _owner(root: Path) -> tuple[bool, list[str] | None]:
     action = (checkpoint or {}).get('action_required') or (pending or {}).get('restart_action')
     if not isinstance(action, dict):
         raise ObservationError('pending recovery has no validated continuation; inspect its owning checkpoint')
-    if (action.get('root') != str(root) or action.get('root_identity') != identity
+    if (not storage_identity.same_path(action.get('root'), root) or not matches(action.get('root_identity'), 'action')
             or (pending and action.get('migration_id') != pending.get('migration_id'))
             or (checkpoint and action.get('checkpoint_started_at') != checkpoint.get('started_at'))
             or (pending and checkpoint and checkpoint.get('storage_migration_id') != pending.get('migration_id'))):
         raise ObservationError('pending continuation binding mismatch; preserve recovery records')
     entry = (pending or checkpoint or {}).get('entry_path', 'upgrade')
-    if checkpoint is not None and (entry == 'setup' or 'root_identity' in checkpoint) and checkpoint.get('root_identity') != identity:
+    if checkpoint is not None and (entry == 'setup' or 'root_identity' in checkpoint) and not matches(checkpoint.get('root_identity'), 'checkpoint'):
         raise ObservationError('checkpoint repository identity mismatch')
     if entry not in {'setup', 'upgrade'} or action.get('entry_path', 'upgrade') != entry:
         raise ObservationError('pending continuation owner mismatch')
@@ -450,7 +456,8 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
             result['actions'].append({'kind': 'restart', 'argv': []})
             unknown = True
         try:
-            pending, continuation = _owner(root)
+            result['storage_identity'] = {}
+            pending, continuation = _owner(root, result['storage_identity'])
             if pending:
                 reason('recovery_pending', 'Resume the recorded owning continuation after stopping the required hosts; its guards revalidate source/archive bytes.')
                 result['actions'].append({'kind': 'resume', 'argv': continuation})

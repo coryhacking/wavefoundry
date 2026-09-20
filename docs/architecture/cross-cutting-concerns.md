@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-09-20
 
 ## Configuration
 
@@ -143,3 +143,22 @@ reports the budget and, only at the cap, same-file `fragile_file` consolidation
 candidates. It is a review signal, not an eviction mechanism: supersession and
 archival stay explicit, retention-checked operations.
 MCP server and dashboard server may both want richer stderr request logging later; current behavior stays intentionally minimal.
+
+## Persisted storage continuity
+
+Cross-run storage consumers use the standard-library-only `storage_identity`
+comparison. They bind resolved locators with platform `normcase`, retain owned
+artifact roles and staging boundaries, and compare inode only when both values
+are nonzero. Device is historical diagnostic evidence. Missing or malformed
+identity fields refuse; they never select the zero-inode fallback. Storage
+detection, setup assessment and retrieval comparison report the comparison
+basis separately from recovery records.
+
+This fixes the observed macOS reboot device renumbering without restamping
+receipts, actions or checkpoints. Returned recovered mappings also remain
+unchanged. A different volume at the same path may reuse an inode, and path-only
+comparison cannot distinguish replacement there. This operator-accepted
+limitation is a continuity heuristic, not globally unique identity. Exact
+persisted continuation bindings, parent hashes and within-process race snapshots
+remain strict. Authorized staging-to-live rename retains its existing role
+binding. See [the decision](decisions/1yja8-adr%20persisted-storage-continuity.md).

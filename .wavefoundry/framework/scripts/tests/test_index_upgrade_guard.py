@@ -95,6 +95,79 @@ class IndexUpgradeGuardTests(unittest.TestCase):
     def confirm(self):
         os.environ[migration.CONFIRM_ENV] = '1'
 
+    def test_incoming_identity_helper_before_extraction_preserves_drifted_handoff(self):
+        import zipfile
+        source = Path(hooks.__file__).parent
+        with zipfile.ZipFile(self.package, 'w') as archive:
+            for name in ('upgrade_extensions.py', 'storage_identity.py'):
+                archive.write(source / name, '.wavefoundry/framework/scripts/' + name)
+        self.capture()
+        record = self.record()
+        record['root_identity']['device'] += 17
+        upgrade_lib.update_upgrade_lock(self.root, index_guard_handoff=record)
+        before = upgrade_lib.upgrade_lock_path(self.root).read_bytes()
+        incoming = runner._load_extension_module(self.package)
+        self.assertIsNotNone(incoming)
+        self.assertFalse((self.scripts / 'storage_identity.py').exists())
+        def dispatch():
+            with contextlib.ExitStack() as stack:
+                for name in ('_protect_existing_root_bootstrap', '_preserve_original_manifest',
+                             '_snapshot_graph_builder_doc_claim', '_cut_over_runtime_locks'):
+                    stack.enter_context(patch.object(incoming, name))
+                runner._run_hook('pre_extract', self.ctx, incoming)
+        # An unavailable installed helper must not disable the incoming hook.
+        with patch.dict(sys.modules, {'storage_identity': None}):
+            dispatch()
+        self.assertEqual(upgrade_lib.upgrade_lock_path(self.root).read_bytes(), before)
+        bad = copy.deepcopy(record)
+        bad['root_identity']['inode'] += 1
+        upgrade_lib.update_upgrade_lock(self.root, index_guard_handoff=bad)
+        rejected = upgrade_lib.upgrade_lock_path(self.root).read_bytes()
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as refused:
+            dispatch()
+        self.assertEqual(refused.exception.code, 3)
+        self.assertEqual(upgrade_lib.upgrade_lock_path(self.root).read_bytes(), rejected)
+
+    def test_changed_archive_never_executes_incoming_identity_helper(self):
+        import zipfile
+        source = Path(hooks.__file__).parent
+        marker = self.root / 'unvalidated-helper-executed'
+        def package(changed=False):
+            with zipfile.ZipFile(self.package, 'w') as archive:
+                archive.write(source / 'upgrade_extensions.py', '.wavefoundry/framework/scripts/upgrade_extensions.py')
+                helper = (source / 'storage_identity.py').read_text()
+                if changed:
+                    helper += f'\nPath({str(marker)!r}).write_text("executed")\n'
+                archive.writestr('.wavefoundry/framework/scripts/storage_identity.py', helper)
+        for after_outer_hash in (False, True):
+            with self.subTest(after_outer_hash=after_outer_hash):
+                package()
+                upgrade_lib.upgrade_lock_path(self.root).unlink(missing_ok=True)
+                upgrade_lib.write_upgrade_lock(self.root, self.ctx.from_version, self.ctx.to_version, self.package)
+                self.capture()
+                before = upgrade_lib.upgrade_lock_path(self.root).read_bytes()
+                incoming = runner._load_extension_module(self.package)
+                self.assertIsNotNone(incoming)
+                digest = incoming._pack_sha256
+                def hash_then_replace(path):
+                    result = digest(path)
+                    package(changed=True)
+                    return result
+                if not after_outer_hash:
+                    package(changed=True)
+                with contextlib.ExitStack() as stack:
+                    for name in ('_protect_existing_root_bootstrap', '_preserve_original_manifest',
+                                 '_snapshot_graph_builder_doc_claim', '_cut_over_runtime_locks'):
+                        stack.enter_context(patch.object(incoming, name))
+                    if after_outer_hash:
+                        stack.enter_context(patch.object(incoming, '_pack_sha256', side_effect=hash_then_replace))
+                    with contextlib.redirect_stderr(io.StringIO()) as output, self.assertRaises(SystemExit) as refused:
+                        runner._run_hook('pre_extract', self.ctx, incoming)
+                self.assertEqual(refused.exception.code, 3)
+                self.assertIn('index_guard_package_changed', output.getvalue())
+                self.assertFalse(marker.exists(), 'unvalidated helper executed before refusal')
+                self.assertEqual(before, upgrade_lib.upgrade_lock_path(self.root).read_bytes())
+
     def test_same_schema_old_host_requires_new_coordinator_and_confirmation(self):
         old = SimpleNamespace(root=self.root, from_version=self.ctx.from_version, to_version=self.ctx.to_version, zip_path=self.package)
         self.capture(old)

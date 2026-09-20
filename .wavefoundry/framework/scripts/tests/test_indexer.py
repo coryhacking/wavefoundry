@@ -1227,6 +1227,31 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertTrue(has_index)
         self.assertFalse(result["up_to_date"])
 
+    def test_build_accepts_device_drift_without_restamping_receipt(self):
+        import sqlite_storage_migration as migration
+        _make_repo(self.root, {"docs/guide.md": "## Before\n\nOriginal text.\n"})
+        self._run_build(full=True)
+        index_dir = self.root / ".wavefoundry" / "index"
+        # Production producer supplies the old-format identity shape. The
+        # completed status models a standing receipt, not an active migration.
+        receipt = migration._new_receipt(None, self.root, index_dir, migration.detect(index_dir))
+        receipt["state"] = "complete"
+        migration._write(index_dir, receipt)
+        receipt_path = index_dir / migration.RECEIPT
+        before = receipt_path.read_bytes()
+        identity = migration._identity
+        def drift(path):
+            value = identity(path)
+            return {**value, "device": value["device"] + 1}
+        (self.root / "docs/guide.md").write_text("## After\n\nChanged text.\n")
+        with patch.object(migration, "_identity", side_effect=drift):
+            result = self._run_build()
+            self.assertFalse(result.get("failed"), result.get("failure"))
+            self.assertEqual(receipt, migration.read_receipt(index_dir))
+        self.assertFalse(result["up_to_date"])
+        self.assertTrue(_read_meta_store(index_dir).get("file_meta"))
+        self.assertEqual(before, receipt_path.read_bytes())
+
     def test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name(self):
         """The caller-supplied files= seam cannot bypass the canonical-ledger boundary."""
         canonical = "docs/waves/1slep external-ledger/events.jsonl"
@@ -5778,7 +5803,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
     def test_fence_failure_is_a_structured_build_failure(self):
         _make_repo(self.root, {"src/foo.py": "def f(): pass\n"})
         store = self.bi._get_index_state_store()
-        with patch.object(store, "begin_build_epoch", side_effect=RuntimeError("fence write failed")):
+        with patch.object(store, "begin_recoverable_build_epoch", side_effect=RuntimeError("fence write failed")):
             result = self._run_build(full=True)
         self.assertTrue(result.get("failed"))
         self.assertIn("could not open the build epoch", result["failure"])
@@ -5805,18 +5830,21 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         source = self.root / "src/foo.py"
         source.write_text("def f(): return 2\n")
         original_apply = vectors.PreparedUpdates.apply
+        mutations = []
         def change_during_publication(prepared, store, **kwargs):
             original_apply(prepared, store, **kwargs)
-            source.write_text("def f(): return 3\n")
+            mutations.append(len(mutations) + 3)
+            source.write_text(f"def f(): return {mutations[-1]}\n")
         with patch.object(vectors.PreparedUpdates, "apply", change_during_publication):
             result = self._run_build(full=False)
         self.assertTrue(result.get("failed"))
         self.assertIn("Source changed during embedding", result["failure"])
         self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
         self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
-        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertEqual(mutations, [3, 4])
         self.assertFalse(self._run_build(full=False).get("failed"))
-        self.assertTrue(any("return 3" in row["text"] for row in vectors.payload_rows(
+        self.assertTrue(any("return 4" in row["text"] for row in vectors.payload_rows(
             self.index_dir, "code", predicate="path = 'src/foo.py'")))
 
     def test_prepared_model_change_refuses_publication(self):
@@ -5840,32 +5868,34 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
 
-    def test_removed_source_reappearing_before_publication_refuses_apply(self):
+    def test_removed_source_reappearing_before_publication_reprepares_before_apply(self):
         import sqlite_vector_store as vectors
         _make_repo(self.root, {"src/victim.py": "def victim(): return 1\n",
                                "src/other.py": "def other(): return 1\n"})
         self._run_build(full=True)
-        before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
-        old_meta = self.iss.export_meta_snapshot(self.index_dir)
         victim = self.root / "src/victim.py"
         victim.unlink()
         (self.root / "src/other.py").write_text("def other(): return 2\n")
         original_reap = self.bi._reap_stranded_vector_rows
+        original_apply = vectors.PreparedUpdates.apply
+        calls = []
         def reappear_after_planning(*args, **kwargs):
             result = original_reap(*args, **kwargs)
-            victim.write_text("def victim(): return 3\n")
+            if not victim.exists():
+                victim.write_text("def victim(): return 3\n")
             return result
+        def apply(prepared, store, **kwargs):
+            calls.append(1)
+            return original_apply(prepared, store, **kwargs)
         with patch.object(self.bi, "_reap_stranded_vector_rows", reappear_after_planning), \
-                patch.object(vectors.PreparedUpdates, "apply", side_effect=AssertionError("must not apply")) as apply:
+                patch.object(vectors.PreparedUpdates, "apply", apply):
             result = self._run_build(full=False)
-        self.assertTrue(result.get("failed"))
-        self.assertIn("Removal source changed", result["failure"])
-        apply.assert_not_called()
-        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
-        self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
-        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertFalse(result.get("failed"))
+        self.assertEqual(len(calls), 1, "refused first attempt must never apply")
+        self.assertTrue(any("return 3" in row["text"] for row in vectors.payload_rows(
+            self.index_dir, "code", predicate="path = 'src/victim.py'")))
 
-    def test_removed_source_reappearing_after_apply_rolls_back_incremental_and_full(self):
+    def test_removed_source_reappearing_after_apply_rolls_back_then_retries(self):
         import sqlite_vector_store as vectors
         for full in (False, True):
             with self.subTest(full=full):
@@ -5873,22 +5903,24 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
                                        "src/other.py": "def other(): return 1\n"})
                 self._run_build(full=True)
                 before = vectors.payload_rows(self.index_dir, "code", include_vector=True)
-                old_meta = self.iss.export_meta_snapshot(self.index_dir)
                 victim = self.root / "src/victim.py"
                 victim.unlink()
                 (self.root / "src/other.py").write_text("def other(): return 2\n")
                 original_apply = vectors.PreparedUpdates.apply
+                calls = []
                 def reappear_after_apply(prepared, store, **kwargs):
+                    if calls:
+                        self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before,
+                                         "the first attempt must roll back before retry")
+                    calls.append(1)
                     original_apply(prepared, store, **kwargs)
-                    victim.write_text("def victim(): return 3\n")
+                    if len(calls) == 1:
+                        victim.write_text("def victim(): return 3\n")
                 with patch.object(vectors.PreparedUpdates, "apply", reappear_after_apply):
                     result = self._run_build(full=full)
-                self.assertTrue(result.get("failed"))
-                self.assertIn("Removal source changed", result["failure"])
-                self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
-                self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
-                self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
-                self.assertFalse(self._run_build(full=False).get("failed"))
+                self.assertFalse(result.get("failed"))
+                self.assertEqual(len(calls), 2)
+                self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
                 self.assertTrue(any("return 3" in row["text"] for row in vectors.payload_rows(
                     self.index_dir, "code", predicate="path = 'src/victim.py'")))
 
@@ -7851,7 +7883,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
     def test_full_rebuild_during_outage_refuses_destructive_publication(self):
         # Unified publication refuses implicit full-rebuild removals whose
         # source is unreadable. Graph preparation may already have run, but
-        # the global epoch must stay unavailable until a coherent retry.
+        # verified rollback may restore the intact historical snapshot.
         self._seed()
         self.assertTrue(set(self._VAULT) <= self._sqlite_paths(self._graph_db(), "graph_file_state"))
         chunks_before = set(self._rows("code")) | set(self._rows("docs"))
@@ -7859,7 +7891,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
             result = self._run_build(full=True)
         self.assertTrue(result.get("failed"), result)
         self.assertIn("unreadable", result["failure"])
-        self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
+        self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))
         self.assertEqual(set(self._rows("code")) | set(self._rows("docs")), chunks_before)
         recovery = self._run_build(full=True)
         self.assertFalse(recovery.get("failed"), recovery)

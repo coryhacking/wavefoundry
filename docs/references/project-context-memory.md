@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-20
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -74,3 +74,10 @@ Measure acquired writer time after `BEGIN IMMEDIATE` returns through `COMMIT` re
 ## Setup readiness producer contracts
 
 Test setup readiness using actual MCP renderer output and actual setup continuation arguments, not only handcrafted observer fixtures. Share the bootstrap-safe setup CLI grammar with the producer. Validate host-specific path bases and cwd, then repeat assessment after stamping to prove convergence. Wave `1y3og`; validated memory `1y5tz-mem validate-setup-readiness-against-canonical-producers`.
+
+
+## Index failure and reload regression contracts (wave 1yj14)
+
+When changing optimize result handling, exercise the real `indexer.optimize_index_tables` producer with final epoch CAS returning false through close, MCP and setup consumers. Assert failure diagnostics together with `building` state and an absent reader token, plus a successful-finalization control. Consumer fixtures containing hand-written `error` values missed a producer that emitted `failure`. Install in-memory producer mutations after fixture setup because setup reloads the indexer. Durable coverage: `test_index_optimize_contract.py`.
+
+Reload coverage expectations must come from an independent source: module-body direct sibling imports with explicit bootstrap exclusions, not the purge list being tested. Exercise actual `perform_mcp_reload` with stale module/callable sentinels, require replacement and a working new callable, and delete a purge member as a negative control. This census is bounded to direct imports; it does not prove lazy/transitive reload coverage. Durable coverage: `test_lifecycle_gates_structure.py`. Both lessons follow independently killed defects in wave `1yj14`.

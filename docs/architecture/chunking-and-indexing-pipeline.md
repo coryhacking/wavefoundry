@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-20
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -819,6 +819,31 @@ It checks vector integrity and validates source identity again before committing
 rolls the WHOLE delta back — semantic and graph alike, since wave `1xny6` folded graph
 publication into this same transaction. There are no separate graph files left to be
 non-atomic.
+
+Wave `1yj14` serializes the builder's source-read lifetime with automatic CE
+projection and missing-map resource generation using a persistent flock-backed
+`index-source-mutation.lock`. The builder takes its build lock first, then source
+exclusion; automatic writers try source exclusion without waiting. CE contention
+preserves pending generations for the next monitor poll. Operator-triggered edits
+remain outside this guard.
+
+A caught source-drift refusal gets one complete re-preparation (two attempts
+maximum), including fresh semantic staging, extraction, graph and communities.
+Source checks remain in force and no partial path publication is allowed. The
+secret scan runs before the recoverable fence; orphan sidecar deletions now join
+the unified transaction. This may reduce scan/embedding overlap; two attempts bound
+work count, not wall-clock duration.
+
+A verified precommit rollback can restore an intact completed snapshot. The owned
+connection captures its prior epoch and SQLite `data_version` before its durable
+building fence. Recovery requires confirmed rollback, no publication COMMIT attempt,
+no observed own commit, unchanged external data version and exact attempt ownership
+inside a new writer transaction. A distinct attempt token prevents ABA while keeping
+the old content generation and timestamps; valid lexical-statistics provenance is
+rebound in that transaction. Missing prior snapshots, external commits, crashes,
+uncertain commits and postcommit failures remain ineligible. A failed build may
+therefore leave a historical snapshot queryable, but never certifies source freshness.
+See [the decision record](decisions/1yj14-adr%20index-build-source-races.md).
 
 Vector queries use exact FP32 cosine scans with metadata filters applied before top-K.
 There is no ANN creation threshold or secondary vector-index maintenance. Ordinary metadata

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import record_paths  # record roots (wave 1y0gz)
+import storage_identity
 
 
 REPORT_SCHEMA = "wavefoundry.retrieval-eval/v1"
@@ -107,10 +108,11 @@ PAIR_JITTER_THRESHOLD = 0.05
 MIN_WARM_SAMPLES = 3 * MEASURED_REPETITIONS
 # Wave 1wur7 (1wtpl): index identity is compared per comparison kind.  The
 # repository, index directory, and store path bind every comparison; the state
-# store's own device/inode binds only a same-generation pair, where "one frozen
+# store's available inode binds only a same-generation pair, where "one frozen
 # physical store" is what makes the jitter measurement mean anything.  A
 # controlled rebuild recreates that file, and refusing a cross-generation
-# comparison for it refuses the exact case the kind exists to cover.
+# comparison for it refuses the exact case the kind exists to cover. Device
+# fields remain recorded diagnostic evidence but do not gate either kind.
 CROSS_GENERATION_INDEX_IDENTITY_KEYS = (
     "repository_root", "repository_device", "repository_inode",
     "index_directory", "state_store",
@@ -1961,29 +1963,38 @@ def _validated_epoch(report: Mapping[str, Any], label: str) -> tuple[int, str]:
 
 
 def _compare_index_identity(report: Mapping[str, Any], baseline: Mapping[str, Any],
-                            *, same_generation: bool) -> None:
+                            *, same_generation: bool) -> dict[str, Any]:
     """Compare index identity against the bindings the comparison kind supports.
 
     Wave 1wur7 (1wtpl): the repository, index directory, and store path bind
     every kind, so two unrelated indexes still cannot be compared.  The state
-    store file's own device/inode binds only a same-generation pair, because a
+    store file's available inode binds only a same-generation pair, because a
     controlled rebuild legitimately recreates that file and a cross-generation
-    comparison is exactly the kind that covers a controlled rebuild.
+    comparison is exactly the kind that covers a controlled rebuild. Device
+    drift is diagnostic only; zero inode uses the weaker path basis.
     """
     current_identity = report.get("index_identity")
     baseline_identity = baseline.get("index_identity")
     _require(isinstance(current_identity, Mapping) and isinstance(baseline_identity, Mapping),
              "invalid_baseline", "baseline repository/index store identity differs")
-    keys = SAME_GENERATION_INDEX_IDENTITY_KEYS if same_generation else CROSS_GENERATION_INDEX_IDENTITY_KEYS
-    for key in keys:
-        _require(key in current_identity and key in baseline_identity and
-                 current_identity[key] == baseline_identity[key],
+    for key in ("repository_root", "index_directory", "state_store"):
+        _require(storage_identity.same_path(baseline_identity.get(key), current_identity.get(key)),
                  "invalid_baseline",
                  f"baseline repository/index store identity differs for {key}")
+    diagnostics = {}
+    for prefix in (("repository", "state_store") if same_generation else ("repository",)):
+        stored = {key: baseline_identity.get(f"{prefix}_{key}") for key in ("device", "inode")}
+        live = {key: current_identity.get(f"{prefix}_{key}") for key in ("device", "inode")}
+        comparison = storage_identity.compare_identity(stored, live)
+        _require(comparison["matches"], "invalid_baseline",
+                 f"baseline repository/index store identity differs for {prefix}_inode or {prefix}_device (invalid identity)")
+        diagnostics[prefix] = comparison
+    return diagnostics
 
 
 def _validate_baseline_compatibility(report: Mapping[str, Any],
-                                     baseline: Mapping[str, Any]) -> tuple[bool, bool]:
+                                     baseline: Mapping[str, Any],
+                                     identity_diagnostics: dict | None = None) -> tuple[bool, bool]:
     _require(baseline.get("schema") == REPORT_SCHEMA, "invalid_baseline",
              "baseline report schema mismatch")
     _require(baseline.get("fixture_schema") == report.get("fixture_schema") == FIXTURE_SCHEMA,
@@ -2003,7 +2014,9 @@ def _validate_baseline_compatibility(report: Mapping[str, Any],
         _require(current_epoch[1] == baseline_epoch[1], "invalid_baseline",
                  "same generation has a different build attempt identity")
     same_generation = current_epoch == baseline_epoch
-    _compare_index_identity(report, baseline, same_generation=same_generation)
+    comparison = _compare_index_identity(report, baseline, same_generation=same_generation)
+    if identity_diagnostics is not None:
+        identity_diagnostics.update(comparison)
     _require(baseline.get("evaluator_identity") == report.get("evaluator_identity") and
              isinstance(report.get("evaluator_identity"), Mapping),
              "invalid_baseline", "baseline evaluator identity differs")
@@ -2036,7 +2049,8 @@ def _validate_baseline_compatibility(report: Mapping[str, Any],
 
 
 def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    same_generation, same_production = _validate_baseline_compatibility(report, baseline)
+    identity_diagnostics: dict[str, Any] = {}
+    same_generation, same_production = _validate_baseline_compatibility(report, baseline, identity_diagnostics)
     # Only an identical production implementation on the same frozen generation
     # measures run-to-run jitter; a same-generation production change is a
     # before/after receipt and inherits the baseline pair's recorded jitter.
@@ -2205,6 +2219,7 @@ def apply_baseline_comparison(report: dict[str, Any], baseline: Mapping[str, Any
                                "baseline_bytes": base_bytes, "current_bytes": cur_bytes,
                                "threshold_bytes": math.floor(byte_threshold)})
     report["comparison"] = {
+        "identity_comparison": identity_diagnostics,
         "baseline_generation": baseline.get("generation"),
         "baseline_run_id": baseline.get("run_id"),
         "baseline_content_sha256": hashlib.sha256(_stable_json_bytes(baseline)).hexdigest(),

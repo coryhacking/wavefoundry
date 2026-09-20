@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-20
 
 ## Runtime advisory boundary
 
@@ -162,6 +162,13 @@ failure; keeping an exception traceback alive cannot retain the writer handle.
     never added to the Context Efficiency total.
 
 **State read:** current request/response, current/captured file-size and same-version metadata, bounded source prefixes for eligibility, six project-local lifecycle prompts, strict marker-owned checkpoint, and the SQLite authority when present; health is `absent | healthy | accounting_gap | failed`
+Automatic CE projection also acquires the shared index source-mutation guard
+nonblocking before the nonblocking project publication lock. The builder holds that
+guard across source reads and at most one coherent retry. A pending generation is
+not marked projected on contention. The missing-codebase-map resource takes the same
+guard around generation, while explicit lifecycle and map mutations retain their
+operator-driven behavior. Persistent lock-file presence alone never blocks work.
+
 **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
 

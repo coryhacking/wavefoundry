@@ -34,6 +34,16 @@ except ImportError:  # pragma: no cover - exercised by the explicit-path load te
     index_paths = _util.module_from_spec(_spec)
     _spec.loader.exec_module(index_paths)
 
+try:
+    import storage_identity
+except ImportError:  # incoming upgrade hook can load this file before extraction
+    import importlib.util as _identity_util
+    _identity_spec = _identity_util.spec_from_file_location(
+        "storage_identity", Path(__file__).resolve().parent / "storage_identity.py")
+    storage_identity = _identity_util.module_from_spec(_identity_spec)
+    _identity_spec.loader.exec_module(storage_identity)
+
+
 RECEIPT = "sqlite-migration.json"
 LEGACY_NAMES = ("docs.lance", "code.lance", "__manifest")
 STATES = {"restart_required", "quiesced", "staged", "validated", "cutover_pending",
@@ -348,8 +358,8 @@ def read_receipt(index_dir: Path) -> dict | None:
     if (not isinstance(value, dict) or value.get("receipt_version") not in SUPPORTED_RECEIPT_VERSIONS
             or value.get("state") not in STATES
             or not re.fullmatch(r"[0-9a-f]{32}", str(value.get("migration_id", "")))
-            or value.get("index_dir") != str(Path(index_dir).resolve())
-            or value.get("root_identity") != _identity(Path(index_dir).parent.parent)):
+            or not storage_identity.same_path(value.get("index_dir"), Path(index_dir).resolve())
+            or not storage_identity.compare_identity(value.get("root_identity"), _identity(Path(index_dir).parent.parent))["matches"]):
         raise MigrationRequired("storage_receipt_identity_mismatch")
     if value["receipt_version"] == RECEIPT_VERSION_CURRENT:
         if value.get("kind") not in KINDS:
@@ -424,7 +434,7 @@ def _resolve_authority(resolution: dict, receipt: dict | None) -> tuple:
         return SOURCE_ROLE_LEGACY, None, None
     if (receipt and receipt["state"] in READABLE_STATES | {"cutover_pending"}
             and receipt.get("published_sqlite_identity")
-            and _identity_if_present(resolution["current_path"]) == receipt["published_sqlite_identity"]):
+            and storage_identity.compare_identity(receipt["published_sqlite_identity"], _identity_if_present(resolution["current_path"]))["matches"]):
         # The recorded cutover identity landed on the current name: that file is
         # authority. `cutover_pending` counts because the intent was recorded
         # durably BEFORE the replace, so an interruption on either side of it is
@@ -432,7 +442,7 @@ def _resolve_authority(resolution: dict, receipt: dict | None) -> tuple:
         # anything else under the retired name is spurious.
         retained = receipt.get("source_sqlite_identity")
         reappeared = (receipt["state"] == "complete" or retained is None
-                      or _identity_if_present(resolution["legacy_path"]) != retained)
+                      or not storage_identity.compare_identity(retained, _identity_if_present(resolution["legacy_path"]))["matches"])
         return SOURCE_ROLE_CURRENT, None, (SPURIOUS_LEGACY_GUIDANCE if reappeared else None)
     return None, AUTHORITY_AMBIGUOUS, None
 
@@ -485,6 +495,8 @@ def detect(index_dir: Path) -> dict:
     # once-marker: a published version-1 conversion still owes the rename.
     kind_can_start = kind_required and (receipt is None or receipt["state"] in READABLE_STATES)
     return {"legacy": legacy, "receipt": receipt,
+            "identity_comparison": storage_identity.compare_identity(
+                receipt.get("root_identity"), _identity(index_dir.parent.parent)) if receipt else None,
             "sqlite_schema": "ambiguous" if diagnostic else authority_schema,
             "resolution": resolution["state"], "schemas": schemas,
             "authority_role": authority_role,
@@ -774,7 +786,7 @@ def read_restart_action(root: Path, exit_code: int, invocation_token: str) -> di
                     or lock.get("installed_framework_sha256") != receipt.get("installed_framework_sha256")):
                 return None
         if (action.get("kind") != "storage_migration" or action.get("state") != "restart_required"
-                or action.get("invocation_token") != invocation_token or action.get("root") != str(root)
+                or action.get("invocation_token") != invocation_token or not storage_identity.same_path(action.get("root"), root)
                 or action.get("migration_id") != receipt["migration_id"]
                 or action.get("root_identity") != receipt["root_identity"]
                 or action.get("target_version") != receipt.get("target_version")
@@ -1019,7 +1031,7 @@ def prepare_upgrade(ctx) -> dict | None:
 
 def _assert_sources(index_dir: Path, receipt: dict) -> None:
     for name, identity in receipt["artifacts"].items():
-        if name not in LEGACY_NAMES or _identity(index_dir / name) != identity:
+        if name not in LEGACY_NAMES or not storage_identity.compare_identity(identity, _identity(index_dir / name))["matches"]:
             raise MigrationRequired(f"storage_source_identity_changed: {name}")
 
 
@@ -1274,7 +1286,7 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
         source_path = source_database_path(index_dir, receipt)
         if receipt["state"] != "cutover_pending":
             source_identity = receipt.get("source_sqlite_identity")
-            if source_identity is not None and _identity(source_path) != source_identity:
+            if source_identity is not None and not storage_identity.compare_identity(source_identity, _identity(source_path))["matches"]:
                 raise MigrationRequired(f"storage_source_identity_changed: {source_path.name}")
             if ("source_sqlite_identity" in receipt and source_identity is None
                     and source_path.exists()):
@@ -1320,7 +1332,7 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
         if shutil.disk_usage(index_dir).free < source_size * 2 + live_size * 2 + 64 * 1024 * 1024:
             raise MigrationRequired("storage_disk_space_insufficient: retain original stores and free staging space")
         work = _safe(index_dir / (LEGACY_WORK_PREFIX + receipt["migration_id"]))
-        if work.exists() and receipt.get("work_identity") != _identity(work):
+        if work.exists() and not storage_identity.compare_identity(receipt.get("work_identity"), _identity(work))["matches"]:
             raise MigrationRequired("storage_staging_identity_changed")
         work.mkdir(exist_ok=True)
         live = _safe_sqlite(published_database_path(index_dir, receipt))
@@ -1575,7 +1587,7 @@ def _resume_schema8_cutover(root: Path, index_dir: Path, receipt: dict,
     if (staged.exists() and _file_hash(staged) == receipt.get("candidate_sha256")
             and (not live.exists() or live == source)
             and source.exists()
-            and _identity(source) == receipt.get("source_sqlite_identity")
+            and storage_identity.compare_identity(receipt.get("source_sqlite_identity"), _identity(source))["matches"]
             and _file_hash(source) == receipt.get("original_sha256")):
         return _publish_candidate(root, receipt, staged, live)
     raise MigrationRequired("storage_cutover_recovery_required: retained candidate and source "
@@ -1636,7 +1648,7 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
     source = _safe_sqlite(source_database_path(index_dir, receipt))
     live = _safe_sqlite(published_database_path(index_dir, receipt))
     work = _safe(index_dir / (KIND_WORK_PREFIX + receipt["migration_id"]))
-    if work.exists() and receipt.get("work_identity") != _identity(work):
+    if work.exists() and not storage_identity.compare_identity(receipt.get("work_identity"), _identity(work))["matches"]:
         raise MigrationRequired("storage_staging_identity_changed")
     work.mkdir(exist_ok=True)
     staging_index = _safe(_staging_index_dir(work))
@@ -1651,9 +1663,11 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
         return _resume_schema8_cutover(root, index_dir, receipt, staged, live, source)
 
     source_identity = receipt.get("source_sqlite_identity")
-    if source_identity is None or not source.exists() or _identity(source) != source_identity:
+    if source_identity is None or not source.exists() or not storage_identity.compare_identity(source_identity, _identity(source))["matches"]:
         raise MigrationRequired(f"storage_source_identity_changed: {source.name}. "
                                 + _forward_recovery(source))
+    # Retain a strict same-run race check after accepting persisted continuity.
+    source_snapshot = _identity(source)
     if live.exists() and live != source:
         raise MigrationRequired(
             AUTHORITY_AMBIGUOUS + f": {live.name} already exists before this record's cutover; "
@@ -1721,7 +1735,7 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
     with staged.open("rb") as handle:
         os.fsync(handle.fileno())
     _quiesce_source(runtime, source)
-    if _identity(source) != source_identity:
+    if _identity(source) != source_snapshot:
         raise MigrationRequired(f"storage_source_identity_changed: {source.name}. "
                                 + _forward_recovery(source))
     # Cutover intent recorded durably BEFORE the atomic publish, so an
@@ -1743,14 +1757,14 @@ def _published_identity(index_dir: Path, receipt: dict) -> Path:
         raise MigrationRequired(
             "storage_publication_identity_missing: retained receipt cannot prove the cutover file; "
             "preserve original stores and staging/rollback files for recovery before resuming the recorded owning continuation")
-    if not live.exists() or _identity(live) != expected:
+    if not live.exists() or not storage_identity.compare_identity(expected, _identity(live))["matches"]:
         raise MigrationRequired("storage_publication_identity_changed: preserve original stores and recover the receipt-owned cutover file")
     return live
 
 
 def _publish_candidate(root: Path, receipt: dict, staged: Path, live: Path) -> dict:
     _hosts_gone(receipt)
-    if not receipt.get("published_sqlite_identity") or _identity(staged) != receipt["published_sqlite_identity"]:
+    if not receipt.get("published_sqlite_identity") or not storage_identity.compare_identity(receipt["published_sqlite_identity"], _identity(staged))["matches"]:
         raise MigrationRequired("storage_cutover_candidate_identity_changed")
     _safe_sqlite(live)
     try:
@@ -1907,7 +1921,7 @@ def _install_kind_fence(root: Path, index_dir: Path, superseded: dict) -> dict:
     """
     live = _safe_sqlite(index_paths.index_database_path(index_dir))
     published = _identity_if_present(live)
-    if published is None or published != superseded.get("published_sqlite_identity"):
+    if published is None or not storage_identity.compare_identity(superseded.get("published_sqlite_identity"), published)["matches"]:
         raise MigrationRequired(
             "storage_publication_identity_changed: the completed conversion's published database "
             "is not the current index database; preserve both files and resume the recorded owning setup or upgrade continuation")
@@ -1957,7 +1971,7 @@ def _plan_retire_source_database(index_dir: Path, receipt: dict) -> dict:
         # is retired by the staging inventory, never by deleting the live file.
         _published_identity(index_dir, receipt)
         return {"paths": [], "bytes": 0}
-    if identity is None or _identity(source) != identity:
+    if identity is None or not storage_identity.compare_identity(identity, _identity(source))["matches"]:
         raise MigrationRequired(f"storage_cleanup_identity_changed: {source}. "
                                 + SPURIOUS_LEGACY_GUIDANCE)
     reclaimed = source.stat().st_size
@@ -2172,7 +2186,7 @@ def _plan_legacy_artifacts(index_dir: Path, receipt: dict, removed: set) -> list
         if name in removed or not path.exists():
             plan.append({"name": name, "kind": "absent", "path": str(path), "bytes": 0})
             continue
-        if _identity(path) != identity:
+        if not storage_identity.compare_identity(identity, _identity(path))["matches"]:
             raise MigrationRequired(f"storage_cleanup_identity_changed: {path}")
         size = 0
         for base, dirs, files in os.walk(path, followlinks=False):
@@ -2201,7 +2215,7 @@ def _plan_staging(index_dir: Path, receipt: dict):
     work = _safe(index_dir / work_name)
     if not work.exists():
         return None
-    if receipt.get("work_identity") != _identity(work):
+    if not storage_identity.compare_identity(receipt.get("work_identity"), _identity(work))["matches"]:
         raise MigrationRequired(f"storage_cleanup_work_identity_changed: {work}")
     if is_kind_receipt(receipt):
         return _inventory_kind_staging(work)
