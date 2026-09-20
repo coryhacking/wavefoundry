@@ -42,6 +42,7 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1xny4-adr](1xny4-adr%20sqlite-graph-evaluation.md) | Separate graph storage consolidation from query-cache replacement | accepted |
 | [1yb8v-adr](1yb8v-adr%20record-layout-config-over-resolver-protocol.md) | Record roots are fork-editable constants in `record_paths.py`, neither runtime configuration nor a discovered resolver | accepted |
 | [1yb53-adr](1yb53-adr%20config-declared-phase-gates.md) | Typed configuration for required prepare/close sensors | accepted |
+| [1ye5y-adr](1ye5y-adr%20flat-sibling-tool-registry.md) | The MCP tool registry and wrapper-chain applier live in a flat, stateless sibling module | accepted |
 | [1yja8-adr](1yja8-adr%20persisted-storage-continuity.md) | Persisted path and available-inode continuity, with pure recovery reads | accepted |
 
 - [Index Build Source Races](1yj14-adr%20index-build-source-races.md) — automatic-writer exclusion, bounded coherent retry and verified precommit recovery.

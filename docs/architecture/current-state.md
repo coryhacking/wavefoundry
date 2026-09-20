@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-09-20
 
 ## Runtime Topology
 
@@ -77,6 +77,8 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 ```
 
 **Lifecycle gate modules:** `server_impl.py` retains prepare/review/close orchestration, writes and early returns. `lifecycle_gates.py` owns named checks in static phase tuples and a six-field data-only `GateContext`; `lifecycle_gate_support.py` owns their shared helpers and config readers. Close keeps shared and hard checks in separate stages, and prepare keeps four stages around its existing writes. Both modules, plus `sensor_runner.py` for bounded sensor subprocess execution, are purged and freshly imported with the implementation on MCP reload. Review evidence is consumed through the existing facade; the extraction preserves the default checks; optional typed `phase_gates` add required sensors without changing tool parameter schemas.
+
+**Tool registry and wrapper chain (wave 1y0h1):** `register_mcp_surface` still registers every tool with FastMCP decorators. It then applies `MIDDLEWARE`, the ordered registration-time wrapper chain declared beside the three wrappers (cost innermost, lifecycle lock, upgrade-publication guard outermost), through `mcp_tool_registry.apply_middleware`, which records on each wrapped callable's `__wf_middleware__` the wrappers that applied. Last, `mcp_tool_registry.build_registry` builds the runtime registry from FastMCP's tool table and `mcp_tool_roster`, one `ToolSpec` per implementation-owned tool, and roster drift is reported from it as a warning only. `mcp_tool_registry.py` is stateless, never imports `server_impl`, and is purged and freshly imported on MCP reload (`1ye5y-adr`).
 
 **Index build flow:**
 

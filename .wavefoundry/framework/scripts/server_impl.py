@@ -46,6 +46,7 @@ for _wll_key in list(sys.modules):
             "lifecycle_gates",
             "sensor_runner",
             "index_source_guard",
+            "mcp_tool_registry",
         }
     ):
         del sys.modules[_wll_key]
@@ -69,6 +70,7 @@ import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 import lifecycle_gate_support
 import sensor_runner
 import lifecycle_gates
+import mcp_tool_registry  # tool registry and wrapper chain; stateless (wave 1y0h1)
 from lifecycle_gate_support import (
     SUBPROCESS_OPS_TIMEOUT_DEFAULT,
     subprocess_ops_timeout_seconds,
@@ -23739,6 +23741,8 @@ _GRAPH_RESOURCE_URIS = (
 # circular imports. None when register_mcp_surface has not run (e.g., test
 # harness importing server_impl directly).
 _MCP_INSTANCE: Any = None
+# Wave 1y0h1: the registry built at the end of the last register_mcp_surface call.
+_TOOL_REGISTRY: Any = None
 
 
 def _dispatch_graph_resources_updated(*, root: Path | None = None, layer: str | None = None) -> None:
@@ -29870,6 +29874,18 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
         pass
 
 
+# Registration-time call wrappers, applied innermost first: cost, then the
+# lifecycle lock, then the upgrade-publication guard (wave 1y0h1). Each entry
+# spells out its wrapper call so a module-level rebinding of the wrapper name
+# takes effect when the chain runs; the wrappers themselves stay the only
+# place a tool's callable is rebound.
+MIDDLEWARE: tuple[tuple[str, Any], ...] = (
+    ("cost", lambda mcp, get_handler: _wrap_first_party_tool_costs(mcp, get_handler)),
+    ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler)),
+    ("guard", lambda mcp, get_handler: _wrap_upgrade_publication_guard(mcp, get_handler)),
+)
+
+
 def render_graph_communities_markdown(payload, index, gq) -> str:
     """Markdown catalog of graph communities, Evidence/Data marked and last.
 
@@ -29966,7 +29982,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     # Wave 1p2q3 (131hh): stash the FastMCP instance and register the post-rebuild
     # notification callback against graph_query so auto-rebuilds dispatch
     # `notifications/resources/updated` for the wavefoundry://graph/* URIs.
-    global _MCP_INSTANCE
+    global _MCP_INSTANCE, _TOOL_REGISTRY
     _MCP_INSTANCE = mcp
     try:
         _load_graph_query().set_post_rebuild_callback(_dispatch_graph_resources_updated)
@@ -34217,27 +34233,41 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         raise RuntimeError(
             "MCP tool name prefix contract violated for: " + ", ".join(violations)
         )
-    # Wave 1u2b0 (1u2az): roster parity check. mcp_tool_roster.py (the stdlib-only
-    # source the permission-allowlist renderer consumes) must track this
-    # registration surface exactly. Runner-registered reload survivors
-    # (RUNNER_TOOLS, e.g. wf_reload_mcp) are roster members registered later by
-    # server.py, so they are excluded from this implementation-side comparison.
+    # Inner-to-outer order matters: ordinary successful calls are costed under
+    # their lifecycle lock, while the upgrade checkpoint guard is outermost so
+    # it can fail fast without either waiting on Upgrade's lifecycle lock or
+    # writing CE telemetry into the protected transaction. MIDDLEWARE declares
+    # that order.
+    mcp_tool_registry.apply_middleware(mcp, get_handler, MIDDLEWARE)
+    # Wave 1y0h1: the registry is built after the chain, so each spec holds the
+    # callable FastMCP serves. Runner-registered reload survivors (RUNNER_TOOLS,
+    # e.g. wf_reload_mcp) are excluded on both sides, and a stub or partial
+    # harness `mcp` with no tool table records no drift. The registry is
+    # observational: a failure to build it leaves an empty registry behind.
+    _roster = None
+    try:
+        _roster = _load_script("mcp_tool_roster")
+    except Exception:
+        _roster = None
+    try:
+        _TOOL_REGISTRY = mcp_tool_registry.build_registry(mcp, _roster)
+    except Exception:
+        _TOOL_REGISTRY = mcp_tool_registry.ToolRegistry()
+    # Wave 1u2b0 (1u2az): roster parity check, now read from the registry.
+    # mcp_tool_roster.py (the stdlib-only source the permission-allowlist
+    # renderer consumes) must track this registration surface exactly.
     # WARNING-ONLY on stderr: a drift must never deny the whole MCP server;
     # the hard gate is the AST parity test in tests/test_render_platform_surfaces.py.
     try:
-        _roster = _load_script("mcp_tool_roster")
-        _runner = set(_roster.RUNNER_TOOLS)
-        # Runner survivors are excluded from BOTH sides: they are registered by
-        # server.py (absent on first registration, already present when a hot
-        # reload re-registers onto the live FastMCP instance), so their
-        # presence or absence here is not drift.
-        _expected = set(_roster.TOOL_TIERS) - _runner
-        _registered = set(tool_names) - _runner
-        # An empty registered set means a stub/partial harness `mcp` that does
-        # not track tool names; that is not roster drift either.
-        if _registered and _registered != _expected:
-            _missing = sorted(_registered - _expected)
-            _extra = sorted(_expected - _registered)
+        if _roster is not None and _TOOL_REGISTRY.parity_defects:
+            _missing = sorted(
+                d.name for d in _TOOL_REGISTRY.parity_defects
+                if d.kind == mcp_tool_registry.DEFECT_UNROSTERED_TOOL
+            )
+            _extra = sorted(
+                d.name for d in _TOOL_REGISTRY.parity_defects
+                if d.kind == mcp_tool_registry.DEFECT_UNREGISTERED_ROSTER_TOOL
+            )
             print(
                 "wavefoundry: WARNING, mcp_tool_roster drift vs registered surface. "
                 f"registered-not-in-roster={_missing} roster-not-registered={_extra}. "
@@ -34247,13 +34277,6 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
     except Exception:
         pass
-    # Inner-to-outer order matters: ordinary successful calls are costed under
-    # their lifecycle lock, while the upgrade checkpoint guard is outermost so
-    # it can fail fast without either waiting on Upgrade's lifecycle lock or
-    # writing CE telemetry into the protected transaction.
-    _wrap_first_party_tool_costs(mcp, get_handler)
-    _wrap_lifecycle_mutation_lock(mcp, get_handler)
-    _wrap_upgrade_publication_guard(mcp, get_handler)
 
 
 
