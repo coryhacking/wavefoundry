@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-21
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -345,7 +345,7 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); update `docs/prompts/index.md` **Guru** row
 3. **Re-run renderer** after tier-1 backfill if those sections were just added
 4. **Tier 2–3 — generated files** (do not hand-edit `wave:auto-guru` marker regions):
-   - `.cursor/rules/auto-guru.mdc`, `.claude/agents/guru.md`, `.codex/skills/wf-guru/SKILL.md`
+   - `.cursor/rules/auto-guru.mdc`, `.codex/skills/wf-guru/SKILL.md`; `.claude/agents/guru.md` has a generated body with existing operator frontmatter preserved
    - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
 5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing, and, when a skill host root exists (`.claude/`, `.codex/`, `.agents/`), that `platform-mapping.md` § Skills lists the rendered skill set as found on disk (host skill directories, rendered skills, gating rules; seed-050 specifies the section, seed-100 points `docs/prompts/index.md` at it)
 6. **Operator follow-up** — Codex: MCP reloads from committed `.codex/config.toml` automatically; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
@@ -561,8 +561,13 @@ When seeds 050, 100 or 180 or their lifecycle templates change, reconcile the ho
 | Missing-only lifecycle templates | Corresponding prepare-wave, implement-wave, review-wave and close-wave prompts; compare changed authored clauses even when the destination already exists. |
 | Seed 050 entry/coordinator clauses | AGENTS.md and docs/agents/wave-coordinator.md; replace presumed child MCP inheritance with actual receiving-worker capability and the seed 180 fallback. |
 | Seed 100 operating guidance | docs/contributing/agent-team-workflow.md and docs/agents/platform-mapping.md; concise pointers, not separate vendor policies. |
+| Seed 050 Claude wrapper defaults | `.claude/agents/guru.md` and `.claude/agents/factor-*.md` frontmatter: omit model/effort on fresh wrappers; preserve existing explicit values. Never add a framework pin or infer ownership from a model name. Retire an existing pin only when provenance or explicit scoped operator direction proves it framework-owned; otherwise retain it and note the concrete optional edit (delete the `model:` or `effort:` line). The renderer also preserves `tools:` verbatim: compare each wrapper against seed 050 and add missing read-only retrieval entries when reconciling stale framework defaults. Preserve deliberate operator restrictions; surface any unresolved mismatch between the tools granted and the refreshed body instead of silently broadening permissions. |
 
 Verify the policy reaches each applicable destination, stale inheritance claims are removed from touched guidance, customization survives and a repeat merge makes no further changes. Run `wf render-surfaces` afterward for its managed regions, then the docs gate. Do not rewrite native host configs or create a model registry. This is an agent editing obligation, not an automatic prose migration claim.
+
+Claude wrapper rendering preserves existing frontmatter. Malformed or ambiguous model/effort frontmatter leaves the wrapper byte-for-byte unchanged throughout rendering, warns on stderr and is excluded from the written list; fix the malformed file deliberately before expecting it to refresh. This stderr warning is not added to the upgrade summary channel.
+
+Surface rendering in the normal installing upgrade runs the on-disk renderer in a fresh subprocess after extraction; it uses the newly extracted implementation. This does not reload agent definitions already held by a running host or worker. Start a fresh agent, or restart the host when it caches definitions, before relying on the changed defaults. Do not mutate user-global host configuration, environment variables, permissions, tool allowlists, active agents or another wave's files as a migration shortcut.
 
 ### Post-Git readiness instruction reconciliation
 

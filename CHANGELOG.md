@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Choose agent models for the assignment.** Fresh Claude wrappers omit fixed model/effort defaults; rendering preserves existing operator choices and skips malformed frontmatter unchanged. Shared guidance makes delegation-time selection explicit without provider rankings or new gates. Wave `1ycrj`.
+
 ## [1.25.0] - 2026-09-17
 
 ### Added

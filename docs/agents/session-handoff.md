@@ -8,14 +8,12 @@ Last verified: 2026-09-21
 
 **Active wave:** *(none)*
 
-Last closed wave: `1yd24 fixture-fidelity` — shipped canonical declared-wave fixtures, migration/census guards, and harness fixture-fidelity guidance, including the final producer-status ordering repair.
-
-Verification: 9444 tests across 117 files, 12 existing skips, green; current receipt proven at close. All required reviews approved, all ACs/tasks complete, all edit gates closed. Memory candidate 1yk79 rejected after focused validation as duplicate guidance; no new active memory.
+**Last closed wave:** `1ycrj task-fit-agent-model-policy` — shipped neutral wrapper defaults, task-fit model/effort guidance and preservation of operator headers including BOM; all reviews and 9,452 tests passed (12 skipped).
 
 ## Open questions / Deferred decisions
 
-No in-scope work deferred. The preexisting subprocess_util.isolated_run docstring discrepancy remains outside this wave, as recorded in its Watchpoints. Planned wave `1ycrj task-fit-agent-model-policy` remains untouched.
+None for this wave. Closure and commit authorized. Evidence is indexed in the closed wave's delivery-evidence.md; no ACs or tasks deferred. The generated memory candidate was rejected after validation because it referenced a disposable probe and duplicated regression coverage.
 
 ## Preserve
 
-Preexisting changes to docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md, and docs/repo-index.md are outside the 1yd24 commit. The planned 1ycrj folder is also outside scope.
+Unrelated preexisting differences in docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md and docs/repo-index.md remain outside the wave commit. Prior wave 1yd24 closed/committed ead35718.

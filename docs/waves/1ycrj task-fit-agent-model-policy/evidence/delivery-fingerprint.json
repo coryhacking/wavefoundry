@@ -1,0 +1,25 @@
+{
+  "tree_fingerprint": "1f5f39ecbe246fa2d9fd638adb2eddfd6d4a3bd7d15aee983c098e9198590ffa",
+  "paths": {
+    ".claude/agents/factor-03-config.md": "8015d5119eac7351ab74f16633b56d908949c7c3",
+    ".claude/agents/factor-05-build-release-run.md": "8603d7ada15a207f86413f6aed04bcc2d88bf8f4",
+    ".claude/agents/factor-12-admin-processes.md": "83931e4af17231785b3d73e4403c422426ccd35b",
+    ".claude/agents/factor-13-api-first.md": "a0f16ce1bd0757b19f4d1ce86efff24b15b8967f",
+    ".claude/agents/guru.md": "bd6911d9df6952b11408ba48c0b5f2218c8796f6",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "915be8407448c169dd21b0eab759d7bf5914862f",
+    ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py": "7cae0ce1ee4597b686b6a853d13a5cb78bf628b8",
+    ".wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py": "74d58514d6e96d03ecce58dc7e9e31d2610c3c66",
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "b425d782008f69e74b1dac1ba0b62f3925266c06",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "88ed976b0ca4e0bb8fc19669f1728d0c08f4bd03",
+    ".wavefoundry/framework/seeds/180-implement-feature.prompt.md": "620f819e92e9d39a4c2d1859f122e02be333ce84",
+    "CHANGELOG.md": "fe79dbf1c29bb2b3c02a70d05c8182035a95c493",
+    "docs/agents/platform-mapping.md": "a80da188e78b410944990e2ae7cfd6597ff89dc6",
+    "docs/contributing/agent-team-workflow.md": "c7824b74267c67b6a337bc1b37664346e83d3078",
+    "docs/prompts/implement-feature.prompt.md": "2911dd5a96806886b52e6a35fc4b28195d2160d4",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "625c373cf3d687b0479a649e907b0a752139f1b3"
+  },
+  "baseline": "ead35718",
+  "time_budget": "10 minutes per independent context",
+  "sweep_rule": "risk-selected direct probes; broaden only for failures or survivors",
+  "limitations": "Configuration behavior only; no live model calls or observed runtime identity"
+}

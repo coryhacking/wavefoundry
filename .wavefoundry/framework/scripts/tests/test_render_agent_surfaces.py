@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import io
 import subprocess
 import sys
 import tempfile
@@ -294,6 +295,11 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         "required review remains pending",
         "reviewed revision or tree fingerprint",
         "a moved tree requires affected evidence to be refreshed",
+        "Delegation-time selection is primary",
+        "inheritance alone is not a task-fit decision",
+        "Do not bake provider/model names or capability rankings into the policy",
+        "Distinguish requested settings from observed runtime identity",
+        "When the host does not expose the actual model or effort, record unknown",
     )
     UPGRADE_HEADING = "## Host-neutral orchestration reconciliation"
     UPGRADE_CLAUSES = (
@@ -2555,6 +2561,134 @@ class CodexConfigCouncilFixNowTests(unittest.TestCase):
             "operator CRLF content outside the region survives byte-for-byte",
         )
         self._parse(result)
+
+
+class GuruWrapperModelPolicyTests(unittest.TestCase):
+    """Use the complete producer, including both carrier reconciliation passes."""
+
+    def _root(self, directory: str, *, guru: bool = True) -> tuple[Path, Path]:
+        root = Path(directory)
+        if guru:
+            role = root / "docs/agents/guru.md"
+            role.parent.mkdir(parents=True)
+            role.write_text(GURU_STUB, encoding="utf-8")
+        wrapper = root / ".claude/agents/guru.md"
+        wrapper.parent.mkdir(parents=True)
+        return root, wrapper
+
+    def _assert_neutral_fresh_render(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, wrapper = self._root(directory)
+            first_written = ras.render_agent_surfaces(root)
+            first = wrapper.read_bytes()
+            header = first.decode().split("---", 2)[1]
+            self.assertIn(".claude/agents/guru.md", first_written)
+            self.assertNotRegex(header, r"(?m)^(?:model|effort):")
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN.encode(), first)
+            self.assertNotIn(".claude/agents/guru.md", ras.render_agent_surfaces(root))
+            self.assertEqual(first, wrapper.read_bytes())
+
+    def test_fresh_wrapper_omits_preferences_and_is_stable(self) -> None:
+        self._assert_neutral_fresh_render()
+
+    def test_seed_050_claude_guru_example_omits_preferences(self) -> None:
+        seed = (PROJECT_ROOT / "framework/seeds/050-agent-entry-surface-bootstrap.prompt.md").read_text(encoding="utf-8")
+        blocks = re.findall(r"(?m)^---\nname: guru\n.*?^---", seed, re.DOTALL)
+        self.assertTrue(blocks, "must inspect the actual seed's Guru header")
+        for header in blocks:
+            self.assertNotRegex(header, r"(?m)^(?:model|effort):")
+
+    def _assert_preserved_render(self, model: str = "sonnet", effort: str = "high", newline: str = "\n", bom: str = "") -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, wrapper = self._root(directory)
+            header = bom + (
+                "---\nname: local-guru\ndescription: Local description\n"
+                "tools: Read, mcp__wavefoundry__code_read\n"
+                f"model: {model}\neffort: {effort}\n"
+                "# Operator comment\npermissionMode: plan\ncustom:\n  nested: [one, two]\n---\n"
+            ).replace("\n", newline)
+            wrapper.write_bytes((header + newline + "Old generated body" + newline).encode())
+            ras.render_agent_surfaces(root)
+            first = wrapper.read_bytes()
+            self.assertTrue(first.startswith(header.encode()), "all existing frontmatter bytes must survive")
+            self.assertIn(b"## Your job", first, "the generated body must actually refresh")
+            self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN.encode(), first)
+            self.assertNotIn(b"Old generated body", first)
+            self.assertNotIn(".claude/agents/guru.md", ras.render_agent_surfaces(root))
+            self.assertEqual(first, wrapper.read_bytes())
+
+    def test_existing_choices_and_unrelated_header_survive(self) -> None:
+        for model, effort in (("sonnet", "high"), ("inherit", "medium"), ("future/provider-v7", "future-effort"), ('"future: model"', "'high' # chosen")):
+            for newline in ("\n", "\r\n"):
+                with self.subTest(model=model, effort=effort, newline=repr(newline)):
+                    self._assert_preserved_render(model, effort, newline)
+        self._assert_preserved_render(newline="\r\n", bom="\ufeff")
+
+    def test_malformed_header_stays_byte_identical_across_entire_render(self) -> None:
+        headers = (
+            "\ufeff---\nmodel: sonnet\nmodel: inherit\n---\n",
+            "---\nname: guru\nmodel: sonnet\n",  # no close
+            "---\nmodel: sonnet\nmodel: inherit\n---\n",
+            "---\neffort: high\neffort: low\n---\n",
+            "---\nmodel: sonnet\n'model': inherit\n---\n",
+            "---\nmodel: [sonnet]\n---\n",
+            "---\neffort: {value: high}\n---\n",
+            "---\nmodel:\n  - sonnet\n---\n",
+            "---\nmodel: |\n  sonnet\n---\n",
+            "---\nmodel: sonnet\n  continuation\n---\n",
+            "---\nmodel: \"unclosed\n---\n",
+            "---\n model: sonnet\n model: inherit\n---\n",
+            "---\n effort: [high]\n---\n",
+        )
+        for header in headers:
+            for guru in (True, False):
+                for protocol in ("", f"\n{ras.REVIEW_PROTOCOL_MARKER_BEGIN}\nstale\n{ras.REVIEW_PROTOCOL_MARKER_END}\n"):
+                    with self.subTest(header=header, guru=guru, protocol=bool(protocol)), tempfile.TemporaryDirectory() as directory:
+                        root, wrapper = self._root(directory, guru=guru)
+                        original = (header + "\n# Existing body\n" + protocol).replace("\n", "\r\n").encode()
+                        wrapper.write_bytes(original)
+                        for _ in range(2):
+                            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                                written = ras.render_agent_surfaces(root)
+                            self.assertIn("render_agent_surfaces: WARNING", stderr.getvalue())
+                            self.assertNotIn(".claude/agents/guru.md", written)
+                            self.assertEqual(original, wrapper.read_bytes())
+
+    def test_controls_kill_reintroduced_default_and_unconditional_overwrite(self) -> None:
+        self._assert_neutral_fresh_render()
+        self._assert_preserved_render()
+        token = "name: guru\n"
+        self.assertEqual(ras.CLAUDE_GURU_AGENT.count(token), 1)
+        mutant = ras.CLAUDE_GURU_AGENT.replace(token, token + "model: sonnet\n")
+        with patch.object(ras, "CLAUDE_GURU_AGENT", mutant):
+            with self.assertRaises(AssertionError):
+                self._assert_neutral_fresh_render()
+        # Restore the old unconditional template write at the real write
+        # chokepoint, leaving both reconciliation passes running normally.
+        original_write = ras.write_text
+
+        def overwrite(path, content):
+            if path.as_posix().endswith("/.claude/agents/guru.md"):
+                content = ras.CLAUDE_GURU_AGENT
+            return original_write(path, content)
+
+        with patch.object(ras, "write_text", side_effect=overwrite):
+            with self.assertRaises(AssertionError):
+                self._assert_preserved_render()
+
+    def test_control_kills_missing_whole_render_frontmatter_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, wrapper = self._root(directory, guru=False)
+            original = b"---\nmodel: [sonnet]\n---\n\nExisting body\n"
+            wrapper.write_bytes(original)
+            with patch("sys.stderr", new_callable=io.StringIO):
+                ras.render_agent_surfaces(root)
+            self.assertEqual(original, wrapper.read_bytes(), "unmutated producer must preserve bytes")
+            with patch.object(ras, "_claude_agent_frontmatter", return_value=""):
+                written = ras.render_agent_surfaces(root)
+            self.assertIn(".claude/agents/guru.md", written)
+            with self.assertRaises(AssertionError):
+                self.assertEqual(original, wrapper.read_bytes())
 
 
 class GuruWrapperToolAllowlistTests(unittest.TestCase):

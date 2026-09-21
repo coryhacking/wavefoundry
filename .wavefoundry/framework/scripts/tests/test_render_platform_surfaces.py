@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import shutil
 import subprocess
@@ -2162,6 +2163,43 @@ class ManifestChannelTests(unittest.TestCase):
                 (root / "render-manifest.json").exists(),
                 "no manifest file without the --manifest argument",
             )
+
+    def test_claude_preferences_survive_actual_render_entry_and_repeat(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            guru = root / "docs/agents/guru.md"
+            guru.parent.mkdir(parents=True)
+            guru.write_text("# Guru\n", encoding="utf-8")
+            wrapper = root / ".claude/agents/guru.md"
+            wrapper.parent.mkdir(parents=True)
+            header = b"---\r\nname: custom-guru\r\nmodel: sonnet\r\neffort: high\r\ntools: Read\r\ncustom: retained\r\n---\r\n"
+            wrapper.write_bytes(header + b"\r\nStale generated body\r\n")
+            payload = self._render(root, root / "m1.json")
+            self.assertIn(".claude/agents/guru.md", payload["written"])
+            first = wrapper.read_bytes()
+            self.assertTrue(first.startswith(header))
+            self.assertIn(b"## Your job", first)
+            second = self._render(root, root / "m2.json")
+            self.assertEqual(second["written"], [])
+            self.assertEqual(first, wrapper.read_bytes())
+
+    def test_malformed_claude_header_warns_without_write_or_failed_exit(self):
+        for header in (b"---\r\nmodel: sonnet\r\n", b"---\r\nmodel: sonnet\r\nmodel: inherit\r\n---\r\n"):
+            with self.subTest(header=header), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir).resolve()
+                guru = root / "docs/agents/guru.md"
+                guru.parent.mkdir(parents=True)
+                guru.write_text("# Guru\n", encoding="utf-8")
+                wrapper = root / ".claude/agents/guru.md"
+                wrapper.parent.mkdir(parents=True)
+                original = header + b"\r\nExisting body without protocol markers\r\n"
+                wrapper.write_bytes(original)
+                for i in range(2):
+                    with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                        payload = self._render(root, root / f"m{i}.json")
+                    self.assertIn("render_agent_surfaces: WARNING", stderr.getvalue())
+                    self.assertNotIn(".claude/agents/guru.md", payload["written"])
+                    self.assertEqual(original, wrapper.read_bytes())
 
 
 class ClaudePermissionsRenderTests(unittest.TestCase):

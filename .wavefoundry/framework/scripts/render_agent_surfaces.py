@@ -403,7 +403,6 @@ CLAUDE_GURU_AGENT = dedent(
     name: guru
     description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan feature, Implement wave, Close wave, Prepare wave, etc.).
     tools: Read, Grep, Glob, Bash, ToolSearch, mcp__wavefoundry__code_ask, mcp__wavefoundry__code_search, mcp__wavefoundry__code_keyword, mcp__wavefoundry__code_lexical, mcp__wavefoundry__code_read, mcp__wavefoundry__code_outline, mcp__wavefoundry__code_definition, mcp__wavefoundry__code_references, mcp__wavefoundry__code_callhierarchy, mcp__wavefoundry__code_dependencies, mcp__wavefoundry__code_impact, mcp__wavefoundry__code_list_files, mcp__wavefoundry__code_constants, mcp__wavefoundry__code_pattern, mcp__wavefoundry__code_callgraph, mcp__wavefoundry__code_graph_path, mcp__wavefoundry__code_graph_community, mcp__wavefoundry__docs_search, mcp__wavefoundry__seed_get
-    model: sonnet
     ---
 
     # Guru (Claude Code subagent — optional native surface)
@@ -1858,6 +1857,68 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
         _contained_review_carrier_path(repo_root, destination)
 
 
+def _claude_agent_frontmatter(text: str, path: Path) -> str | None:
+    """Keep an existing header verbatim; refuse ambiguous model/effort syntax.
+
+    This is deliberately not a YAML parser. Unrelated metadata is opaque.
+    Body-only legacy wrappers have no header; an opened but unclosed header,
+    duplicate preference, or preference outside the single-line scalar subset
+    is left for its owner to repair. Every Claude writer uses this check.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].lstrip("\ufeff").strip() != "---":
+        return ""
+    closing = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    valid = closing is not None
+    seen: set[str] = set()
+    preference = False
+    for line in lines[1:closing] if closing is not None else ():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^(model|effort|'model'|'effort'|\"model\"|\"effort\")[ \t]*:[ \t]*(.*)$", line.rstrip("\r\n"))
+        if match:
+            key = match.group(1).strip("'\"")
+            value = match.group(2).strip()
+            quoted = re.fullmatch(r"(?:'[^']*(?:''[^']*)*'|\"(?:[^\"\\]|\\.)*\")(?:[ \t]+#.*)?", value)
+            plain = re.split(r"[ \t]+#", value, maxsplit=1)[0]
+            scalar = bool(quoted) or bool(
+                plain and plain[0] not in "[{|>&*!'\"%@#`"
+                and not re.search(r":(?:\s|$)|[\[\]{}]", plain)
+                and not plain.startswith(("- ", "? "))
+            )
+            valid = valid and key not in seen and scalar
+            seen.add(key)
+            preference = True
+        elif re.match(r"^[ \t]+(?:model|effort|'model'|'effort'|\"model\"|\"effort\")[ \t]*:", line):
+            # Indented preferences are ambiguous without interpreting YAML.
+            valid = False
+        elif line[0].isspace():
+            if preference:
+                valid = False
+        else:
+            preference = False
+    if valid:
+        return "".join(lines[:closing + 1])
+    print(
+        "render_agent_surfaces: WARNING — left "
+        f"{path} unchanged (malformed or ambiguous Claude agent frontmatter)",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _merge_claude_agent(text: str, generated: str, path: Path) -> str | None:
+    """Refresh the generated body without owning any existing header key."""
+    header = _claude_agent_frontmatter(text, path)
+    if header is None:
+        return None
+    if not header:
+        return generated
+    body = generated.split("---", 2)[2]
+    newline = "\r\n" if "\r\n" in header else "\n"
+    return header.rstrip("\r\n") + body.replace("\n", newline)
+
+
 def reconcile_review_protocol_surfaces(repo_root: Path) -> list[str]:
     """Reconcile framework-owned protocol regions without replacing project prose.
 
@@ -1883,6 +1944,10 @@ def reconcile_review_protocol_surfaces(repo_root: Path) -> list[str]:
         else:
             with path.open("r", encoding="utf-8", newline="") as handle:
                 original = handle.read()
+        # Reconciliation runs before AND after tier 3, including without Guru.
+        # Refusing only the template write would still alter malformed files.
+        if carrier.destination.startswith(".claude/agents/") and _claude_agent_frontmatter(original, path) is None:
+            continue
         updated = _upsert_review_protocol_region(original, _carrier_protocol_block(carrier))
         if updated is None:
             print(
@@ -2505,7 +2570,12 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
 
     if (repo_root / ".claude").exists():
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
-        _tier3_write(claude_agent, CLAUDE_GURU_AGENT)
+        claude_content = CLAUDE_GURU_AGENT
+        if claude_agent.is_file():
+            with claude_agent.open("r", encoding="utf-8", newline="") as handle:
+                claude_content = _merge_claude_agent(handle.read(), claude_content, claude_agent)
+        if claude_content is not None:
+            _tier3_write(claude_agent, claude_content)
 
     # Wave 1p6lp: the Codex guru skill is registry-rendered (wf-guru) by
     # render_skills above; the ad-hoc CODEX_AUTO_GURU_SKILL write is retired.

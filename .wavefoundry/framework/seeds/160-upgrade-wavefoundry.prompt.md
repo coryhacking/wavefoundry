@@ -821,8 +821,13 @@ When seeds 050, 100 or 180 or their lifecycle templates change, reconcile the ho
 | Missing-only lifecycle templates | Corresponding prepare-wave, implement-wave, review-wave and close-wave prompts; compare changed authored clauses even when the destination already exists. |
 | Seed 050 entry/coordinator clauses | AGENTS.md and docs/agents/wave-coordinator.md; replace presumed child MCP inheritance with actual receiving-worker capability and the seed 180 fallback. |
 | Seed 100 operating guidance | docs/contributing/agent-team-workflow.md and docs/agents/platform-mapping.md; concise pointers, not separate vendor policies. |
+| Seed 050 Claude wrapper defaults | `.claude/agents/guru.md` and `.claude/agents/factor-*.md` frontmatter: omit model/effort on fresh wrappers; preserve existing explicit values. Never add a framework pin or infer ownership from a model name. Retire an existing pin only when provenance or explicit scoped operator direction proves it framework-owned; otherwise retain it and note the concrete optional edit (delete the `model:` or `effort:` line). The renderer also preserves `tools:` verbatim: compare each wrapper against seed 050 and add missing read-only retrieval entries when reconciling stale framework defaults. Preserve deliberate operator restrictions; surface any unresolved mismatch between the tools granted and the refreshed body instead of silently broadening permissions. |
 
 Verify the policy reaches each applicable destination, stale inheritance claims are removed from touched guidance, customization survives and a repeat merge makes no further changes. Run `wf render-surfaces` afterward for its managed regions, then the docs gate. Do not rewrite native host configs or create a model registry. This is an agent editing obligation, not an automatic prose migration claim.
+
+Claude wrapper rendering preserves existing frontmatter. Malformed or ambiguous model/effort frontmatter leaves the wrapper byte-for-byte unchanged throughout rendering, warns on stderr and is excluded from the written list; fix the malformed file deliberately before expecting it to refresh. This stderr warning is not added to the upgrade summary channel.
+
+Surface rendering in the normal installing upgrade runs the on-disk renderer in a fresh subprocess after extraction; it uses the newly extracted implementation. This does not reload agent definitions already held by a running host or worker. Start a fresh agent, or restart the host when it caches definitions, before relying on the changed defaults. Do not mutate user-global host configuration, environment variables, permissions, tool allowlists, active agents or another wave's files as a migration shortcut.
 
 ### Post-Git readiness instruction reconciliation
 
