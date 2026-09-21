@@ -6,6 +6,7 @@ import io
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -106,66 +107,19 @@ def _make_repo(root: Path) -> None:
 
 
 def _make_wave(root: Path) -> None:
-    wave_dir = root / "docs" / "waves" / "12x test-wave"
-    _write(
-        wave_dir / "wave.md",
-        """# Wave Record
-
-wave-id: `12x test-wave`
-Title: Test Wave
-Status: active
-review-evidence-source: events.jsonl
-
-## Objective
-
-Verify dashboard snapshot rendering.
-
-## Participants
-
-| Role | Lane | Scope |
-|------|------|-------|
-| code-reviewer | review | change |
-
-## Review Checkpoints
-
-- Prepare wave — readiness verdict: pass
-
-## Review Evidence
-
-<!-- wave:review-status begin -->
-| Signoff | State | Why | Next action |
-| --- | --- | --- | --- |
-| wave-council-readiness | pending | no current executed approval | record approval evidence for wave-council-readiness |
-| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
-| code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
-<!-- wave:review-status end -->
-
-- wave-council-readiness: approved
-- code-reviewer: approved
-
-## Finding Synthesis
-
-<!-- wave:finding-synthesis begin -->
-| Current finding | Disposition | Open block | Repair | Approval recheck |
-| --- | --- | --- | --- | --- |
-| — | — | — | — | — |
-
-<details class="wavefoundry-review-evidence">
-<summary>Machine review evidence — 0 records; 0 runs; 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0</summary>
-</details>
-<!-- wave:finding-synthesis end -->
-
-## Changes
-
-Change ID: `12x1-enh sample-dashboard`
-Change Status: `ready`
-""",
-    )
-    _write(wave_dir / "events.jsonl", "")
-    _write(
-        wave_dir / "12x1-enh sample-dashboard.md",
-        """# Sample Dashboard Change
+    from server_tools_support import load_server, make_declared_wave, declared_wave_doc_gates
+    from test_declared_wave_fixtures import fixture_doc_stubs
+    srv = load_server()
+    stubs = fixture_doc_stubs()
+    config_path = root / "docs/workflow-config.json"
+    config = json.loads(config_path.read_text())
+    config["required_review_lanes"] = ["code-reviewer"]
+    config_path.write_text(json.dumps(config))
+    with declared_wave_doc_gates(srv, stubs):
+        made = srv.new_change(root, "enh", "sample-dashboard", change_id="12x1-enh sample-dashboard")
+    change_path = root / made["path"]
+    # Dashboard counts and activity are the subject of this custom change body.
+    change_path.write_text("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `ready`
@@ -194,8 +148,14 @@ Wave: `12x test-wave`
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-08 | Added dashboard API. | test evidence |
-""",
-    )
+""", encoding="utf-8")
+    # Deterministic ID seam preserves historical dashboard subjects; no record rewrite.
+    with patch.object(srv._lifecycle_module(), "build_id", return_value="12x test-wave"):
+        wave_id, wave_md = make_declared_wave(srv, root, "test-wave", status="active",
+            change_ids=("12x1-enh sample-dashboard",), doc_gate_stubs=stubs)
+    assert wave_id == "12x test-wave" and wave_md == root / "docs/waves" / wave_id / "wave.md"
+    # component-fixture: misleading prose is input to the dashboard authority reader.
+    wave_md.write_text(wave_md.read_text() + "\n- wave-council-readiness: approved\n- code-reviewer: approved\n")
     _write(
         root / "docs" / "plans" / "12x2-enh staged-plan.md",
         """# Staged Plan
@@ -491,7 +451,9 @@ class DashboardSnapshotTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         start = text.index("## Finding Synthesis\n")
-        end = text.index("## Changes\n", start)
+        # negative-fixture: remove only the projection regardless of canonical section ordering.
+        next_section = re.search(r"(?m)^## ", text[start + len("## Finding Synthesis\n"):])
+        end = start + len("## Finding Synthesis\n") + next_section.start() if next_section else len(text)
         wave_md.write_text(text[:start] + text[end:], encoding="utf-8")
 
         wave = self.lib.collect_waves(self.root)[0]

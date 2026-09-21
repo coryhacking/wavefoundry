@@ -851,6 +851,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
             create_wave = (repo_root / "docs" / "prompts" / "create-wave.prompt.md").read_text(encoding="utf-8")
             for literal in (
+                # declaration-check: asserts the declaration contract; creates no lifecycle state
                 "review-evidence-source: events.jsonl",
                 "exactly empty file",
                 "No review findings recorded.",

@@ -1,0 +1,50 @@
+[
+  {
+    "mutant": "approvals-require-ready",
+    "test": "test_invalid_helper_inputs_fail_before_producer_entry",
+    "failures": 2,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  },
+  {
+    "mutant": "supported-status",
+    "test": "test_invalid_helper_inputs_fail_before_producer_entry",
+    "failures": 2,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  },
+  {
+    "mutant": "callable-stubs",
+    "test": "test_invalid_helper_inputs_fail_before_producer_entry",
+    "failures": 4,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  },
+  {
+    "mutant": "prepare-status",
+    "test": "test_invalid_prepare_envelopes_reject_after_real_receipt_publication",
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  },
+  {
+    "mutant": "prepare-error-blockers",
+    "test": "test_invalid_prepare_envelopes_reject_after_real_receipt_publication",
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  },
+  {
+    "mutant": "prepare-unexpected-blocker",
+    "test": "test_invalid_prepare_envelopes_reject_after_real_receipt_publication",
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "killed": true
+  }
+]

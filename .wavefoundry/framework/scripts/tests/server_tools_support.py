@@ -98,6 +98,82 @@ def _make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
     return tmp
 
 
+def review_policy_config(**overrides) -> dict:
+    """Return a complete policy block; install under workflow-config's wave_review."""
+    return {"enabled": True, "delivery_mode": "targeted", **overrides}
+
+
+@contextlib.contextmanager
+def declared_wave_doc_gates(srv, stubs):
+    """Scope caller-owned fakes across all fixture producers, including failures."""
+    required = {"run_validate", "run_garden", "_run_post_write_lint",
+                "_trigger_background_index_refresh_for_paths"}
+    if set(stubs) != required or not all(callable(stubs[key]) for key in required):
+        raise ValueError("doc_gate_stubs must supply callable stubs for " + ", ".join(sorted(required)))
+    with contextlib.ExitStack() as stack:
+        for name, stub in stubs.items():
+            stack.enter_context(patch.object(srv, name, stub))
+        yield
+
+
+def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
+                       ready=False, readiness_run=False, approvals=(), doc_gate_stubs):
+    """Build lifecycle prerequisites through real producers, never guessed JSONL.
+
+    Change documents already exist (use the canonical change creator); callers
+    may customize their content before admission. The sole synthetic escape is
+    the produced Status line, applied after all producers for tests of later
+    lifecycle phases. Producers always receive canonical planned state.
+    Omission of readiness_run is intentional and supported for negative controls;
+    only a final Prepare call independently proves the fixture is ready.
+    """
+    if ready and not change_ids:
+        raise ValueError("ready=True requires at least one admitted change")
+    if approvals and not ready:
+        raise ValueError("readiness approvals require ready=True")
+    if status not in {"planned", "active", "implementing", "paused", "closed"}:
+        raise ValueError(f"unsupported synthetic wave status: {status}")
+
+    def successful(step, response):
+        if response.get("status") != "ok":
+            raise AssertionError(f"{step} refused: {response!r}")
+        return response["data"]
+
+    with declared_wave_doc_gates(srv, doc_gate_stubs):
+        made = successful("create wave", srv.wf_create_wave_response(root, slug, mode="create"))
+        wave_id, wave_md = made["wave_id"], root / made["path"]
+        for change_id in change_ids:
+            successful("admit change", srv.wf_add_change_response(root, wave_id, change_id, mode="create"))
+        if ready:
+            prepared = srv.wf_prepare_wave_response(root, wave_id, mode="ready")
+            blockers = [d for d in prepared.get("diagnostics", ()) if not d.get("advisory")]
+            if (prepared.get("status") not in {"ok", "error"}
+                    or any(d["code"] != "missing_wave_council_signoff" for d in blockers)
+                    or (prepared.get("status") == "error" and not blockers)):
+                raise AssertionError(f"prepare receipt refused: {prepared!r}")
+            records, errors = srv.read_review_event_ledger(wave_md)
+            if errors or not any(r.get("record_type") == "review_policy_receipt" for r in records):
+                raise AssertionError(f"prepare did not publish a receipt: {errors!r}; {prepared!r}")
+        if readiness_run:
+            successful("readiness run", srv.wf_review_event_response(
+                root, wave_id, event="run", actor="wave-council", context_id="fixture-readiness",
+                mode="create", run_kind="readiness", cycle=0))
+        for key in approvals:
+            actor = "wave-council" if key.startswith("wave-council") else key
+            successful("readiness approval", srv.wf_review_event_response(
+                root, wave_id, event="approval", actor=actor, context_id="fixture-approval-" + key,
+                mode="create", signoff_key=key, approval_phase="readiness",
+                fresh_context=True, independent=True,
+                evidence={"observed": "fixture approval", "artifact_or_test_id": "test:declared-wave"},
+                integrity_checks=integrity_checks()))
+        if status != "planned":
+            text, count = re.subn(r"(?m)^Status: planned$", f"Status: {status}", wave_md.read_text(), count=1)
+            if count != 1:
+                raise AssertionError("created wave must have exactly one planned Status line")
+            wave_md.write_text(text, encoding="utf-8")
+        return wave_id, wave_md
+
+
 def _store_read_meta(index_dir: Path) -> dict:
     """1sed6: read the build-state snapshot back from the store."""
     import importlib.util

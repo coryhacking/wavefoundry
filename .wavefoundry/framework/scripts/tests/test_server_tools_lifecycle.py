@@ -624,6 +624,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         result = self._create_wave("review-evidence-wave")
         wave_md = self.root / result["path"]
         text = wave_md.read_text(encoding="utf-8")
+        # declaration-check: asserts the declaration contract; creates no lifecycle state
         self.assertIn("review-evidence-source: events.jsonl", text)
         self.assertNotIn("review-evidence-protocol", text)
         self.assertNotIn("```jsonl", text)
@@ -673,6 +674,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
             response,
         )
         downgraded = original.replace(
+            # declaration-check: removes or corrupts a declaration to test fail-closed behavior
             "review-evidence-source: events.jsonl",
             "review-evidence-source: wrong.jsonl",
         )
@@ -981,6 +983,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
                 "# Wave Record\n",
+                # negative-fixture: test_marked_review_evidence_is_enforced_by_prepare_review_and_close deliberately supplies invalid or unreadable authority
                 "# Wave Record\n\nreview-evidence-source: events.jsonl\n",
                 1,
             )
@@ -7168,6 +7171,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
                 "# Wave Record\n",
+                # negative-fixture: test_no_read_failure_message_leaks_the_absolute_path deliberately supplies invalid or unreadable authority
                 "# Wave Record\n\nreview-evidence-source: events.jsonl\n", 1),
             encoding="utf-8")
         (self.root / "docs" / "waves" / "bulk-wave" / "events.jsonl").write_text(
@@ -9051,12 +9055,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
 
     def _prepared_wave_with_change(self, slug, change_id="1abc-bug sample"):
-        """A governed wave with one admitted change and a published receipt."""
-        created = self.srv.wf_create_wave_response(self.root, slug, mode="create")
-        self.assertEqual(created["status"], "ok", created)
-        wave_id = created["data"]["wave_id"]
-        wave_dir = self.root / "docs" / "waves" / wave_id
-        change_path = wave_dir / f"{change_id}.md"
+        """A governed wave built through canonical creation/admission/Prepare."""
+        from server_tools_support import make_declared_wave, declared_wave_doc_gates
+        from test_declared_wave_fixtures import fixture_doc_stubs
+        stubs = fixture_doc_stubs()
+        with declared_wave_doc_gates(self.srv, stubs):
+            made = self.srv.new_change(self.root, "bug", "sample", change_id=change_id)
+        change_path = self.root / made["path"]
         change_path.write_text(
             "# Sample Change\n\n"
             f"Change ID: `{change_id}`\n"
@@ -9071,23 +9076,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| d | u | e |\n",
             encoding="utf-8",
         )
-        wave_md = wave_dir / "wave.md"
-        wave_md.write_text(
-            wave_md.read_text(encoding="utf-8").replace(
-                "## Changes\n", f"## Changes\n\nChange ID: `{change_id}`\nChange Status: `planned`\n"
-            ),
-            encoding="utf-8",
-        )
-        wave_text = wave_md.read_text(encoding="utf-8")
-        change_ids = self.srv.lifecycle_gate_support._extract_change_ids_from_wave_text(wave_text)
-        self.assertEqual(change_ids, [change_id])
-        brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, change_ids)
-        state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(
-            self.root, wave_md, wave_text, change_ids, brief
-        )
-        self.assertEqual(errors, ())
-        self.srv._publish_prepare_policy_state(self.root, wave_md, wave_text, state)
-        return wave_id, wave_md, change_path
+        wave_id, wave_md = make_declared_wave(self.srv, self.root, slug,
+            change_ids=(change_id,), ready=True, doc_gate_stubs=stubs)
+        return wave_id, wave_md, wave_md.parent / f"{change_id}.md"
 
     def _record_readiness_approval(self, wave_id, signoff_key, context_id):
         # A specialist lane must be recorded BY that lane; only the council key
@@ -10839,22 +10830,18 @@ class ReviewPhaseAliasTests(unittest.TestCase):
             }),
             encoding="utf-8",
         )
-        wave_dir = self.root / "docs" / "waves" / "0aaaa sample"
-        wave_dir.mkdir(parents=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
-            "wave-id: `0aaaa sample`\n\n## Changes\n\n"
-            "Change ID: `1200a-feat sample`\nChange Status: `active`\n",
-            encoding="utf-8",
-        )
-        (wave_dir / "1200a-feat sample.md").write_text(
-            "# Change\nChange ID: `1200a-feat sample`\n\n## Scope\n\nWork.\n",
-            encoding="utf-8",
-        )
-        (wave_dir / "events.jsonl").write_text("", encoding="utf-8")
+        from server_tools_support import make_declared_wave, declared_wave_doc_gates
+        from test_declared_wave_fixtures import fixture_doc_stubs
+        stubs = fixture_doc_stubs()
+        with declared_wave_doc_gates(self.srv, stubs):
+            made = self.srv.new_change(self.root, "feat", "sample", change_id="1200a-feat sample")
+        (self.root / made["path"]).write_text(
+            "# Change\nChange ID: `1200a-feat sample`\n\n## Scope\n\nWork.\n", encoding="utf-8")
+        self.wave_id, self.wave_md = make_declared_wave(self.srv, self.root, "sample",
+            status="implementing", change_ids=("1200a-feat sample",), doc_gate_stubs=stubs)
 
     def _resolved(self, phase):
-        return self.srv.wf_review_wave_response(self.root, "0aaaa", phase=phase)
+        return self.srv.wf_review_wave_response(self.root, self.wave_id, phase=phase)
 
     def test_approval_phase_words_map_onto_review_phases(self):
         for supplied, expected in (
@@ -10954,6 +10941,7 @@ class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
         wave_dir.mkdir(parents=True)
         wave_md = wave_dir / "wave.md"
         wave_text = (
+            # component-fixture: _policy_state exercises this input representation directly
             "# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
             "wave-id: `0aaaa sample`\n\n"
             f"## Changes\n\nChange ID: `{self.CHANGE_ID}`\nChange Status: `active`\n"

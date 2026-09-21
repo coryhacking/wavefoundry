@@ -2944,9 +2944,12 @@ class MemoryProposeTests(_MemoryCase):
         self.supply = _load("memory_supply")
 
     def _wave(self, wave_id, slug, *, decision_rows=(), ce_totals=None):
-        d = self.root / "docs" / "waves" / f"{wave_id} {slug}"
-        d.mkdir(parents=True)
+        from server_tools_support import make_declared_wave, declared_wave_doc_gates
+        from test_declared_wave_fixtures import fixture_doc_stubs
+        stubs = fixture_doc_stubs()
         change_id = f"{wave_id}k-feat {slug}"
+        with declared_wave_doc_gates(self.srv, stubs):
+            made = self.srv.new_change(self.root, "feat", slug, change_id=change_id)
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
                          for i, (dec, reason) in enumerate(decision_rows))
         change = (
@@ -2954,16 +2957,17 @@ class MemoryProposeTests(_MemoryCase):
             "| Date | Decision | Reason | Alternatives |\n"
             "| ---- | -------- | ------ | ------------ |\n" + rows + "\n"
         )
-        (d / f"{change_id}.md").write_text(change, encoding="utf-8")
-        ce = ""
+        (self.root / made["path"]).write_text(change, encoding="utf-8")
+        # Deterministic ID seam retains the memory/telemetry subject's identifiers.
+        with patch.object(self.srv._lifecycle_module(), "build_id", return_value=f"{wave_id} {slug}"):
+            produced, wave_md = make_declared_wave(self.srv, self.root, slug,
+                change_ids=(change_id,), doc_gate_stubs=stubs)
+        self.assertEqual(produced, f"{wave_id} {slug}")
         if ce_totals is not None:
+            # component-fixture: legacy CE projection is the memory-cost input under test.
             ce = ("\n## Context Efficiency\n\n<!-- wave:context-efficiency-state "
                   + json.dumps({"totals": ce_totals}) + " -->\n")
-        (d / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `{wave_id} {slug}`\n\n"
-            f"Change ID: `{change_id}`\n\n"
-            f"review-evidence-source: events.jsonl\n{ce}", encoding="utf-8")
-        (d / "events.jsonl").write_bytes(b"")
+            wave_md.write_text(wave_md.read_text() + ce, encoding="utf-8")
         return change_id
 
     def _write_completed_findings(self, wave_id, slug, findings):

@@ -1,0 +1,51 @@
+[
+  {
+    "mutant": "omit-readiness-run",
+    "test": "test_valid_fixture_and_independent_readiness_oracle",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "omit-approvals",
+    "test": "test_valid_fixture_and_independent_readiness_oracle",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "skip-receipt-proof",
+    "test": "test_missing_receipt_cannot_hide_behind_expected_initial_refusal",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "leak-scoped-stubs",
+    "test": "test_refusals_fail_at_the_producer_and_restore_all_stubs",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "filewide-helper-exemption",
+    "test": "test_unrelated_helper_or_comment_cannot_exempt_a_site",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "ignore-fstring-segments",
+    "test": "test_classifications_and_multiline_and_fstring_literal_segments",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutant": "distant-comment-exemption",
+    "test": "test_unrelated_helper_or_comment_cannot_exempt_a_site",
+    "killed": true,
+    "failures": 1,
+    "errors": 0
+  }
+]

@@ -2137,6 +2137,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         wave_dir.mkdir(parents=True, exist_ok=True)
         wave = wave_dir / "wave.md"
         wave.write_text(
+            # component-fixture: make_external_wave exercises this input representation directly
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             + subject.empty_external_finding_synthesis_section(),
             encoding="utf-8",
@@ -2193,6 +2194,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             self.assertNotIn(name, subject.__all__)
 
     def test_source_declaration_and_fixed_sibling_path_are_exact(self) -> None:
+        # component-fixture: test_source_declaration_and_fixed_sibling_path_are_exact exercises this input representation directly
         text = "# Wave\nreview-evidence-source: events.jsonl\n\n## Objective\n"
         self.assertEqual(subject.parse_review_evidence_source(text), ("events.jsonl", ()))
         for malformed in (
@@ -2217,6 +2219,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             projection = subject.empty_external_finding_synthesis_section()
             wave = wave_dir / "wave.md"
             wave.write_text(
+                # component-fixture: test_external_validation_reads_events_not_projection exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n" + projection,
                 encoding="utf-8",
             )
@@ -2225,6 +2228,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             self.assertTrue(result.ok, result.errors)
             self.assertEqual(result.records, ())
             wave.write_text(
+                # negative-fixture: test_external_validation_reads_events_not_projection deliberately supplies invalid or unreadable authority
                 "# Wave\nreview-evidence-source: events.jsonl\n",
                 encoding="utf-8",
             )
@@ -2233,6 +2237,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             self.assertEqual(missing.authority_errors, ())
             self.assertIn("Finding Synthesis", "\n".join(missing.projection_errors))
             wave.write_text(
+                # component-fixture: test_external_validation_reads_events_not_projection exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n" + projection,
                 encoding="utf-8",
             )
@@ -2255,6 +2260,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             wave = wave_dir / "wave.md"
             projection = subject.empty_external_finding_synthesis_section()
             wave.write_text(
+                # negative-fixture: test_declared_wave_must_not_retain_inline_marker_or_fence deliberately supplies invalid or unreadable authority
                 "# Wave\nreview-evidence-source: events.jsonl\n"
                 "review-evidence-protocol: 1\n\n" + projection,
                 encoding="utf-8",
@@ -2266,6 +2272,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             )
             # Header-only: a prose mention in a body section is not a marker.
             wave.write_text(
+                # component-fixture: test_declared_wave_must_not_retain_inline_marker_or_fence exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + projection
                 + "\n## Notes\n\nreview-evidence-protocol: 1\n",
@@ -2280,6 +2287,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
                 "```jsonl\n```\n" + subject.FINDING_SYNTHESIS_MARKER_END,
             )
             wave.write_text(
+                # negative-fixture: test_declared_wave_must_not_retain_inline_marker_or_fence deliberately supplies invalid or unreadable authority
                 "# Wave\nreview-evidence-source: events.jsonl\n\n" + fenced,
                 encoding="utf-8",
             )
@@ -2309,6 +2317,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             self.assertFalse(result.ok)
             joined = "\n".join(result.errors)
             self.assertIn(
+                # declaration-check: asserts the declaration contract; creates no lifecycle state
                 "must declare `review-evidence-source: events.jsonl`", joined
             )
             self.assertIn("migrate manually", joined)
@@ -2316,6 +2325,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
 
     def test_external_projection_contains_no_inline_jsonl_authority(self) -> None:
         base = (
+            # component-fixture: test_external_projection_contains_no_inline_jsonl_authority exercises this input representation directly
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             + subject.empty_external_finding_synthesis_section()
             + "\n## Notes\nkeep me\n"
@@ -2327,6 +2337,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
 
     def test_external_projection_migrates_legacy_owned_markers(self) -> None:
         legacy = (
+            # component-fixture: test_external_projection_migrates_legacy_owned_markers preserves historical representation as the compatibility subject
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             + subject.empty_external_finding_synthesis_section()
             .replace(
@@ -2348,6 +2359,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         """Wave 1tb4z: the external-ledger projection is plain markdown — the
         details wrapper collapsed nothing once records moved to events.jsonl."""
         base = (
+            # component-fixture: test_external_projection_uses_plain_summary_without_html exercises this input representation directly
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             + subject.empty_external_finding_synthesis_section()
             + "\n## Notes\nkeep me\n"
@@ -2364,6 +2376,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         stale-projection equality holds without touching the file."""
         summary = subject.review_evidence_summary_line(())
         legacy = (
+            # component-fixture: test_legacy_bodyless_details_form_validates_without_rewrite preserves historical representation as the compatibility subject
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             "## Finding Synthesis\n\n"
             "<!-- wave:finding-synthesis begin -->\n"
@@ -3485,6 +3498,7 @@ class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
             wave.parent.mkdir(parents=True)
             wave.write_text(
                 "# Wave\n\nStatus: implementing\n"
+                # negative-fixture: test_external_ledger_symlink_is_rejected_as_authority deliberately supplies invalid or unreadable authority
                 "review-evidence-source: events.jsonl\n\n"
                 "## Review Evidence\n\n## Finding Synthesis\n\n",
                 encoding="utf-8",
@@ -3509,6 +3523,7 @@ class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
             wave.write_text(
                 "# Wave Record\n\n"
                 "Owner: Engineering\nStatus: planned\nLast verified: 2026-07-14\n"
+                # negative-fixture: test_wave_docs_routes_marked_records_through_shared_validator deliberately supplies invalid or unreadable authority
                 "review-evidence-source: events.jsonl\n"
                 "wave-id: `1test integration`\nTitle: Integration\n\n"
                 "## Objective\n\nExercise lint routing.\n\n"
@@ -4295,6 +4310,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         legacy = subject.resolve_review_authority(None, None, wave_text="# Wave Record\n")
         self.assertFalse(legacy.typed)
         declared = subject.resolve_review_authority(
+            # component-fixture: test_dispatch_on_declaration exercises this input representation directly
             None, None, wave_text="# Wave Record\n\nreview-evidence-source: events.jsonl\n"
         )
         self.assertTrue(declared.typed)
@@ -4310,6 +4326,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
 
     def test_typed_signoff_requires_exact_actor_and_ignores_prose(self):
         wave_text = (
+            # component-fixture: test_typed_signoff_requires_exact_actor_and_ignores_prose exercises this input representation directly
             "# Wave Record\n\nreview-evidence-source: events.jsonl\n\n"
             "## Review Evidence\n\n- qa-reviewer: approved\n- operator-signoff: approved\n"
         )
@@ -4345,6 +4362,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         self.assertTrue(authority.any_signoff_evidence())
 
     def test_typed_max_severity_maps_impact_facts_not_words(self):
+        # component-fixture: test_typed_max_severity_maps_impact_facts_not_words exercises this input representation directly
         base = "# Wave Record\n\nreview-evidence-source: events.jsonl\n"
         cases = [
             ((), "none"),
@@ -4370,6 +4388,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
 
     def test_typed_max_severity_ignores_prose_severity_words(self):
         wave_text = (
+            # component-fixture: test_typed_max_severity_ignores_prose_severity_words exercises this input representation directly
             "# Wave Record\n\nreview-evidence-source: events.jsonl\n\n"
             "## Review Evidence\n\n- note: a high severity remark with critical wording\n"
         )
@@ -4388,6 +4407,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
                 review_run("run-readiness", kind="readiness", candidates=[]),
             )
             wave_md.write_text(
+                # component-fixture: test_resolve_reads_ledger_for_declared_wave exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + subject.render_review_evidence_projection(
                     subject.empty_external_finding_synthesis_section(), records
@@ -4415,6 +4435,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         wave_dir = Path(tmp) / "docs" / "waves" / "1test sample"
         wave_dir.mkdir(parents=True)
         (wave_dir / "wave.md").write_text(
+            # negative-fixture: _declared_wave deliberately supplies invalid or unreadable authority
             "# Wave\nreview-evidence-source: events.jsonl\n", encoding="utf-8"
         )
         return wave_dir
@@ -4508,6 +4529,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self.assertNotIn(str(Path(tmp).resolve()), decode_message)
 
             wave_md.write_text(
+                # negative-fixture: test_validate_unreadable_message_names_file_and_cause_path_free deliberately supplies invalid or unreadable authority
                 "# Wave\nreview-evidence-source: events.jsonl\n", encoding="utf-8"
             )
             os.chmod(wave_md, 0)

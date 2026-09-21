@@ -164,6 +164,7 @@ class FileWalkerTests(unittest.TestCase):
         """1slep AC-8 / 1tomw AC-6: the fixed wave-folder role alone excludes."""
         _make_repo(self.root, {
             "docs/waves/1slep external-ledger/events.jsonl": '{"canonical":true}\n',
+            # component-fixture: test_excludes_only_canonical_wave_event_ledgers exercises this input representation directly
             "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current-state projection\n",
             "events.jsonl": '{"root":"eligible"}\n',
             "audit/events.jsonl": '{"nested":"eligible"}\n',
@@ -313,6 +314,7 @@ class FileWalkerTests(unittest.TestCase):
         _make_repo(self.root, {
             "docs/waves/1test declared-ledger/events.jsonl": "",
             "docs/waves/1test declared-ledger/wave.md": (
+                # component-fixture: test_ledger_stays_excluded_after_source_tamper_without_state_lookup exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + review_evidence.empty_external_finding_synthesis_section()
             ),
@@ -1263,6 +1265,7 @@ class IncrementalBuildTests(unittest.TestCase):
         unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"superseded raw history"}\n',
+            # component-fixture: test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name exercises this input representation directly
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"searchable"}\n',
             unrelated_wave_note: '{"note":"searchable"}\n',
@@ -1340,6 +1343,7 @@ class IncrementalBuildTests(unittest.TestCase):
         unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"old indexed authority"}\n',
+            # component-fixture: test_incremental_exclusion_reaps_previously_indexed_canonical_ledger exercises this input representation directly
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"still searchable"}\n',
             unrelated_wave_note: '{"note":"still searchable"}\n',
@@ -1435,6 +1439,7 @@ class IncrementalBuildTests(unittest.TestCase):
         """Canonical machine-state churn never enters incremental docs/code state."""
         canonical = self.root / "docs/waves/1slep external-ledger/events.jsonl"
         _make_repo(self.root, {
+            # component-fixture: test_incremental_ledger_add_modify_delete_are_semantic_noops exercises this input representation directly
             "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current head\n",
             "src/app.py": "def app():\n    return 1\n",
         })

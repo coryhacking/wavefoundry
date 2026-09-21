@@ -49,7 +49,7 @@ Prompt and seed reachability tests prove contract presence only. They do not pro
 Before accepting a claimed test or fixture, verify all five conditions:
 
 1. **It ran.** There are zero unintended skips, filtered-out cases, early returns, signature fallbacks, or swallowed setup failures.
-2. **It reaches the claimed path.** Prefer the registered tool, CLI, endpoint/process, lifecycle gate, or real parser/subprocess boundary. A helper-only test is insufficient when the consumer can miswire, reorder, transform, or bypass it.
+2. **It reaches the claimed path.** Prefer the registered tool, CLI, endpoint/process, lifecycle gate, or real parser/subprocess boundary. A helper-only test is insufficient when the consumer can miswire, reorder, transform, or bypass it. Apply seed 209's fixture-fidelity rule: build prerequisite state through canonical producers, preserve deliberate inputs under test, and keep expected-value oracles independent. Read setup refusal messages; an earlier gate refusal proves nothing about the later span the test names.
 3. **Its boundary values are realistic.** Mocks and fakes use shapes and ordering that the real dependency can produce, including partial results followed by failure when applicable.
 4. **Its assertions are non-vacuous.** The fixture proves the target output or state transition, not merely that no exception occurred or that an unrelated artifact exists.
 5. **It detects the known-bad behavior.** Demonstrate a pre-fix failure, a focused mutation, or injected old behavior. If reverting the fix is unsafe or expensive, record why and use the closest safe focused alternative.

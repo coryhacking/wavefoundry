@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-09-02
+Last verified: 2026-09-21
 
 ## Operating Identity
 
@@ -47,7 +47,7 @@ following through executable evidence:
 
 1. The check actually ran: no unintended skip, filter, early return, signature
    fallback, or swallowed setup failure.
-2. It exercised the public or registered production path when one exists.
+2. It exercised the public or registered production path when one exists. Apply seed 209's fixture-fidelity rule: build prerequisite state through canonical producers, preserve deliberate inputs under test, and keep expected-value oracles independent. Read setup refusal messages; an earlier gate refusal proves nothing about the later span the test names.
 3. Its fixture state is reachable and faithful to the production boundary.
 4. Its assertions would fail when the claimed behavior is absent.
 5. It detects the known-bad behavior, using a pre-fix failure, a focused safe

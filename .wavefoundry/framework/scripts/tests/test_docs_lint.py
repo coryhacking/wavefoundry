@@ -263,6 +263,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         root = self.copy_fixture()
         wave_md = root / self.WAVE_DOC_PATH
         text = wave_md.read_text(encoding="utf-8").replace(
+            # declaration-check: replace declaration with retired inline protocol for rejection.
             "review-evidence-source: events.jsonl",
             "review-evidence-protocol: 1",
         )
@@ -272,6 +273,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
+        # declaration-check: assert the actionable missing-declaration diagnostic.
         self.assertIn("must declare `review-evidence-source: events.jsonl`", result.stderr)
 
     def test_one_thirteen_shaped_inline_wave_fails_actionably_without_ledger(self) -> None:
@@ -285,6 +287,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         text = (
             wave_md.read_text(encoding="utf-8")
             .replace(
+                # declaration-check: replace declaration with retired inline protocol for rejection.
                 "review-evidence-source: events.jsonl",
                 "review-evidence-protocol: 1",
             )
@@ -302,6 +305,7 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
         self.assertIn(
+            # declaration-check: assert the actionable missing-declaration diagnostic.
             "must declare `review-evidence-source: events.jsonl`", result.stderr
         )
         self.assertIn("migrate manually", result.stderr)
@@ -318,6 +322,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix="wave-orphan-matrix-"))
         try:
             waves = root / "docs" / "waves"
+            # component-fixture: orphan-ledger classifier consumes minimal declared input.
             declared = "review-evidence-source: events.jsonl\n"
             record = '{"record_type": "review_run"}\n'
             # P1: non-empty ledger + wave.md with neither declaration nor marker
@@ -2508,6 +2513,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
+                # declaration-check: remove declaration for the legacy council-verdict contract.
                 "review-evidence-source: events.jsonl\n", ""
             ),
             encoding="utf-8",
@@ -2536,58 +2542,30 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             encoding="utf-8",
         )
 
-    def _declare_with_typed_readiness(self, root: Path) -> None:
-        """Add a schema-valid typed readiness approval with no prose verdict."""
-        import review_evidence
-
-        wave_md = root / self.ACTIVE_WAVE
-        text = wave_md.read_text(encoding="utf-8")
-        if "review-evidence-source: events.jsonl" not in text:
-            text = text.replace(
-                "Last verified:",
-                "review-evidence-source: events.jsonl\nLast verified:",
-                1,
-            )
-        wave_md.write_text(text, encoding="utf-8")
-        approval = {
-            "record_type": "executable_evidence",
-            "evidence_record_id": "approval-wave-council-readiness",
-            "claim_id": "approval:wave-council-readiness",
-            "claim_kind": "approval",
-            "required_for_approval": True,
-            "phase": "readiness",
-            "proposition": "readiness council independently approved the plan",
-            "counterexample_or_failure_condition": "the plan still has a blocking finding",
-            "execution_status": "executed",
-            "public_path": "wf_review_event",
-            "command_or_fixture": "PrepareCouncilVerdictLintTests typed readiness",
-            "expected": "a current typed readiness approval",
-            "observed": "the typed approval was recorded",
-            "artifact_or_test_id": "test:typed-readiness-no-prose",
-            "adjacent_controls": ["legacy missing-verdict fixture"],
-            "test_ran_without_unintended_skip": True,
-            "public_path_reached": True,
-            "boundary_values_realistic": True,
-            "assertions_non_vacuous": True,
-            "known_bad_detected": True,
-            "known_bad_detection_method": "remove typed approval control",
-            "limitations": "temporary local fixture",
-            "safety_and_authorization": "local temporary fixture only",
-            "probe_class": "local_safe",
-            "authorization_status": "not_required",
-            "safe_boundary": False,
-            "unexecuted_remainder_prohibited": False,
-            "universal_claim": False,
-            "verification_context": {
-                "actor": "wave-council",
-                "context_id": "ctx-typed-readiness-no-prose",
-                "fresh_context": True,
-                "independent": True,
-            },
-        }
-        review_evidence.review_event_path(wave_md).write_bytes(
-            review_evidence.canonical_review_events_bytes((approval,))
+    def _declare_with_typed_readiness(self, root: Path) -> Path:
+        """Create the valid lifecycle prerequisite through its actual producers."""
+        from server_tools_support import (
+            load_server, declared_wave_doc_gates, make_declared_wave,
+            review_policy_config,
         )
+        from test_declared_wave_fixtures import fixture_doc_stubs
+
+        srv = load_server()
+        config_path = root / "docs/workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["wave_review"] = review_policy_config()
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        stubs = fixture_doc_stubs()
+        with declared_wave_doc_gates(srv, stubs):
+            change = srv._change_create_response(root, "enh", "typed-readiness", mode="create")
+        self.assertEqual(change["status"], "ok", change)
+        _wave_id, wave_md = make_declared_wave(
+            srv, root, "typed-readiness", status="implementing",
+            change_ids=(change["data"]["change_id"],), ready=True,
+            readiness_run=True, approvals=("wave-council-readiness",),
+            doc_gate_stubs=stubs,
+        )
+        return wave_md
 
     def test_active_wave_with_council_verdict_passes(self) -> None:
         root = self.copy_fixture()
@@ -2640,17 +2618,17 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         """1tsyx AC-2 red-first at the only pre-change hard-error status."""
         from wave_lint_lib.wave_validators import check_prepare_council_verdict
 
-        root = self.copy_fixture()
+        from server_tools_support import _make_repo
+
+        root = _make_repo(Path(tempfile.mkdtemp(prefix="typed-readiness-lint-")))
         try:
-            self._patch_wave_status(root, "implementing")
-            self._declare_with_typed_readiness(root)
-            wave_md = root / self.ACTIVE_WAVE
+            wave_md = self._declare_with_typed_readiness(root)
             wave_text = wave_md.read_text(encoding="utf-8")
             self.assertNotIn("prepare-council", wave_text.casefold())
             records, ledger_errors = read_review_event_ledger(wave_md)
             self.assertFalse(ledger_errors, ledger_errors)
             self.assertEqual(
-                [record.get("claim_id") for record in records],
+                [record["claim_id"] for record in records if record.get("record_type") == "executable_evidence"],
                 ["approval:wave-council-readiness"],
             )
             errors, warnings = check_prepare_council_verdict(root)
@@ -2671,6 +2649,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
 
             wave_md.write_text(
                 base
+                # negative-fixture: narrative mention must not be parsed as a declaration.
                 + "\n## Notes\n\nThe token `review-evidence-source: events.jsonl` is discussed here only.\n",
                 encoding="utf-8",
             )
@@ -6042,6 +6021,7 @@ class RecordLayoutLintTests(unittest.TestCase):
                 text = (
                     original.replace("wave-id: `00057 routine-behavior-contract`", f"wave-id: `{wave_id}`")
                     .replace("Status: active", f"Status: {status}", 1)
+                    # declaration-check: remove declaration to exercise legacy wave discovery.
                     .replace("review-evidence-source: events.jsonl\n", "")
                 )
                 (target / "wave.md").write_text(text, encoding="utf-8")

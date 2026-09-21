@@ -1,0 +1,26 @@
+{
+  "tree_fingerprint": "cdc9ed9135af6cc1b508a349f858cca75810a0e1db9d00924f743c76447f2c61",
+  "paths": {
+    ".wavefoundry/framework/scripts/tests/server_tools_support.py": "db9d9760d3dbe1ec1e2bb89302ae31933409cde0",
+    ".wavefoundry/framework/scripts/tests/test_dashboard_server.py": "6183ebc9b5ec1c010c5df1aecdf663d182ee7330",
+    ".wavefoundry/framework/scripts/tests/test_declared_wave_fixtures.py": "deeb348965834da9f27ebcd6ca249f56dc46e940",
+    ".wavefoundry/framework/scripts/tests/test_docs_lint.py": "d7866e35b8b10582c1dea182041b4e818be2beea",
+    ".wavefoundry/framework/scripts/tests/test_fixture_fidelity_guidance.py": "7dae36a79c623d787d2a891f2fafbaa5055a7b6b",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "6d719bb0926c536f05373101cac2814298ba6beb",
+    ".wavefoundry/framework/scripts/tests/test_memory_records.py": "876191df5672912492334dc3eb82b384e43f8d03",
+    ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py": "d90a982330243caa37d531ec3a836ddfca1955c4",
+    ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "324a3b15901430327497d90c07e92cf8bffd6b88",
+    ".wavefoundry/framework/scripts/tests/test_review_policy.py": "7442e490cd439619742cd57c6ba11053953826a1",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "442eda91a6fb22dd8f4d7a4623424df7997560fc",
+    ".wavefoundry/framework/scripts/tests/test_setup_wavefoundry.py": "8aef79a36a625b7e1e95374e71a5307e4a4989d5",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "17ee89347728aa3af544e8f25569bf16a306604a",
+    ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "6e6ad280fe00e74417b6384af39379e69bf079e2",
+    ".wavefoundry/framework/seeds/239-qa-reviewer.prompt.md": "77c4f5e9aec371a42b23905f81aa19de32cb138e",
+    "docs/agents/qa-reviewer.md": "bbbe80c858553cc542feddc3c771c74065bd4c22"
+  },
+  "time_budget": "12 minutes per independent context",
+  "sweep_rule": "targeted tests per mutant; whole-file runs only for survivors; no repository source mutation",
+  "baseline": "8877a000",
+  "limitations": "Preexisting generated docs differences and planned1ycrj excluded; no productruntimecode changed",
+  "repair": "Synthetic status applied only after all producers; legacy ready rejected; producer-input and rejection controls strengthened."
+}

@@ -1,0 +1,278 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_policy.py",
+    "line": 528,
+    "classification": "component-fixture",
+    "reason": "_repo preserves historical representation as the compatibility subject"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py",
+    "line": 855,
+    "classification": "declaration-check",
+    "reason": "asserts the declaration contract; creates no lifecycle state"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_setup_wavefoundry.py",
+    "line": 795,
+    "classification": "declaration-check",
+    "reason": "asserts the declaration contract; creates no lifecycle state"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_indexer.py",
+    "line": 168,
+    "classification": "component-fixture",
+    "reason": "test_excludes_only_canonical_wave_event_ledgers exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_indexer.py",
+    "line": 318,
+    "classification": "component-fixture",
+    "reason": "test_ledger_stays_excluded_after_source_tamper_without_state_lookup exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_indexer.py",
+    "line": 1269,
+    "classification": "component-fixture",
+    "reason": "test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_indexer.py",
+    "line": 1347,
+    "classification": "component-fixture",
+    "reason": "test_incremental_exclusion_reaps_previously_indexed_canonical_ledger exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_indexer.py",
+    "line": 1443,
+    "classification": "component-fixture",
+    "reason": "test_incremental_ledger_add_modify_delete_are_semantic_noops exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 267,
+    "classification": "declaration-check",
+    "reason": "replace declaration with retired inline protocol for rejection."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 277,
+    "classification": "declaration-check",
+    "reason": "assert the actionable missing-declaration diagnostic."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 291,
+    "classification": "declaration-check",
+    "reason": "replace declaration with retired inline protocol for rejection."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 309,
+    "classification": "declaration-check",
+    "reason": "assert the actionable missing-declaration diagnostic."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 326,
+    "classification": "component-fixture",
+    "reason": "orphan-ledger classifier consumes minimal declared input."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 2517,
+    "classification": "declaration-check",
+    "reason": "remove declaration for the legacy council-verdict contract."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 2653,
+    "classification": "negative-fixture",
+    "reason": "narrative mention must not be parsed as a declaration."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_docs_lint.py",
+    "line": 6025,
+    "classification": "declaration-check",
+    "reason": "remove declaration to exercise legacy wave discovery."
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "line": 3696,
+    "classification": "declaration-check",
+    "reason": "asserts the declaration contract; creates no lifecycle state"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "line": 7734,
+    "classification": "component-fixture",
+    "reason": "_seed_history preserves historical representation as the compatibility subject"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "line": 9775,
+    "classification": "component-fixture",
+    "reason": "test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner preserves historical representation as the compatibility subject"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2141,
+    "classification": "component-fixture",
+    "reason": "make_external_wave exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2198,
+    "classification": "component-fixture",
+    "reason": "test_source_declaration_and_fixed_sibling_path_are_exact exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2223,
+    "classification": "component-fixture",
+    "reason": "test_external_validation_reads_events_not_projection exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2232,
+    "classification": "negative-fixture",
+    "reason": "test_external_validation_reads_events_not_projection deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2241,
+    "classification": "component-fixture",
+    "reason": "test_external_validation_reads_events_not_projection exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2264,
+    "classification": "negative-fixture",
+    "reason": "test_declared_wave_must_not_retain_inline_marker_or_fence deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2276,
+    "classification": "component-fixture",
+    "reason": "test_declared_wave_must_not_retain_inline_marker_or_fence exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2291,
+    "classification": "negative-fixture",
+    "reason": "test_declared_wave_must_not_retain_inline_marker_or_fence deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2321,
+    "classification": "declaration-check",
+    "reason": "asserts the declaration contract; creates no lifecycle state"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2329,
+    "classification": "component-fixture",
+    "reason": "test_external_projection_contains_no_inline_jsonl_authority exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2341,
+    "classification": "component-fixture",
+    "reason": "test_external_projection_migrates_legacy_owned_markers preserves historical representation as the compatibility subject"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2363,
+    "classification": "component-fixture",
+    "reason": "test_external_projection_uses_plain_summary_without_html exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 2380,
+    "classification": "component-fixture",
+    "reason": "test_legacy_bodyless_details_form_validates_without_rewrite preserves historical representation as the compatibility subject"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 3502,
+    "classification": "negative-fixture",
+    "reason": "test_external_ledger_symlink_is_rejected_as_authority deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 3527,
+    "classification": "negative-fixture",
+    "reason": "test_wave_docs_routes_marked_records_through_shared_validator deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4314,
+    "classification": "component-fixture",
+    "reason": "test_dispatch_on_declaration exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4330,
+    "classification": "component-fixture",
+    "reason": "test_typed_signoff_requires_exact_actor_and_ignores_prose exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4366,
+    "classification": "component-fixture",
+    "reason": "test_typed_max_severity_maps_impact_facts_not_words exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4392,
+    "classification": "component-fixture",
+    "reason": "test_typed_max_severity_ignores_prose_severity_words exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4411,
+    "classification": "component-fixture",
+    "reason": "test_resolve_reads_ledger_for_declared_wave exercises this input representation directly"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4439,
+    "classification": "negative-fixture",
+    "reason": "_declared_wave deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_evidence.py",
+    "line": 4533,
+    "classification": "negative-fixture",
+    "reason": "test_validate_unreadable_message_names_file_and_cause_path_free deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py",
+    "line": 628,
+    "classification": "declaration-check",
+    "reason": "asserts the declaration contract; creates no lifecycle state"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py",
+    "line": 678,
+    "classification": "declaration-check",
+    "reason": "removes or corrupts a declaration to test fail-closed behavior"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py",
+    "line": 987,
+    "classification": "negative-fixture",
+    "reason": "test_marked_review_evidence_is_enforced_by_prepare_review_and_close deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py",
+    "line": 7175,
+    "classification": "negative-fixture",
+    "reason": "test_no_read_failure_message_leaks_the_absolute_path deliberately supplies invalid or unreadable authority"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py",
+    "line": 10945,
+    "classification": "component-fixture",
+    "reason": "_policy_state exercises this input representation directly"
+  }
+]

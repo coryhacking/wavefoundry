@@ -3692,6 +3692,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")
+            # declaration-check: asserts the declaration contract; creates no lifecycle state
             self.assertIn("review-evidence-source: events.jsonl", create_text)
             self.assertEqual(
                 create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN), 1
@@ -7729,6 +7730,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             }
         ]
         text = (
+            # component-fixture: _seed_history preserves historical representation as the compatibility subject
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
             + re_.empty_external_finding_synthesis_section()
             + "\n## Review Evidence\n\n- operator-signoff: pending\n"
@@ -9769,6 +9771,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         wave_dir = self.root / "docs" / "waves" / "1hist external"
         wave_dir.mkdir()
         wave_bytes = (
+            # component-fixture: test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner preserves historical representation as the compatibility subject
             b"# Wave\nreview-evidence-source: events.jsonl\n\n"
             b"## Finding Synthesis\n\nHistorical narrative.\n"
         )

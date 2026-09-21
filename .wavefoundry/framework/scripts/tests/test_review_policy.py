@@ -524,6 +524,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         open_md.parent.mkdir(parents=True)
         open_md.write_text(
             "# Wave\n\nStatus: implementing\nreview-evidence-protocol: `2`\n"
+            # component-fixture: _repo preserves historical representation as the compatibility subject
             "review-evidence-source: events.jsonl\n\n## Participants\n\n"
             "- Requested review lanes: none\n- Required review lanes: none\n\n"
             "## Finding Synthesis\n\n"

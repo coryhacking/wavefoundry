@@ -791,6 +791,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             create_text = (
                 root / "docs" / "prompts" / "create-wave.prompt.md"
             ).read_text(encoding="utf-8")
+            # declaration-check: asserts the declaration contract; creates no lifecycle state
             self.assertIn("review-evidence-source: events.jsonl", create_text)
             self.assertEqual(
                 create_text.count(ras.CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN), 1
