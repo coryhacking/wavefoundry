@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-21
 
 Shortcut: **`Close wave`**
 
@@ -34,6 +34,15 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 **Automatic gate — framework test receipt** (wave `1wur7`, framework SOURCE repositories only, nothing to record by hand): `wf_close_wave` verifies the existing `.wavefoundry/framework/test-cache.json` receipt — `result == "ok"` with an `inputs_hash` matching the current framework tree — and returns a blocking `framework_test_receipt_not_proven` diagnostic when it is missing, red, stale, or unreadable. Read the `framework_test_receipt` field on the response; do not invent a checklist line for it. The gate runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`, and run it LAST, because any edit under `.wavefoundry/framework/` (a seed edit made during closure included) invalidates the receipt. Two scope facts belong together. The receipt's `inputs_hash` covers `.wavefoundry/framework/` only, so only its STALENESS is framework-scoped. But `run_tests.py` writes a receipt only when the WHOLE suite is green, so a failure triggered by content under `docs/` prevents a NEW receipt from being written; when the framework tree also changed the standing receipt is stale and close is blocked, while in a documentation-only wave a current green receipt persists and close is not blocked despite a red suite. The gate is therefore not a whole-repository *guarantee* (a green receipt attests the framework code, not the tree), and it is not a whole-repository *exemption* either. Where the runner is absent — any repository consuming the packaged framework, since the distribution excludes it — the check is a documented no-op that neither blocks nor claims proof, and this item does not apply.
 
 **Close-handoff surfacing of `[~]` items:** the close summary in `## Wave Summary` must list every `[~]` AC across the wave's admitted changes, grouped by change, with the inline status note. Future-readers see them as one discoverable list of intentional deferrals rather than scattered across individual change docs.
+
+## Wave-folder cleanup
+
+Before final docs validation and the close mutation, tidy only artifacts established to belong to this wave. Dates and filenames are discovery hints, not proof of ownership.
+
+- Keep `wave.md`, admitted change docs and authoritative `events.jsonl` in place. Preserve unique review evidence, reproducible probes and historical fingerprints needed to substantiate claims. Never rewrite ledger history for cosmetic cleanup.
+- Remove only verified disposable scratch output or redundant copies with no unique evidence and no live references. If ownership, uniqueness or reference use is uncertain, retain the artifact and note why.
+- Group movable supporting files under `evidence/` when useful; no fixed layout is required. Keep ledger-cited paths stable. Update mutable links and reproduction commands after any move, and verify they resolve and remain usable. Leave other waves and unrelated files untouched.
+- Consolidate repeated status notes into the final outcome and an evidence index in the existing wave summary or delivery report; do not erase historical review conclusions. Record the cleanup disposition and retained exceptions there, then run the existing docs gate. No separate cleanup report or new validator is required.
 
 ## What Goes in Wave Summary
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-21
 
 Shortcut: **`Finalize feature`**
 
@@ -21,7 +21,8 @@ Single-change closure path. Use after **Implement feature** to close the wave co
    candidate against its evidence and current target with
    `memory_validate` (promote, retain, reject, or rewrite). Zero-memory
    changes are valid.
-7. Update wave record: `Status: completed`, `Completed at:` date.
-8. Clear or refresh `docs/agents/session-handoff.md`.
+7. Follow **Wave-folder cleanup** in `docs/prompts/close-wave.prompt.md`, then run the existing docs gate before closing.
+8. Update wave record: `Status: completed`, `Completed at:` date.
+9. Clear or refresh `docs/agents/session-handoff.md`.
 
 See `docs/prompts/close-wave.prompt.md` for the full closure requirements — they apply to single-change waves too.

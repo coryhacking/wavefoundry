@@ -10,6 +10,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Tidy wave folders during close.** Closure guidance distinguishes disposable scratch from durable evidence, preserves ledger references, and organizes supporting artifacts before final validation. Wave `1ykqj`.
+
 - **Choose agent models for the assignment.** Fresh Claude wrappers omit fixed model/effort defaults; rendering preserves existing operator choices and skips malformed frontmatter unchanged. Shared guidance makes delegation-time selection explicit without provider rankings or new gates. Wave `1ycrj`.
 
 ## [1.25.0] - 2026-09-17
