@@ -167,6 +167,7 @@
           "lint_passed": true,
           "mode": "create",
           "readied": false,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -236,6 +237,7 @@
           "lint_passed": true,
           "mode": "dry_run",
           "readied": false,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -308,6 +310,7 @@
           "lint_passed": true,
           "mode": "ready",
           "readied": true,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -834,6 +837,7 @@
           "garden_passed": true,
           "lint_passed": true,
           "mode": "create",
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -880,6 +884,18 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
           }
         ],
         "isError": true,
@@ -909,6 +925,7 @@
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -955,6 +972,18 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
           }
         ],
         "isError": true,
@@ -984,6 +1013,7 @@
           "garden_passed": true,
           "lint_passed": true,
           "mode": "ready",
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -1030,6 +1060,18 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
           }
         ],
         "isError": true,
@@ -1507,6 +1549,7 @@
           "lint_passed": true,
           "mode": "create",
           "readied": false,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -1548,7 +1591,20 @@
           "updated": true,
           "wave_id": "0exxk fixture-planned"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='prepare')"
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],
@@ -1577,6 +1633,7 @@
           "lint_passed": true,
           "mode": "dry_run",
           "readied": false,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -1617,7 +1674,20 @@
           "updated": false,
           "wave_id": "0exxk fixture-planned"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='prepare')"
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],
@@ -1649,6 +1719,7 @@
           "lint_passed": true,
           "mode": "ready",
           "readied": true,
+          "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
@@ -1689,7 +1760,20 @@
           "updated": true,
           "wave_id": "0exxk fixture-planned"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "readiness_lane_approvals_missing",
+            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "missing_lanes": [
+              "code-reviewer"
+            ],
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='prepare')"
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],

@@ -94,6 +94,12 @@ Change document format:
 
 If a change edits `canonical_review_policy_body` or any of its normalizers, say so in the change document and expect a one-time cost that no other edit has. Those functions decide what the review-policy digest SEES, so changing them re-digests every change document in the repository at once, lapsing every readiness approval in every open wave with no document edited. Plan for one re-Prepare per open wave, disclose it, and avoid making the edit while waves are readied but unclosed without saying so.
 
+### Plan shape and readiness repairs
+
+- A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.
+- An acceptance criterion names the observable outcome and kind of oracle. Exact mutation, known-bad and fixture mechanics are designed during implementation and judged at delivery; readiness verifies that the criterion can pass and can fail without prescribing those mechanics.
+- A readiness repair narrows or deletes a claim it cannot verify rather than elaborating it. Explicitly identify any new mechanism introduced by the repair as new review surface.
+
 ### Acceptance criteria assert what the change controls
 
 An acceptance criterion states an outcome **this change owns** and that a

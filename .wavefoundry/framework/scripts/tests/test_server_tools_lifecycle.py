@@ -9748,6 +9748,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("change_sections_gate", "_diagnostic", "ac_priority_unpopulated"),
                 ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
+                ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_receipt_publications_high"),
+                ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_lane_approvals_missing"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
                 # Wave 1vbuu (1vbut): code_impact's test-visibility note is a
                 # read-only retrieval advisory on a query tool, not a lifecycle
@@ -10265,8 +10267,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         codes = [(d["code"], d.get("advisory")) for d in resp.get("diagnostics") or []]
         self.assertEqual(
-            codes, [("ac_priority_unpopulated", True)],
-            "the fixture must produce exactly one advisory and no blocker",
+            codes, [("ac_priority_unpopulated", True), ("readiness_lane_approvals_missing", True)],
+            "the fixture must produce only the two expected advisories and no blocker",
         )
         self.assertEqual(published, [1], "an advisory must not suppress publication")
         self.assertEqual(resp["status"], "ok")
@@ -10348,7 +10350,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(resp["status"], "ok", resp)
         self.assertEqual(
             [d["code"] for d in resp.get("diagnostics") or []],
-            ["ac_priority_unpopulated"],
+            ["ac_priority_unpopulated", "readiness_lane_approvals_missing"],
         )
         # Publication guard + both failure gates each evaluate the shared list.
         self.assertGreaterEqual(

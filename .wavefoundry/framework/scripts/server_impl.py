@@ -4041,7 +4041,7 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
     kwargs = real_extras
     response = _response(
         "error",
-        {"tool": tool_name, "rejected_arguments": sorted(kwargs.keys())},
+        {"tool": tool_name, "rejected_arguments": sorted(kwargs.keys()), **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
         diagnostics=[
             _diagnostic(
                 "unknown_arguments",
@@ -17235,6 +17235,79 @@ def _configured_phase_envelope(handler):
     return wrapped
 
 
+READINESS_RECEIPT_PUBLICATION_ADVISORY_THRESHOLD = 5
+
+
+def _prepare_lane_review_state(root: Path, wave_md: Path, wave_text: str):
+    """One roster/currency calculation for Prepare advice and activation."""
+    wave_lanes = _extract_required_review_lanes(wave_text)
+    project_lanes = _read_project_required_review_lanes(root)
+    required_lanes = wave_lanes + [lane for lane in project_lanes if lane not in wave_lanes]
+    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+    missing_lanes = [
+        lane for lane in required_lanes
+        if not authority.signoff_current(lane, section="prepare", approval_phase="readiness")
+    ]
+    return authority, missing_lanes
+
+
+def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dict[str, Any]) -> dict[str, Any]:
+    """Observe the final ledger, including this call's publication; never gate."""
+    data = response.setdefault("data", {})
+    data["readiness_receipts"] = None
+    if data.get("record_layout_valid") is False or "ambiguous_wave_ids" in data:
+        return response
+    try:
+        wave_md, _, _ = _find_wave_md_detailed(root, wave_id)
+        if wave_md is None:
+            return response
+        records, errors = read_review_event_ledger(wave_md)
+        if not errors:
+            count = 0
+            for record in records:
+                if record.get("record_type") == "review_run" and record.get("run_kind") == "initial_delivery":
+                    break
+                if record.get("record_type") == "review_policy_receipt":
+                    count += 1
+            data["readiness_receipts"] = count
+            if count > READINESS_RECEIPT_PUBLICATION_ADVISORY_THRESHOLD:
+                response.setdefault("diagnostics", []).append(_diagnostic(
+                    "readiness_receipt_publications_high",
+                    f"This wave has {count} review-policy receipt publications before initial delivery. "
+                    "Prepare publications are unusually frequent; inspect readiness churn. "
+                    "This is a publication count, not a review-round budget or proof of convergence.",
+                    advisory=True,
+                ))
+        wave_text, _ = _read_wave_record_text(wave_md)
+        if wave_text is None:
+            return response
+        authority, missing_lanes = _prepare_lane_review_state(root, wave_md, wave_text)
+        if not authority.ledger_errors and missing_lanes:
+            diagnostic = _diagnostic(
+                "readiness_lane_approvals_missing",
+                "Implementation still requires current readiness approvals from: "
+                + ", ".join(missing_lanes) + ". Re-review the repaired packet and record approvals against the current receipt.",
+                recovery_tools=["wf_review_wave"],
+                recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
+                advisory=True,
+            )
+            diagnostic["missing_lanes"] = missing_lanes
+            response.setdefault("diagnostics", []).append(diagnostic)
+    except (OSError, ValueError, record_paths.RecordLayoutInvalid, record_paths.AmbiguousWaveId):
+        # Observation must not replace an existing refusal or change success.
+        pass
+    return response
+
+
+def _prepare_readiness_envelope(handler):
+    @functools.wraps(handler)
+    def wrapped(root, wave_id, *args, **kwargs):
+        response = handler(root, wave_id, *args, **kwargs)
+        return _attach_prepare_readiness_advisories(root, wave_id, response)
+    return wrapped
+
+
+@_prepare_readiness_envelope
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_prepare_wave")
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -18176,37 +18249,30 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # Gate 2: prepare-phase lane review — signoff currency via the authority
     # facade (wave 1to78): typed-exclusive on declared waves, `## Prepare
     # Review Evidence` prose on legacy waves. The roster parse stays prose.
-    wave_lanes = _extract_required_review_lanes(wave_text)
-    project_lanes = _read_project_required_review_lanes(root)
-    required_lanes = wave_lanes + [l for l in project_lanes if l not in wave_lanes]
-    if required_lanes:
-        _gate2_authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
-        missing_lanes = [lane for lane in required_lanes if not _gate2_authority.signoff_current(lane, section="prepare", approval_phase="readiness")]
-        if missing_lanes:
-            # Wave 1to78 delivery repair (DF2, message-only): remediation
-            # text branches on the resolved authority (predicate unchanged).
-            # Tests assert the typed wording on a declared fixture and the
-            # legacy wording on prose fixtures.
-            if _gate2_authority.typed:
-                _gate2_message = (
-                    f"Prepare-phase lane review incomplete; lanes without a current typed approval: {', '.join(missing_lanes)}. "
-                    "Run wf_review_wave(phase='prepare') and record a typed approval event per lane via "
-                    "wf_review_event(event='approval', signoff_key=<lane name above>, mode='create') "
-                    "before calling wf_implement_wave."
-                )
-            else:
-                _gate2_message = (
-                    f"Prepare-phase lane review incomplete — missing signoffs in `## Prepare Review Evidence`: {', '.join(missing_lanes)}. "
-                    "Run wf_review_wave(phase='prepare') and record each lane signoff before calling wf_implement_wave."
-                )
-            diagnostics.append(_diagnostic(
-                "prepare_review_incomplete",
-                _gate2_message,
-                recovery_tools=["wf_review_wave", "wf_current_wave"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
-            ))
-    else:
-        missing_lanes = []
+    _gate2_authority, missing_lanes = _prepare_lane_review_state(root, wave_md, wave_text)
+    if missing_lanes:
+        # Wave 1to78 delivery repair (DF2, message-only): remediation
+        # text branches on the resolved authority (predicate unchanged).
+        # Tests assert the typed wording on a declared fixture and the
+        # legacy wording on prose fixtures.
+        if _gate2_authority.typed:
+            _gate2_message = (
+                f"Prepare-phase lane review incomplete; lanes without a current typed approval: {', '.join(missing_lanes)}. "
+                "Run wf_review_wave(phase='prepare') and record a typed approval event per lane via "
+                "wf_review_event(event='approval', signoff_key=<lane name above>, mode='create') "
+                "before calling wf_implement_wave."
+            )
+        else:
+            _gate2_message = (
+                f"Prepare-phase lane review incomplete — missing signoffs in `## Prepare Review Evidence`: {', '.join(missing_lanes)}. "
+                "Run wf_review_wave(phase='prepare') and record each lane signoff before calling wf_implement_wave."
+            )
+        diagnostics.append(_diagnostic(
+            "prepare_review_incomplete",
+            _gate2_message,
+            recovery_tools=["wf_review_wave", "wf_current_wave"],
+            recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
+        ))
 
     # Gate 3 (wave 1p45l): single-OPEN guard — at most one wave may be OPEN (active/implementing).
     # This is the relocated single-OPEN enforcement point; readiness paths (prepare ready/dry_run)
@@ -24249,7 +24315,7 @@ def _lifecycle_mutation_lock(root: Path):
 def _lifecycle_mutation_busy_response(tool_name: str, lock_path_hint: str) -> dict[str, Any]:
     return _response(
         "error",
-        {"tool": tool_name, "busy": True, "lock": _LIFECYCLE_MUTATION_LOCK_NAME},
+        {"tool": tool_name, "busy": True, "lock": _LIFECYCLE_MUTATION_LOCK_NAME, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
         diagnostics=[_diagnostic(
             "lifecycle_mutation_locked",
             (
@@ -24292,7 +24358,7 @@ def _wrap_lifecycle_mutation_lock(mcp: Any, get_handler: Any) -> None:
                 except Exception as exc:  # noqa: BLE001
                     return _response(
                         "error",
-                        {"tool": tool_name, "mutation_applied": False},
+                        {"tool": tool_name, "mutation_applied": False, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
                         diagnostics=[
                             _diagnostic(
                                 "lifecycle_lock_unavailable",
@@ -24337,7 +24403,7 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
                 if reason is not None:
                     return _response(
                         "error",
-                        {"tool": tool_name, "upgrade_in_progress": True},
+                        {"tool": tool_name, "upgrade_in_progress": True, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
                         diagnostics=[
                             _diagnostic(
                                 "upgrade_in_progress",
@@ -24353,7 +24419,7 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
                 except ProjectPublicationUnavailable as exc:
                     return _response(
                         "error",
-                        {"tool": tool_name, "publication_applied": False},
+                        {"tool": tool_name, "publication_applied": False, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
                         diagnostics=[
                             _diagnostic(
                                 "project_publication_busy",

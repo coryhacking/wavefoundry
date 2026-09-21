@@ -69,6 +69,34 @@ Run in this order:
 
    **Two-tier identity handling (non-waiver guard).** Anonymization governs only the convergence/agreement assessment. A finding that carries blocking authority from a required specialist lane **retains its lane attribution and blocking status at all times** — anonymization must never be used to merit-weight a blocking required-lane finding below blocking. When in doubt, treat the finding as attributed and blocking.
 
+### Bounded readiness review
+
+Run one full readiness review using the Council Protocol above. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
+
+After the first full readiness review, focused review is the default. Settlement is optional descriptive prose in `## Review Checkpoints`; neither settlement nor its absence changes scope, the automatic budget, blocking authority or receipt currency. Reopen an accepted design decision only for a concrete defect under seed 209's readiness finding bar or an explicit operator decision.
+
+Perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, then conduct one focused verification round. Each finding's source and blocking lanes replay that finding. Other previously approving lanes and the council review the repair's effects; a newly required lane reviews its remit once. Every required lane and the council re-record required readiness approvals against the current receipt after publication. A closed finding does not substitute for a current approval.
+
+The packet includes original findings, the repair diff, and directly affected requirements, code and contracts, including unchanged context needed to detect contradictions and regressions. Do not solicit unrelated findings or repeat a whole-document sweep. Never suppress an already discovered blocker because it lies outside the packet. Reverification preserves the original judgment unless evidence changes it; the boundary excludes unrelated exploration, not context needed to check the repair.
+
+At the end of focused verification, escalate every remaining blocker to the operator, whether an unsuccessful repair or a new defect. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record that decision and its scope in `## Review Checkpoints`. Material scope or authority changes follow existing replanning/full-council rules. Approval is not promised; this protocol never waives required-lane authority. Carry notes in the wave record as implementation notes instead of triggering another plan edit/publication.
+
+A wording preference or a different valid design is an untyped note. A demonstrated build-changing defect remains blocking and follows the stop/escalation rule even when expressed as disagreement with an accepted decision. A substantive unresolved choice that prevents correct implementation is not a wording preference.
+
+Review rounds are not repair-cycle numbers. Existing aggregate repair-cycle bookkeeping and the single convergence checkpoint remain unchanged; earlier readiness repairs may already have consumed that checkpoint. Delivery's automatic repair behavior is unchanged.
+
+### Focused readiness briefing
+
+Use this packet for the one focused verification round:
+
+- Original findings: IDs, original judgment, `source_lanes`, `blocking_required_lanes`, and reproduction evidence.
+- Repair diff: exact changes and any newly introduced mechanism.
+- Affected contracts/context: requirements, code and contracts, including unchanged context needed to detect contradictions and regressions.
+- Current receipt: receipt identity after `wf_prepare_wave(mode="ready")` publishes the repaired packet.
+- Required lanes: finding replay owners, previously approving lanes, newly required lanes, and council; identify approvals needing refresh against the current receipt.
+- Concrete verification questions: does the repair close each original defect, preserve affected contracts, and introduce a replacement defect?
+- Stop/escalation rule: at the end of this focused verification, escalate every remaining blocker to the operator; do not begin another automatic repair/review round or unrelated sweep.
+
 ## Core Purpose
 
 **The council output should make the work better.** A verdict that only passes or fails without improving the design, implementation, or decision is an incomplete council output. The synthesis must leave the wave in a stronger position than before the council ran.
@@ -92,6 +120,8 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 `wave-council` also chairs **Archetype Council** invocations (the stance-based sibling of the role-based Wave Council). Phase shape is identical: primer (optional) → seats in isolation → synthesis. Seat composition is stance-based — Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman by default; documented Hemingway / Munger swap-ins — rather than role-based. Verdict format matches the structured `archetype-review` line shape, recorded in the artifact's review section as forward-compat scaffolding (no validator consumes it in v1). The Archetype Council is **optional** and operator-invoked; it does not record lifecycle signoffs and does not gate any lifecycle step. Required Wave Council phases follow `wave_review.enabled` and the explicit delivery mode/Prepare receipt; Archetype Council runs *in addition*, not in place of. Seed: `236-archetype-council.prompt.md`.
 
 ## Relationship To Implementation Activation
+
+Every required lane must have a current readiness approval bound to the current receipt before implementation activation. Council approval does not replace those lane approvals; publication can lapse prior approvals, which must be refreshed without restarting a whole-document review.
 
 The `wave-council-readiness` approval produced during `Prepare wave` confirms the wave is **admissible** for implementation. On declared waves, `wf_implement_wave` consumes that current typed approval directly; it does not ask the coordinator or council to repeat the pre-code review. A later high-risk implementation boundary may request an exceptional named checkpoint without creating a second lifecycle approval.
 

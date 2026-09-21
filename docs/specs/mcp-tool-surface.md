@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-09-20
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -191,6 +191,8 @@ site, not per diagnostic code**: `review_policy_receipt_stale` carries
 `wf_review_wave`, `wf_implement_wave`, `wf_review_event` and `wf_close_wave`,
 which key on code and ignore the field. Do not cache a code's classification
 across tools.
+
+The two additional sanctioned advisory emit sites are Prepare-only: `readiness_receipt_publications_high` and `readiness_lane_approvals_missing` in `wf_prepare_wave`. Both carry `advisory: true` and preserve the underlying Prepare outcome; no Review, Implement or Close emit site is added for either code.
 
 **Advisory docs-lint sensors** (wave `1wuju`): a sensor registered `advisory` in
 `wave_lint_lib/constants.py` (`SENSOR_POLARITY_REGISTRY`) reports through the
@@ -745,6 +747,10 @@ change remains active outside the wave.
   every mutating `wf_review_event` call refuses as above.
 
 `wf_prepare_wave(wave_id: str, mode: str = "dry_run")` — modes: `dry_run` (alias: `evaluate`) / `ready` / `create`
+
+- Every Prepare response reports `data.readiness_receipts`: the number of `review_policy_receipt` records before the ledger's first `initial_delivery` run, or all receipts when no such run exists, evaluated after any receipt publication by this call. A resolved readable empty ledger counts as `0`; an unresolved wave or unavailable/unreadable ledger counts as `null`, never a fabricated zero. The field is present on success and error responses, including outer refusal paths.
+- Only Prepare emits `readiness_receipt_publications_high` with `advisory: true` when `readiness_receipts` exceeds the named threshold of 5. It describes unusually frequent Prepare publications and invites inspection of review churn. Five is the historical 90th percentile, not a review-round budget: multiple review passes may share one receipt, so the count neither measures rounds nor proves convergence. The ledger-derived count is not reset by settlement prose or a fresh council, and the advisory never changes the Prepare outcome.
+- Only Prepare emits `readiness_lane_approvals_missing` with `advisory: true`, naming required lanes without a current readiness approval. Derive the lane set and approval currency exactly as `wf_implement_wave` does (the same configured wave/project lane union and readiness signoff-current predicate), after any receipt publication by the call. An unresolved wave or unavailable authority produces no invented lane result and does not replace existing errors. This advisory does not change Prepare's outcome or waive activation's existing lane-approval requirement.
 
 - Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy and unavailable refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
 

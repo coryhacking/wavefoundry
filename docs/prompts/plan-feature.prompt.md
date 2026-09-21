@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-09-20
 
 Shortcut: **`Plan feature`**
 
@@ -46,6 +46,12 @@ Ask only questions whose answers materially change the result: at most three for
    - if the operator's request clearly extends work already admitted into the current wave, prefer updating that existing change rather than creating a fresh one; extend that change's Acceptance Criteria and Tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
 6. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
 7. Note: **Review plan** is available as an optional stress-test of this change doc, or of the current wave when no change is named, before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. It records no typed signoff and satisfies no gate; **Review wave** is the distinct delivery-review lifecycle command.
+
+### Plan shape and readiness repairs
+
+- A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.
+- An acceptance criterion names the observable outcome and kind of oracle. Exact mutation, known-bad and fixture mechanics are designed during implementation and judged at delivery; readiness verifies that the criterion can pass and can fail without prescribing those mechanics.
+- A readiness repair narrows or deletes a claim it cannot verify rather than elaborating it. Explicitly identify any new mechanism introduced by the repair as new review surface.
 
 ## Stage Gate
 

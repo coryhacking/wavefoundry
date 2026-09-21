@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-08
+Last verified: 2026-09-20
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -25,12 +25,18 @@ Confirm wave readiness before implementation begins. The stage gate: implementat
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow). Use `mode='evaluate'` as the documented read-only alias for `dry_run`.
 
+## Bounded readiness review
+
+After the first full readiness review, focused review is the default. Collect typed findings, perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, and run one focused verification round. Include original findings, repair diff and directly affected contracts, including unchanged context needed to detect contradictions and regressions. Every required lane and the council re-record required readiness approvals against the current receipt after publication; source/blocking lanes replay findings, other approving lanes review repair effects, and newly required lanes review their remit once. At the end of focused verification, escalate every remaining blocker to the operator, whether original or new. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record the decision and scope in `## Review Checkpoints`. Approval is not promised; this protocol never waives required-lane authority. Settlement is descriptive only. Carry wording preferences as implementation notes; never suppress a demonstrated defect. Delivery's automatic repair behavior is unchanged.
+
+Follow `.wavefoundry/framework/seeds/215-wave-council.prompt.md` **Bounded readiness review** and **Focused readiness briefing**; seed 209 owns the readiness finding bar. Material scope or authority changes follow existing replanning/full-council rules. Review rounds are not aggregate repair-cycle numbers and do not reset the single convergence checkpoint.
+
 ## Readiness Verdict
 
 Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Prepare wave — readiness verdict`). The wave is ready when:
 - All admitted change docs are complete and wave-owned
 - Any admitted-doc placement drift was repaired or explicitly resolved
-- All required review lanes are confirmed
+- Every required lane has a current readiness approval bound to the current receipt
 - `wave-council-readiness` is recorded when `wave_review.enabled`
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)

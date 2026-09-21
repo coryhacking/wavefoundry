@@ -413,9 +413,23 @@ class LifecycleGoldenTests(unittest.TestCase):
                 check_golden(drifted, fixture, environ={UPDATE_ENV: "1", OVERWRITE_ENV: "1"}), [])
             self.assertNotEqual(fixture.read_bytes(), original)
 
-    def test_configured_provenance_is_the_only_change_from_extraction_golden(self):
+    def test_only_declared_observability_additions_since_extraction_golden(self):
         before = json.loads(GOLDEN_PATH.with_name("lifecycle-gate-pre-configured-golden.json").read_text())
         after = json.loads(GOLDEN_PATH.read_text())
+        # Readiness-convergence adds Prepare-only observation; preserve every
+        # preexisting field, outcome and diagnostic from the extraction oracle.
+        for responses in after['fixtures'].values():
+            for route, response in responses.items():
+                if route.startswith('prepare:'):
+                    self.assertIn('readiness_receipts', response['data'])
+                    response['data'].pop('readiness_receipts')
+                    response['diagnostics'] = [
+                        diagnostic for diagnostic in response['diagnostics']
+                        if diagnostic.get('code') not in {
+                            'readiness_receipt_publications_high',
+                            'readiness_lane_approvals_missing',
+                        }
+                    ]
         additions = []
         def strip(old, new, path="$"):
             if isinstance(old, dict) and isinstance(new, dict):
