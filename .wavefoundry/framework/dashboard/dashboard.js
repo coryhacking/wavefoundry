@@ -92,6 +92,15 @@ function todayLocalDate() {
 
 const p = (n, singular, plural) => n === 1 ? singular : plural;
 
+// Dashboard display labels only; protocol identifiers remain canonical.
+let terminology = {};
+function updateTerminology(labels) { terminology = labels || {}; }
+function tierLabel(tier, plural = false, capitalized = false) {
+  const singular = (terminology[tier] || tier).toLowerCase();
+  const label = singular + (plural ? "s" : "");
+  return capitalized ? label.charAt(0).toUpperCase() + label.slice(1) : label;
+}
+
 function relativeAge(isoString) {
   if (!isoString) return null;
   try {
@@ -212,13 +221,15 @@ function summarizeAc(counts = {}, completed = {}) {
   }).join(" · ") || "—";
 }
 
-const FRAMEWORK_FLOW = [
+// Rebuild on render so fetched labels also reach lifecycle titles and steps.
+function FRAMEWORK_FLOW() {
+  return [
   {
     id: "plan",
     step: "01",
-    title: "Plan Change",
-    summary: "Set the shape of the change before any edits begin.",
-    flow: ["Idea", "Scope", "Admitted change"],
+    title: `Plan ${tierLabel("change", false, true)}`,
+    summary: `Set the shape of the ${tierLabel("change")} before any edits begin.`,
+    flow: ["Idea", "Scope", `Admitted ${tierLabel("change")}`],
     body: `This is where an idea becomes a real change. You clarify what is in scope, what is out of scope, and why the change matters before anyone starts editing files.
 
 That early clarity matters because every later stage depends on it. If the scope is fuzzy, the wave gets harder to review, harder to implement, and easier to drift. When the plan is still unclear, the right move is to stay here and resolve the unknowns before the wave moves forward.`,
@@ -226,9 +237,9 @@ That early clarity matters because every later stage depends on it. If the scope
   {
     id: "prepare",
     step: "02",
-    title: "Prepare Wave",
-    summary: "Check readiness before the wave starts.",
-    flow: ["Review", "Open questions", "Prepare Wave"],
+    title: `Prepare ${tierLabel("wave", false, true)}`,
+    summary: `Check readiness before the ${tierLabel("wave")} starts.`,
+    flow: ["Review", "Open questions", `Prepare ${tierLabel("wave", false, true)}`],
     body: `This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.
 
 This phase matters because it catches avoidable mistakes before code or docs start moving. It is not just a paperwork step; it is where the wave earns the right to begin. If the evidence is thin, the dependencies are unclear, or the change still feels too broad, the wave goes back to planning instead of pretending it is ready.
@@ -238,9 +249,9 @@ When Prepare is done well, the team has a shared picture of what will happen nex
   {
     id: "implement",
     step: "03",
-    title: "Implement Wave",
-    summary: "Carry out the admitted changes and verify them.",
-    flow: ["Wave + change plans", "Implement each change", "Check tasks + ACs", "Write tests", "Prepare for review"],
+    title: `Implement ${tierLabel("wave", false, true)}`,
+    summary: `Carry out the admitted ${tierLabel("change", true)} and verify them.`,
+    flow: [`${tierLabel("wave", false, true)} + ${tierLabel("change")} plans`, `Implement each ${tierLabel("change")}`, `Check ${tierLabel("task", true)} + ACs`, "Write tests", "Prepare for review"],
     body: `This is the coding pass. Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.
 
 The first job is to read the wave and the change docs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
@@ -252,7 +263,7 @@ When the code, tests, and documented intent line up, the wave is ready for revie
   {
     id: "review",
     step: "04",
-    title: "Review Wave",
+    title: `Review ${tierLabel("wave", false, true)}`,
     summary: "Compare the result against evidence and acceptance criteria.",
     flow: ["Review", "Evidence", "Findings"],
     body: `This is the evidence check. Reviewers compare what actually changed against what the wave promised, looking for missing behavior, drift, or anything that still needs correction.
@@ -273,7 +284,8 @@ This phase matters because the work is not done when the code stops changing. Th
 
 That is what keeps the system useful over time: closure is not just an ending, it is the point where the wave becomes usable memory.`,
   },
-];
+  ];
+}
 
 function FrameworkProcessDiagram({ process }) {
   const steps = process.flow || [];
@@ -319,18 +331,19 @@ function FrameworkProcessDialog({ process, onClose }) {
 }
 
 function FrameworkFlow({ onSelectProcess }) {
-  if (!FRAMEWORK_FLOW.length) return null;
+  const processes = FRAMEWORK_FLOW();
+  if (!processes.length) return null;
 
   return h("div", { className: "framework-flow" },
     h("div", { className: "framework-flow-header" },
-      h("h2", { className: "framework-flow-heading" }, "Wave lifecycle"),
+      h("h2", { className: "framework-flow-heading" }, `${tierLabel("wave", false, true)} lifecycle`),
       h("p", { className: "framework-flow-note muted" },
-        "Click a stage to see how a change moves through a wave, from planning through review and close."
+        `Click a stage to see how a ${tierLabel("change")} moves through a ${tierLabel("wave")}, from planning through review and close.`
       ),
     ),
     h("div", { className: "framework-flow-diagram" },
-      h("div", { className: "framework-flow-path", "aria-label": "Wave Framework process flow" },
-        FRAMEWORK_FLOW.map((process, index) => [
+      h("div", { className: "framework-flow-path", "aria-label": `${tierLabel("wave", false, true)} Framework process flow` },
+        processes.map((process, index) => [
           h("button", {
             key: process.id,
             type: "button",
@@ -343,7 +356,7 @@ function FrameworkFlow({ onSelectProcess }) {
             h("strong", { className: "framework-flow-card-title" }, process.title),
             h("span", { className: "framework-flow-card-copy" }, process.summary),
           ),
-          index < FRAMEWORK_FLOW.length - 1
+          index < processes.length - 1
             ? h("span", { key: `${process.id}-arrow`, className: "framework-flow-arrow", "aria-hidden": "true" }, "→")
             : null,
         ]).flat().filter(Boolean),
@@ -371,6 +384,11 @@ function useDarkMode() {
 // ── Components ────────────────────────────────────────────────────────────────
 
 // SunIcon / MoonIcon / ThemeToggle now live in WFDS (see top-of-file destructure).
+
+function TerminologyAdvisoryPill({ ignored }) {
+  if (!ignored?.length) return null;
+  return h("span", { className: "meta-pill" }, `Ignored terminology keys: ${[...ignored].sort().join(", ")}`);
+}
 
 function GitPills({ git }) {
   if (!git?.branch) return null;
@@ -439,10 +457,10 @@ function ProgressCard({ snapshot, scopeChanges }) {
       h("h2", null, "Progress"),
     ),
     h("div", { className: "progress-rows" },
-      h(ProgressRow, { label: "Waves",   done: closedWaves, total: totalWaves,   variant: "waves" }),
-      h(ProgressRow, { label: "Changes", done: changesDone, total: changesTotal, variant: "changes" }),
+      h(ProgressRow, { label: tierLabel("wave", true, true),   done: closedWaves, total: totalWaves,   variant: "waves" }),
+      h(ProgressRow, { label: tierLabel("change", true, true), done: changesDone, total: changesTotal, variant: "changes" }),
       h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" }),
-      h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" }),
+      h(ProgressRow, { label: tierLabel("task", true, true), done: tasksDone, total: tasksTotal, variant: "tasks" }),
     ),
   );
 }
@@ -453,10 +471,10 @@ function WaveTasks({ tasksTotal, tasksDone }) {
   if (!tasksTotal) return null;
   return h("div", { className: "wip-section wip-section--tasks" },
     h("div", { className: "wip-section-label" },
-      "Tasks",
+      tierLabel("task", true, true),
       h("span", { className: "wip-fraction" }, `${tasksDone} / ${tasksTotal} complete`),
     ),
-    h(MiniGraph, { done: tasksDone, total: tasksTotal, label: "Tasks", variant: "tasks" }),
+    h(MiniGraph, { done: tasksDone, total: tasksTotal, label: tierLabel("task", true, true), variant: "tasks" }),
   );
 }
 
@@ -527,7 +545,7 @@ function WaveLanes({ participants }) {
 function WaveChangeList({ changes, waveId, onChangeClick }) {
   if (!changes?.length) return null;
   return h("div", { className: "wip-section" },
-    h("div", { className: "wip-section-label" }, "Changes"),
+    h("div", { className: "wip-section-label" }, tierLabel("change", true, true)),
     h("ul", { className: "lanes-list" },
       changes.map((c, i) =>
         h("li", { key: i, className: "wave-change-item" },
@@ -536,7 +554,7 @@ function WaveChangeList({ changes, waveId, onChangeClick }) {
               ? h("button", {
                   className: "wave-change-id id-link",
                   onClick: () => onChangeClick({ change_id: c.id, wave_id: waveId, title: c.title }),
-                  title: "View change document",
+                  title: `View ${tierLabel("change")} document`,
                 }, c.id)
               : h("span", { className: "wave-change-id" }, c.id),
             h("span", { className: "wave-change-title" }, c.title),
@@ -559,13 +577,13 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId, onWaveClick, onChangeCl
         h("button", {
           className: "open-wave-id id-link",
           onClick: onWaveClick ? () => onWaveClick(wave) : undefined,
-          title: "View wave document",
+          title: `View ${tierLabel("wave")} document`,
         }, wave.wave_id),
         h("div", { className: "open-wave-title" }, wave.title),
       ),
       h("div", { className: "open-wave-meta" },
         isHandoff ? h("span", { className: "handoff-pill", title: "Current session handoff" }, "↩ handoff") : null,
-        h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, "change", "changes")}`),
+        h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, tierLabel("change"), tierLabel("change", true))}`),
       ),
     ),
     h(WaveChangeList, { changes: wave.changes, waveId: wave.wave_id, onChangeClick }),
@@ -582,13 +600,13 @@ function PendingWaveRow({ wave, onWaveClick }) {
       h("button", {
         className: "open-wave-id id-link",
         onClick: onWaveClick ? () => onWaveClick(wave) : undefined,
-        title: "View wave document",
+        title: `View ${tierLabel("wave")} document`,
       }, wave.wave_id),
       wave.title ? h("span", { className: "pending-wave-title" }, wave.title) : null,
     ),
     h("div", { className: "open-wave-meta" },
       h("span", { className: badgeClass(wave.status) }, wave.status),
-      h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, "change", "changes")}`),
+      h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, tierLabel("change"), tierLabel("change", true))}`),
     ),
   );
 }
@@ -598,17 +616,17 @@ function WavesCard({ waves, allChanges, handoffWaveId, onWaveClick, onChangeClic
   const pending = pendingWaves(waves).slice().sort((a, b) => String(b.wave_id).localeCompare(String(a.wave_id)));
   const closed  = waves.filter(w => waveStatus(w) === "closed").length;
 
-  return h("article", { className: "table-card", "aria-label": "Waves" },
-    h("h2", null, "Waves"),
+  return h("article", { className: "table-card", "aria-label": tierLabel("wave", true, true) },
+    h("h2", null, tierLabel("wave", true, true)),
     active.length
       ? active.map(wave => h(OpenWaveCard, { key: wave.wave_id, wave, allChanges, handoffWaveId, onWaveClick, onChangeClick }))
-      : h("div", { className: "empty-state" }, "No active waves."),
+      : h("div", { className: "empty-state" }, `No active ${tierLabel("wave", true)}.`),
     pending.length ? h(React.Fragment, null,
       h("div", { className: "waves-section-label" }, `${pending.length} pending`),
       pending.map(wave => h(PendingWaveRow, { key: wave.wave_id, wave, onWaveClick })),
     ) : null,
     closed ? h("p", { className: "muted", style: { marginTop: "var(--space-3)" } },
-      `${closed} closed ${p(closed, "wave", "waves")}.`
+      `${closed} closed ${p(closed, tierLabel("wave"), tierLabel("wave", true))}.`
     ) : null,
   );
 }
@@ -625,8 +643,8 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
   const waveMode = waveActive > 0 ? "active" : "pending";
   const waveMetricCount = waveMode === "active" ? waveActive : wavePending;
   const waveMetricLabel = waveMode === "active"
-    ? p(waveActive, "Active wave", "Active waves")
-    : p(wavePending, "Pending wave", "Pending waves");
+    ? p(waveActive, `Active ${tierLabel("wave")}`, `Active ${tierLabel("wave", true)}`)
+    : p(wavePending, `Pending ${tierLabel("wave")}`, `Pending ${tierLabel("wave", true)}`);
   const scopeMetricLabel = waveMode === "active" ? "Active" : "Pending";
   const changeMetrics = {
     total: (scopeChanges || []).length,
@@ -658,9 +676,9 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
 
   const metrics = [
     { label: waveMetricLabel, value: waveMetricCount, note: `${waveMetrics.pending} pending · ${waveMetrics.total} total`, onClick: onWavesClick, variant: "waves" },
-    { label: p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`), value: changeMetrics.pending, note: `pending, ${changeMetrics.total} total`, onClick: onChangesClick, variant: "changes" },
+    { label: p(changeMetrics.pending, `${scopeMetricLabel} ${tierLabel("change")}`, `${scopeMetricLabel} ${tierLabel("change", true)}`), value: changeMetrics.pending, note: `pending, ${changeMetrics.total} total`, onClick: onChangesClick, variant: "changes" },
     { label: p(acMetrics.pending,    `${scopeMetricLabel} AC`,     `${scopeMetricLabel} ACs`),     value: acMetrics.pending,     note: `pending, ${acMetrics.total} total`, onClick: onAcsClick,     variant: "acs" },
-    { label: p(taskMetrics.pending, `${scopeMetricLabel} task`, `${scopeMetricLabel} tasks`),   value: taskMetrics.pending, note: `pending, ${taskMetrics.total} total`, onClick: onTasksClick,   variant: "tasks" },
+    { label: p(taskMetrics.pending, `${scopeMetricLabel} ${tierLabel("task")}`, `${scopeMetricLabel} ${tierLabel("task", true)}`),   value: taskMetrics.pending, note: `pending, ${taskMetrics.total} total`, onClick: onTasksClick,   variant: "tasks" },
     { label: p(gitFileCount, "File changed", "Files changed"), value: gitFileCount, note: fileNote, onClick: onFilesClick, variant: "files" },
     (() => {
       const projectIdx = health.index?.project || {};
@@ -742,7 +760,7 @@ function WavesDialog({ snapshot, onClose }) {
   const active = activeWaves(waves);
   const pending = pendingWaves(waves).slice().sort((a, b) => String(b.wave_id).localeCompare(String(a.wave_id)));
   const displayWaves = active.length ? active : pending;
-  const title = active.length ? "Active Waves" : "Pending Waves";
+  const title = active.length ? `Active ${tierLabel("wave", true, true)}` : `Pending ${tierLabel("wave", true, true)}`;
   return h(DialogFrame, { title, onClose },
     displayWaves.length ? displayWaves.map(wave =>
       h("div", { key: wave.wave_id, className: "metric-dialog-card" },
@@ -753,15 +771,15 @@ function WavesDialog({ snapshot, onClose }) {
         h("div", { className: "metric-dialog-card-title" }, wave.title),
         wave.objective ? h("div", { className: "metric-dialog-card-desc" }, wave.objective) : null,
       )
-    ) : h("div", { className: "empty-state" }, "No pending waves."),
+    ) : h("div", { className: "empty-state" }, `No pending ${tierLabel("wave", true)}.`),
   );
 }
 
 function ChangesDialog({ snapshot, onClose }) {
   const { scope, changes } = dialogChangesForScope(snapshot);
   const title = scope === "active"
-    ? p(changes.length, "Active Change", "Active Changes")
-    : p(changes.length, "Pending Change", "Pending Changes");
+    ? p(changes.length, `Active ${tierLabel("change", false, true)}`, `Active ${tierLabel("change", true, true)}`)
+    : p(changes.length, `Pending ${tierLabel("change", false, true)}`, `Pending ${tierLabel("change", true, true)}`);
   return h(DialogFrame, { title, onClose },
     changes.length ? changes.map(c =>
       h("div", { key: c.change_id, className: "metric-dialog-card" },
@@ -772,7 +790,7 @@ function ChangesDialog({ snapshot, onClose }) {
         h("div", { className: "metric-dialog-card-title" }, c.title),
         c.description ? h("div", { className: "metric-dialog-card-desc" }, c.description) : null,
       )
-    ) : h("div", { className: "empty-state" }, scope === "active" ? "No active changes." : "No pending changes."),
+    ) : h("div", { className: "empty-state" }, scope === "active" ? `No active ${tierLabel("change", true)}.` : `No pending ${tierLabel("change", true)}.`),
   );
 }
 
@@ -856,8 +874,8 @@ function TasksDialog({ snapshot, onClose }) {
       ),
     );
   }).filter(Boolean);
-  return h(DialogFrame, { title: scope === "active" ? "Active Tasks" : "Pending Tasks", onClose },
-    cards.length ? cards : h("div", { className: "empty-state" }, scope === "active" ? "No active tasks." : "No pending tasks."),
+  return h(DialogFrame, { title: scope === "active" ? `Active ${tierLabel("task", true, true)}` : `Pending ${tierLabel("task", true, true)}`, onClose },
+    cards.length ? cards : h("div", { className: "empty-state" }, scope === "active" ? `No active ${tierLabel("task", true)}.` : `No pending ${tierLabel("task", true)}.`),
   );
 }
 
@@ -3954,25 +3972,25 @@ function ChangesTable({ changes, title, onChangeClick }) {
 
   let footer = null;
   if (pendingHidden > 0 && doneCount > 0)
-    footer = h("p", { className: "muted" }, `${pendingHidden} more open + ${doneCount} completed ${p(doneCount, "change", "changes")}.`);
+    footer = h("p", { className: "muted" }, `${pendingHidden} more open + ${doneCount} completed ${p(doneCount, tierLabel("change"), tierLabel("change", true))}.`);
   else if (pendingHidden > 0)
-    footer = h("p", { className: "muted" }, `${pendingHidden} more open ${p(pendingHidden, "change", "changes")}.`);
+    footer = h("p", { className: "muted" }, `${pendingHidden} more open ${p(pendingHidden, tierLabel("change"), tierLabel("change", true))}.`);
   else if (doneCount > 0)
-    footer = h("p", { className: "muted" }, `${doneCount} completed ${p(doneCount, "change", "changes")}.`);
+    footer = h("p", { className: "muted" }, `${doneCount} completed ${p(doneCount, tierLabel("change"), tierLabel("change", true))}.`);
 
   let body;
   if (!changes.length)
-    body = h("div", { className: "empty-state" }, "No changes in this bucket.");
+    body = h("div", { className: "empty-state" }, `No ${tierLabel("change", true)} in this bucket.`);
   else if (!shown.length)
-    body = h("div", { className: "empty-state" }, `All ${doneCount} ${p(doneCount, "change", "changes")} complete.`);
+    body = h("div", { className: "empty-state" }, `All ${doneCount} ${p(doneCount, tierLabel("change"), tierLabel("change", true))} complete.`);
   else
     body = h("div", { className: "table-wrap" },
       h("table", null,
         h("thead", null,
           h("tr", null,
-            h("th", null, "Change"),
+            h("th", null, tierLabel("change", false, true)),
             h("th", { style: { textAlign: "center" } }, "Status"),
-            h("th", null, "Tasks"),
+            h("th", null, tierLabel("task", true, true)),
             h("th", null, "AC priority"),
           ),
         ),
@@ -3983,7 +4001,7 @@ function ChangesTable({ changes, title, onChangeClick }) {
                 h("button", {
                   className: "change-id-cell id-link",
                   onClick: onChangeClick ? () => onChangeClick(c) : undefined,
-                  title: "View change document",
+                  title: `View ${tierLabel("change")} document`,
                 },
                   h("div", { className: "wave-change-id" },
                     c.change_id.split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
@@ -4052,7 +4070,7 @@ function Activity({ activity, onChangeClick }) {
               tabIndex: clickable ? 0 : undefined,
               role: clickable ? "button" : undefined,
               onKeyDown: clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } } : undefined,
-              "aria-label": clickable ? `Open change ${item.change_id}` : undefined,
+              "aria-label": clickable ? `Open ${tierLabel("change")} ${item.change_id}` : undefined,
             },
               h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, ...renderChangeIdParts(item.change_id)),
               item.title ? h("div", { className: "wave-change-title", style: { marginBottom: "var(--space-1)" } }, item.title) : null,
@@ -4329,6 +4347,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
                   h("div", { className: "hero-meta" },
                     h("span", { className: "meta-pill" }, `Repository: ${project.repo_basename || ""}`),
                     h(GitPills, { git: snapshot.git }),
+                    h(TerminologyAdvisoryPill, { ignored: snapshot.config?.terminology_ignored }),
                   ),
                   h(Metrics, { snapshot, scopeChanges,
                     onWavesClick:   () => setShowWaves(true),
@@ -4347,7 +4366,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
               h("section", { className: "content-grid", "aria-label": "Project details" },
                 h("div", { className: "card-grid" },
                   h(WavesCard, { waves, allChanges, handoffWaveId, onWaveClick: openWaveDoc, onChangeClick: openChangeDoc }),
-                  h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, "Pending change", "Pending changes"), onChangeClick: openChangeDoc }),
+                  h(ChangesTable, { changes: [...pendingChanges].reverse(), title: p(pendingChanges.length, `Pending ${tierLabel("change")}`, `Pending ${tierLabel("change", true)}`), onChangeClick: openChangeDoc }),
                 ),
                 h("div", { className: "card-grid" },
                   h("article", { className: "timeline-card", "aria-label": "Recent activity" },
@@ -4360,7 +4379,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
       ),
     ),
     selectedFrameworkProcess ? h(FrameworkProcessDialog, {
-      process: selectedFrameworkProcess,
+      process: FRAMEWORK_FLOW().find(process => process.id === selectedFrameworkProcess.id),
       onClose: () => setSelectedFrameworkProcess(null),
     }) : null,
     selectedAgent ? h(AgentDialog, { agent: selectedAgent, onClose: () => setSelectedAgent(null) }) : null,
@@ -4390,6 +4409,7 @@ function ErrorView({ message, projectName }) {
 function App() {
   const [dark, onToggleDark] = useDarkMode();
   const [snapshot, setSnapshot]         = useState(null);
+  updateTerminology(snapshot?.config?.terminology);
   const [error, setError]               = useState(null);
   const [sseConnected, setSseConnected] = useState(false);
   const pollIdxRef    = useRef(0);

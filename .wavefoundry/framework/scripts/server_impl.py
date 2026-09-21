@@ -42,6 +42,7 @@ for _wll_key in list(sys.modules):
             "gardener_metadata",
             "operator_identity",
             "record_paths",
+            "marker_namespaces",
             "lifecycle_gate_support",
             "lifecycle_gates",
             "sensor_runner",
@@ -67,6 +68,7 @@ import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 from operator_identity import resolve_operator
 import setup_readiness
 import index_source_guard
+import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 
 import lifecycle_gate_support
@@ -19035,18 +19037,6 @@ _EDIT_GOVERNANCE_GATE_MAP = (
     (".wavefoundry/framework/scripts/", "framework_edit_allowed"),
     (".wavefoundry/framework/dashboard/", "framework_edit_allowed"),
 )
-
-_WAVE_MARKER_BEGIN_RE = __import__("re").compile(
-    r"<!--\s*(?:wave|waveframework|wavefoundry):([\w:-]+)\s+begin\b"
-)
-_WAVE_MARKER_END_RE = __import__("re").compile(
-    r"<!--\s*(?:(?:wave|waveframework|wavefoundry):([\w:-]+)\s+)?end\s*-->"
-)
-
-
-
-
-
 
 def _cached_ts_parse(absolute_path: Optional[Path], ts_lang: str, source: str) -> Any:
     """Wave 1p3dk / 1p3hd: shared tree-sitter parse wrapper consumed by every

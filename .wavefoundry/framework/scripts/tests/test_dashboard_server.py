@@ -510,10 +510,10 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn('const waveMode = waveActive > 0 ? "active" : "pending";', source)
         self.assertIn('const scopeMetricLabel = waveMode === "active" ? "Active" : "Pending";', source)
         self.assertIn('const waveMetricLabel = waveMode === "active"', source)
-        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`)', source)
+        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} ${tierLabel("change")}`, `${scopeMetricLabel} ${tierLabel("change", true)}`)', source)
         self.assertIn('p(acMetrics.pending,    `${scopeMetricLabel} AC`,     `${scopeMetricLabel} ACs`)', source)
-        self.assertIn('p(taskMetrics.pending, `${scopeMetricLabel} task`, `${scopeMetricLabel} tasks`)', source)
-        self.assertIn('p(wavePending, "Pending wave", "Pending waves")', source)
+        self.assertIn('p(taskMetrics.pending, `${scopeMetricLabel} ${tierLabel("task")}`, `${scopeMetricLabel} ${tierLabel("task", true)}`)', source)
+        self.assertIn('p(wavePending, `Pending ${tierLabel("wave")}`, `Pending ${tierLabel("wave", true)}`)', source)
         self.assertIn('label: waveMetricLabel, value: waveMetricCount', source)
         self.assertIn('function acProgressStats(changes)', source)
         self.assertIn('const acMetrics = acProgressStats(scopeChanges);', source)
@@ -534,16 +534,16 @@ class DashboardSnapshotTests(unittest.TestCase):
 
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn('const title = scope === "active"', source)
-        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} change`, `${scopeMetricLabel} changes`)', source)
-        self.assertIn('p(changes.length, "Active Change", "Active Changes")', source)
-        self.assertIn('p(changes.length, "Pending Change", "Pending Changes")', source)
-        self.assertIn('const title = active.length ? "Active Waves" : "Pending Waves"', source)
-        self.assertIn('No pending waves.', source)
+        self.assertIn('p(changeMetrics.pending, `${scopeMetricLabel} ${tierLabel("change")}`, `${scopeMetricLabel} ${tierLabel("change", true)}`)', source)
+        self.assertIn('p(changes.length, `Active ${tierLabel("change", false, true)}`, `Active ${tierLabel("change", true, true)}`)', source)
+        self.assertIn('p(changes.length, `Pending ${tierLabel("change", false, true)}`, `Pending ${tierLabel("change", true, true)}`)', source)
+        self.assertIn('const title = active.length ? `Active ${tierLabel("wave", true, true)}` : `Pending ${tierLabel("wave", true, true)}`', source)
+        self.assertIn('`No pending ${tierLabel("wave", true)}.`', source)
         self.assertIn('title: scope === "active" ? "Active ACs" : "Pending ACs"', source)
-        self.assertIn('title: scope === "active" ? "Active Tasks" : "Pending Tasks"', source)
-        self.assertIn('scope === "active" ? "No active changes." : "No pending changes."', source)
+        self.assertIn('title: scope === "active" ? `Active ${tierLabel("task", true, true)}` : `Pending ${tierLabel("task", true, true)}`', source)
+        self.assertIn('scope === "active" ? `No active ${tierLabel("change", true)}.` : `No pending ${tierLabel("change", true)}.`', source)
         self.assertIn('scope === "active" ? "No active ACs." : "No pending ACs."', source)
-        self.assertIn('scope === "active" ? "No active tasks." : "No pending tasks."', source)
+        self.assertIn('scope === "active" ? `No active ${tierLabel("task", true)}.` : `No pending ${tierLabel("task", true)}.`', source)
 
     def test_collect_dashboard_snapshot_counts_visible_acs_without_priority_table(self):
         root = Path(self.tmp.name) / "visible-acs"
@@ -857,7 +857,7 @@ Wave: `12x test-wave`
             "function ProgressCard({ snapshot, scopeChanges }) {", 1
         )[0]
         self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })', source)
-        self.assertIn('h(ProgressRow, { label: "Tasks", done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
+        self.assertIn('h(ProgressRow, { label: tierLabel("task", true, true), done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
         self.assertNotIn('deferred: acDeferred', source)
         self.assertNotIn('deferred: tasksDeferred', source)
         self.assertNotIn('progress-row-deferred', progress_row_src)
@@ -1806,22 +1806,22 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
         css = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.css").read_text(encoding="utf-8")
 
-        self.assertIn("const FRAMEWORK_FLOW = [", js)
+        self.assertIn("function FRAMEWORK_FLOW() {", js)
         self.assertIn('function FrameworkProcessDialog({ process, onClose })', js)
         self.assertIn('function FrameworkFlow({ onSelectProcess })', js)
-        self.assertIn('Wave lifecycle', js)
-        self.assertIn('Click a stage to see how a change moves through a wave, from planning through review and close.', js)
+        self.assertIn('${tierLabel("wave", false, true)} lifecycle', js)
+        self.assertIn('Click a stage to see how a ${tierLabel("change")} moves through a ${tierLabel("wave")}, from planning through review and close.', js)
         self.assertIn('process-step-number process-step-number--${process.id}', js)
-        self.assertIn('title: "Plan Change"', js)
-        self.assertIn('title: "Prepare Wave"', js)
-        self.assertIn('title: "Implement Wave"', js)
-        self.assertIn('title: "Review Wave"', js)
+        self.assertIn('title: `Plan ${tierLabel("change", false, true)}`', js)
+        self.assertIn('title: `Prepare ${tierLabel("wave", false, true)}`', js)
+        self.assertIn('title: `Implement ${tierLabel("wave", false, true)}`', js)
+        self.assertIn('title: `Review ${tierLabel("wave", false, true)}`', js)
         self.assertIn('title: "Close & Maintain"', js)
         self.assertIn('flow: ["Signoff", "Archive"],', js)
         self.assertIn('This is where an idea becomes a real change.', js)
-        self.assertIn('Set the shape of the change before any edits begin.', js)
+        self.assertIn('Set the shape of the ${tierLabel("change")} before any edits begin.', js)
         self.assertIn('This phase matters because it catches avoidable mistakes before code or docs start moving.', js)
-        self.assertIn('flow: ["Review", "Open questions", "Prepare Wave"],', js)
+        self.assertIn('flow: ["Review", "Open questions", `Prepare ${tierLabel("wave", false, true)}`],', js)
         self.assertIn('This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.', js)
         self.assertIn('This is the coding pass.', js)
         self.assertIn('Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.', js)
@@ -3877,6 +3877,7 @@ assert.ok(content.indexOf('Graph') < content.indexOf('Lexical'));
 assert.ok(!text(context.IndexDialog({health: {}, onClose: () => {}})).includes('Lexical'));
 Object.assign(context, {React: {Fragment: 'fragment'}, activeWaves: () => [], pendingWaves: () => [],
   acProgressStats: () => ({pending: 0, total: 0}), p: (count, single, plural) => count === 1 ? single : plural});
+vm.runInContext(source.slice(source.indexOf('let terminology ='), source.indexOf('function relativeAge(')), context);
 vm.runInContext(source.slice(source.indexOf('function Metrics('), source.indexOf('// buildFileTree / FileTree')), context);
 const tile = lexical => nodes(context.Metrics({snapshot: {health: {lexical: {project: lexical}}}, scopeChanges: []}))
   .find(n => n.props.className === 'metric metric--index');

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-09-21
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
@@ -40,7 +40,7 @@ unzip -o wavefoundry-<version>.zip '.wavefoundry/*' 'install-wavefoundry.md' -d 
 
 The `-o` flag overwrites existing files without prompting; the member scope keeps the pack's zipapp installer members (`payload/*`, `__main__.py`, `upgrade_bridge_bootstrap.py`, `subprocess_util.py`) out of the target repo root. After unpacking, seed-010 seeds the dashboard public prompt docs: `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md`. These prompts document the operator-facing dashboard control commands and are the canonical entry points for dashboard discovery.
 
-**Config seeding:** `docs/workflow-config.json` must include a `dashboard` block after install. The minimum valid config:
+**Optional configuration:** No seed or install template currently materializes the `dashboard` block in `docs/workflow-config.json`. The reader supplies defaults when it is absent. Operators can add a block to customize the dashboard, for example:
 
 ```json
 {
@@ -56,14 +56,12 @@ The `-o` flag overwrites existing files without prompting; the member scope keep
       "wave": "wave",
       "change": "change",
       "task": "task"
-    },
-    "auto_index": true,
-    "auto_index_delay_seconds": 30
+    }
   }
 }
 ```
 
-If a `dashboard` block already exists in `workflow-config.json`, seed-010 preserves operator-customized values (port ranges, `project_label`, `include_dirs`, `terminology`) and only backfills missing fields. `auto_index` now defaults to `true`; set it explicitly to `false` to opt out.
+The install seed does not backfill dashboard fields. For display-label keys, normalization, ignored-key diagnostics and the Waveforge remap, see [Terminology Register](dashboard-adapter-model.md#terminology-register).
 
 **Gitignore entries:** After install, `.wavefoundry/dashboard-server.json` must be gitignored. This file holds host-local endpoint metadata (pid, port, url) and must never be committed. Add to `.gitignore`:
 
@@ -78,20 +76,11 @@ The `Upgrade Wavefoundry` flow (seed-160) adopts the new framework zip automatic
 1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
 2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.
 3. The `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md` public prompt docs are refreshed if the seed content changed.
-4. Operator-customized values in `docs/workflow-config.json` `dashboard` block are preserved. Seed-160 backfills any new fields added in the upgraded version without touching existing values.
+4. No dashboard-block seeding or field backfill is performed by seed-160; absent settings use reader defaults. Review any existing operator-authored block against the current [adapter contract](dashboard-adapter-model.md#terminology-register).
 
-If the upgraded pack includes the dashboard feature for the first time (i.e. the prior version did not ship it), seed-160 seeds the dashboard prompt docs and prompts the operator to add the `dashboard` config block to `workflow-config.json`.
+The dashboard can run without a `dashboard` config block. Adding or remapping display labels is an operator edit, not an upgrade materialization step; no framework version seeds or backfills the block.
 
-**Config field backfill for auto-index:** When upgrading from a version that predates auto-index support, seed-160 backfills the following fields into the existing `dashboard` block without touching any existing values:
-
-```json
-"auto_index": true,
-"auto_index_delay_seconds": 30
-```
-
-`auto_index` now backfills as `true`. Operators who want automatic index rebuilds disabled must explicitly set it to `false` after upgrade.
-
-**No restart required for asset changes:** The dashboard server re-reads `workflow-config.json` and serves updated static files on the next request. If the server process is already running when assets are upgraded, the browser will pick up new JS/CSS on the next page reload. To pick up a `workflow-config.json` change (e.g. disabling `auto_index`), restart the server process.
+**No restart required for asset changes:** The dashboard server re-reads `workflow-config.json` and serves updated static files on the next request. If the server process is already running when assets are upgraded, the browser will pick up new JS/CSS on the next page reload. To pick up a startup configuration change (e.g. changing the bind port), restart the server process.
 
 ## Sibling-Directory Runtime Option
 

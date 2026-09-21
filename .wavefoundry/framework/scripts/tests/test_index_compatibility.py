@@ -353,6 +353,44 @@ except ic.IndexCompatibilityError as exc: print(exc.code,flush=True)
         fresh=self.child('import model_bundle; print(model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT,flush=True)',extra_path=copied)
         self.assertIn('arctic-x',_line(fresh));fresh.communicate(timeout=25);self.assertEqual(fresh.returncode,0)
 
+    def test_marker_namespace_source_unchanged_passes_and_replacement_is_stale(self):
+        copied = Path(self.tmp.name) / 'marker-scripts'
+        copied.mkdir()
+        for name in (*ic._SOURCE_NAMES, 'index_compatibility'):
+            shutil.copy2(SCRIPTS / (name + '.py'), copied / (name + '.py'))
+        source = '''import chunker
+import index_compatibility as ic
+ic.ensure_runtime_current()
+print('unchanged', flush=True)
+input()
+try:
+    ic.ensure_runtime_current()
+    print('accepted', flush=True)
+except ic.IndexCompatibilityError as exc:
+    print(exc.code + ':' + exc.component, flush=True)
+'''
+        process = self.child(source, extra_path=copied)
+        self.assertEqual(_line(process), 'unchanged')
+        path = copied / 'marker_namespaces.py'
+        stat = path.stat()
+        original = path.read_bytes()
+        replacement = original.replace(b'"waveforge"', b'"waveforgx"')
+        self.assertNotEqual(replacement, original)
+        self.assertEqual(len(replacement), len(original))
+        path.write_bytes(replacement)
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        process.stdin.write('check\n')
+        process.stdin.flush()
+        self.assertEqual(_line(process), 'index_runtime_stale:marker_namespaces')
+        _, stderr = process.communicate(timeout=25)
+        self.assertEqual(process.returncode, 0, stderr)
+        fresh = self.child('import chunker; import index_compatibility as ic; '
+                           'ic.ensure_runtime_current(); print("adopted", flush=True)',
+                           extra_path=copied)
+        self.assertEqual(_line(fresh), 'adopted')
+        _, stderr = fresh.communicate(timeout=25)
+        self.assertEqual(fresh.returncode, 0, stderr)
+
     def test_compiled_old_module_cannot_capture_new_installed_bytes(self):
         copied = Path(self.tmp.name) / 'compiled-scripts'; copied.mkdir()
         for name in (*ic._SOURCE_NAMES, 'index_compatibility'):

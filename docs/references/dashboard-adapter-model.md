@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-21
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
 ## Config Surface
 
-All dashboard configuration lives in `docs/workflow-config.json` under the `dashboard` key. The server reads this file at startup (and on each snapshot poll if the file changes). Unrecognised keys are silently ignored so repos can safely annotate the block.
+All dashboard configuration lives in `docs/workflow-config.json` under the `dashboard` key. The server reads this file at startup (and on each snapshot poll if the file changes). Unrecognised dashboard keys are ignored. Within `dashboard.terminology`, dropped keys are reported as described in Terminology Register below.
 
 ```json
 {
@@ -126,9 +126,9 @@ v2 of the adapter model (not yet designed) may introduce a formal `dashboard_ada
 
 ## Terminology Register
 
-The `terminology` block lets repos rename work-item levels without changing any card labels in code. The dashboard JavaScript reads terminology from the `/api/dashboard` response and substitutes labels throughout.
+`dashboard.terminology` is a dashboard display-label register, not a framework-wide vocabulary. Its keys always name Wavefoundry's tiers: `wave`, `change`, and `task`. Values are singular display labels. The dashboard receives the normalized register in `/api/dashboard` under `config.terminology` and refreshes it on every snapshot.
 
-Example for a repo using "sprint" and "story" instead of Wave Framework vocabulary:
+For example:
 
 ```json
 "terminology": {
@@ -138,7 +138,11 @@ Example for a repo using "sprint" and "story" instead of Wave Framework vocabula
 }
 ```
 
-Terminology values are singular. Pluralization is handled by the frontend's `p(n, singular, plural)` helper, which appends `s` by default. For irregular plurals, the current convention is to keep the singular and accept the default plural; custom plural overrides are not supported in v1.
+Missing keys use their Wavefoundry tier name. The reader retains non-empty string values for known keys and reports dropped keys, including invalid values, in the sorted `config.terminology_ignored` list. An absent or non-object terminology block uses the default register. When ignored keys exist, one advisory pill in the dashboard header names them; an empty list produces no pill.
+
+The label helper lowercases values for running text and capitalizes the first letter for headings and titles, so values such as `"Set"` and `"Wave"` are accepted. Plurals append `s`; there is no irregular-plural handling or plural override (for example, `story` becomes `storys`). Labels apply to tier headings, counts, table labels, lifecycle step labels, and associated accessibility labels. They do not rename URL keys, CSS classes, internal identifiers, explanatory lifecycle paragraphs, the git activity heading "Recent changes", server messages, or seed prose.
+
+**Waveforge merge:** remap the fork's `set` key to `wave`, and its `wave` key to `change`, preserving the corresponding values. Its `feature` tier has no Wavefoundry equivalent and is reported as ignored, along with an unremapped `set`. This advisory detects unsupported keys; it cannot disambiguate the valid overlapping `wave` key or guarantee correct labels before remapping. Whether Waveforge's own dashboard consumes this setting remains a downstream merge-time check.
 
 ## Port Selection and Concurrent Repos
 

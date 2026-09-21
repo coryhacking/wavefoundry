@@ -1,6 +1,8 @@
 """Codenav response handlers; registration and shared dependencies stay in server_impl."""
 from __future__ import annotations
 
+import marker_namespaces
+
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
@@ -70,16 +72,15 @@ def _marker_regions_in_range(text: str, lo: int, hi: int) -> list[dict[str, Any]
     lost on the next render. Surfacing the regions at read time prevents
     wasted edit attempts.
     """
-    import server_impl
     regions: list[dict[str, Any]] = []
     inside_marker: Optional[tuple[str, int]] = None  # (name, start_line)
     for line_no, line in enumerate(text.splitlines(), 1):
         if inside_marker is None:
-            m = server_impl._WAVE_MARKER_BEGIN_RE.search(line)
+            m = marker_namespaces.MARKER_BEGIN_RE.search(line)
             if m:
                 inside_marker = (m.group(1), line_no)
         else:
-            end_match = server_impl._WAVE_MARKER_END_RE.search(line)
+            end_match = marker_namespaces.MARKER_END_RE.search(line)
             if end_match and (
                 end_match.group(1) is None
                 or end_match.group(1) == inside_marker[0]

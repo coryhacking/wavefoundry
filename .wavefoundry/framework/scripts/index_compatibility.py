@@ -21,7 +21,7 @@ from sqlite_runtime import StorageRecoveryRequired
 INDEX_GUARD_CAPABILITY = 1
 _ACTIVE_WRITERS = ContextVar("index_compatibility_writers", default=frozenset())
 _SOURCE_NAMES = ("indexer", "chunker", "graph_indexer", "graph_store",
-                 "sqlite_vector_store", "index_state_store", "model_bundle")
+                 "sqlite_vector_store", "index_state_store", "model_bundle", "marker_namespaces")
 _SOURCE_ROOT = Path(__file__).resolve().parent
 _SOURCE_BYTES = {name: (_SOURCE_ROOT / (name + ".py")).read_bytes() for name in _SOURCE_NAMES}
 _SOURCE_HASHES = {name: hashlib.sha256(value).hexdigest() for name, value in _SOURCE_BYTES.items()}

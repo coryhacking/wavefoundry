@@ -8,11 +8,19 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Dashboard tier labels.** The dashboard consumes `dashboard.terminology` using Wavefoundry tier keys and shows ignored keys in an advisory. Keys must be the framework tier names `wave`, `change` and `task`; a fork with its own tier vocabulary remaps its keys once when it adopts this release. Wave `1ym4h`.
+
 ### Changed
 
 - **Tidy wave folders during close.** Closure guidance distinguishes disposable scratch from durable evidence, preserves ledger references, and organizes supporting artifacts before final validation. Wave `1ykqj`.
 
 - **Choose agent models for the assignment.** Fresh Claude wrappers omit fixed model/effort defaults; rendering preserves existing operator choices and skips malformed frontmatter unchanged. Shared guidance makes delegation-time selection explicit without provider rankings or new gates. Wave `1ycrj`.
+
+### Fixed
+
+- **Shared marker recognition.** Chunking, code navigation and legacy-section stripping share namespaces including `waveforge`, with named ends and annotated begins recognized. No chunker version bump ships with this change; existing indexes may retain old chunk output for affected files until they are edited or a full rebuild runs. Wave `1ym4h`.
 
 ## [1.25.0] - 2026-09-17
 

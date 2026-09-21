@@ -78,6 +78,17 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
     test.assertIn('memory_consolidate(mode="dry_run")', read_only)
 
 
+class LegacyAutoGuruSectionTests(unittest.TestCase):
+    def test_marker_boundary(self):
+        for namespace in ("wave", "waveframework", "wavefoundry", "waveforge", "other"):
+            with self.subTest(namespace=namespace):
+                marker = f"<!-- {namespace}:x begin -->\nkept\n"
+                text = "prefix\n## Code and documentation questions (auto-Guru)\nold\n" + marker
+                result = ras.strip_legacy_auto_guru_section(text)
+                self.assertNotIn("old", result)
+                self.assertEqual(marker in result, namespace in ras.marker_namespaces.MARKER_NAMESPACES)
+
+
 class BriefingLoopCarrierTests(unittest.TestCase):
     """Distribution/semantic pins, not a claim that agents always follow prose."""
 

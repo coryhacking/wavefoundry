@@ -172,6 +172,15 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
     cfg = read_workflow_config(root).get("dashboard", {})
     if not isinstance(cfg, dict):
         cfg = {}
+    terminology = {key: key for key in ("wave", "change", "task")}
+    terminology_ignored = []
+    raw_terminology = cfg.get("terminology")
+    if isinstance(raw_terminology, dict):
+        for key, value in raw_terminology.items():
+            if key in terminology and isinstance(value, str) and value.strip():
+                terminology[key] = value.strip()
+            else:
+                terminology_ignored.append(key)
     preferred = cfg.get("preferred_port")
     start = cfg.get("port_range_start", preferred if isinstance(preferred, int) else 43127)
     end = cfg.get("port_range_end", start + 20 if isinstance(start, int) else 43147)
@@ -184,7 +193,8 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
         "poll_interval_ms": int(cfg.get("poll_interval_ms", 2000) or 2000),
         "host": str(cfg.get("host", "127.0.0.1")).strip() or "127.0.0.1",
         "project_label": str(cfg.get("project_label", "")).strip(),
-        "terminology": cfg.get("terminology", {}) if isinstance(cfg.get("terminology"), dict) else {},
+        "terminology": terminology,
+        "terminology_ignored": sorted(terminology_ignored),
         "include_dirs": [str(d) for d in cfg.get("include_dirs", []) if isinstance(d, str)] if isinstance(cfg.get("include_dirs"), list) else [],
         # 1p7it: the dashboard is a read-only viewer — index updates are owned by the MCP/hook
         # background path (post-edit hook + the MCP server's background refresh + index_build),
@@ -1870,6 +1880,7 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
             "poll_interval_ms": config["poll_interval_ms"],
             "entrypoint": config["entrypoint"],
             "terminology": config["terminology"],
+            "terminology_ignored": config["terminology_ignored"],
         },
         "project": {
             "name": project_name,

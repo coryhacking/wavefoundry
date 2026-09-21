@@ -8,11 +8,11 @@ Last verified: 2026-09-21
 
 **Active wave:** *(none)*
 
-**Last closed wave:** `1ykqj close-wave-folder-cleanup` — added evidence-preserving cleanup instructions to canonical and local closure workflows; independent review and 9,452 tests passed (12 skipped).
+**Last closed wave:** `1ym4h waveforge-merge-prep` — dashboard terminology labels and shared marker namespaces delivered; 9,468 tests passed (21 skipped).
 
 ## Open questions / Deferred decisions
 
-None for this wave. All ACs/tasks complete, no deferrals, no memory candidates. Operator authorized closure and commit.
+Operator authorized closure and commit; the wave is closed. Review evidence is in the wave's `docs-delivery-review.md`: one independent reviewer context covered three lanes because the host refused additional threads, explicitly not three independent reviews. No blocking findings or memory candidates. Waveforge owns its merge-time chunker version bump/invalidation verification and terminology-key remap; no downstream integration was run here.
 
 ## Preserve
 

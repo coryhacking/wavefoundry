@@ -6,6 +6,7 @@ import index_compatibility
 index_compatibility.register_loaded_source()
 
 import ast
+import marker_namespaces
 import logging
 import re
 import sys
@@ -8056,12 +8057,6 @@ def _extract_module_content_lines(source: str, language: str) -> Optional[str]:
     return "\n".join(out)
 
 
-_WAVEFRAMEWORK_MARKER_BEGIN_RE = re.compile(
-    r"<!--\s*(?:wave|waveframework|wavefoundry):[\w:-]+\s+begin\s*-->"
-)
-_WAVEFRAMEWORK_MARKER_END_RE = re.compile(r"<!--\s*end\s*-->")
-
-
 def _strip_waveframework_marker_regions(source: str) -> str:
     """Return source with generated Wave Framework marker regions removed.
 
@@ -8073,11 +8068,11 @@ def _strip_waveframework_marker_regions(source: str) -> str:
     lines: list[str] = []
     inside_marker = False
     for line in source.splitlines():
-        if not inside_marker and _WAVEFRAMEWORK_MARKER_BEGIN_RE.search(line):
+        if not inside_marker and marker_namespaces.MARKER_BEGIN_RE.search(line):
             inside_marker = True
             continue
         if inside_marker:
-            if _WAVEFRAMEWORK_MARKER_END_RE.search(line):
+            if marker_namespaces.MARKER_END_RE.search(line):
                 inside_marker = False
             continue
         lines.append(line)

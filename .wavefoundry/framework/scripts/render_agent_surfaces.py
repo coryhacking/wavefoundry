@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
+import marker_namespaces
 import record_paths  # record roots (wave 1y0gz)
 from review_policy import (
     REVIEW_POLICY_CARRIER_REGISTRY,
@@ -1282,7 +1283,7 @@ def insert_after_heading(text: str, heading: str, inner: str) -> str:
 def strip_legacy_auto_guru_section(text: str) -> str:
     """Remove unmarked ``## Code and documentation questions (auto-Guru)`` sections."""
     pattern = re.compile(
-        r"\n## Code and documentation questions \(auto-Guru\)\n.*?(?=\n## |\n<!-- (?:wave|waveframework):|\Z)",
+        rf"\n## Code and documentation questions \(auto-Guru\)\n.*?(?=\n## |\n<!-- {marker_namespaces.MARKER_NAMESPACE_ALTERNATION}:|\Z)",
         re.DOTALL,
     )
     return pattern.sub("\n", text)
