@@ -1678,9 +1678,11 @@ class IncrementalBuildTests(unittest.TestCase):
         self._run_build(full=True)
         index_dir = self.root / ".wavefoundry" / "index"
         meta = _read_meta_store(index_dir)
+        # Change only the fingerprint under test, retaining the real producer's
+        # machine-dependent precision instead of also requesting a conversion.
         meta["model_versions"] = {
-            "docs": f"{self.bi.DOCS_MODEL}@full@wf-model-set-1-legacy",
-            "code": f"{self.bi.CODE_MODEL}@full@wf-model-set-1-legacy",
+            layer: "@".join(value.split("@")[:2]) + "@wf-model-set-1-legacy"
+            for layer, value in meta["model_versions"].items()
         }
         _seed_meta_store(index_dir, meta)
 
@@ -1690,6 +1692,7 @@ class IncrementalBuildTests(unittest.TestCase):
                 self.root, full=False, content="docs", verbose=False
             )
 
+        self.assertFalse(result.get("failed"), result)
         self.assertFalse(result.get("up_to_date", False))
         published = _read_meta_store(index_dir)["model_versions"]
         # Wave 1v454: expected fingerprint is class-scoped (int8 layers carry the encoding
@@ -2540,9 +2543,293 @@ class ModelVersionChangeTests(unittest.TestCase):
         self.assertIn("code", meta.get("content", []))
 
 
+
+class ExplicitPrecisionRebuildTests(unittest.TestCase):
+    """Real public builds with deterministic vectors; no native model downloads."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir()
+        (self.root / "src").mkdir()
+        (self.root / "docs/guide.md").write_text("# Guide\n\nOriginal precision fixture.\n")
+        (self.root / "docs/stable.md").write_text("# Stable\n\nUnchanged sentinel document.\n")
+        (self.root / "src/example.py").write_text("def example():\n    return 7\n")
+        self.index_dir = self.root / ".wavefoundry/index"
+        self.calls = []
+        self.embedder = _make_embedder_mock(calls=self.calls)
+
+    def _build(self, precision, **kwargs):
+        providers = ["CoreMLExecutionProvider"] if precision == "full" else ["CPUExecutionProvider"]
+        with patch.object(self.bi, "_onnx_providers", return_value=providers), \
+             patch.object(self.bi, "_predicted_precision_class", side_effect=lambda model, selected:
+                          "full" if "CoreMLExecutionProvider" in selected else "int8"), \
+             patch.object(self.bi, "_get_embedder", return_value=self.embedder) as factory, \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.last_factory = factory
+            return self.bi.build_index(self.root, **kwargs)
+
+    def _seed(self, precision="full"):
+        result = self._build(precision, full=True, content="all")
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue(self.calls, "fixture must actually embed")
+        self.calls.clear()
+
+    def _snapshot(self):
+        # Use the production APSW binding, including all canonical bookkeeping,
+        # provenance, vectors, graph, path state, and build epoch rows.
+        conn = self.bi._get_index_state_store().open_read_only(self.index_dir)
+        self.assertIsNotNone(conn)
+        try:
+            schema = list(conn.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name"))
+            tables = [row[1] for row in schema if row[0] == "table"]
+            return schema, {name: sorted(conn.execute('SELECT * FROM "' + name.replace('"', '""') + '"'), key=repr)
+                            for name in tables}
+        finally:
+            conn.close()
+
+    def _refuse(self, precision, **kwargs):
+        before = self._snapshot()
+        store = self.bi._get_index_state_store()
+        with patch.object(self.bi, "_resolve_build_embedders", wraps=self.bi._resolve_build_embedders) as resolve, \
+             patch.object(store, "begin_build_epoch", wraps=store.begin_build_epoch) as idle, \
+             patch.object(store, "begin_recoverable_build_epoch", wraps=store.begin_recoverable_build_epoch) as epoch:
+            result = self._build(precision, **kwargs)
+        self.assertTrue(result.get("failed"), result)
+        self.assertFalse(result["up_to_date"])
+        self.assertIn("Implicit precision conversion refused", result["failure"])
+        self.assertIn("wf setup --full", result["failure"])
+        self.assertIn("provider environment", result["failure"])
+        resolve.assert_not_called()
+        self.last_factory.assert_not_called()
+        idle.assert_not_called()
+        epoch.assert_not_called()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self._snapshot(), before)
+        return result
+
+    def test_both_directions_all_scopes_and_dry_run_preserve_published_state(self):
+        for recorded, requested in (("full", "int8"), ("int8", "full")):
+            self._seed(recorded)
+            for content in ("docs", "code", "all", "graph"):
+                for dry_run in (False, True):
+                    with self.subTest(recorded=recorded, content=content, dry_run=dry_run):
+                        result = self._refuse(requested, content=content, dry_run=dry_run)
+                        self.assertEqual(result["precision_changes"], [
+                            {"layer": layer, "recorded": recorded, "requested": requested}
+                            for layer in ("docs", "code")])
+
+    def test_real_precision_predictor_observes_provider_fallback(self):
+        self.assertIsNotNone(self.bi.accel_embedder)
+        self.assertIn(self.bi.DOCS_MODEL, self.bi.accel_embedder.CLEAN_ONNX_SOURCES)
+        with patch.object(self.bi, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.bi, "_get_embedder", return_value=self.embedder), \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            built = self.bi.build_index(self.root, content="all")
+        self.assertFalse(built.get("failed"), built)
+        self.assertTrue(self.calls)
+        self.calls.clear()
+        before = self._snapshot()
+        with patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
+             patch.object(self.bi.accel_embedder, "_available_gpu_providers", return_value=[]), \
+             patch.object(self.bi, "_get_embedder") as factory, redirect_stderr(io.StringIO()):
+            refused = self.bi.build_index(self.root, content="all")
+        self.assertTrue(refused.get("failed"), refused)
+        self.assertEqual(refused["precision_changes"], [
+            {"layer": layer, "recorded": "full", "requested": "int8"} for layer in ("docs", "code")])
+        factory.assert_not_called()
+        self.assertEqual(self._snapshot(), before)
+
+    def test_targeted_and_rechunk_updates_cannot_escalate_precision(self):
+        self._seed()
+        for options in ({"files": [self.root / "docs/guide.md"]}, {"rechunk": True}):
+            with self.subTest(options=options):
+                self._refuse("int8", content="docs", **options)
+
+    def test_untouched_sibling_precision_is_checked(self):
+        with patch.object(self.bi, "DOCS_MODEL", "fixture-docs"), patch.object(self.bi, "CODE_MODEL", "fixture-code"):
+            self._seed()
+            before = self._snapshot()
+            with patch.object(self.bi, "_predicted_precision_class", side_effect=lambda model, providers:
+                              "int8" if model == "fixture-code" else "full"), \
+                 patch.object(self.bi, "_get_embedder") as embed, redirect_stderr(io.StringIO()):
+                result = self.bi.build_index(self.root, content="docs")
+            self.assertTrue(result.get("failed"), result)
+            self.assertEqual(result["precision_changes"], [{"layer": "code", "recorded": "full", "requested": "int8"}])
+            embed.assert_not_called()
+            self.assertEqual(self._snapshot(), before)
+
+    def test_compatible_restore_is_incremental_and_explicit_full_reembeds(self):
+        self._seed()
+        self._refuse("int8", content="all")
+        restored = self._build("full", content="all")
+        self.assertFalse(restored.get("failed"), restored)
+        self.assertEqual(self.calls, [], "compatible environment must reuse existing vectors")
+        (self.root / "docs/guide.md").write_text("# Guide\n\nChanged incremental sentinel.\n")
+        changed = self._build("full", content="all")
+        self.assertFalse(changed.get("failed"), changed)
+        embedded = "\n".join(text for batch in self.calls for text in batch)
+        self.assertIn("Changed incremental sentinel", embedded)
+        self.assertNotIn("Unchanged sentinel document", embedded)
+        self.calls.clear()
+        for precision in ("int8", "full"):
+            result = self._build(precision, full=True, content="all")
+            self.assertFalse(result.get("failed"), result)
+            self.assertTrue(self.calls, "explicit conversion must really embed")
+            meta = _read_meta_store(self.index_dir)
+            self.assertTrue(all(value.split("@")[1] == precision for value in meta["model_versions"].values()))
+            self.calls.clear()
+
+    def test_fresh_cpu_install_and_same_class_model_revision_remain_allowed(self):
+        fresh = self._build("int8", full=False, content="all")
+        self.assertFalse(fresh.get("failed"), fresh)
+        self.assertTrue(self.calls, "fresh CPU install must enter normal embedding")
+        self.calls.clear()
+        unchanged = self._build("int8", content="all")
+        self.assertFalse(unchanged.get("failed"), unchanged)
+        self.assertEqual(self.calls, [])
+        with patch.object(self.bi, "EMBEDDING_MODEL_SET_FINGERPRINT", "fixture-genuine-revision"):
+            result = self._build("int8", content="docs")
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue(self.calls, "genuine same-precision revision must reembed")
+        self.assertIn("fixture-genuine-revision", _read_meta_store(self.index_dir)["model_versions"]["docs"])
+
+    def test_unknown_and_missing_legacy_precision_keep_reconstruction_path(self):
+        for spelling in ("bare", "unknown", "missing"):
+            self._seed()
+            meta = _read_meta_store(self.index_dir)
+            for layer in ("docs", "code"):
+                model = meta["model_versions"][layer].split("@")[0]
+                if spelling == "missing":
+                    meta["model_versions"].pop(layer)
+                else:
+                    meta["model_versions"][layer] = model if spelling == "bare" else model + "@unrecognized@old"
+            _seed_meta_store(self.index_dir, meta)  # explicit damaged-provenance variant of a real built index
+            with self.subTest(spelling=spelling):
+                if spelling == "missing":
+                    before = self._snapshot()
+                    with self.assertRaises(self.bi.index_compatibility.IndexCompatibilityError) as caught:
+                        self._build("int8", content="all")
+                    self.assertEqual(caught.exception.code, "index_compatibility_unproven")
+                    self.assertEqual(self._snapshot(), before)
+                    self.assertEqual(self.calls, [])
+                else:
+                    result = self._build("int8", content="all")
+                    self.assertFalse(result.get("failed"), result)
+                    self.assertTrue(self.calls)
+                    self.calls.clear()
+
+    def test_guard_removal_is_detected_by_public_build_oracle(self):
+        self._seed()
+        with patch.object(self.bi, "_implicit_precision_changes", return_value=[]):
+            with self.assertRaises(AssertionError):
+                self._refuse("int8", content="all")
+        self.assertTrue(self.calls, "the mutant must demonstrate the expensive reembedding regression")
+
+    def test_setup_consumes_real_refusal_without_claiming_an_incomplete_epoch(self):
+        from test_setup_index import load_setup_index
+        setup = load_setup_index()
+        self._seed()
+        before = self._snapshot()
+        calls = []
+        def run_indexer(root, *, full=False, content="all", **kwargs):
+            calls.append((content, full))
+            # Execute the real indexer CLI producer; only the process boundary
+            # is substituted, so failure text and exit status are not fixtures.
+            args = ["--root", str(root), "--content", content] + (["--full"] if full else [])
+            code = self.bi.main(args)
+            if code:
+                raise subprocess.CalledProcessError(code, args)
+        for graph_only in (False, True):
+            with self.subTest(graph_only=graph_only), \
+                 patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
+                 patch.object(self.bi, "_get_embedder") as embed, \
+                 patch.object(setup, "ensure_deps"), \
+                 patch.object(setup, "_reexec_with_venv_if_needed"), \
+                 patch.object(setup, "_workflow_project_include_prefixes", return_value={}), \
+                 patch.object(setup, "_indexer_models", return_value=[]), \
+                 patch.object(setup, "prewarm_models"), \
+                 patch.object(setup, "report_embedding_provider_decision"), \
+                 patch.object(setup, "_prewarm_gpu_accel"), \
+                 patch.object(setup, "_run_indexer", side_effect=run_indexer), \
+                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                code = setup.main(["--root", str(self.root)] + (["--graph-only"] if graph_only else []))
+            self.assertEqual(code, 2)
+            self.assertIn("Implicit precision conversion refused", err.getvalue())
+            self.assertIn("index build failed (exit 1)", err.getvalue())
+            self.assertNotIn("epoch was left incomplete", err.getvalue())
+            self.assertNotIn("readers fail closed", err.getvalue())
+            self.assertNotIn("Done.", out.getvalue())
+            embed.assert_not_called()
+        self.assertEqual(calls, [("all", False), ("graph", False)])
+        self.assertEqual(self._snapshot(), before)
+
+    def test_mcp_consumes_real_cli_refusal_and_graph_update_does_not_force_full(self):
+        # Loading the MCP composition root deliberately purges sibling modules.
+        # Isolate that behavior so this producer test cannot invalidate another
+        # test's already-imported module identity.
+        script = (
+            "import unittest; from test_indexer import ExplicitPrecisionRebuildTests; "
+            "suite=unittest.TestSuite([ExplicitPrecisionRebuildTests('_check_mcp_consumer')]); "
+            "result=unittest.TextTestRunner().run(suite); raise SystemExit(not result.wasSuccessful())"
+        )
+        result = subprocess.run([sys.executable, "-B", "-c", script],
+            env=dict(os.environ, PYTHONPATH=os.pathsep.join((str(SCRIPTS_ROOT), str(SCRIPTS_ROOT / "tests")))),
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def _check_mcp_consumer(self):
+        from server_tools_support import load_server
+        server = load_server()
+        self._seed()
+        before = self._snapshot()
+        commands = []
+        def spawn(command, **kwargs):
+            commands.append(command)
+            content = "graph" if "--graph-only" in command else command[command.index("--content") + 1]
+            args = ["--root", str(self.root), "--content", content] + (["--full"] if "--full" in command else [])
+            with redirect_stdout(kwargs["stdout"]), redirect_stderr(kwargs["stdout"]):
+                code = self.bi.main(args)
+            kwargs["stdout"].flush()
+            return MagicMock(pid=999999, poll=MagicMock(return_value=code))
+        for content in ("docs", "graph"):
+            with self.subTest(content=content), \
+                 patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
+                 patch.object(self.bi, "_get_embedder") as embed, \
+                 patch.object(server, "_index_is_up_to_date", return_value=False), \
+                 patch.object(server, "_index_build_active", return_value=False), \
+                 patch.object(server, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 0.5), \
+                 patch("subprocess.Popen", side_effect=spawn):
+                result = server.index_build_response(self.root, content=content, mode="update")
+            self.assertEqual(result["status"], "error", result)
+            self.assertTrue(result["data"]["build_failed_early"])
+            self.assertFalse(result["data"]["passed"])
+            self.assertFalse(result["data"]["graph_rebuilt"])
+            self.assertIn("Implicit precision conversion refused", str(result))
+            embed.assert_not_called()
+        self.assertTrue(commands)
+        self.assertTrue(all("--full" not in command for command in commands))
+        self.assertEqual(self._snapshot(), before)
+
+    def test_indexer_cli_returns_failure_from_real_preflight(self):
+        self._seed()
+        before = self._snapshot()
+        with patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
+             patch.object(self.bi, "_get_embedder") as embed, \
+             redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()):
+            code = self.bi.main(["--root", str(self.root), "--content", "all"])
+        self.assertEqual(code, 1)
+        self.assertIn("Implicit precision conversion refused", err.getvalue())
+        embed.assert_not_called()
+        self.assertEqual(self._snapshot(), before)
+
+
 class PrecisionClassVersionTests(unittest.TestCase):
     """Wave 1p936: the precision class (``full`` vs ``int8``) folded into ``model_versions`` —
-    a class change forces a re-embed; a same-class provider/format swap (FP16<->FP32) does not."""
+    an explicit class conversion re-embeds; a same-class provider/format swap (FP16<->FP32) does not."""
 
     def setUp(self):
         self.bi = load_build_index()
@@ -2603,7 +2890,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
             })
         return index_dir
 
-    def test_precision_class_change_forces_reembed(self):
+    def test_explicit_precision_class_change_forces_reembed(self):
         """AC-1: switching a layer's precision class (int8 -> full) forces a full re-embed."""
         _make_repo(self.root, {"docs/guide.md": "## Intro\n\nWave lifecycle docs.\n"})
         # Index recorded as int8; the CURRENT machine predicts "full" (patched) → class change.
@@ -2612,7 +2899,7 @@ class PrecisionClassVersionTests(unittest.TestCase):
         docs_spy = _make_embedder_mock(dim=4, calls=docs_calls)
         with patch.object(self.bi, "_predicted_precision_class", return_value="full"), \
              patch.object(self.bi, "_get_embedder", return_value=docs_spy):
-            result = self.bi.build_index(self.root, full=False, content="docs", verbose=False)
+            result = self.bi.build_index(self.root, full=True, content="docs", verbose=False)
         self.assertFalse(result.get("up_to_date", False), "class change must force a rebuild")
         embedded = [t for batch in docs_calls for t in batch]
         self.assertTrue(any("Wave lifecycle" in t for t in embedded), "must re-embed on class change")
@@ -8245,6 +8532,9 @@ class TargetedPublicationContractTests(unittest.TestCase):
         self.assertFalse(self._rows('two.py')['chunks_code'])
 
     def test_targeted_currency_refusal_precedes_store_mutation(self):
+        # These cases isolate model identity/currency, not precision conversion.
+        recorded_precision = self.bi._precision_class_from_version(
+            _read_meta_store(self.root / '.wavefoundry' / 'index')['model_versions']['docs'])
         cases = [('full', None, None), ('walker', self.bi, 'WALKER_VERSION'),
                  ('docs_model', self.bi, 'DOCS_MODEL'), ('code_model', self.bi, 'CODE_MODEL'),
                  ('chunker', self.bi._get_chunker(), 'CHUNKER_VERSION'),
@@ -8260,7 +8550,8 @@ class TargetedPublicationContractTests(unittest.TestCase):
                 kwargs = {'full': True} if name == 'full' else {}
                 if name == 'policy': kwargs['include_tests'] = True
                 cm = patch.object(module, attr, 'incompatible') if module else contextlib.nullcontext()
-                with cm, patch.object(self.iss.IndexStateStore, 'ensure_current', side_effect=AssertionError('mutation before refusal')) as ensure:
+                with cm, patch.object(self.bi, '_predicted_precision_class', return_value=recorded_precision), \
+                     patch.object(self.iss.IndexStateStore, 'ensure_current', side_effect=AssertionError('mutation before refusal')) as ensure:
                     try:
                         result = self.bi.build_index(self.root, files=[self.root / 'one.py'], content='all', **kwargs)
                     except self.iss.index_compatibility.IndexCompatibilityError as exc:

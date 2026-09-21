@@ -2047,6 +2047,13 @@ def main(argv: list[str] | None = None) -> int:
             # venv/deps/model-warm deadline convention (no raw traceback, exit code 2).
             print(str(exc), file=sys.stderr)
             return 2
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"index build failed (exit {exc.returncode}). See the build output above; "
+                "rerun setup (or index_build) after fixing the cause.",
+                file=sys.stderr,
+            )
+            return 2
         print("\nDone. Graph index rebuild complete.", flush=True)
         return 0
 
@@ -2119,12 +2126,10 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as exc:
-        # 1sed6 review F6: the indexer subprocess now exits non-zero on a
-        # structured build failure (epoch left incomplete on purpose). Exit
-        # clean with the stage-named message instead of a raw traceback.
+        # A non-zero subprocess result includes preflight refusals that retain
+        # a completed epoch; do not infer reader state from the exit code.
         print(
-            f"index build failed (exit {exc.returncode}) — the build epoch was left "
-            "incomplete and search readers fail closed. See the build output above; "
+            f"index build failed (exit {exc.returncode}). See the build output above; "
             "rerun setup (or index_build) after fixing the cause.",
             file=sys.stderr,
         )

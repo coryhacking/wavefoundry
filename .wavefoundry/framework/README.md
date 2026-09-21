@@ -57,6 +57,8 @@ The environment replacement path was exercised with disposable Python 3.11 and 3
 
 ## Local index compatibility
 
+Ordinary updates reuse compatible embeddings. If provider selection changes the recorded semantic precision between `full` and `int8`, the update refuses before embedding or changing the published epoch rather than silently rebuilding the corpus. This can happen after a GPU probe fails or an index moves to a CPU-only machine. Restore the compatible provider environment and retry the ordinary update, or deliberately run `wf setup --full` to re-embed at the new precision. The refusal names the affected layers and both precisions. Fresh CPU-only indexes and same-precision incremental updates remain supported; genuine model revisions still follow their existing migration rules.
+
 A project keeps ONE local index database, `.wavefoundry/index/index.sqlite`, holding the docs and code semantic layers together with the code graph and its communities; only the agent-memory store stays separate. It requires Python 3.11 or newer, `apsw==3.53.4.0` (bundled SQLite 3.53.4) and `sqlite-vec==0.1.9`. All dependencies must support the selected Python/OS/architecture; a wheel listing alone does not certify an end-to-end install.
 
 | Target | Pinned sqlite-vec binary availability |

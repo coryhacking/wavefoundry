@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-21
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -300,7 +300,7 @@ recorded in the persisted store log.
 
 Version differences trigger convergence, but they do not all require new embeddings:
 
-- An embedding-model name/version mismatch forces a full rebuild and re-embed.
+- An embedding-model name/version mismatch within the same precision class forces a full rebuild and re-embed. A recognized `full`/`int8` precision change instead requires an explicit full request; an ordinary update refuses before embedding or changing the published epoch, including when an untouched sibling would cause scope expansion.
 - A `WALKER_VERSION` mismatch (currently `"15"`) forces a full rebuild because the eligible file
   set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
   12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
@@ -697,6 +697,13 @@ instance. Both produce 384-dimensional vectors:
 Equality of the two configured IDs enables reuse; it does not alias one selector to the other.
 When `CODE_MODEL` or `DOCS_MODEL` changes, the stored `model_versions` mismatch forces the
 affected re-embed. A shared model-set fingerprint change forces an atomic all-layer rebuild.
+Known `full`/`int8` precision changes are checked before automatic convergence: an ordinary
+update refuses with the layer names, recorded/requested precision and recovery choices.
+Restore the compatible provider environment and retry the update, or deliberately use
+`wf setup --full` to convert. Explicit conversion re-embeds the content before publishing
+the new identity; it never relabels existing vectors. Fresh CPU-only builds and compatible
+incremental updates remain allowed. Missing or unknown legacy provenance follows existing
+recovery rules rather than being assumed to establish a known precision.
 
 Docstrings and other `kind="doc"` chunks from source files are embedded with the **docs**
 model even though they originate from `.py`, `.java`, etc.
@@ -928,8 +935,10 @@ Whenever `CHUNKER_VERSION` is bumped — for example because a breadcrumb format
 new tree-sitter language is added — every file is **re-chunked** on the next build, but a
 chunker-only bump (model and walker unchanged) **reuses embeddings for content-identical
 chunks by content hash** and only embeds new or changed chunk text (the `_plan_vector_delta_rows`
-delta path). A full re-encode is forced only when the embedding **model** name/precision or the
-`WALKER_VERSION` changes (old vectors are invalid), or on an explicit `--full`.
+delta path). A full re-encode is forced when the embedding **model** name or compatible
+identity revision changes, when `WALKER_VERSION` changes, or on an explicit `--full`.
+A known precision-class change requires that explicit full request; ordinary updates refuse
+instead of silently converting the corpus.
 
 An index whose existing canonical rows predate `chunk_hash` triggers a one-time **full rebuild**
 automatically (the 1p4n4 legacy-fallback preflight) so rows carry `chunk_hash` consistently

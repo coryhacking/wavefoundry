@@ -3207,6 +3207,31 @@ def _precision_class_from_version(value: Optional[str]) -> str:
     return value.split("@", 2)[1]
 
 
+def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
+    """Recognized precision changes require caller intent, not convergence.
+
+    The existing metadata reader accepts only the current store schema. Missing
+    or legacy provenance keeps its existing reconstruction path; in particular,
+    a bare model name must not be guessed to prove full-precision compatibility.
+    """
+    meta = _load_meta(index_dir)
+    versions = meta.get("model_versions") or {}
+    providers = _onnx_providers()
+    changes = []
+    for layer, model in (("docs", DOCS_MODEL), ("code", CODE_MODEL)):
+        value = versions.get(layer)
+        fields = value.split("@", 2) if isinstance(value, str) else []
+        recorded = fields[1] if len(fields) > 1 else None
+        if recorded not in {"full", "int8"}:
+            continue
+        if layer not in meta.get("content", []) and not vector_store.layer_available(index_dir, layer):
+            continue
+        requested = _predicted_precision_class(model, providers)
+        if recorded != requested:
+            changes.append({"layer": layer, "recorded": recorded, "requested": requested})
+    return changes
+
+
 def _model_set_fingerprint_from_version(value: Optional[str]) -> str:
     return value.split("@", 2)[2] if value and value.count("@") >= 2 else ""
 
@@ -3960,6 +3985,7 @@ def _build_index_locked(
     Returns a summary dict with counts.
     """
     index_compatibility.ensure_runtime_current()
+    explicitly_full = full  # preserve caller intent before internal convergence
     requested_files = tuple(files) if files is not None else None
     selected_paths = None
     if requested_files is not None:
@@ -4000,6 +4026,20 @@ def _build_index_locked(
         if content != "graph":
             content, full = "all", True
         rebuild_inventory = preflight_rebuild_sources(root, index_dir, **rebuild_options)
+
+    if not explicitly_full:
+        precision_changes = _implicit_precision_changes(index_dir)
+        if precision_changes:
+            detail = "; ".join(
+                f"{item['layer']}: recorded {item['recorded']}, requested {item['requested']}"
+                for item in precision_changes
+            )
+            result = _build_failed_result(files or [],
+                "Implicit precision conversion refused (" + detail + "). "
+                "Restore the compatible provider environment, or deliberately rebuild with "
+                "wf setup --full / index_build(mode='rebuild'). Existing published index retained.")
+            result["precision_changes"] = precision_changes
+            return result
 
     prepared_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
                          getattr(_get_chunker(), "CHUNKER_VERSION", ""))
@@ -4209,7 +4249,7 @@ def _build_index_locked(
     if build_docs:
         old_docs_value = old_model_versions.get("docs")
         model_changed = model_changed or (old_docs_value or "").split("@", 1)[0] != DOCS_MODEL
-        # Wave 1p936: a precision-class change (full <-> int8) also forces a full re-embed — old
+        # An explicitly requested precision-class change (full <-> int8) forces a full re-embed — old
         # vectors are only interchangeable within the same class (FP16/FP32 collapse to "full").
         model_changed = model_changed or _precision_class_from_version(old_docs_value) != (
             _predicted_precision_class(DOCS_MODEL, _onnx_providers())
@@ -5949,8 +5989,8 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         # Review fix: a structured build failure must reach subprocess callers
-        # (setup, MCP index_build, hooks) as a non-zero exit — the epoch
-        # was deliberately left incomplete and success reporting would mask it.
+        # (setup, MCP index_build, hooks) as a non-zero exit. A preflight refusal
+        # can preserve a completed epoch; failure alone does not prove its state.
         if isinstance(result, dict) and result.get("failed"):
             print(f"build_index: exiting 1 — {result.get('failure', 'build failed')}", file=sys.stderr, flush=True)
             return 1
