@@ -80,6 +80,8 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
 
 **Tool registry and wrapper chain (wave 1y0h1):** `register_mcp_surface` still registers every tool with FastMCP decorators. It then applies `MIDDLEWARE`, the ordered registration-time wrapper chain declared beside the three wrappers (cost innermost, lifecycle lock, upgrade-publication guard outermost), through `mcp_tool_registry.apply_middleware`, which records on each wrapped callable's `__wf_middleware__` the wrappers that applied. Last, `mcp_tool_registry.build_registry` builds the runtime registry from FastMCP's tool table and `mcp_tool_roster`, one `ToolSpec` per implementation-owned tool, and roster drift is reported from it as a warning only. `mcp_tool_registry.py` is stateless, never imports `server_impl`, and is purged and freshly imported on MCP reload (`1ye5y-adr`).
 
+**Handler modules (wave 1y0h2):** `codenav_handlers.py` owns twelve navigation response functions and private helpers; `graph_handlers.py` owns seven graph responses and private helpers. Decorated registration closures remain in `server_impl.py`, which rebinds response names and purges both siblings before module-top imports on reload. Retained shared helpers are resolved through function-local `import server_impl` on each call; neither handler module imports the composition root at module initialization. Public tools, tiers and envelopes remain unchanged.
+
 **Index build flow:**
 
 ```

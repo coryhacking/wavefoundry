@@ -1,0 +1,106 @@
+{
+  "full_suite": {
+    "inputs_hash": "6a48b57b85bf739f554d86fa6bf95fa792b9d5b3199cd887be30610733925a9d",
+    "ran_at": "2026-09-21T01:04:26.056175+00:00",
+    "test_count": 9418,
+    "result": "ok"
+  },
+  "test_files": 114,
+  "skipped": 12,
+  "duration_seconds": 302.669,
+  "index_before_evaluation": {
+    "checked_at": "2026-09-21T01:15:22.456160+00:00",
+    "build_state": {
+      "id": 1,
+      "attempt_id": "52cc939f6bbe40c3b747ac7450c3d03d",
+      "scope": "all",
+      "status": "complete",
+      "generation": 1772,
+      "started_at": 1789953188.8521972,
+      "completed_at": 1789953192.38059
+    },
+    "modules": {
+      ".wavefoundry/framework/scripts/codenav_handlers.py": {
+        "source_sha256": "fcd8330ffcdbfa916b8aec27ceb293aae32e12f306da088a921743cdc85293a5",
+        "indexed_hash": "fcd8330ffcdbfa916b8aec27ceb293aae32e12f306da088a921743cdc85293a5",
+        "chunks": 124
+      },
+      ".wavefoundry/framework/scripts/graph_handlers.py": {
+        "source_sha256": "3976847a81d2025b1bcc88b75e7d46fdae4e8c6fb7583d830b9111c6a470eb14",
+        "indexed_hash": "3976847a81d2025b1bcc88b75e7d46fdae4e8c6fb7583d830b9111c6a470eb14",
+        "chunks": 102
+      }
+    }
+  },
+  "retrieval_report": "docs/reports/retrieval-quality-1y0bf-final.json",
+  "report_sha256": "6ffd36fb70188e591f3520dc4bdcc3c0b60f3d120fdb93db5d8896e83df4c211",
+  "retrieval_verdict": "baseline",
+  "generation": {
+    "end": 1772,
+    "end_attempt_id": "52cc939f6bbe40c3b747ac7450c3d03d",
+    "end_status": "complete",
+    "end_token": [
+      "52cc939f6bbe40c3b747ac7450c3d03d",
+      "complete",
+      1772
+    ],
+    "start": 1772,
+    "start_attempt_id": "52cc939f6bbe40c3b747ac7450c3d03d",
+    "start_status": "complete",
+    "start_token": [
+      "52cc939f6bbe40c3b747ac7450c3d03d",
+      "complete",
+      1772
+    ]
+  },
+  "production_digest": "958c641b8e8c9c14b604eee1dbca8bd4b16ee830e8bbaee2cdf1380a325dda51",
+  "production_end_digest_verified": true,
+  "invalidation_reasons": [],
+  "operator_review_reasons": [],
+  "performance": {
+    "code_ask": {
+      "max_response_bytes": 25064,
+      "minimum_warm_samples": 9,
+      "p95_is_maximum": false,
+      "sample_count": 93,
+      "small_sample_estimate": false,
+      "warm_floor_ms": 2173.558208,
+      "warm_median_ms": 3092.946959,
+      "warm_p95_ms": 4066.276541
+    },
+    "code_lexical": {
+      "max_response_bytes": 11273,
+      "minimum_warm_samples": 9,
+      "p95_is_maximum": false,
+      "sample_count": 27,
+      "small_sample_estimate": false,
+      "warm_floor_ms": 12.526167,
+      "warm_median_ms": 25.16225,
+      "warm_p95_ms": 36.959458
+    },
+    "code_search": {
+      "max_response_bytes": 11015,
+      "minimum_warm_samples": 9,
+      "p95_is_maximum": false,
+      "sample_count": 36,
+      "small_sample_estimate": false,
+      "warm_floor_ms": 518.812833,
+      "warm_median_ms": 543.039146,
+      "warm_p95_ms": 590.387667
+    },
+    "docs_search": {
+      "max_response_bytes": 12287,
+      "minimum_warm_samples": 9,
+      "p95_is_maximum": true,
+      "sample_count": 9,
+      "small_sample_estimate": false,
+      "warm_floor_ms": 551.160291,
+      "warm_median_ms": 555.070917,
+      "warm_p95_ms": 567.393667
+    }
+  },
+  "reviewed_tree_fingerprint": "2e67176fef75db44764cab545b54530afe46136b66f41118b5f3f593d751b3d2",
+  "measurement_coordination": "Parent held indexer._index_build_lock on live index while unmodified evaluator child ran; lock released after exit. No readiness, identity, or generation checks disabled.",
+  "pre_garden_reviewed_tree_fingerprint": "509c3c4b7af4cd64279a40ffc38f9db8cc2f2509d6e89ceb405285e30a4def43",
+  "gardening_delta": "Only Last verified dates: domain-map15\u219220, search-architecture17\u219220, registry ADR19\u219220 (2026-09); original dates exactly reproduce pre-garden blob hashes."
+}

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-19
+Last verified: 2026-09-20
 
 ## Context
 
@@ -43,3 +43,8 @@ The registry and a generic chain applier live in a flat sibling module, `mcp_too
 - `docs/waves/1y0h1 tool-registry-dispatch/1y0be-ref tool-registry-and-wrapper-chain.md`
 - `docs/reports/wavefoundry-modularity-rfc.md`
 - `docs/reports/waveforge-fork-audit.md`
+
+
+## First handler exemplar (wave 1y0h2)
+
+Code navigation and graph response computation move into flat reloadable siblings while decorated closures remain in `server_impl.py`. The registry remains observational and reports those closure source modules unchanged. The response modules import the composition root only inside functions to resolve retained dependencies at invocation time; the root rebinds public response names for existing callers. Independent import-derived reload tests cover the siblings in addition to runtime registry parity.

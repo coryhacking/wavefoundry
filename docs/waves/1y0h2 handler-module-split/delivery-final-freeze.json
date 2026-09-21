@@ -1,0 +1,17 @@
+{
+  ".wavefoundry/framework/scripts/server_impl.py": "1cfe2a8dfe7c082276ee1a072305cc3782494866",
+  ".wavefoundry/framework/scripts/codenav_handlers.py": "c6a5c5b43cf76dfa129bb31d3263653f06710be5",
+  ".wavefoundry/framework/scripts/graph_handlers.py": "d8fe1059917da406575291fd26d92ea14b4b6de9",
+  ".wavefoundry/framework/scripts/retrieval_eval.py": "0d132581331002d28b4b6d1c788f339e8efe726b",
+  ".wavefoundry/framework/scripts/tests/test_handler_modules.py": "6dece4e220baae55efb24923a3a9ebebe68311e5",
+  ".wavefoundry/framework/scripts/tests/test_mcp_tool_registry.py": "8a97c0d01bfcc53c1471065122516e8875ed82ca",
+  ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "e4aa10ececc75fd0c39a7200f6cc2767d2d3ece2",
+  "docs/evals/retrieval-quality-golden.json": "e563810306b9adbd5497207dc52b80c73a49d063",
+  "docs/architecture/current-state.md": "01a4cd93442374a2892efe23ee63053cad7e9b87",
+  "docs/architecture/domain-map.md": "c38c5373e3d64cfe00147fbec796c96abd9e9f31",
+  "docs/architecture/search-architecture.md": "84bf5c8a9626815f7034b983103b2c83d28ec8ac",
+  "docs/architecture/decisions/1ye5y-adr flat-sibling-tool-registry.md": "9e9b8cf91da4ad541ec081361cd246b27198058b",
+  ".wavefoundry/framework/scripts/tests/test_graph_query.py": "f609a08d129f101b8421eba5af19c1b493864726",
+  ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "410c4b0bbd284118ae52a7ae61c9d5d229ce3b8f",
+  "tree_fingerprint": "2e67176fef75db44764cab545b54530afe46136b66f41118b5f3f593d751b3d2"
+}

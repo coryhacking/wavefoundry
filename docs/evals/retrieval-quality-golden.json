@@ -773,7 +773,7 @@
             "value": "code_lexical_response"
           },
           "grade": 3,
-          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "path": ".wavefoundry/framework/scripts/codenav_handlers.py",
           "tools": [
             "code_ask"
           ]

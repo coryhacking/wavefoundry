@@ -5353,12 +5353,16 @@ class CrossTableFusionConsistencyTests(unittest.TestCase):
         # Requirement 7 says the semantics apply CONSISTENTLY across three
         # named sites. One shared callee is how that is guaranteed; a local
         # raw-bm25 sort reintroduced at any one site would diverge silently.
-        source = self._server_source()
+        import inspect
+
+        server_source = self._server_source()
         for anchor in (
             "def _lexical_candidates",
             "def _fts_degraded_serve",
             "def code_lexical_response",
         ):
+            source = (inspect.getsource(self.srv.code_lexical_response)
+                      if anchor == "def code_lexical_response" else server_source)
             start = source.index(anchor)
             # Bound the search to the function body that follows the anchor.
             body = source[start:start + 12000]
@@ -15808,7 +15812,10 @@ class FtsRebuildContentTests(unittest.TestCase):
         self.assertIn("IndexBuildAlreadyRunning", block)
 
     def test_undercoverage_diagnostics_point_at_fts_rebuild(self):
-        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        import inspect
+
+        src = (Path(self.srv.__file__).read_text(encoding="utf-8")
+               + inspect.getsource(self.srv.code_lexical_response))
         self.assertEqual(src.count("recovery_usage=\"index_build(content='fts')\""), 2)
 
 
@@ -17693,7 +17700,7 @@ class TestCallHierarchyEdgeTrustFields(_GraphReport1wpajMixin, unittest.TestCase
     def test_both_hierarchy_branches_attach_the_edge_trust_fields(self):
         # Source-level pin: dropping the wrapper on either branch silently
         # removes `relation`/`confidence` from that half of the response.
-        src = inspect.getsource(self.srv)
+        src = inspect.getsource(self.srv.code_callhierarchy_response)
         self.assertEqual(
             src.count("_attach_edge_trust(_node_entry("), 2,
             "the incoming and outgoing branches must both attach per-edge trust",

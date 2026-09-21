@@ -9709,9 +9709,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         sanctioned set", so this resolves each tag to the diagnostic code it
         actually marks.
         """
+        import codenav_handlers
+        import graph_handlers
+
         module = ast.Module(body=[
             node
-            for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support)
+            for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support,
+                          codenav_handlers, graph_handlers)
             for node in ast.parse(Path(owner.__file__).read_text(encoding="utf-8")).body
         ], type_ignores=[])
         owner: dict[int, str] = {}

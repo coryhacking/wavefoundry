@@ -1379,11 +1379,14 @@ class GraphQueryIndexCacheTests(unittest.TestCase):
 
 class ServerImplGraphAccessorGateTests(unittest.TestCase):
     """Wave 1p9q3 (1p9pz) AC-6 grep gate: every GraphQueryIndex construction in
-    server_impl.py routes through the cached accessor; no direct fresh-parse
+    server_impl.py and its handler modules route through the cached accessor; no direct fresh-parse
     site remains outside graph_query's accessor/kill-switch path."""
 
     def test_no_direct_from_root_sites_in_server_impl(self):
-        src = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        src = "\n".join(
+            (SCRIPTS / name).read_text(encoding="utf-8")
+            for name in ("server_impl.py", "codenav_handlers.py", "graph_handlers.py")
+        )
         self.assertNotIn("GraphQueryIndex.from_root", src)
         self.assertIn("get_query_index(", src)
 
@@ -1391,7 +1394,10 @@ class ServerImplGraphAccessorGateTests(unittest.TestCase):
         # Direct GraphQueryIndex(...) calls are allowed ONLY over locally
         # transformed in-memory payloads (collapse views) — never a fresh
         # parse of the on-disk artifact.
-        src = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        src = "\n".join(
+            (SCRIPTS / name).read_text(encoding="utf-8")
+            for name in ("server_impl.py", "codenav_handlers.py", "graph_handlers.py")
+        )
         direct = re.findall(r"GraphQueryIndex\((\w+)", src)
         self.assertEqual(
             sorted(set(direct)),

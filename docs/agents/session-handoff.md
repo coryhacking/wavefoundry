@@ -6,22 +6,22 @@ Last verified: 2026-09-20
 
 ## Current Session
 
-**Active wave:** *(none)*
-**Last closed wave:** `1yj14 index-build-write-races`
+**Active wave:** *(none — idle)*
+**Last closed wave:** `1y0h2 handler-module-split`
 
-Shipped shared server/build source exclusion, bounded fresh retry, verified historical-snapshot restoration, truthful optimize failures, and reload coverage. Wave closed on 2026-09-20 after all review findings were repaired and independently verified. Current framework receipt: 9,409 tests/113 files, 12 skips; docs validation passed. No commit made.
-
-Memory checkpoint completed through a fresh stdio MCP process. Two malformed temporary-target candidates were explicitly rejected; their verified testing lessons are preserved in `docs/references/project-context-memory.md`.
+Shipped nineteen code-navigation and graph response handlers in reloadable sibling modules, preserving public registration and shared-helper late binding. Final cleanup owns standard-library imports locally, proves root containment against a real outside file, and records reproducible review fingerprints. All delivery lanes and refreshed readiness approve; 9,418 tests pass (12 skips), docs validate, and the final retrieval report is a valid baseline.
 
 ## Open questions / Deferred decisions
 
-- Loaded MCP code may be stale after these edits; restart the host before relying on new server/index behavior. Tests use fresh processes. No destructive production-index recovery is part of this wave.
-- Crash, uncertain publication COMMIT and postcommit recovery remain fail-closed. Historical snapshot availability is explicitly distinct from current-source freshness.
-- `1y0h2 handler-module-split` remains readied and unopened; `1y0h1 tool-registry-dispatch` and `1yja8 stable-storage-identity` are closed. Preserve their uncommitted changes.
-- Previous storage fix's replacement-volume/reused-inode limitation remains accepted; no restamping.
+- No open design decisions or deferred acceptance criteria in wave 1y0h2.
+- Implementation and closure records remain uncommitted. No Git commit was authorized for this wave.
+- Storage continuity/races and reconciliation are committed as `956448b5`; registry prerequisite as `aadab429`.
 
-### Notes for the next session
+## Notes for the next session
 
-- Leave `docs/waves/1ycrj task-fit-agent-model-policy/` and `docs/waves/1yfzu readiness-convergence/` alone; another session owns them.
-- Use `/Users/coryhacking/.wavefoundry/venv/bin/python -B` for framework tests; system Python lacks MCP. The full runner needs host process visibility for dashboard lifecycle tests.
-- Framework edit gate is closed.
+- Preserve other sessions' work in `docs/waves/1ycrj task-fit-agent-model-policy/`, `docs/waves/1yd24 fixture-fidelity/`, `docs/waves/1yfzu readiness-convergence/`, and their generated-document changes.
+- Framework edit gate is closed. Final evidence: `docs/waves/1y0h2 handler-module-split/verification-summary.json`; baseline: `docs/reports/retrieval-quality-1y0bf-final.json` (stable generation1772, production digest verified at exit).
+- Use `/Users/coryhacking/.wavefoundry/venv/bin/python -B` for tests. The full runner needs host process visibility for dashboard lifecycle checks. Final retrieval evaluation used the host runtime and held the normal build lock in a parent process to prevent background refresh during measurement; readiness checks remained active.
+- The reported CoreML SIGSEGV was an isolated reranker probe; its parent continued with CPU fallback. No acceleration code or configuration changed.
+
+Post-closure operator cleanup: four inert local `server_impl.Iterable[Path]` annotations in `codenav_handlers.py` now use the already imported `Iterable[Path]`. Executable AST unchanged; nine handler tests pass. Closed-wave fingerprints and retrieval baseline describe the pre-cleanup source bytes; no new retrieval measurement is claimed for this cosmetic edit. The refreshed full-suite receipt is green: 9,418 tests across 114 files, 12 skips, 298.964 seconds.

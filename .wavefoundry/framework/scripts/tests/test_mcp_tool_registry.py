@@ -267,7 +267,7 @@ class ModuleBoundaryTests(unittest.TestCase):
             with self.subTest(known_bad=known_bad):
                 self.assertTrue(rebinds(source + f"\n\ndef _probe(entry, fn, other):\n    {known_bad}\n"))
 
-    def test_registry_module_is_the_last_purge_entry_and_imported_at_module_top(self):
+    def test_registry_module_is_in_purge_set_and_imported_at_module_top(self):
         # A module-top public-name import is what 1y0h0's reload test proves;
         # the purge entry is what makes that import fresh after reload.
         def placement(source):
@@ -281,11 +281,11 @@ class ModuleBoundaryTests(unittest.TestCase):
                 if isinstance(node, ast.Set)
                 and any(isinstance(e, ast.Constant) and e.value == "sensor_runner" for e in node.elts)
             )
-            last = purge.elts[-1].value if isinstance(purge.elts[-1], ast.Constant) else None
-            return top_level, last
+            present = any(isinstance(e, ast.Constant) and e.value == "mcp_tool_registry" for e in purge.elts)
+            return top_level, present
 
         source = (SCRIPTS_DIR / "server_impl.py").read_text(encoding="utf-8")
-        self.assertEqual(placement(source), (True, "mcp_tool_registry"))
+        self.assertEqual(placement(source), (True, True))
         lazy = source.replace(
             "import mcp_tool_registry  # tool registry",
             "def _probe():\n    import mcp_tool_registry  # tool registry", 1)

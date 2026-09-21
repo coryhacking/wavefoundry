@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-15
+Last verified: 2026-09-20
 
 ## Domains
 
@@ -28,6 +28,10 @@ Last verified: 2026-09-15
 7. Context-efficiency telemetry writes eligible calls through to SQLite. It can affect the public result only when neither the event nor the durable accounting-gap poison can be persisted; ordinary measurement/projection failures undercount or suppress the headline.
 8. `.wavefoundry/logs/context-efficiency.sqlite` is ignored, host-local, and not an index or review authority. It stores opaque identifiers and accounting values, never paths, queries, returned content, prompts, secrets, or conversations. Public reads distinguish absent, healthy, accounting-gap, and failed state. The marker-owned checkpoint is a portable projection, not a numeric recovery source for lost store identity.
 9. `review_policy.REVIEW_POLICY_CARRIER_REGISTRY` is the review-policy carrier authority. Its owner labels are permissions: `renderer` may replace only registered marker-owned regions; `lifecycle_reconciler` may replace only an exact registered marker or byte-known baseline section after an all-carrier preflight; `direct_docs` is validation-only and never writes a target repository. A destination may therefore have a `direct_docs` validation row and a separate `renderer` companion row whose only authority is the portable marker-bounded baseline; the validation row does not acquire write authority. No owner may broaden another owner's write boundary, and project-authored surrounding prose remains immutable.
+
+## Handler ownership
+
+`codenav_handlers.py` and `graph_handlers.py` own response computation for code navigation and graph tools. `server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Both siblings participate in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
 
 ## Local setup assessment
 

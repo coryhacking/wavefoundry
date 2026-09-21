@@ -141,7 +141,7 @@ SUMMARY_RESULT_KINDS = frozenset({"code-summary", "doc-summary"})
 # ``wf_graph_report`` serves, so a cluster-module or cluster-version change
 # moves what the measured public paths return and must move production identity.
 PRODUCTION_RETRIEVAL_MODULES = (
-    "server_impl.py", "indexer.py", "chunker.py", "index_state_store.py",
+    "server_impl.py", "codenav_handlers.py", "indexer.py", "chunker.py", "index_state_store.py",
     "graph_indexer.py", "graph_query.py", "graph_cluster.py", "accel_embedder.py",
 )
 PRODUCTION_VERSION_CONSTANTS = {
