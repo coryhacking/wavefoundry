@@ -4339,6 +4339,56 @@ class MemoryAutoPopulateTests(_MemoryCase):
         self.assertEqual(self.srv._auto_populate_memory_for_wave(self.root, "1aaaa"), {})
 
 
+class MemoryMetadataSpacingTests(_MemoryCase):
+    def test_insert_replace_and_repeat_have_one_blank_line(self):
+        body = "## Summary\n\nCanonical overlap: duplicates\n\n## Evidence\n\n- proof\n"
+        for existing in (False, True):
+            for separator in ("\n", "\n\n", "\n\n\n\n", "\n \t\n\t\n"):
+                with self.subTest(existing=existing, separator=repr(separator)):
+                    header = "# Memory\n\nOwner: Engineering"
+                    if existing:
+                        header += "\nCanonical overlap: duplicates"
+                    result = self.mem._replace_or_insert_metadata(
+                        header + separator + body,
+                        self.mem._CANONICAL_OVERLAP_RE,
+                        "Canonical overlap: none",
+                    )
+                    expected = (
+                        "# Memory\n\nOwner: Engineering\n"
+                        "Canonical overlap: none\n\n" + body
+                    )
+                    self.assertEqual(result, expected)
+                    for _ in range(3):
+                        result = self.mem._replace_or_insert_metadata(
+                            result, self.mem._CANONICAL_OVERLAP_RE,
+                            "Canonical overlap: none",
+                        )
+                        self.assertEqual(result, expected)
+                    result = self.mem._replace_or_insert_metadata(
+                        result, self.mem._EVIDENCE_VERIFIED_RE,
+                        "Evidence verified: true",
+                    )
+                    self.assertEqual(
+                        result,
+                        "# Memory\n\nOwner: Engineering\nCanonical overlap: none\n"
+                        "Evidence verified: true\n\n" + body,
+                    )
+
+    def test_missing_summary_preserves_replace_and_refuses_insert(self):
+        self.assertEqual(
+            self.mem._replace_or_insert_metadata(
+                "Canonical overlap: duplicates\n", self.mem._CANONICAL_OVERLAP_RE,
+                "Canonical overlap: none",
+            ),
+            "Canonical overlap: none",
+        )
+        with self.assertRaisesRegex(ValueError, "memory record has no Summary section"):
+            self.mem._replace_or_insert_metadata(
+                "# Memory\n", self.mem._CANONICAL_OVERLAP_RE,
+                "Canonical overlap: none",
+            )
+
+
 class MemoryAgentValidationTests(_MemoryCase):
     """1syle: compact agent judgment + durable source disposition."""
 
@@ -4380,6 +4430,8 @@ class MemoryAgentValidationTests(_MemoryCase):
             with self.subTest(verdict=verdict):
                 mid = f"mem-{verdict}"
                 self._candidate(mid, f"finding:{verdict}")
+                path = self.root / self.mem.MEMORY_DIR / f"{mid}.md"
+                original_body = path.read_text(encoding="utf-8").split("## Summary", 1)[1]
                 result = self._validate(
                     mid, verdict,
                     evidence_verified=verdict != "reject",
@@ -4399,6 +4451,22 @@ class MemoryAgentValidationTests(_MemoryCase):
                 self.assertEqual(record["validation"], validation)
                 self.assertEqual(record["validated_by"], "agent")
                 self.assertTrue(record["action_delta"])
+                written = path.read_text(encoding="utf-8")
+                header, body = written.split("## Summary", 1)
+                self.assertEqual(header[len(header.rstrip()):], "\n\n")
+                self.assertEqual(body, original_body)
+                # Exercise repeated writer updates: the public response rightly
+                # refuses revalidation once a candidate is no longer pending.
+                self.mem.record_memory_validation(
+                    self.root, mid, verdict=verdict,
+                    action_delta=record["action_delta"],
+                    rationale=record["validation_rationale"],
+                    evidence_verified=record["evidence_verified"],
+                    current_target_verified=record["current_target_verified"],
+                    canonical_overlap=record["canonical_overlap"],
+                    date=record["updated_at"],
+                )
+                self.assertEqual(path.read_text(encoding="utf-8"), written)
 
     def test_rewrite_creates_corrected_record_and_supersedes_candidate(self):
         self._candidate("mem-generated", "finding:rewrite")

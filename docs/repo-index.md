@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 14703 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 1326 |
-| graph | `.wavefoundry/framework/scripts` | code | 394 |
-| scripts/upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 381 |
-| scripts/wave_lint_lib — discover_wave_dirs | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 310 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 294 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 14706 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 1275 |
+| scripts/upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 636 |
+| graph | `.wavefoundry/framework/scripts` | code | 396 |
+| wave_lint_lib/design_system_validators | `.wavefoundry/framework/scripts` | code | 287 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 260 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 248 |
-| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 223 |
+| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 268 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 266 |
+| docs/design_system_validators | `.wavefoundry/framework/scripts` | code | 244 |
+| indexer | `.wavefoundry/framework/scripts` | code | 225 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 219 |
-| indexer | `.wavefoundry/framework/scripts` | code | 215 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 180 |
-| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
-| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 102 |
-| scripts/secrets_validators | `.wavefoundry/framework/scripts` | code | 80 |
+| scripts/secrets_validators | `.wavefoundry/framework/scripts` | code | 106 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 98 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 86 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 66 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
+| 1tmtx test-suite-performance/evidence — _probe_index_build_lock | `docs/waves/1tmtx test-suite-performance/evidence` | code | 51 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 26 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
-| evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
-| ann_reference_eval | `.wavefoundry/framework/scripts` | code | 19 |
-| repair_ppol_memory_staging | `.wavefoundry/framework/scripts` | code | 13 |
+| 1tmtx test-suite-performance/evidence — check_guard_exception | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 24 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

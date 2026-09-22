@@ -1000,13 +1000,17 @@ _UPDATED_LINE_RE = re.compile(r"^(Updated:\s*)\d{4}-\d{2}-\d{2}\s*$", re.MULTILI
 
 
 def _replace_or_insert_metadata(text: str, pattern: re.Pattern[str], line: str) -> str:
-    """Replace one frontmatter line or insert it before the first section."""
-    if pattern.search(text):
-        return pattern.sub(line, text, count=1)
-    marker = "\n## Summary"
-    if marker not in text:
+    """Update metadata, keeping exactly one blank line before Summary."""
+    header, marker, body = text.partition("\n## Summary")
+    if not marker:
+        if pattern.search(text):
+            return pattern.sub(line, text, count=1)
         raise ValueError("memory record has no Summary section")
-    return text.replace(marker, f"\n{line}{marker}", 1)
+    if pattern.search(header):
+        header = pattern.sub(line, header, count=1)
+    else:
+        header = header.rstrip("\r\n \t") + "\n" + line
+    return header.rstrip("\r\n \t") + "\n" + marker + body
 
 
 def record_memory_validation(

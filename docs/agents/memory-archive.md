@@ -4,7 +4,7 @@ Owner: Engineering
 Role: memory-archive
 Category: specialist
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-22
 
 Searchable compact register for history-worthy retired memory. Full bodies remain under
 `docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.
