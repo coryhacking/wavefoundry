@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-13
+Last verified: 2026-09-22
 
 ## Context
 
@@ -32,6 +32,6 @@ Stage gate satisfied: change doc admitted, **Prepare wave** passed cleanly.
 
 ## Rules
 
-- Follow `docs/repo-profile.json` `code_pattern` when populated (currently `insufficient_history`)
+- Follow `docs/repo-profile.json` `code_patterns` when populated (currently `insufficient_history`)
 - Prefer smallest correct change; no opportunistic cleanup
 - Stage gate applies regardless of perceived scope

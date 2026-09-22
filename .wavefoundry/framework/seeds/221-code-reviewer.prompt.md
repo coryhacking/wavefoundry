@@ -112,7 +112,7 @@ When the MCP is attached, use the index — it is far more reliable than scannin
 
 - Enumerate **every producer of the sentinel or predicate** that routes into it — every `return None`, every raised-then-caught exception, every default and error-path exit of the preferred route — not only the registry or lookup that first comes to mind. A branch is live if ANY producer can fire in a supported configuration (offline, cold cache, cert failure, missing optional dependency).
 - Grep the module's **own tests** for fixtures that name the branch or its helper (`patch.object`, mocked failures); mock-driven coverage produces no `calls` edge and is invisible to `code_impact` and `code_callhierarchy`.
-- Treat **any prose claim of unreachability** — a docstring, a comment, a prior sweep, a plan — as a **hypothesis to falsify** against the two probes above, never as corroboration. (Recorded case: an `accel_embedder` docstring said its resident-model branch was "unreachable for the current model set"; the branch was the live offline/CA degradation path and two tests exercised it. The sweep that trusted the docstring produced an approved removal of working code.)
+- Treat **any prose claim of unreachability** — a docstring, a comment, a prior sweep, a plan — as a **hypothesis to falsify** against the two probes above, never as corroboration. (Recorded case: a docstring declared a degradation branch unreachable; the branch was the live offline path exercised by existing tests. The sweep that trusted the docstring approved removing working code.)
 
 ### Output (recommend-only — never delete)
 
@@ -126,7 +126,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - `severity`: `critical`, `high`, `medium`, `low`, or `none` based on worst finding.
 - For each finding: use the finding record schema from `209-agent-harness-core.prompt.md`.
 - For approvals: a one-line confirmation of AC coverage, branch completeness, and test coverage for all changed paths.
-- A **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
+- Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (wave 1wuju).
 
 ## What This Lane Does Not Cover
 

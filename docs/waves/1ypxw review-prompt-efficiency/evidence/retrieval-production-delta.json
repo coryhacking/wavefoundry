@@ -1,0 +1,17 @@
+{
+  "before_modules_verified": 11,
+  "changed_modules": [
+    {
+      "module": "server_impl.py",
+      "before_sha256": "acbf1c3a5b374983d8a7870002006c9f7a6f268a28f02055d440c3f64f1cc0a1",
+      "after_sha256": "4d1c057e50c5c1f3ee8b966ef5a3cd09fc6ff2e7f881f4c5f5a316587f20116d",
+      "changed_top_level_definitions": [
+        "register_mcp_surface",
+        "wf_prepare_wave_response",
+        "wf_review_event_response",
+        "wf_review_wave_response"
+      ]
+    }
+  ],
+  "basis": "Pre-wave snapshot hashes checked against signed before receipt; reverse patch reconstructs only identity-tracked changed module. This is not an evaluator verdict."
+}

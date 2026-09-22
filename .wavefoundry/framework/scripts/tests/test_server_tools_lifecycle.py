@@ -1547,7 +1547,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn(
-            "| qa-reviewer | approved | current executed approval follows every affected repair | none |",
+            "| qa-reviewer | approved | current executed approval, not receipt-bound, follows every affected repair | none |",
             text,
         )
         self.assertNotIn("- qa-reviewer: approved —", text)
@@ -4136,6 +4136,62 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
             "review_evidence_independence_invalid",
             [d["code"] for d in reopened_diags],
         )
+
+
+    def _retained_approval(self, context_id, mode="create"):
+        return self.srv.wf_review_event_response(
+            self.root, self.wave_id, event="approval", actor="qa-reviewer",
+            context_id=context_id, mode=mode, signoff_key="qa-reviewer",
+            approval_phase="delivery", fresh_context=True, independent=True,
+            evidence={"observed": "independently verified", "artifact_or_test_id": self.id()},
+            integrity_checks=integrity_checks())
+
+    def test_retained_context_public_refusals_and_historical_recovery(self):
+        for fid in ("finding-ind", "finding-other"):
+            self.assertEqual(self._finding("qa-reviewer", "ctx-review", "initial_delivery", 0, finding_id=fid)["status"], "ok")
+        for fid, ctx in (("finding-ind", "ctx-repair"), ("finding-other", "ctx-other-repair")):
+            self.assertEqual(self._finding("implementer", ctx, "repair_start", 1, finding_id=fid)["status"], "ok")
+        snapshot = self._snapshot()
+        for mode in ("dry_run", "create"):
+            result = self._finding("qa-reviewer", "ctx-repair", "reverification", 1,
+                                   finding_id="finding-other", blocking=[], mode=mode)
+            self._assert_rejected(result, "review_context_retained", snapshot)
+            self._assert_rejected(self._retained_approval("ctx-repair", mode), "review_context_retained", snapshot)
+        for fid in ("finding-ind", "finding-other"):
+            self.assertEqual(self._finding("qa-reviewer", "ctx-fresh-" + fid, "reverification", 1,
+                                          finding_id=fid, blocking=[])["status"], "ok")
+        # Older producer accepted the bad row. Plant it through the public writer,
+        # bypassing only the new guard, so generic validation still proves the fixture.
+        with patch.object(self.re_mod, "_retained_review_context_start", return_value=None):
+            bad = self._retained_approval("ctx-repair")
+        self.assertEqual(bad["status"], "ok", bad)
+        self.assertTrue(self.srv.validate_external_review_evidence(self.wave_md).ok)
+        self.assertIn("review_evidence_independence_invalid", self._close_codes())
+        facade = self.srv.lifecycle_gates._review_evidence_diagnostics(
+            self.wave_md.read_text(), root=self.root, wave_md=self.wave_md, closure=True)
+        self.assertIn("review_evidence_independence_invalid", [d["code"] for d in facade])
+        reviewed = self.srv.wf_review_wave_response(self.root, self.wave_id, phase="delivery")
+        self.assertTrue(any(d["code"] == "review_context_retained" and d.get("advisory") for d in reviewed["diagnostics"]), reviewed)
+        # Identical old requests replay rather than re-entering construction.
+        self.assertEqual(self._retained_approval("ctx-repair")["status"], "ok")
+        self.assertEqual(self._retained_approval("ctx-new-independent")["status"], "ok")
+        self.assertNotIn("review_evidence_independence_invalid", self._close_codes())
+        reviewed = self.srv.wf_review_wave_response(self.root, self.wave_id, phase="delivery")
+        self.assertNotIn("review_context_retained", [d["code"] for d in reviewed["diagnostics"]])
+        listing = self.srv.wf_review_event_response(self.root, self.wave_id, "list", "probe", "summary")
+        rows = {r["context_id"]: r for r in listing["data"]["context_summary"]}
+        shared = rows["ctx-review"]
+        self.assertEqual(shared["row_count"], 2)
+        self.assertEqual(shared["actors"], ["qa-reviewer"])
+        self.assertTrue(shared["authored_finding"])
+        historical = rows["ctx-repair"]
+        self.assertTrue(historical["authored_repair_start"])
+        self.assertTrue(historical["authored_approval"])
+        self.assertEqual(historical["first_kind"], "repair_start")
+        self.assertEqual(historical["last_kind"], "approval")
+        self.assertTrue(historical["retained_context_history"])
+        self.assertFalse(historical["retained_context_history"][0]["current_authority"])
+
 
 
 # ---------------------------------------------------------------------------
@@ -9051,7 +9107,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "a wave never prepared under the policy keeps its carve-out",
         )
 
-    def _prepared_wave_with_change(self, slug, change_id="1abc-bug sample"):
+    def _prepared_wave_with_change(self, slug, change_id="1abc-bug sample", *, ready=True):
         """A governed wave built through canonical creation/admission/Prepare."""
         from server_tools_support import make_declared_wave, declared_wave_doc_gates
         from test_declared_wave_fixtures import fixture_doc_stubs
@@ -9074,7 +9130,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         wave_id, wave_md = make_declared_wave(self.srv, self.root, slug,
-            change_ids=(change_id,), ready=True, doc_gate_stubs=stubs)
+            change_ids=(change_id,), ready=ready, doc_gate_stubs=stubs)
         return wave_id, wave_md, wave_md.parent / f"{change_id}.md"
 
     def _record_readiness_approval(self, wave_id, signoff_key, context_id):
@@ -9097,6 +9153,205 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             },
             integrity_checks=integrity_checks(),
         )
+
+    def test_ephemeral_evidence_advises_on_preview_and_write(self):
+        self._write_config()
+        wave_id, wave_md, _ = self._prepared_wave_with_change("ephemeral-artifacts")
+        cases = (
+            ("/tmp/probe.log", True),
+            ("/tmp/probe.log docs/reports/probe.md", False),
+            ("docs/reports/probe.md", False),
+            ("test:unit", False),
+            ("project/scratchpad/probe.log", True),
+            ("test:unit /tmp/probe.log", True),
+        )
+        for index, (artifact, expected) in enumerate(cases):
+            context = f"ephemeral-{index}"
+            run = self.srv.wf_review_event_response(
+                self.root, wave_id=wave_id, event="run", mode="create",
+                actor="wave-council", context_id=context,
+                approval_phase="readiness", run_kind="readiness", cycle=0,
+            )
+            self.assertEqual(run["status"], "ok", run)
+            before = (wave_md.parent / "events.jsonl").read_bytes()
+            for mode in ("dry_run", "create"):
+                result = self.srv.wf_review_event_response(
+                    self.root, wave_id=wave_id, event="approval", mode=mode,
+                    signoff_key="wave-council-readiness", approval_phase="readiness",
+                    actor="wave-council", context_id=context,
+                    fresh_context=True, independent=True,
+                    evidence={"observed": "reviewed scope", "artifact_or_test_id": artifact},
+                    integrity_checks=integrity_checks(),
+                )
+                self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
+                warnings = [d for d in result.get("diagnostics", []) if d["code"] == "artifact_or_test_id_ephemeral"]
+                self.assertEqual(bool(warnings), expected, (artifact, mode, result))
+                self.assertTrue(all(d["advisory"] for d in warnings))
+                if mode == "dry_run":
+                    self.assertEqual(before, (wave_md.parent / "events.jsonl").read_bytes())
+                else:
+                    self.assertNotEqual(before, (wave_md.parent / "events.jsonl").read_bytes())
+
+    def test_ephemeral_finding_is_recorded_with_advisory(self):
+        self._write_config()
+        wave_id, wave_md, _ = self._prepared_wave_with_change("ephemeral-finding")
+        for mode in ("dry_run", "create"):
+            result = self.srv.wf_review_event_response(
+                self.root, wave_id, "finding", "qa-reviewer", "temp-finding",
+                mode=mode, finding_id="temp-evidence", run_kind="readiness", cycle=0,
+                judgment={
+                    "validation_status": "real", "scope_relation": "admitted",
+                    "introduced_or_worsened_by_wave": True, "contract_relevance": "required_ac",
+                    "supported_reachability": True, "attacker_reachability": False,
+                    "authority_domain": "integrity", "authority_delta": "low",
+                    "observable_impact": "material", "containment": "preventive",
+                },
+                evidence={
+                    "proposition": "a temporary finding is advisory", "failure_condition": "write refused",
+                    "public_path": "wf_review_event", "command_or_fixture": "canonical finding",
+                    "expected": "record appended with advisory", "observed": "finding executed",
+                    "artifact_or_test_id": "/private/tmp/finding.log",
+                    "known_bad_detection_method": "suppress advisory", "limitations": "local fixture",
+                    "safety_and_authorization": "disposable local fixture",
+                    "disposition_rationale": "required readiness behavior",
+                },
+                source_lanes=["qa-reviewer"], blocking_required_lanes=["qa-reviewer"],
+                approval_recheck_lanes=["wave-council-readiness"], review_boundaries_changed=[],
+                fresh_context=True, independent=True, integrity_checks=integrity_checks(),
+            )
+            self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
+            self.assertTrue(any(d["code"] == "artifact_or_test_id_ephemeral" and d["advisory"] for d in result["diagnostics"]))
+        self.assertTrue(any(row.get("finding_id") == "temp-evidence" for row in self.srv.resolve_review_authority(self.root, wave_md).records))
+
+    def test_delivery_only_history_does_not_repeat_receipt_advice(self):
+        self._write_config()
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("delivery-only-repeat", ready=False)
+        self._run_prepare(wave_id=wave_id, mode="ready")
+        result = self.srv.wf_review_event_response(
+            self.root, wave_id, "approval", "wave-council", "delivery-only",
+            mode="create", signoff_key="wave-council-delivery", approval_phase="delivery",
+            fresh_context=True, independent=True,
+            evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:delivery-only"},
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(result["status"], "ok", result)
+        change_path.write_text(change_path.read_text().replace("1. x", "1. x changed"))
+        self._run_prepare(wave_id=wave_id, mode="ready")
+        records = self.srv.resolve_review_authority(self.root, wave_md).records
+        self.assertTrue(any(row.get("claim_kind") == "approval" for row in records))
+        self.assertFalse(any(row.get("approval_phase") == "readiness" for row in records))
+        with patch.object(self.srv, "run_validate", return_value=self.LINT_OK):
+            inspected = self.srv.wf_review_wave_response(self.root, wave_id, phase="prepare")
+        self.assertNotIn("review_policy_receipt_superseded", [d["code"] for d in inspected.get("diagnostics", [])])
+
+    def test_prepare_supersession_attribution_and_delivery_currency(self):
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("metadata-rotation")
+        approved = self._record_readiness_approval(wave_id, "wave-council-readiness", "metadata-ready")
+        self.assertEqual(approved["status"], "ok", approved)
+        self.assertTrue(self.srv.resolve_review_authority(self.root, wave_md).signoff_current(
+            "wave-council-readiness", approval_phase="readiness"))
+        run = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor="wave-council", context_id="metadata-delivery",
+            approval_phase="delivery", run_kind="initial_delivery", cycle=0,
+        )
+        self.assertEqual(run["status"], "ok", run)
+        approval = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="approval", mode="create",
+            signoff_key="wave-council-delivery", approval_phase="delivery",
+            actor="wave-council", context_id="metadata-delivery",
+            fresh_context=True, independent=True,
+            evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:metadata"},
+            integrity_checks=integrity_checks(),
+        )
+        self.assertEqual(approval["status"], "ok", approval)
+        before = (wave_md.parent / "events.jsonl").read_bytes()
+        change_path.write_text(change_path.read_text().replace("| d | u | e |", "| d | normalized update | e |"))
+        stable = self._run_prepare(wave_id=wave_id, mode="ready")
+        self.assertNotIn("review_policy_receipt_superseded", [d["code"] for d in stable.get("diagnostics", [])])
+        self.assertEqual(before, (wave_md.parent / "events.jsonl").read_bytes())
+        for mode in ("ready", "create"):
+            change_path.write_text(change_path.read_text().replace("1. x", "1. x changed"))
+            result = self._run_prepare(wave_id=wave_id, mode=mode)
+            diagnostic = next(d for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
+            self.assertTrue(diagnostic["advisory"])
+            self.assertIn("changed change docs: 1abc-bug sample", diagnostic["message"])
+            self.assertIn("Which section changed is not attributable from persisted data", diagnostic["message"])
+            self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
+            self.assertIn("missing_wave_council_signoff", [d["code"] for d in result["diagnostics"]])
+            authority = self.srv.resolve_review_authority(self.root, wave_md)
+            self.assertTrue(authority.signoff_current("wave-council-delivery", approval_phase="delivery"))
+            projection = self.srv.review_authority_projection(authority.records, ["wave-council-delivery"], approval_phase="delivery")
+            self.assertIn("not receipt-bound", projection["status_rows"][0]["why"])
+            actions, _ = self.srv._guided_review_actions(authority.records, ["wave-council-delivery"], approval_phase="delivery", required_run_kind="initial_delivery")
+            self.assertFalse(any(action.get("state_args", {}).get("event") == "approval" for action in actions["next_actions"]))
+
+    def test_prepare_supersession_success_and_legacy_metadata_fallback(self):
+        self._write_config()
+        original = self.srv.lifecycle_gate_support.build_policy_receipt
+        def legacy_producer(fields, current):
+            return original({key: value for key, value in fields.items() if key != "policy_inputs"}, current)
+        with patch.object(self.srv.lifecycle_gate_support, "build_policy_receipt", side_effect=legacy_producer):
+            wave_id, wave_md, change_path = self._prepared_wave_with_change("metadata-legacy")
+        self._write_config(enabled=False)
+        projection = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event="run", mode="create",
+            actor="qa-reviewer", context_id="legacy-policy-projection",
+            approval_phase="readiness", run_kind="readiness", cycle=0,
+        )
+        self.assertEqual(projection["status"], "ok", projection)
+        records = self.srv.resolve_review_authority(self.root, wave_md).records
+        self.assertTrue(any(row.get("record_type") == "review_policy_receipt" for row in records))
+        self.assertTrue(all("policy_inputs" not in row for row in records))
+        for mode in ("ready", "create"):
+            change_path.write_text(change_path.read_text().replace("1. x", "1. x updated"))
+            result = self._run_prepare(wave_id=wave_id, mode=mode)
+            self.assertEqual(result["status"], "ok", result)
+            message = next(d["message"] for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
+            if mode == "ready":
+                self.assertIn("Which specific document changed is not attributable from persisted data", message)
+            else:
+                self.assertIn("changed change docs: 1abc-bug sample", message)
+
+    def test_repeated_receipt_advice_tracks_latest_approval_per_lane(self):
+        self._write_config()
+        wave_id, wave_md, change_path = self._prepared_wave_with_change("metadata-repeat")
+        for lane in ("wave-council-readiness", "qa-reviewer"):
+            approved = self._record_readiness_approval(wave_id, lane, "old-" + lane)
+            self.assertEqual(approved["status"], "ok", approved)
+        old_records = self.srv.resolve_review_authority(self.root, wave_md).records
+        old_ids = {row["evidence_record_id"] for row in old_records if row.get("claim_kind") == "approval"}
+        self.assertTrue(old_ids)
+        change_path.write_text(change_path.read_text().replace("1. x", "1. x revised"))
+        rotated = self._run_prepare(wave_id=wave_id, mode="ready")
+        self.assertIn("review_policy_receipt_superseded", [d["code"] for d in rotated["diagnostics"]])
+        def advice(phase="prepare"):
+            with patch.object(self.srv, "run_validate", return_value=self.LINT_OK):
+                response = self.srv.wf_review_wave_response(self.root, wave_id, phase=phase)
+            return [d for d in response.get("diagnostics", []) if d["code"] == "review_policy_receipt_superseded"]
+        initial = advice()
+        self.assertEqual(len(initial), 1)
+        self.assertTrue(initial[0]["advisory"])
+        self.assertIn("changed change docs: 1abc-bug sample", initial[0]["message"])
+        # Delivery inspection never repeats readiness advice.
+        self.assertFalse(advice("implementation"))
+        self.assertEqual(self._record_readiness_approval(wave_id, "wave-council-readiness", "repeat-council")["status"], "ok")
+        self.assertTrue(advice(), "qa's latest approval still has the old binding")
+        self.assertEqual(self._record_readiness_approval(wave_id, "qa-reviewer", "repeat-qa")["status"], "ok")
+        self.assertFalse(advice(), "historical approvals must not keep advice alive")
+        final_records = self.srv.resolve_review_authority(self.root, wave_md).records
+        self.assertTrue(old_ids.issubset({row.get("evidence_record_id") for row in final_records}))
+        self.assertFalse(self.srv.stale_readiness_receipt_ids(final_records))
+
+    def test_prepare_genesis_emits_no_supersession_advisory(self):
+        from server_tools_support import make_declared_wave
+        from test_declared_wave_fixtures import fixture_doc_stubs
+        self._write_config()
+        wave_id, _ = make_declared_wave(self.srv, self.root, "metadata-genesis", doc_gate_stubs=fixture_doc_stubs())
+        result = self._run_prepare(wave_id=wave_id, mode="ready")
+        self.assertNotIn("review_policy_receipt_superseded", [d["code"] for d in result.get("diagnostics", [])])
+        self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
 
     def test_a_readiness_approval_is_refused_against_an_already_stale_receipt(self):
         """1upba AC-1 red-first: today this returns ok with zero diagnostics.
@@ -9738,6 +9993,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("change_sections_gate", "_diagnostic", "ac_priority_unpopulated"),
                 ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
+                ("wf_prepare_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
+                ("wf_review_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_receipt_publications_high"),
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_lane_approvals_missing"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
@@ -9763,8 +10020,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # shared helper is the one emit site, plus wf_validate_docs's own.
                 ("_docs_lint_warning_diagnostics", "_diagnostic", "docs_lint_warning"),
                 ("wf_validate_docs_response", "_diagnostic", "docs_lint_warning"),
+                # Wave 1ypy6: unresolved dependency tokens advise without inventing
+                # edges; retained-context review advice leaves close enforcement intact.
+                ("wf_implement_wave_response", "_diagnostic", "unresolved_change_dependency"),
+                ("wf_review_wave_response", "_diagnostic", "review_context_retained"),
                 # Optional attribution never gates an otherwise valid review.
                 ("wf_review_event_response", "_diagnostic", "operator_identity_unresolved"),
+                ("wf_review_event_response", "_diagnostic", "artifact_or_test_id_ephemeral"),
             },
             "exactly these sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
@@ -15337,3 +15599,88 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImplementDependencyProducerTests(unittest.TestCase):
+    """Declared inputs come from create/admit/prepare and the public review writer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        from test_declared_wave_fixtures import fixture_doc_stubs
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.stubs = fixture_doc_stubs()
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(server_tools_support.declared_wave_doc_gates(self.srv, self.stubs))
+        config = {"wave_review": server_tools_support.review_policy_config()}
+        (self.root / "docs/workflow-config.json").write_text(json.dumps(config))
+        self.ids = []
+        source = Path(__file__).resolve().parents[4] / "docs/waves/1ypy6 implement-prompt-efficiency/1ypy4-bug implement-wave-tool-gaps.md"
+        # Use the real motivating change prose, which contains the old regex's false matches.
+        prose = source.read_text().split("## Rationale\n", 1)[1].split("## Requirements", 1)[0]
+        for slug in ("producer-first", "producer-second", "producer-third"):
+            made = self.srv._change_create_response(self.root, "enh", slug, mode="create")
+            self.assertEqual(made["status"], "ok", made)
+            cid = made["data"]["change_id"]
+            self.ids.append(cid)
+            path = self.root / made["data"]["path"]
+            path.write_text(path.read_text() + "\n## Incident prose\n" + prose)
+        self.wave_id, self.wave_md = server_tools_support.make_declared_wave(
+            self.srv, self.root, "dependency-producer", change_ids=self.ids,
+            doc_gate_stubs=self.stubs)
+        response = self.srv.wf_review_event_response(
+            self.root, self.wave_id, event="run", actor="wave-council",
+            context_id="dependency-readiness", run_kind="readiness", cycle=0, mode="create")
+        self.assertEqual(response["status"], "ok", response)
+
+    def ready(self):
+        prepared = self.srv.wf_prepare_wave_response(self.root, self.wave_id, mode="ready")
+        keys = [*prepared["data"]["review_policy"]["required_lanes"], "wave-council-readiness"]
+        for key in dict.fromkeys(keys):
+            result = self.srv.wf_review_event_response(
+                self.root, self.wave_id, event="approval", actor="wave-council" if key.startswith("wave-council") else key,
+                context_id="dependency-approval-" + key, signoff_key=key,
+                approval_phase="readiness", fresh_context=True, independent=True,
+                evidence={"observed": "producer fixture reviewed", "artifact_or_test_id": self.id()},
+                integrity_checks=integrity_checks(), mode="create")
+            self.assertEqual(result["status"], "ok", result)
+        result = self.srv.wf_prepare_wave_response(self.root, self.wave_id, mode="ready")
+        self.assertEqual(result["status"], "ok", result)
+
+    def declare(self, owner, tokens):
+        text = self.wave_md.read_text()
+        anchor = f"Change ID: `{owner}`\n"
+        self.wave_md.write_text(text.replace(anchor, anchor + "Depends On: " + ", ".join(f"`{t}`" for t in tokens) + "\n"))
+
+    def test_authoritative_edges_ignore_prose_and_offer_marks(self):
+        first, second, third = self.ids
+        self.declare(second, [first])
+        self.declare(third, [second])
+        self.ready()
+        result = self.srv.wf_implement_wave_response(self.root, self.wave_id, mode="create")
+        self.assertEqual(result["status"], "ok", result)
+        changes = result["data"]["ordered_changes"]
+        self.assertEqual([c["change_id"] for c in changes], self.ids)
+        self.assertEqual([c["depends_on"] for c in changes], [[], [first], [second]])
+        self.assertEqual(result["data"]["serialization_points"], [first, second])
+        self.assertEqual(result["next_tools"], ["wf_mark_ac", "wf_mark_task", "wf_review_wave", "wf_current_wave"])
+        self.assertIn("FULL change id", result["usage"])
+
+    def test_invalid_authoritative_tokens_are_advisory_not_legacy_prefixes(self):
+        first, second, third = self.ids
+        self.declare(second, [first.split()[0], "outside-wave"])
+        path = self.wave_md.parent / f"{third}.md"
+        path.write_text(path.read_text() + f"\nDepends On: `{first.split()[0]}`\n"
+                        f"\n| Workstream | Depends On | Notes |\n| build | tool-inventory | `{second}` |\n")
+        self.ready()
+        result = self.srv.wf_implement_wave_response(self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(result["status"], "dry_run", result)
+        self.assertEqual([c["depends_on"] for c in result["data"]["ordered_changes"]], [[], [], [first]])
+        advisories = [d for d in result["diagnostics"] if d["code"] == "unresolved_change_dependency"]
+        self.assertEqual(len(advisories), 2)
+        self.assertTrue(all(d["advisory"] for d in advisories))

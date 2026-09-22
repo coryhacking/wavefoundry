@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-22
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -12,7 +12,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neu
 
 ## Purpose
 
-Confirm wave readiness before implementation begins. The stage gate: implementation must not start until **Prepare wave** passes cleanly as the immediately preceding lifecycle step.
+Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 
 ## Steps
 

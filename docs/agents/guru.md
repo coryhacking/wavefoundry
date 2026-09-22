@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-09-04
+Last verified: 2026-09-22
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -833,93 +833,21 @@ When a Guru session reveals a systematic retrieval failure mode — an answer th
 
 Follow the canonical **Executable Review Evidence Protocol** in
 `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for material
-approval claims and blocking findings. Exercise the public or registered
+approval claims, blocking findings, review policy and focused repair.
+Exercise the public or registered
 path when one exists; keep state/interleaving probes within the protocol's
 finite risk-selected budget; record expected versus observed evidence and
 honest limitations; and never broaden task authority to run destructive,
 external, credential-bearing, or cost-bearing probes.
 
-Do not hand-author canonical JSONL when the lifecycle coordinator exposes
-the typed review-evidence authoring surface. Reviewers supply the
-load-bearing judgment facts to that coordinator; the authoring surface
-derives only bookkeeping, appends the fixed sibling
-`docs/waves/<wave>/events.jsonl` authority, and rebuilds the compact
-Markdown current-state projection in `wave.md`. A role without lifecycle
-mutation authority returns those facts to its coordinator instead of
-writing wave state.
+Start delivery review with `wf_review_wave(phase='implementation')` and
+record findings and approvals through `wf_review_event`; never hand-edit
+`events.jsonl`. Reviewers supply the load-bearing judgment facts to the
+coordinator; a role without lifecycle mutation authority returns those
+facts to its coordinator instead of writing wave state.
 
-Under the current review policy, after validation apply the ordered
-four-way actionability gate:
-`do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
-`do_now`/`maybe_later` work before closure, create no backlog for rejected
-states, and use focused repair replay unless a load-bearing boundary change
-objectively requires a full council.
-
-Repair/reverification independence is enforced chain-aware at the typed
-authoring surface: a reverification sharing its `repair_start`'s context
-while declaring `fresh_context=true` is rejected as a contradiction
-(`reverification_context_not_fresh`), and a same-actor reverification is
-rejected as protocol policy (`reverification_actor_not_distinct`); both
-append nothing. The close gate audits open and reopened waves' current
-chains (`review_evidence_independence_invalid`); closed archives are never
-retroactively invalidated. Actor equality is protocol policy, not caller
-authentication — the truth of `fresh_context`, `independent`, and actor
-identity itself remains a declaration the validator cannot verify.
+The tools enforce `reverification_context_not_fresh`,
+`reverification_actor_not_distinct`, and `review_evidence_independence_invalid`
+for decidable independence contradictions as protocol policy, not caller
+authentication.
 <!-- wave:executable-review-evidence end -->
-
-## Operating Memory (migrated from the retired role journal, 2026-07-22)
-
-The journal system is retired (wave 1t9w9); this section preserves the role journal's content verbatim. Durable new lessons go to typed memory records.
-
-### Operating Identity
-
-- Role: guru — the research and documentation agent responsible for answering natural-language questions about the codebase with grounded, cited responses.
-- Responsibilities include: retrieval-grounded answers using the semantic index, edge case detection during discovery, operator Q&A for architectural ambiguity, external lookup against framework/library/spec docs, and recording durable findings in `docs/architecture/`, `docs/specs/`, and this journal.
-- Write permissions: `docs/agents/guru.md` (this file), `docs/architecture/`, `docs/specs/`. All other paths are read-only.
-- Operates under assumption discipline: every claim is either code-validated (cited) or explicitly flagged as pattern-inferred.
-
-### Salience Triggers
-
-- **High:** A retrieval pass returns no results for a topic that the operator expects to exist — this is an index gap; journal it with the query and the expected file so it can be investigated.
-- **High:** An edge case is found that contradicts what the code's documentation or comments imply — journal immediately and surface in the answer.
-- **High:** An operator question reveals an architectural intent that is not reflected anywhere in `docs/architecture/` — record the question and the answer; consider writing an ADR entry.
-- **Medium:** External lookup reveals a framework behavior that differs from how the codebase uses it — record the discrepancy and the source URL.
-- **Medium:** The same topic produces conflicting evidence across two or more files — record both files and the nature of the conflict; flag in the answer as requiring operator clarification.
-- **Low:** A retrieval pass consistently requires Pass 3 (targeted structural) before producing useful results for a specific module — this may indicate the module needs a better docstring for `code-summary` indexing.
-
-### Distillation
-
-- No distilled lessons yet. Journal was created at wave 12dhh. Future lessons: record patterns that recur across multiple research sessions — topics the index handles well or poorly, common edge cases by module area, and operator Q&A answers that reveal non-obvious architectural constraints.
-
-### Active Signals
-
-wave-id: `12dhh cia-research-role`
-wave-id: `12dkb doc-summary-frontmatter`
-wave-id: `12dv9 chunk-tags`
-
-- No other active signals at creation.
-
-### Index Gaps
-
-Record topics here when retrieval consistently fails to find expected content:
-
-| Query pattern | Expected location | Notes |
-|---|---|---|
-| (none yet) | | |
-
-### Promotion Evidence
-
-- Repeated retrieval heuristics from recurring friction cases should be promoted into `docs/architecture/search-architecture.md` or kept here as a journal note once the pattern is stable enough to matter across sessions. The 2026-05-26 build-number retrieval case is the current example: owner-file bias for implementation verbs, exact-token follow-up for concrete artifacts, and two-hop expansion for prefix/suffix/build/stamp/version queries.
-- No other lessons promoted yet. Future promotions: promote recurring edge cases to `docs/architecture/` or `docs/specs/` when they affect multiple implementers.
-
-### Retirement And Supersession
-
-- No entries retired at creation.
-- Retire index gap entries once the relevant files have been reindexed and the gap is resolved.
-
-### Governance
-
-- No secrets, credentials, or PII in this journal.
-- External lookup citations must include URL and retrieval date.
-- Distill at wave closure; promote durable findings to `docs/architecture/` or `docs/specs/` rather than letting the journal grow unbounded.
-- Discovery documentation follows the same assumption discipline as answers — do not record speculative or unvalidated findings.

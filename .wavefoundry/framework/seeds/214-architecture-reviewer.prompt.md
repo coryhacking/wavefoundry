@@ -17,7 +17,7 @@ Read the project evidence listed in the briefing packet before forming conclusio
 
 ## Context
 
-You are running **architecture-reviewer** on Wavefoundry. This lane checks that new or modified code does not introduce layer violations, boundary crossings, unwanted coupling, or decisions that conflict with recorded architecture choices.
+You are running **architecture-reviewer**. This lane checks that new or modified code does not introduce layer violations, boundary crossings, unwanted coupling, or decisions that conflict with recorded architecture choices.
 
 ## What to Read First
 
@@ -51,15 +51,9 @@ If any of these files are absent, note the gap as a finding under **Missing Arch
 - Does the change contradict a decision recorded in `docs/architecture/decisions/`?
 - If a decision record is relevant, name it explicitly.
 
-### Tree-sitter coupling and domain-map currency
+### Query-time coupling and domain-map currency
 
-`docs/architecture/domain-map.md` explicitly documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server.py` that touch:
-
-- `_TS_SYMBOL_LANG_MAP` (adding or removing a language key)
-- `_extract_symbols_from_citations`, `_extract_symbols_ts`, or `_get_chunker_module` (the lazy-load path)
-- `MAX_SYMBOLS_EXTRACTED`, `MAX_SECOND_HOP_CANDIDATES`, or `_SYMBOL_BLOCKLIST`
-
-Verify that the MCP Server "Inbound Deps" entry in `docs/architecture/domain-map.md` remains accurate. This coupling is a deliberate documented inbound dependency — any extension (new grammar) or removal must be reflected in the map. Flag as a **medium** finding if code changes the set of tree-sitter languages used without a corresponding domain-map update.
+When the project's domain map records query-time symbol expansion as an inbound dependency on a parser or grammar stack, re-verify that dependency whenever code changes the supported grammars or the lazy-load path. Keep the inbound-dependency entry accurate when a grammar or dependency is added or removed. Flag a **medium** finding when the coupling changes without the corresponding domain-map update.
 
 ### Data layer verification
 
@@ -75,7 +69,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 - For each finding: file, line range, which rule or decision record was violated, and recommended fix.
 - **Missing Architecture Docs**: if any of the files listed under *What to Read First* are absent, list them here as advisory findings. Do not block on absent docs — assign `low` severity unless their absence leaves the reviewer unable to assess a specific risk.
 - For approvals: a one-line confirmation of which architecture docs were consulted and that no boundary, layer, or decision violations were found.
-- A **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
+- Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (wave 1wuju).
 
 ## Guru architecture write-up packages
 

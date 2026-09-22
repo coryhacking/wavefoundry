@@ -95,7 +95,7 @@ Required change anchors in normal wave records:
 - `Change ID`
 - `Change Status`
 - optional `Previous Change Status`
-- `Depends On` when a change depends on another admitted `Change ID`
+- `Depends On` when a change depends on another admitted `Change ID`; put a `Depends On:` line with full backticked admitted change ids in that change's `## Changes` block, which `wf_implement_wave` reads to report intra-wave dependencies while preserving admission order.
 
 Optional task/subtask anchors inside a change document when finer tracking is useful:
 

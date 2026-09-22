@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: architecture-reviewer
 Category: review
-Last verified: 2026-09-02
+Last verified: 2026-09-22
 
 ## Operating Identity
 
@@ -34,7 +34,7 @@ Assume boundary integrity is at risk until dependency direction, control flow, a
 
 ### Tree-Sitter Coupling and Domain-Map Currency
 
-`docs/architecture/domain-map.md` documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server.py` that touch `_TS_SYMBOL_LANG_MAP`, `_extract_symbols_from_citations`, `_extract_symbols_ts`, or the lazy-load path (`_get_chunker_module`): verify that the MCP Server "Inbound Deps" entry in `domain-map.md` remains accurate. Any extension (new grammar) or removal must be reflected in the map. Flag as **medium** if the language set changes without a corresponding domain-map update.
+`docs/architecture/domain-map.md` documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server_impl.py` (the language map owner) or `codenav_handlers.py` (the symbol-extraction consumer) that touch `_TS_SYMBOL_LANG_MAP`, `_extract_symbols_from_citations`, `_extract_symbols_ts`, or the lazy-load path (`_get_chunker_module`): verify that the MCP Server "Inbound Deps" entry in `domain-map.md` remains accurate. Any extension (new grammar) or removal must be reflected in the map. Flag as **medium** if the language set changes without a corresponding domain-map update.
 
 ### Data Layer Verification
 
@@ -57,7 +57,7 @@ A good architecture review output contains:
 - boundaries touched
 - invariants preserved or violated
 - required doc updates or follow-on ADR work
-- a mutation table for every mechanism the wave landed in your scope (mechanism, mutation, failing test or NOT CAUGHT), the prose projection of your evidence records' `known_bad_detection_method: focused-mutation` fields, under the packet's `sweep_rule` and `time_budget`; report at the budget and list what was not run (seed 209, wave `1wuju`)
+- Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (seed 209, wave `1wuju`).
 
 ## Assumption Tracking
 
@@ -80,36 +80,21 @@ Stop and record a memory candidate when:
 
 Follow the canonical **Executable Review Evidence Protocol** in
 `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for material
-approval claims and blocking findings. Exercise the public or registered
+approval claims, blocking findings, review policy and focused repair.
+Exercise the public or registered
 path when one exists; keep state/interleaving probes within the protocol's
 finite risk-selected budget; record expected versus observed evidence and
 honest limitations; and never broaden task authority to run destructive,
 external, credential-bearing, or cost-bearing probes.
 
-Do not hand-author canonical JSONL when the lifecycle coordinator exposes
-the typed review-evidence authoring surface. Reviewers supply the
-load-bearing judgment facts to that coordinator; the authoring surface
-derives only bookkeeping, appends the fixed sibling
-`docs/waves/<wave>/events.jsonl` authority, and rebuilds the compact
-Markdown current-state projection in `wave.md`. A role without lifecycle
-mutation authority returns those facts to its coordinator instead of
-writing wave state.
+Start delivery review with `wf_review_wave(phase='implementation')` and
+record findings and approvals through `wf_review_event`; never hand-edit
+`events.jsonl`. Reviewers supply the load-bearing judgment facts to the
+coordinator; a role without lifecycle mutation authority returns those
+facts to its coordinator instead of writing wave state.
 
-Under the current review policy, after validation apply the ordered
-four-way actionability gate:
-`do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
-`do_now`/`maybe_later` work before closure, create no backlog for rejected
-states, and use focused repair replay unless a load-bearing boundary change
-objectively requires a full council.
-
-Repair/reverification independence is enforced chain-aware at the typed
-authoring surface: a reverification sharing its `repair_start`'s context
-while declaring `fresh_context=true` is rejected as a contradiction
-(`reverification_context_not_fresh`), and a same-actor reverification is
-rejected as protocol policy (`reverification_actor_not_distinct`); both
-append nothing. The close gate audits open and reopened waves' current
-chains (`review_evidence_independence_invalid`); closed archives are never
-retroactively invalidated. Actor equality is protocol policy, not caller
-authentication — the truth of `fresh_context`, `independent`, and actor
-identity itself remains a declaration the validator cannot verify.
+The tools enforce `reverification_context_not_fresh`,
+`reverification_actor_not_distinct`, and `review_evidence_independence_invalid`
+for decidable independence contradictions as protocol policy, not caller
+authentication.
 <!-- wave:executable-review-evidence end -->

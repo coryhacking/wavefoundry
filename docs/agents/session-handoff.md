@@ -6,15 +6,22 @@ Last verified: 2026-09-22
 
 ## Current Session
 
-**Active wave:** *(none — session idle)*
+**Active wave:** *(none)*
 
-**Last closed wave:** `1ymzq handler-module-split-three` — six handler modules and shared containment delivered; all five changes and 27 ACs complete. Closed on 2026-09-22 after independent delivery approval and passing close gates. Operator subsequently requested committing and pushing the completed wave.
+**Last closed wave:** `1ypy6 implement-prompt-efficiency` — delivered dependency parsing, review-context safeguards, seed guidance and implementation prompt cleanup; closed 2026-09-22 with all 16 ACs complete.
 
-## Verification and evidence
+**Current work:** all three admitted changes are implemented: review-ledger diagnostics and identity-neutral attribution metadata, canonical seed guidance, and local/fresh-install review surfaces. Operator decisions require a durable repository path to suppress temporary-only evidence warnings and each lane's latest readiness approval for receipt-rotation reminders. Readiness receipt `review-policy-d33fe310355179ea758d` is current.
 
-Canonical framework receipt remains green/current: 9,508 tests across 121 files, 12 documented skips; final runner check was a verified cache hit. Full docs lint and close passed. All edit gates are closed. Three fresh non-implementing reviewer contexts supplied the required lanes and Council; shared-role correlation is disclosed in the wave's evidence/council-final.md.
+**Validation:** focused suites passed. Initial full run executed 9,533 tests and found three stale verification expectations; C-1 (two handler description hashes) and C-2 (conditional sixth QA condition and obsolete census allowlist) are repaired and independently reverified. Full-suite rerun passed 9,533 tests across 121 files with 12 intentional skips; stable after-change retrieval comparison passes (generation 1949, no invalidation or quality violations) and all four required delivery approvals are current. All 16 ACs and all tasks are checked. Frozen source: `docs/waves/1ypxw review-prompt-efficiency/evidence/delivery-tree-final.json`. Source edits require a new affected review/fingerprint. Both edit gates closed. Close dry-run reports only missing operator signoff; no closure or commit authorized.
 
-R1 passed against R0 with zero comparison violations. R2 `docs/reports/retrieval-quality-1ymzq-after.json` is the final NEW baseline on stable complete generation 1914; no invalidation or operator-review reasons. It is not a comparison across the final evaluator/fixture identity boundary. CPU query reranking followed isolated CoreML-probe failure; no full index rebuild occurred. Failed attempts and reproducible review probes are retained in the wave folder and report retention record.
+
+## Last-closed verification
+
+At 1ypy6 closure the framework receipt was 9,522 tests, green and matching that tree; it is not proof for the changed 1ypxw framework tree. All required delivery lanes approved; QA-DEL-1 repaired and independently reverified. Passing stable before/after retrieval receipts are non-regression evidence, not causal performance evidence. Graph smoke checks found current source hashes and symbol ownership; 59 focused tests passed. Only incremental refreshes used.
+
+Memory checkpoint yielded zero candidates. Wave folder contains nine authoritative or unique-evidence files; none discarded. Closure passed on explicit operator instruction. Changes remain uncommitted. Evidence: `docs/waves/1ypy6 implement-prompt-efficiency/delivery-review.md` and its cited reports.
+
+Environment: cached MCP setup assessment may require host restart; fresh CLI setup assessment reports ready. Preserve native-process-test and CoreML-probe limitations in the delivery report.
 
 ## Open questions / Deferred decisions
 
@@ -26,6 +33,6 @@ Automatic reuse of a full-class embedding model on CPU remains outside this wave
 
 ## Preserve
 
-Wave 1ypy6 belongs to another session. Unrelated generated changes in docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md and docs/repo-index.md, plus prior rejected memory records, were preserved. Prior wave 1ymzk is committed as `4a8b8951`. The wave commit includes its implementation, review evidence, retrieval receipts and this handoff.
+Wave 1ypxw was originally planned and reviewed by another session; preserve its readiness history and current delivery evidence. Unrelated generated changes in docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md and docs/repo-index.md, plus prior rejected memory records, were preserved. Prior wave 1ymzk is committed as `4a8b8951`. The wave commit includes its implementation, review evidence, retrieval receipts and this handoff.
 
 Retrospective: preserve caller IO/error boundaries with pure comparison; verify actual registered reload and shared-object identity; stabilize telemetry as well as source during evaluations. Canonical architecture/evaluation docs carry those lessons. The memory checkpoint produced no additional durable promotion; rejected duplicate candidate 1ypvn remains as history.

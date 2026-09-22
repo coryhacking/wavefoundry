@@ -43,6 +43,14 @@ Correct an agent-only misreading directly from the established requirement. Rout
 6. Re-prepare only when scope, required contracts, architecture ownership,
    trust boundaries, or readiness semantics materially change.
 
+## When the Wavefoundry MCP is attached
+
+Before the first edit, call `memory_brief(context='pre_implementation', targets=[...])` for the files in scope. At completion, run full `wf_validate_docs` and resolve its findings. Delegate code work through a role-typed agent or carry the MCP-first navigation directive in the worker's prompt, checking its actual tools and allowlist.
+
+Without MCP, follow the repository's documented navigation and validation fallbacks.
+
+Follow seed 180's **Builder-lane allocation** for implementation lane selection on every host.
+
 ## Completion
 
 Implementation is complete only when the admitted behavior, docs, tests, and

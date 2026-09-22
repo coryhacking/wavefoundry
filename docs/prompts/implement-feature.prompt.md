@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 Shortcut: **`Implement feature`**
 
@@ -18,7 +18,7 @@ Single-change docs-first implementation path. Use when one admitted change needs
 
 Repository code stage gate must pass:
 1. Consolidated change doc exists and is admitted into a wave
-2. **Prepare wave** has passed cleanly as the immediately preceding lifecycle step
+2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 
 If any step is missing, stop and route back to **Plan feature**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 
@@ -32,7 +32,7 @@ Correct an agent-only misreading directly from the established requirement. Rout
 
 1. Read the change doc at `docs/waves/<wave-id>/<change-id>.md` and the AC priority table.
 2. Implement per Requirements and Acceptance Criteria.
-3. Follow `docs/repo-profile.json` `code_pattern` when populated.
+3. Follow `docs/repo-profile.json` `code_patterns` when populated.
 4. Routine documentation edits already receive automatic incremental changed-set lint. After implementation: run framework tests, then prefer the full MCP **`wf_validate_docs`** (and **`wf_garden_docs`** if metadata needs refresh). **CLI fallback:** `wf docs-gardener && wf docs-lint` when MCP is unavailable.
 5. Complete required review lanes before closing.
 6. Use **Finalize feature** to close the wave.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-09-22
 
 ## Repository Summary
 
@@ -35,21 +35,22 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 14300 |
-| server_impl | `.wavefoundry/framework/scripts` | code | 1299 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 14703 |
+| server_impl | `.wavefoundry/framework/scripts` | code | 1326 |
 | graph | `.wavefoundry/framework/scripts` | code | 394 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 368 |
-| techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 365 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 314 |
-| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 301 |
+| scripts/upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 381 |
+| scripts/wave_lint_lib — discover_wave_dirs | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 310 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 294 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 252 |
-| store | `.wavefoundry/framework/scripts` | code | 234 |
-| indexer | `.wavefoundry/framework/scripts` | code | 218 |
-| dashboard | `.wavefoundry/framework/dashboard` | code | 215 |
-| setup_readiness | `.wavefoundry/framework/scripts` | code | 132 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 98 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 260 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 248 |
+| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 223 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 219 |
+| indexer | `.wavefoundry/framework/scripts` | code | 215 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 180 |
+| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 102 |
+| scripts/secrets_validators | `.wavefoundry/framework/scripts` | code | 80 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
@@ -57,7 +58,6 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
 | ann_reference_eval | `.wavefoundry/framework/scripts` | code | 19 |
 | repair_ppol_memory_staging | `.wavefoundry/framework/scripts` | code | 13 |
-| 1xjmm unified-sqlite-vector-storage | `docs/waves/1xjmm unified-sqlite-vector-storage` | config | 10173 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

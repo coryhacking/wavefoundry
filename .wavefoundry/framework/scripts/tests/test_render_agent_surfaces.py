@@ -412,6 +412,61 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             for target, expected in snapshots.items():
                 self.assertEqual(target.read_bytes(), expected)
 
+    def _assert_review_delivery_contract(self, text: str) -> None:
+        # AC-derived obligations checked on producer output, not template equality.
+        authored = text.split("<!-- wave:executable-review-evidence", 1)[0]
+        flat = " ".join(authored.split())
+        for clause in (
+            "Review wave is the delivery phase; readiness review already ran at Prepare",
+            "Every required-lane approval comes from a reviewer context started for delivery review",
+            "non-delivery checkpoint pass or repair may return findings and evidence but records no approval",
+            "Without the typed tool, return judgment facts to the coordinator and never hand-edit the ledger",
+            "seed 209's **Briefing Packet**",
+            "`code-reviewer` is not optional",
+            "branch-complete and re-entrant checks",
+            "QA verifies state across repeated calls or routine steps",
+            "current receipt-derived `required_council_signoffs` lists `wave-council-delivery`",
+            "AC scope gap check", "`qa-reviewer` attests every required row",
+            "Verify every `[~]` AC", "## AC and Task Verification Truth Hierarchy",
+            "## Project review specifics",
+            "Review wave ends when every required lane and any receipt-required council approval is current in `wf_review_wave`",
+            "It does not close the wave, mark completion or commit changes",
+        ):
+            self.assertIn(clause, flat)
+
+    def test_fresh_review_template_contract_and_known_bad_controls(self) -> None:
+        template_root = SCRIPTS_ROOT.parent / "install" / "lifecycle-prompts"
+        baseline = (template_root / "review-wave.prompt.md").read_text()
+        mutants = (
+            ("delivery phase", "readiness phase"),
+            ("but records no approval", "and records approval"),
+            ("It does not close the wave", "It closes the wave"),
+        )
+        for mutation in (None, *mutants):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                local_templates = root / ".wavefoundry/framework/install/lifecycle-prompts"
+                local_templates.mkdir(parents=True)
+                for source in template_root.glob("*.md"):
+                    (local_templates / source.name).write_bytes(source.read_bytes())
+                if mutation:
+                    old, new = mutation
+                    self.assertEqual(baseline.count(old), 1)
+                    (local_templates / "review-wave.prompt.md").write_text(baseline.replace(old, new, 1))
+                written = ras.render_agent_surfaces(root)
+                self.assertIn("docs/prompts/review-wave.prompt.md", written)
+                target = root / "docs/prompts/review-wave.prompt.md"
+                rendered = target.read_text()
+                self._assert_phase_pointer(rendered)
+                if mutation:
+                    with self.assertRaises(AssertionError):
+                        self._assert_review_delivery_contract(rendered)
+                else:
+                    self._assert_review_delivery_contract(rendered)
+                    snapshot = target.read_bytes()
+                    ras.render_agent_surfaces(root)
+                    self.assertEqual(snapshot, target.read_bytes())
+
     def test_four_host_entry_paths_reach_shared_phase_prompts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -717,6 +772,12 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         enforced rejection codes and the honest declaration limit, so every
         rendered carrier propagates the enforced-versus-declared split."""
         block = ras.REVIEW_PROTOCOL_CARRIER_BLOCK
+        self.assertIn("wf_review_wave(phase='implementation')", block)
+        self.assertIn("`wf_review_event`", block)
+        self.assertIn("never hand-edit", block)
+        self.assertIn("role without lifecycle mutation authority", block)
+        self.assertNotIn("four-way actionability gate", block)
+        self.assertNotIn("`do_now`", block)
         self.assertIn("`reverification_context_not_fresh`", block)
         self.assertIn("`reverification_actor_not_distinct`", block)
         self.assertIn("`review_evidence_independence_invalid`", block)
@@ -858,7 +919,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             text = first.decode("utf-8")
             self.assertIn(operator_extension, text)
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
-            self.assertIn("four-way actionability gate", text)
+            self.assertIn("wf_review_wave(phase='implementation')", text)
             self.assertIn("Independent-reference verification", text)
             qa_text = (repo_root / "docs" / "agents" / "qa-reviewer.md").read_text(
                 encoding="utf-8"

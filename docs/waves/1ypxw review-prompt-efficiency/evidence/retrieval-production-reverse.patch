@@ -1,0 +1,147 @@
+--- a/.wavefoundry/framework/scripts/server_impl.py
++++ b/.wavefoundry/framework/scripts/server_impl.py
+@@ -467,9 +467,6 @@
+     REVIEW_EVIDENCE_SOURCE_DECLARATION,
+     REVIEW_STATUS_MARKER_BEGIN,
+     REVIEW_STATUS_MARKER_END,
+-    stale_readiness_receipt_ids,
+-    artifact_path_tokens,
+-    ephemeral_artifact_tokens,
+     build_identified_review_event,
+     canonical_review_events_bytes,
+     canonicalize_finding_synthesis_markers,
+@@ -9646,10 +9643,6 @@
+     operator_handle: str | None = None,
+ ) -> dict[str, Any]:
+     """Preview or append a compact semantic review event to a marked wave.
+-
+-    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+-    and ``review_policy_receipt_stale`` blocks implementation-phase review until
+-    re-Prepare without touching them.
+ 
+     ``event="list"`` is the read-only listing surface (wave 1t59p / 1t6ow):
+     it branches before any write-path validation, ignores ``mode``, and never
+@@ -10040,17 +10033,6 @@
+             "summary": review_evidence_summary(proposed_records),
+             "replayed": replayed,
+         }
+-        artifact = (evidence or {}).get("artifact_or_test_id", "")
+-        if str(semantic_event.get("event", "")).lower() in {"finding", "approval"} and isinstance(artifact, str):
+-            path_tokens = artifact_path_tokens(artifact)
+-            temporary_tokens = ephemeral_artifact_tokens(artifact)
+-            if path_tokens and len(temporary_tokens) == len(path_tokens):
+-                stale_warnings.append(_diagnostic(
+-                    "artifact_or_test_id_ephemeral",
+-                    "Every evidence path is ephemeral: " + ", ".join(temporary_tokens)
+-                    + ". Cite a durable repository path so later reviewers can inspect it.",
+-                    advisory=True,
+-                ))
+         if mode_s == "dry_run":
+             # The preview must carry the same caveat the mutating call reports.
+             # The refusal branches already fire on dry-run; dropping only the
+@@ -10395,11 +10377,6 @@
+         if policy_state is not None
+         else None
+     )
+-    if policy_response is not None:
+-        policy_response["receipt"] = {
+-            key: value for key, value in policy_response["receipt"].items()
+-            if key != "policy_inputs"
+-        }
+     if policy_state is not None:
+         # The roster is policy input.  Once a receipt exists, a later prose
+         # edit to the wave record must not rotate the council underneath that
+@@ -10415,26 +10392,9 @@
+     ).diagnostics)
+     if _mutating and policy_state is not None and not _has_blocking_diagnostics():
+         try:
+-            supersedes = bool(
+-                policy_state["receipt_append_required"]
+-                and policy_state["receipt"].get("supersedes_receipt_id")
+-            )
+             text = _publish_prepare_policy_state(
+                 root, wave_md, text, policy_state
+             )
+-            if supersedes:
+-                diagnostics.append(_diagnostic(
+-                    "review_policy_receipt_superseded",
+-                    "Readiness approvals against the old receipt are no longer current. "
+-                    "A lane whose remit excludes every changed document may re-record "
+-                    "by reference to its prior evidence; a lane whose remit includes a "
+-                    "changed document must review it before approving."
+-                    + receipt_supersession_attribution(
+-                        policy_state, change_ids,
+-                        labels=("superseded receipt", "new current receipt"),
+-                    ),
+-                    advisory=True,
+-                ))
+             updated = True
+         except (OSError, ValueError) as exc:
+             diagnostics.append(
+@@ -10708,12 +10668,6 @@
+ @_configured_phase_envelope
+ @_fail_closed_on_record_layout("wf_review_wave")
+ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
+-    """Inspect canonical phase review actions.
+-
+-    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+-    and ``review_policy_receipt_stale`` blocks implementation-phase review until
+-    re-Prepare without touching them.
+-    """
+     phase_s = (phase or "implementation").strip().lower()
+     phase_s = _REVIEW_PHASE_ALIASES.get(phase_s, phase_s)
+     if phase_s not in ("prepare", "implementation"):
+@@ -10778,31 +10732,6 @@
+         # waves read ## Prepare Review Evidence; declared waves read typed
+         # approvals only). No operator signoff required at this phase.
+         diagnostics = list(review_evidence_diagnostics)
+-        if authority.typed and not authority.ledger_errors:
+-            stale_receipts = stale_readiness_receipt_ids(authority.records)
+-            current_receipt = current_policy_receipt(authority.records)
+-            if stale_receipts and current_receipt is not None:
+-                attributions = []
+-                for receipt_id in stale_receipts:
+-                    previous = next(
+-                        record for record in authority.records
+-                        if record.get("record_type") == "review_policy_receipt"
+-                        and record.get("receipt_id") == receipt_id
+-                    )
+-                    attributions.append(receipt_supersession_attribution(
+-                        {"receipt": current_receipt, "records": (previous,)},
+-                        _extract_change_ids_from_wave_text(wave_text),
+-                        labels=("superseded receipt", "new current receipt"),
+-                    ))
+-                diagnostics.append(_diagnostic(
+-                    "review_policy_receipt_superseded",
+-                    "Latest readiness approvals against an old receipt are no longer current. "
+-                    "A lane whose remit excludes every changed document may re-record "
+-                    "by reference to its prior evidence; a lane whose remit includes a "
+-                    "changed document must review it before approving."
+-                    + "".join(attributions),
+-                    advisory=True,
+-                ))
+         diagnostics.extend(lifecycle_gates.REVIEW_GATES[1](
+             gate_ctx, review_phase=phase_s
+         ).diagnostics)
+@@ -18325,10 +18254,6 @@
+     def wf_review_wave(wave_id: str, phase: str = "implementation", **kwargs: Any) -> dict[str, Any]:
+         """Inspect one review phase and return its canonical guided actions.
+ 
+-        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+-        and ``review_policy_receipt_stale`` blocks implementation-phase review until
+-        re-Prepare without touching them.
+-
+         This is the sole guided inspection entry point. It runs the existing
+         full docs validation once, validates typed review authority, and returns
+         bounded ``data.review_actions``. Each action separates state-derived
+@@ -18472,10 +18397,6 @@
+         **kwargs: Any,
+     ) -> dict[str, Any]:
+         """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
+-
+-        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+-        and ``review_policy_receipt_stale`` blocks implementation-phase review until
+-        re-Prepare without touching them.
+ 
+         ``event`` is ``approval``, ``finding``, ``run``, or ``list``.
+ 

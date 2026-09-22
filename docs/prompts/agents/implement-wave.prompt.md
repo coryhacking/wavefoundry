@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-13
+Last verified: 2026-09-22
 
 ## Context
 
@@ -22,14 +22,13 @@ Use `code_ask` for open-ended questions ("how does X currently work?") when the 
 
 ## Pre-conditions
 
-- **Prepare wave** has passed cleanly as the immediately preceding lifecycle step.
+- Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 - Stage gate satisfied: change docs admitted and wave-owned; fix placement drift before editing code if any staged copy remains.
 - When `wave_review.enabled` is true, `wave-council-readiness` must already be recorded before the first edit.
 
 ## Execution
 
 Follow the ReAct loop (Thought → Action → Observe → Reflect on blocking findings). Produce an ordered lane sequence before the first edit.
-Keep admitted change-doc checkboxes current while you work: mark ACs and tasks `[x]` in the same pass that actually completes them, and reopen or leave items unchecked only with recorded rationale.
 
 ## Wavefoundry-Specific Implementation Rules
 

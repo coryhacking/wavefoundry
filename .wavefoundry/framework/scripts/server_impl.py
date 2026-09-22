@@ -467,6 +467,9 @@ from review_evidence import (
     REVIEW_EVIDENCE_SOURCE_DECLARATION,
     REVIEW_STATUS_MARKER_BEGIN,
     REVIEW_STATUS_MARKER_END,
+    stale_readiness_receipt_ids,
+    artifact_path_tokens,
+    ephemeral_artifact_tokens,
     build_identified_review_event,
     canonical_review_events_bytes,
     canonicalize_finding_synthesis_markers,
@@ -488,6 +491,7 @@ from review_evidence import (
     review_authority_projection,
     review_action_input_schema,
     review_evidence_summary,
+    review_context_summary,
     review_status_rows,
     review_status_signoff_keys,
     validate_external_review_evidence,
@@ -7274,7 +7278,9 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "## Review Evidence\n\n"
             "- operator-signoff: <approved when operator confirms closure>\n\n"
             "## Dependencies\n\n"
-            "- No external wave dependencies.\n"
+            "- No external wave dependencies. Declare intra-wave dependencies with a "
+            "`Depends On:` line containing full backticked change ids in each change's "
+            "block under `## Changes`.\n"
     )
     # Wave 1t3gt (1t3gu): a scaffold must be lint-valid from creation. Render the
     # projection-owned sections through the SAME renderers the validator compares
@@ -9434,7 +9440,7 @@ def _review_evidence_list_response(
         return _response(
             "ok",
             {**base, "records": [], "total_records": 0, "truncated": False,
-             "summary": {}, "chain_summary": {}, "approvals": []},
+             "summary": {}, "chain_summary": {}, "approvals": [], "context_summary": []},
             diagnostics=[_diagnostic(
                 "review_evidence_empty",
                 "No events.jsonl ledger exists for this wave yet — nothing recorded.",
@@ -9535,6 +9541,7 @@ def _review_evidence_list_response(
             "truncated": truncated,
             "record_cap": REVIEW_EVIDENCE_LIST_CAP,
             "summary": review_evidence_summary(records),
+            "context_summary": review_context_summary(records),
             "chain_summary": chain_summary,
             "approvals": approvals,
         },
@@ -9639,6 +9646,10 @@ def wf_review_event_response(
     operator_handle: str | None = None,
 ) -> dict[str, Any]:
     """Preview or append a compact semantic review event to a marked wave.
+
+    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+    and ``review_policy_receipt_stale`` blocks implementation-phase review until
+    re-Prepare without touching them.
 
     ``event="list"`` is the read-only listing surface (wave 1t59p / 1t6ow):
     it branches before any write-path validation, ignores ``mode``, and never
@@ -10029,6 +10040,17 @@ def wf_review_event_response(
             "summary": review_evidence_summary(proposed_records),
             "replayed": replayed,
         }
+        artifact = (evidence or {}).get("artifact_or_test_id", "")
+        if str(semantic_event.get("event", "")).lower() in {"finding", "approval"} and isinstance(artifact, str):
+            path_tokens = artifact_path_tokens(artifact)
+            temporary_tokens = ephemeral_artifact_tokens(artifact)
+            if path_tokens and len(temporary_tokens) == len(path_tokens):
+                stale_warnings.append(_diagnostic(
+                    "artifact_or_test_id_ephemeral",
+                    "Every evidence path is ephemeral: " + ", ".join(temporary_tokens)
+                    + ". Cite a durable repository path so later reviewers can inspect it.",
+                    advisory=True,
+                ))
         if mode_s == "dry_run":
             # The preview must carry the same caveat the mutating call reports.
             # The refusal branches already fire on dry-run; dropping only the
@@ -10373,6 +10395,11 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         if policy_state is not None
         else None
     )
+    if policy_response is not None:
+        policy_response["receipt"] = {
+            key: value for key, value in policy_response["receipt"].items()
+            if key != "policy_inputs"
+        }
     if policy_state is not None:
         # The roster is policy input.  Once a receipt exists, a later prose
         # edit to the wave record must not rotate the council underneath that
@@ -10388,9 +10415,26 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     ).diagnostics)
     if _mutating and policy_state is not None and not _has_blocking_diagnostics():
         try:
+            supersedes = bool(
+                policy_state["receipt_append_required"]
+                and policy_state["receipt"].get("supersedes_receipt_id")
+            )
             text = _publish_prepare_policy_state(
                 root, wave_md, text, policy_state
             )
+            if supersedes:
+                diagnostics.append(_diagnostic(
+                    "review_policy_receipt_superseded",
+                    "Readiness approvals against the old receipt are no longer current. "
+                    "A lane whose remit excludes every changed document may re-record "
+                    "by reference to its prior evidence; a lane whose remit includes a "
+                    "changed document must review it before approving."
+                    + receipt_supersession_attribution(
+                        policy_state, change_ids,
+                        labels=("superseded receipt", "new current receipt"),
+                    ),
+                    advisory=True,
+                ))
             updated = True
         except (OSError, ValueError) as exc:
             diagnostics.append(
@@ -10664,6 +10708,12 @@ _REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_review_wave")
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
+    """Inspect canonical phase review actions.
+
+    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+    and ``review_policy_receipt_stale`` blocks implementation-phase review until
+    re-Prepare without touching them.
+    """
     phase_s = (phase or "implementation").strip().lower()
     phase_s = _REVIEW_PHASE_ALIASES.get(phase_s, phase_s)
     if phase_s not in ("prepare", "implementation"):
@@ -10728,6 +10778,31 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         # waves read ## Prepare Review Evidence; declared waves read typed
         # approvals only). No operator signoff required at this phase.
         diagnostics = list(review_evidence_diagnostics)
+        if authority.typed and not authority.ledger_errors:
+            stale_receipts = stale_readiness_receipt_ids(authority.records)
+            current_receipt = current_policy_receipt(authority.records)
+            if stale_receipts and current_receipt is not None:
+                attributions = []
+                for receipt_id in stale_receipts:
+                    previous = next(
+                        record for record in authority.records
+                        if record.get("record_type") == "review_policy_receipt"
+                        and record.get("receipt_id") == receipt_id
+                    )
+                    attributions.append(receipt_supersession_attribution(
+                        {"receipt": current_receipt, "records": (previous,)},
+                        _extract_change_ids_from_wave_text(wave_text),
+                        labels=("superseded receipt", "new current receipt"),
+                    ))
+                diagnostics.append(_diagnostic(
+                    "review_policy_receipt_superseded",
+                    "Latest readiness approvals against an old receipt are no longer current. "
+                    "A lane whose remit excludes every changed document may re-record "
+                    "by reference to its prior evidence; a lane whose remit includes a "
+                    "changed document must review it before approving."
+                    + "".join(attributions),
+                    advisory=True,
+                ))
         diagnostics.extend(lifecycle_gates.REVIEW_GATES[1](
             gate_ctx, review_phase=phase_s
         ).diagnostics)
@@ -10806,6 +10881,13 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                 recovery_tools=["wf_current_wave"],
                 recovery_usage="wf_current_wave()",
             ))
+    if phase_s == "implementation" and shared["authority"].typed:
+        for violation in repair_independence_violations(shared["authority"].records):
+            if "review_context_retained" in violation:
+                diagnostics.append(_diagnostic(
+                    "review_context_retained", violation, advisory=True,
+                    recovery_tools=["wf_review_event"],
+                ))
     status = "ok" if not shared["blocking_diagnostics"] else "error"
     # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
     _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
@@ -11203,7 +11285,37 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # All gates passed — build implementation context
     change_ids = _extract_change_ids_from_wave_text(wave_text)
 
-    # Ordered changes: extract status + dependencies from each change doc
+    # The wave record owns dependency declarations. Legacy change-doc lines
+    # remain a secondary source; prose and workstream tables are not a grammar.
+    dependency_advisories: list[dict[str, Any]] = []
+    wave_dependencies: dict[str, list[str]] = {}
+    changes_match = re.search(r"(?ms)^## Changes[ \t]*\n(.*?)(?=^## |\Z)", wave_text)
+    owner = None
+    for line in (changes_match.group(1) if changes_match else "").splitlines():
+        change_match = re.fullmatch(r"Change ID:[ \t]*`([^`]+)`[ \t]*", line)
+        if change_match:
+            owner = change_match.group(1)
+        elif owner and re.match(r"^Depends On:[ \t]+", line):
+            wave_dependencies.setdefault(owner, []).extend(re.findall(r"`([^`]+)`", line))
+
+    def resolve_dependencies(cid: str, tokens: list[str], *, legacy: bool) -> list[str]:
+        resolved = []
+        for token in tokens:
+            matches = ([token] if token in change_ids else
+                       [item for item in change_ids if item.startswith(token)] if legacy else [])
+            if len(matches) == 1:
+                if matches[0] not in resolved:
+                    resolved.append(matches[0])
+            else:
+                dependency_advisories.append(_diagnostic(
+                    "unresolved_change_dependency",
+                    f"Change `{cid}` declares unresolved dependency `{token}`; "
+                    "use a full admitted change id in the wave record.",
+                    advisory=True,
+                ))
+        return resolved
+
+    # Preserve admission order; dependencies describe serialization, not a sort.
     ordered_changes: list[dict[str, Any]] = []
     for cid in change_ids:
         change_path = wave_md.parent / f"{cid}.md"
@@ -11227,8 +11339,15 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             )
         status_m = _CHANGE_STATUS_PATTERN.search(ct)
         cs = status_m.group(1) if status_m else "unknown"
-        deps_m = re.findall(r"Depends On:\s*`([^`]+)`", ct)
-        ordered_changes.append({"change_id": cid, "status": cs, "depends_on": deps_m})
+        tokens = wave_dependencies.get(cid)
+        if tokens is None:
+            tokens = [token for line in ct.splitlines()
+                      if re.fullmatch(r"Depends On:[ \t]+`[^`]+`(?:[ \t]*,[ \t]*`[^`]+`)*[ \t]*", line)
+                      for token in re.findall(r"`([^`]+)`", line)]
+            deps = resolve_dependencies(cid, tokens, legacy=True)
+        else:
+            deps = resolve_dependencies(cid, tokens, legacy=False)
+        ordered_changes.append({"change_id": cid, "status": cs, "depends_on": deps})
 
     # Watchpoints section — new scaffolds use `## Watchpoints` (wave 1t9w9);
     # existing waves keep the legacy `## Journal Watchpoints` heading forever.
@@ -11272,8 +11391,11 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     envelope = _response(
         "dry_run" if mode_s == "dry_run" else "ok",
         resp_data,
-        next_tools=["wf_current_wave", "wf_review_wave"],
-        usage="wf_current_wave()",
+        diagnostics=dependency_advisories,
+        next_tools=(["wf_mark_ac", "wf_mark_task", "wf_review_wave", "wf_current_wave"]
+                    if mode_s == "create" else ["wf_current_wave", "wf_review_wave"]),
+        usage=("wf_mark_ac / wf_mark_task require the FULL change id from ordered_changes[].change_id; "
+               "prefixes are not resolved." if mode_s == "create" else "wf_current_wave()"),
     )
     return _attach_lint_to_response(envelope, root, mode_s)
 
@@ -18203,6 +18325,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_review_wave(wave_id: str, phase: str = "implementation", **kwargs: Any) -> dict[str, Any]:
         """Inspect one review phase and return its canonical guided actions.
 
+        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+        and ``review_policy_receipt_stale`` blocks implementation-phase review until
+        re-Prepare without touching them.
+
         This is the sole guided inspection entry point. It runs the existing
         full docs validation once, validates typed review authority, and returns
         bounded ``data.review_actions``. Each action separates state-derived
@@ -18346,6 +18472,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
+
+        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
+        and ``review_policy_receipt_stale`` blocks implementation-phase review until
+        re-Prepare without touching them.
 
         ``event`` is ``approval``, ``finding``, ``run``, or ``list``.
 

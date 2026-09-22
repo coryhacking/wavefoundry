@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -77,8 +77,8 @@
     "wf_remove_change": "b2eedbae43b78b71bbe5282960b53f62b27e38f5c7f63a56d8f47b9796d4bb4e",
     "wf_reopen_wave": "e1c9a9b8cb3c55a24607b7d4787dcdd9f4c7471e4fdf72fa10ad7c4229643afa",
     "wf_restart_dashboard": "938a02a64ced973044b0a0f9621da55591d80bafac7a3868fd7e51a3a2d16dd6",
-    "wf_review_event": "67b6dc6c6d4c2aea5c213c3f8a2dffa5409770e48122dfe1db9c8e9caf8fab11",
-    "wf_review_wave": "f14f8d5fcab7e3908465ecce17238599020ec16237e7d3f27a2e8d0098f94e49",
+    "wf_review_event": "761597d6e6614797f8899d991b0ab28715977e9a094f52c6693d36654da8c963",
+    "wf_review_wave": "5967b107fe0d341985f83b50382f34fb858352a3f8f7abc089143f9af5575d25",
     "wf_run_sensors": "1db8b06dff4c20980c924feafc2fcf11333f33892657254e6dffd3a2dedec0d3",
     "wf_scan_secrets": "adf950396d5544bc9158a1b08298b279c50130ba4719dc2bc16c29a9213de98f",
     "wf_server_info": "67bf2b9236c1f98206746f614055ac4d74e9205baf6591c4b0442d974eb67b8a",

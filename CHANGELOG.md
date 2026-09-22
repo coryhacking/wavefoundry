@@ -20,6 +20,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Clearer review guidance and diagnostics.** Receipt rotation identifies changed policy inputs when available and reminds only lanes still carrying old readiness approvals; delivery approvals remain finding-scoped. Temporary-only evidence paths receive an advisory. Review prompts point to the shared protocol, distinguish delivery context from readiness, and require controlled comparisons for causal measurement claims. The Review wave prompt states the delivery-council gate correctly (the current receipt's delivery-council requirement, not a config flag), and the fresh-install review template now carries the phase and provenance sentences, the Truth Hierarchy and a project-specifics section. Wave `1ypxw`.
+
+- **Implement-wave guidance and review integrity.** Dependency planning reads declared wave edges instead of prose mentions. Fresh review claims cannot reuse a prior repair context; current-authority audits preserve valid supersession and expose context history. The implementation entry prompt is shorter, retired role journals move verbatim to history, and seed guidance clarifies string-reference checks, measurement attribution and readiness. Wave `1ypy6`.
+
 - **Handler ownership.** Context-efficiency, documentation hygiene, dashboard, edit-gate, upgrade and index responses now live in dedicated modules with unchanged MCP registration and reload support. Upgrade dashboard calls retain compatibility with older installations. Wave `1ymzq`.
 
 - **Shared containment comparison.** Existing path guards retain their resolution and error policies while sharing a pure already-resolved comparison; the resolving utility also supports strict and symlink-component refusal modes. Wave `1ymzq`.

@@ -726,7 +726,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertTrue(text.startswith(prefix))
             self.assertIn(suffix.strip(), text)
             self.assertIn(ras.REVIEW_PROTOCOL_MARKER_BEGIN, text)
-            self.assertIn("four-way actionability gate", text)
+            self.assertIn("wf_review_wave(phase='implementation')", text)
             self.assertIn("Independent-reference verification", text)
             self.assertIn("`independent: false`", text)
             canonical_text = target_seeds.joinpath(

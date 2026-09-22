@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-22
 
 Shortcut: **`Review wave`**
 
@@ -12,7 +12,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neu
 
 ## Purpose
 
-Run all required review lanes against the admitted changes. Review is not optional when required lanes were confirmed at readiness.
+Run all required review lanes against the admitted changes. Review is not optional when required lanes were confirmed at readiness. Review wave is the delivery phase, started with `wf_review_wave(wave_id, phase='implementation')`; readiness review already ran at Prepare.
 
 ## Steps
 
@@ -26,10 +26,10 @@ All review, repair, and reverification investigation follows the run contract's 
   - Other lanes as required per `docs/contributing/review-and-evals.md`
   - Brief every lane with the seed-209 packet fields `tree_fingerprint` (`git hash-object` over the reviewed paths), `time_budget`, and `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors), and require a mutation table in each report (wave `1wuju`).
   - **Frozen tree per round:** no edit lands under the reviewed paths while a lane runs; collect every lane's findings, repair once, re-snapshot once, and re-brief with a new fingerprint. A lane that finds the fingerprint changed records `tree_moved_under_review` (seed 209). Neither `frozen_boundary` nor `policy_input_digest` freezes code; a repair landed while a lane is still running invalidates that lane's evidence for the paths it touched. Each lane reports at its `time_budget` with what is in hand and lists what was not run.
-3. When `wave_review.enabled` is true, run the Wave Council delivery pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer and must address it before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `wave-council` synthesizes all outputs; record `wave-council-delivery` (on declared waves as a typed approval event via `wf_review_event`, which projects into `## Review Evidence`; only legacy prose waves record the signoff line directly) and summarize the reasoning in `## Review checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. Delivery review verifies the current typed readiness authority on declared waves; it does not treat a prose `prepare-council` checkpoint as machine evidence. Legacy waves retain their prose compatibility contract.
-4. **AC scope gap check:** after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
-5. **AC priority reconciliation:** reconcile the `## AC priority` table against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker. See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
-6. Record all findings in the wave record `## Review checkpoints`.
+3. When the current receipt-derived `required_council_signoffs` lists `wave-council-delivery`, run the Wave Council delivery pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer and must address it before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `wave-council` synthesizes all outputs; record `wave-council-delivery` (on declared waves as a typed approval event via `wf_review_event`, which projects into `## Review Evidence`; only legacy prose waves record the signoff line directly) and summarize the reasoning in `## Review checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. Delivery review verifies the current typed readiness authority on declared waves; it does not treat a prose `prepare-council` checkpoint as machine evidence. Legacy waves retain their prose compatibility contract.
+4. **AC scope gap check:** when the change doc carries an `## AC Priority` table, after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
+5. **AC priority reconciliation:** when the change doc carries an `## AC Priority` table, reconcile it against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker under seed 170's "AC and task checkbox states — the `[~]` marker" convention.
+6. Record findings and approvals through `wf_review_event`; the wave record `## Review checkpoints` keeps the narrative summary. Legacy prose waves retain their recording contract.
 7. Blocking findings open a recorded repair cycle. The implementer repairs the affected boundary and each blocking lane independently reverifies it before delivery approval is restored. After the first delivery cycle, an editorial-only finding (wording that is true but imprecise, drifted citations, formatting) is repaired inline in the current cycle and recorded in the Progress Log; it does not by itself open another repair cycle. Every finding that needs verification, a boundary repair, or escalation retains its existing action-matrix route. An editorial finding that makes a shipped claim FALSE is a correctness defect. A scope, requirement, or AC change is recorded in the section that owns it, and the Progress Log row points at that edit rather than substituting for it.
 
 ## Code Review Specifics (Wavefoundry)
@@ -50,62 +50,37 @@ Reviewers must not treat checked ACs or tasks as proof of completion. For every 
 
 ## Required Before Close
 
-All required lanes from readiness must be reconciled in `## Review checkpoints` before **Close wave** can proceed. When Wave Council is enabled, `wave-council-delivery` must also be recorded (a typed approval event on declared waves, projected into `## Review Evidence`; a prose line counts only on legacy waves).
+All required lanes must have current typed delivery approvals before **Close wave** can proceed, with the narrative summary in `## Review checkpoints`. When the current receipt-derived `required_council_signoffs` lists `wave-council-delivery`, that approval must also be current (a typed approval event on declared waves, projected into `## Review Evidence`; a prose line counts only on legacy waves).
+
+Review wave does not close the wave, mark completion or commit changes; those actions remain operator-owned.
 
 ## Memory Capture During Review
 
-Run `memory_propose(wave_id, mode='create')` after the current finding heads
-are reconciled. For each evidence-derived candidate, a focused agent must follow
-the evidence and current target, state the future action delta, check durability,
-canonical overlap, target accuracy, duplicates/contradictions, and confidence,
-then call `memory_validate` with promote, retain, reject, or rewrite. This is
-bounded memory curation, not another review council; zero-memory waves are valid.
-Manually authored conversational lessons may still use
-`memory_add(status='candidate', ...)`. Never store raw transcripts, secrets,
-or personal facts.
-
-If review concludes that a reconciled `stale`, `superseded`, or `rejected`
-record should leave the active corpus, archive it only with an explicit reason.
-Require current evidence before confirming archival of a decision, operator
-preference, or fragile-file record; age alone is not sufficient.
+Follow `docs/prompts/memory-review.prompt.md` for evidence-derived candidate curation after current finding heads are reconciled.
+Conversational lessons may use `memory_add(status='candidate', ...)` under that workflow's evidence and privacy rules.
 
 <!-- wave:executable-review-evidence begin — generated by render_agent_surfaces.py; preserve project-authored content outside this region -->
 ## Executable review evidence
 
 Follow the canonical **Executable Review Evidence Protocol** in
 `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for material
-approval claims and blocking findings. Exercise the public or registered
+approval claims, blocking findings, review policy and focused repair.
+Exercise the public or registered
 path when one exists; keep state/interleaving probes within the protocol's
 finite risk-selected budget; record expected versus observed evidence and
 honest limitations; and never broaden task authority to run destructive,
 external, credential-bearing, or cost-bearing probes.
 
-Do not hand-author canonical JSONL when the lifecycle coordinator exposes
-the typed review-evidence authoring surface. Reviewers supply the
-load-bearing judgment facts to that coordinator; the authoring surface
-derives only bookkeeping, appends the fixed sibling
-`docs/waves/<wave>/events.jsonl` authority, and rebuilds the compact
-Markdown current-state projection in `wave.md`. A role without lifecycle
-mutation authority returns those facts to its coordinator instead of
-writing wave state.
+Start delivery review with `wf_review_wave(phase='implementation')` and
+record findings and approvals through `wf_review_event`; never hand-edit
+`events.jsonl`. Reviewers supply the load-bearing judgment facts to the
+coordinator; a role without lifecycle mutation authority returns those
+facts to its coordinator instead of writing wave state.
 
-Under the current review policy, after validation apply the ordered
-four-way actionability gate:
-`do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
-`do_now`/`maybe_later` work before closure, create no backlog for rejected
-states, and use focused repair replay unless a load-bearing boundary change
-objectively requires a full council.
-
-Repair/reverification independence is enforced chain-aware at the typed
-authoring surface: a reverification sharing its `repair_start`'s context
-while declaring `fresh_context=true` is rejected as a contradiction
-(`reverification_context_not_fresh`), and a same-actor reverification is
-rejected as protocol policy (`reverification_actor_not_distinct`); both
-append nothing. The close gate audits open and reopened waves' current
-chains (`review_evidence_independence_invalid`); closed archives are never
-retroactively invalidated. Actor equality is protocol policy, not caller
-authentication — the truth of `fresh_context`, `independent`, and actor
-identity itself remains a declaration the validator cannot verify.
+The tools enforce `reverification_context_not_fresh`,
+`reverification_actor_not_distinct`, and `review_evidence_independence_invalid`
+for decidable independence contradictions as protocol policy, not caller
+authentication.
 <!-- wave:executable-review-evidence end -->
 
 <!-- wavefoundry:review-policy:begin -->

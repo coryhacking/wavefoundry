@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-22
 
 ## Runtime advisory boundary
 
@@ -399,6 +399,10 @@ signoff lines and standalone severity words are inert narrative in both
 directions, and human prose outside the owned marker is preserved but is
 never approval authority. Legacy waves without the source declaration keep
 the prose mechanism, their only one, inside the facade's legacy branch.
+
+`wf_review_event(event="list")` adds `context_summary` for the complete ledger, including superseded retained-context history. Append validation rejects a fresh approval or reverification that reuses any earlier repair-start context; delivery advisory and both close audits apply the same predicate only to current authoritative rows, preserving valid replacement and receipt-rotation recovery. Existing own-chain diagnostics retain precedence. Context identities remain caller declarations, not authenticated identity.
+
+Receipt rotation lapses readiness approvals only; delivery approvals are not receipt-bound and remain subject to affected-finding repair chronology. Superseding receipts name changed documents when their predecessor carries optional `policy_inputs` metadata; historical receipts without it retain the explicit not-attributable explanation. This metadata does not change receipt identity.
 
 ### Dashboard document presentation
 

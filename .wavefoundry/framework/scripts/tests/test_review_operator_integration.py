@@ -77,7 +77,7 @@ class ReviewOperatorIntegrationTests(unittest.TestCase):
                 self.assertTrue(self.contexts(actual))
                 for context in self.contexts(actual):
                     self.assertEqual(context['operator'], {'handle': 'alice', 'source': 'explicit'})
-        self.assertIn('current executed approval by alice follows every affected repair',
+        self.assertIn('current executed approval by alice, not receipt-bound, follows every affected repair',
                       self.wave_md.read_text())
 
     def test_git_identity_and_unresolved_git_states_reach_public_write(self):

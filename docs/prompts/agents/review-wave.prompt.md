@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-22
 
 ## Context
 
@@ -12,11 +12,11 @@ You are running **Review wave** on Wavefoundry.
 
 | Lane | What to Check | Prompt body |
 |------|--------------|-------------|
-| `code-reviewer` | Framework script correctness; pattern compliance; test coverage in `.wavefoundry/framework/scripts/tests/`; no project-specific guidance added to generic seeds | _(inline — see Wavefoundry Review Specifics)_ |
-| `qa-reviewer` | AC coverage per `## AC priority` table; multi-step verification for stateful behavior; framework test suite passes | _(inline — see Wavefoundry Review Specifics)_ |
-| `architecture-reviewer` | Module boundary violations; layering rules compliance; domain-map consistency | _(inline — see Wavefoundry Review Specifics)_ |
-| `docs-contract-reviewer` | Behavioral spec consistency; manifest/VERSION alignment | _(inline — see Wavefoundry Review Specifics)_ |
-| `release-reviewer` | VERSION stamp correctness; zip naming semantics; gitignore coverage | _(inline — see Wavefoundry Review Specifics)_ |
+| `code-reviewer` | Framework script correctness; pattern compliance; test coverage in `.wavefoundry/framework/scripts/tests/`; no project-specific guidance added to generic seeds |  |
+| `qa-reviewer` | AC coverage per `## AC priority` table; multi-step verification for stateful behavior; framework test suite passes |  |
+| `architecture-reviewer` | Module boundary violations; layering rules compliance; domain-map consistency |  |
+| `docs-contract-reviewer` | Behavioral spec consistency; manifest/VERSION alignment |  |
+| `release-reviewer` | VERSION stamp correctness; zip naming semantics; gitignore coverage |  |
 | `performance-reviewer` | Algorithmic complexity on hot paths (chunker, indexer, query); O(n) per-file model; pre-compiled regex constants; bounded in-memory structures | `docs/prompts/agents/performance-reviewer.prompt.md` |
 | `security-reviewer` | Path confinement on file-access tools; `re.escape` on symbol interpolation; write-path constraint on read-only tools; untrusted content handling | `docs/prompts/agents/security-reviewer.prompt.md` |
 
@@ -43,7 +43,7 @@ Update the `## AC priority` table if scope shifted during implementation. `qa-re
 ## Findings Classification
 
 - Level 1: fix internally, no log entry
-- Level 2: after a recorded delivery finding, repair the affected boundary and obtain fresh independent reverification from each blocking lane; no re-Prepare unless the plan or scope became invalid
+- Level 2: after a recorded delivery finding, repair the affected boundary and obtain fresh independent reverification from each blocking lane; re-Prepare when `wf_review_wave` reports `review_policy_reprepare_required`
 - Level 3: scope or plan invalidation → stop and re-Prepare
 
 <!-- wavefoundry:review-policy:begin -->
@@ -59,36 +59,21 @@ when a load-bearing boundary changed.
 
 Follow the canonical **Executable Review Evidence Protocol** in
 `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for material
-approval claims and blocking findings. Exercise the public or registered
+approval claims, blocking findings, review policy and focused repair.
+Exercise the public or registered
 path when one exists; keep state/interleaving probes within the protocol's
 finite risk-selected budget; record expected versus observed evidence and
 honest limitations; and never broaden task authority to run destructive,
 external, credential-bearing, or cost-bearing probes.
 
-Do not hand-author canonical JSONL when the lifecycle coordinator exposes
-the typed review-evidence authoring surface. Reviewers supply the
-load-bearing judgment facts to that coordinator; the authoring surface
-derives only bookkeeping, appends the fixed sibling
-`docs/waves/<wave>/events.jsonl` authority, and rebuilds the compact
-Markdown current-state projection in `wave.md`. A role without lifecycle
-mutation authority returns those facts to its coordinator instead of
-writing wave state.
+Start delivery review with `wf_review_wave(phase='implementation')` and
+record findings and approvals through `wf_review_event`; never hand-edit
+`events.jsonl`. Reviewers supply the load-bearing judgment facts to the
+coordinator; a role without lifecycle mutation authority returns those
+facts to its coordinator instead of writing wave state.
 
-Under the current review policy, after validation apply the ordered
-four-way actionability gate:
-`do_now`, `maybe_later`, `dont_do_later`, or `not_issue`. Complete bounded
-`do_now`/`maybe_later` work before closure, create no backlog for rejected
-states, and use focused repair replay unless a load-bearing boundary change
-objectively requires a full council.
-
-Repair/reverification independence is enforced chain-aware at the typed
-authoring surface: a reverification sharing its `repair_start`'s context
-while declaring `fresh_context=true` is rejected as a contradiction
-(`reverification_context_not_fresh`), and a same-actor reverification is
-rejected as protocol policy (`reverification_actor_not_distinct`); both
-append nothing. The close gate audits open and reopened waves' current
-chains (`review_evidence_independence_invalid`); closed archives are never
-retroactively invalidated. Actor equality is protocol policy, not caller
-authentication — the truth of `fresh_context`, `independent`, and actor
-identity itself remains a declaration the validator cannot verify.
+The tools enforce `reverification_context_not_fresh`,
+`reverification_actor_not_distinct`, and `review_evidence_independence_invalid`
+for decidable independence contradictions as protocol policy, not caller
+authentication.
 <!-- wave:executable-review-evidence end -->

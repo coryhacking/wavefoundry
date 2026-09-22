@@ -3222,10 +3222,9 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         for name in ("214-architecture-reviewer.prompt.md", "221-code-reviewer.prompt.md", "239-qa-reviewer.prompt.md"):
             with self.subTest(seed=name):
                 seed = self._seed(name)
-                self.assertIn("**mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT)", seed)
-                self.assertIn("`known_bad_detection_method: focused-mutation` fields, not a second evidence shape", seed)
-                self.assertIn("Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`", seed)
-                self.assertIn("and `time_budget`; report at the budget and list what was not run (wave 1wuju).", seed)
+                self.assertIn("Follow seed 209's **Landing rule for guards** for mutation evidence", seed)
+                self.assertIn("its briefing packet for sweep and budget constraints", seed)
+                self.assertIn("; report at the budget and list what was not run (wave 1wuju).", seed)
 
     def test_prompt_surfaces_and_role_docs_are_reconciled(self) -> None:
         implement = self._doc("prompts", "implement-wave.prompt.md")
@@ -3240,14 +3239,29 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertIn("Do not finalize with an unreconciled `tree_moved_under_review` finding", close)
         for role in ("architecture-reviewer.md", "qa-reviewer.md"):
             with self.subTest(role=role):
-                self.assertIn("- a mutation table for every mechanism the wave landed in your scope (mechanism, mutation, failing test or NOT CAUGHT)", self._doc("agents", role))
+                self.assertIn("Follow seed 209's **Landing rule for guards** for mutation evidence", self._doc("agents", role))
         for role in ("architecture-reviewer.md", "qa-reviewer.md", "code-reviewer.md"):
             with self.subTest(role=role, clause="report-at-budget"):
                 self.assertIn("; report at the budget and list what was not run (seed 209, wave `1wuju`)", self._doc("agents", role))
-        self.assertIn("which named test fails with it deleted or loosened? Report it in a mutation table", self._doc("agents", "code-reviewer.md"))
+        self.assertIn("Follow seed 209's **Landing rule for guards** for mutation evidence", self._doc("agents", "code-reviewer.md"))
         self.assertIn("## Landing Rule for Guards (wave 1wuju)", self._doc("architecture", "testing-architecture.md"))
         self.assertIn("A census is re-derived whenever\nits predicate moves and is quoted only with the predicate that produced it; a\nfigure carried forward from an earlier predicate is a stale claim, not evidence.", self._doc("architecture", "testing-architecture.md"))
         self.assertIn("**Review-cycle churn controls in the seeds.**", (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+    def test_review_entry_phase_receipt_trigger_and_reprepare_contract(self) -> None:
+        review = self._doc("prompts", "review-wave.prompt.md")
+        authored = review.split("<!-- wave:executable-review-evidence", 1)[0]
+        self.assertIn("Review wave is the delivery phase, started with `wf_review_wave(wave_id, phase='implementation')`", authored)
+        self.assertEqual(authored.count("When the current receipt-derived `required_council_signoffs` lists `wave-council-delivery`"), 2)
+        self.assertNotIn("When `wave_review.enabled` is true", authored)
+        self.assertNotIn("When Wave Council is enabled", authored)
+        self.assertEqual(authored.count("when the change doc carries an `## AC Priority` table"), 2)
+        self.assertIn("Record findings and approvals through `wf_review_event`", authored)
+        self.assertIn("Review wave does not close the wave, mark completion or commit changes", authored)
+        agent = self._doc("prompts", "agents", "review-wave.prompt.md")
+        self.assertNotIn("inline — see Wavefoundry Review Specifics", agent)
+        self.assertIn("re-Prepare when `wf_review_wave` reports `review_policy_reprepare_required`", agent)
+
 
 
 class AdvisoryFirstRulePinTests(unittest.TestCase):
@@ -6066,3 +6080,13 @@ class RecordLayoutLintTests(unittest.TestCase):
             self.assertFalse(any(".archive" in e for e in council_errors), council_errors)
         finally:
             shutil.rmtree(root)
+
+
+class SeedProfileKeyTests(unittest.TestCase):
+    def test_inventory_profile_key_matches_project_profile(self):
+        root = Path(__file__).resolve().parents[4]
+        profile = json.loads((root / 'docs/repo-profile.json').read_text())
+        seed = (root / '.wavefoundry/framework/seeds/030-inventory-and-map.prompt.md').read_text()
+        self.assertIn('code_patterns', profile)
+        self.assertEqual(seed.count('code_patterns'), 4)
+        self.assertNotRegex(seed, r'\bcode_pattern\b')

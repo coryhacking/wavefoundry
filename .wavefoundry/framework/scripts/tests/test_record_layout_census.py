@@ -77,7 +77,7 @@ SITES: list[tuple[str, str, str]] = [
     ("memory_records.py", "repair references: rel_parts[:2] == (\"docs\", \"waves\")", "construction"),
     ("memory_supply.py", "resolve_wave_dir: root / \"docs\" / \"waves\"", "construction"),
     ("reconcile_scan.py", "EXCLUDED_DIRS: \"docs/waves\"", "prefix_check"),
-    ("render_agent_surfaces.py", "docstring: docs/waves/<wave>/events.jsonl authority", "comment"),
+    ("render_agent_surfaces.py", "docstring: docs/waves/<wave>/events.jsonl authority", "comment"),  # historical site removed by 1ypxw
     ("render_agent_surfaces.py", "review-plan prompt lines: Load the target change doc (...)", "message"),
     ("render_agent_surfaces.py", "SCAFFOLD_BASELINES: \"docs/plans/plan-template.md\"", "construction"),
     ("render_platform_surfaces.py", "claude_stop_source hook body _find_repo_root: cand / \"docs\" / \"waves\"", "construction"),
@@ -125,7 +125,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("indexer.py", "# (docs/waves/ evidence census_results.json)."): "comment",
     ("indexer.py", "canonical per-wave ``docs/waves/<wave>/events.jsonl``"): "comment",
     ("install_log_lib.py", "`docs/waves/00000 wave-zero-plans-and-specs/wave.md`"): "comment",
-    ("render_agent_surfaces.py", "`docs/waves/<wave>/events.jsonl` authority"): "docstring",
     ("render_agent_surfaces.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"): "message",
     ("review_evidence.py", "``docs/waves/<one wave directory>/events.jsonl`` occupies"): "docstring",
     ("review_evidence.py", "direct child directory of ``docs/waves/`` holding the fixed sibling"): "docstring",

@@ -29,7 +29,7 @@ from review_policy import (
     has_reprepare_marker,
     normalize_wave_review_policy,
     normalize_phase_gates,
-    policy_input_digest,
+    policy_input_snapshot,
     select_required_review_lanes,
 )
 from review_evidence import (
@@ -497,15 +497,7 @@ def receipt_supersession_attribution(
     *,
     labels: tuple[str, str] = ("current receipt", "pending receipt"),
 ) -> str:
-    """Name what moved, and only what the persisted data actually supports.
-
-    A bare diagnostic code reproduces the confusion this exists to remove: the
-    operator sees approvals lapse and cannot tell which input moved.  Per-change
-    attribution is deliberately NOT claimed -- the per-change digests are
-    computed into a local and discarded, and the receipt validator enforces a
-    closed field set -- so this reports the change ids that were digested and
-    stops there rather than implying it knows which one changed.
-    """
+    """Name only document changes supported by persisted receipt metadata."""
 
     pending = state.get("receipt") or {}
     current = current_policy_receipt(state.get("records") or []) or {}
@@ -530,6 +522,19 @@ def receipt_supersession_attribution(
             else "digested change ids: none"
         ),
     ]
+    old_inputs = current.get("policy_inputs")
+    new_inputs = pending.get("policy_inputs")
+    if isinstance(old_inputs, Mapping) and isinstance(new_inputs, Mapping):
+        old_changes = {entry["change_id"]: entry for entry in old_inputs["changes"]}
+        new_changes = {entry["change_id"]: entry for entry in new_inputs["changes"]}
+        changed = sorted(
+            change_id for change_id in old_changes.keys() | new_changes.keys()
+            if old_changes.get(change_id) != new_changes.get(change_id)
+        )
+        parts.append("changed change docs: " + (", ".join(changed) or "none"))
+        if old_inputs["project_policy_sha256"] != new_inputs["project_policy_sha256"]:
+            parts.append("project policy inputs changed")
+        return " (" + "; ".join(parts) + "). Which section changed is not attributable from persisted data."
     return (
         " (" + "; ".join(parts) + "). "
         "Which specific document changed is not attributable from persisted data."
@@ -618,7 +623,7 @@ def _prepare_policy_state(
         project_lanes=project_lanes,
         change_texts=change_texts,
     )
-    digest = policy_input_digest(
+    digest, policy_inputs = policy_input_snapshot(
         wave_review=policy,
         project_lanes=project_lanes,
         review_policies=config.get("review_policies", {}),
@@ -661,6 +666,7 @@ def _prepare_policy_state(
         "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
         "evaluator_version": REVIEW_POLICY_EVALUATOR_VERSION,
         "policy_input_digest": digest,
+        "policy_inputs": policy_inputs,
         "delivery_mode": mode,
         "primer_depth": "standard",
         "council_seats": seats,

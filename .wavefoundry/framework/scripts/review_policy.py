@@ -930,7 +930,7 @@ def select_required_review_lanes(
     return ordered, {lane: tuple(reasons[lane]) for lane in ordered}
 
 
-def policy_input_digest(
+def policy_input_snapshot(
     *,
     wave_review: Mapping[str, Any],
     project_lanes: Iterable[str],
@@ -939,7 +939,8 @@ def policy_input_digest(
     requested_lanes: Iterable[str],
     phase_gates: object = None,
     sensors: object = (),
-) -> str:
+) -> tuple[str, dict[str, Any]]:
+    """Compute the unchanged identity digest and non-semantic attribution once."""
     payload = {
         "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
         "evaluator_version": REVIEW_POLICY_EVALUATOR_VERSION,
@@ -982,7 +983,31 @@ def policy_input_digest(
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    project_payload = {key: value for key, value in payload.items() if key != "changes"}
+    project_encoded = json.dumps(
+        project_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), {
+        "changes": payload["changes"],
+        "project_policy_sha256": hashlib.sha256(project_encoded).hexdigest(),
+    }
+
+
+def policy_input_digest(
+    *,
+    wave_review: Mapping[str, Any],
+    project_lanes: Iterable[str],
+    review_policies: object,
+    changes: Iterable[tuple[str, str, bytes]],
+    requested_lanes: Iterable[str],
+    phase_gates: object = None,
+    sensors: object = (),
+) -> str:
+    return policy_input_snapshot(
+        wave_review=wave_review, project_lanes=project_lanes,
+        review_policies=review_policies, changes=changes,
+        requested_lanes=requested_lanes, phase_gates=phase_gates, sensors=sensors,
+    )[0]
 
 
 def delivery_council_required(
@@ -1089,7 +1114,7 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
         "policy_input_digest", "delivery_mode", "primer_depth", "council_seats",
         "requested_lanes", "required_lanes", "delivery_council_required",
     }
-    optional = {"supersedes_receipt_id"}
+    optional = {"supersedes_receipt_id", "policy_inputs"}
     errors: list[str] = []
     keys = set(record)
     if required - keys:
@@ -1110,6 +1135,28 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
     for field in ("schema_version", "evaluator_version"):
         if not isinstance(record.get(field), int) or isinstance(record.get(field), bool):
             errors.append(f"review_policy_receipt {field} must be an integer")
+    if "policy_inputs" in record:
+        inputs = record["policy_inputs"]
+        if not isinstance(inputs, dict) or set(inputs) != {"changes", "project_policy_sha256"}:
+            errors.append("review_policy_receipt policy_inputs must contain changes and project_policy_sha256")
+        else:
+            sha256_pattern = r"[0-9a-f]{64}"
+            if not isinstance(inputs["project_policy_sha256"], str) or not re.fullmatch(sha256_pattern, inputs["project_policy_sha256"]):
+                errors.append("review_policy_receipt policy_inputs project_policy_sha256 is invalid")
+            changes = inputs["changes"]
+            if not isinstance(changes, list):
+                errors.append("review_policy_receipt policy_inputs changes must be a list")
+            else:
+                seen = set()
+                for entry in changes:
+                    if (not isinstance(entry, dict) or set(entry) != {"change_id", "kind", "sha256"}
+                            or any(not isinstance(entry.get(key), str) or not entry[key] for key in ("change_id", "kind", "sha256"))
+                            or not re.fullmatch(sha256_pattern, entry["sha256"])):
+                        errors.append("review_policy_receipt policy_inputs change entry is invalid")
+                        continue
+                    if entry["change_id"] in seen:
+                        errors.append("review_policy_receipt policy_inputs change_id is duplicated")
+                    seen.add(entry["change_id"])
     return tuple(errors)
 
 

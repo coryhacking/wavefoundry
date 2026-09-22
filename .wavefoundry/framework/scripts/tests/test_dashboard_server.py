@@ -414,7 +414,7 @@ class DashboardSnapshotTests(unittest.TestCase):
                 {
                     "key": "wave-council-delivery",
                     "value": "approved",
-                    "why": "current executed approval follows every affected repair",
+                    "why": "current executed approval, not receipt-bound, follows every affected repair",
                     "next_action": "none",
                 },
                 {

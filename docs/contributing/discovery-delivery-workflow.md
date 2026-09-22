@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-09-22
 
 ## Working Modes
 
@@ -22,7 +22,7 @@ If delivery uncovers a new durable decision or invalidated shared assumption, re
 ## Delivery Pre-conditions
 
 1. Consolidated change doc exists and is admitted into a wave
-2. `Prepare wave` passed cleanly as the immediately preceding lifecycle step
+2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 3. Required review lanes identified
 
 ## Post-Delivery Verification

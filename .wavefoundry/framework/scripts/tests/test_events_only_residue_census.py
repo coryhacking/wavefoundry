@@ -1015,5 +1015,24 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
             )
 
 
+# Local self-hosted history only; never extend the shipped lifecycle token list.
+LOCAL_RETIRED_ROLE_HEADINGS = (
+    "## Operating Memory (migrated from the retired role journal, 2026-07-22)",
+)
+
+
+class LocalRoleHistoryCensusTests(unittest.TestCase):
+    def test_journal_payload_only_in_bounded_history(self):
+        for heading in LOCAL_RETIRED_ROLE_HEADINGS:
+            hits = {
+                str(path.relative_to(REPO_ROOT)).replace("\\", "/"): count
+                for path in (REPO_ROOT / "docs/agents").rglob("*.md")
+                if (count := path.read_text(encoding="utf-8").count(heading))
+            }
+            self.assertEqual(hits, {
+                "docs/agents/history/operating-memory-2026-07-22.md": 6,
+            })
+
+
 if __name__ == "__main__":
     unittest.main()

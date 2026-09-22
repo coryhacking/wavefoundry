@@ -48,8 +48,10 @@ class FixtureFidelityGuidanceTests(unittest.TestCase):
     def test_qa_preserves_five_conditions_and_self_hosted_guidance(self) -> None:
         seed = (SEEDS / QA).read_text(encoding="utf-8")
         gate = seed.split("## Evidence-integrity gate", 1)[1].split("\n## ", 1)[0]
-        self.assertEqual(re.findall(r"^(\d+)\. ", gate, re.MULTILINE), list("12345"))
+        self.assertEqual(re.findall(r"^(\d+)\. ", gate, re.MULTILINE), list("123456"))
         self.assertIn(QA_PHRASES[0], gate.split("\n3. ", 1)[0])
+        self.assertIn("the sixth when claiming a measured delta", gate)
+        self.assertIn("6. **A claimed delta has a controlled comparison.**", gate)
         local = (REPO / "docs/agents/qa-reviewer.md").read_text(encoding="utf-8")
         self.assert_phrases(local, QA_PHRASES)
 

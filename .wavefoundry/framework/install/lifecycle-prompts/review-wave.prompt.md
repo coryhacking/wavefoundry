@@ -15,6 +15,16 @@ Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neu
 Evaluate the implemented wave against its acceptance criteria, public
 contracts, failure modes, and current repository state.
 
+Review wave is the delivery phase; readiness review already ran at Prepare.
+Start with `wf_review_wave(wave_id, phase='implementation')` when available.
+Every required-lane approval comes from a reviewer context started for delivery
+review. A context retained from readiness, inventory, a non-delivery checkpoint
+pass or repair may return findings and evidence but records no approval.
+Without the typed tool, return judgment facts to the coordinator and never
+hand-edit the ledger. Legacy prose waves retain their recording contract.
+Brief each lane using seed 209's **Briefing Packet**, including
+`tree_fingerprint`, `time_budget` and `sweep_rule`.
+
 ## Review method
 
 1. Review the actual diff and current tree, not the implementation summary.
@@ -48,9 +58,48 @@ contracts, failure modes, and current repository state.
    `retain`, `reject`, or `rewrite` with `memory_validate`. This is a
    focused curation pass, not another council; zero-memory waves are valid.
 
+## Required review and acceptance checks
+
+- `code-reviewer` is not optional when required by readiness or project policy,
+  or when the change touches non-trivial product logic. Include branch-complete
+  and re-entrant checks for affected per-key mutable state. QA verifies state
+  across repeated calls or routine steps, or records deferral and residual risk.
+- Run delivery Council when the current receipt-derived `required_council_signoffs`
+  lists `wave-council-delivery`. The council declares primer depth, runs
+  the isolated red-team primer first, briefs fixed seats with it, and synthesizes
+  their findings. Record the seat roster, rotating fifth seat when present,
+  disagreements and their disposition in the narrative review checkpoint.
+- Perform one bounded AC scope gap check: confirm required ACs are met, surface
+  valuable important/nice-to-have items outside admitted scope for operator
+  disposition, and confirm not-this-scope deferrals.
+- When an admitted change carries an AC priority table, reconcile it against
+  delivered behavior. `qa-reviewer` attests every required row has verification
+  evidence or a recorded deferral; record that reconciliation before closure.
+- Verify every `[~]` AC has a legitimate inline note naming when, who and why;
+  a silent marker is a blocking review finding under seed 170's checkbox rules.
+
+## AC and Task Verification Truth Hierarchy
+
+The change document coordinates work; it does not prove completion. Prefer:
+
+1. Code and tests: actual delivered behavior.
+2. Review evidence: verification that the behavior exists and is correct.
+3. Documentation: shared understanding and continuity.
+
+For every required AC, verify supporting code, tests or documented verification.
+A checked AC or task without evidence is incomplete or unverified and needs a
+finding. An intentionally unmet item needs a recorded rationale; silence is not
+an accepted deferral.
+
+## Project review specifics
+
 ## Approval
 
 Approval requires current, lane-authorized evidence after every repair that
 affects that lane. Implementer-authored verification can prove behavior but is
 not independent delivery approval. Keep operator signoff pending until the
 operator explicitly supplies it.
+
+Review wave ends when every required lane and any receipt-required council
+approval is current in `wf_review_wave`. It does not close the wave, mark
+completion or commit changes.

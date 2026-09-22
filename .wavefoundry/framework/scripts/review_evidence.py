@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
+import tempfile
 import re
 import threading
 from contextlib import contextmanager
@@ -37,6 +39,47 @@ from review_policy import (
     receipt_semantic_fields,
     validate_policy_receipt,
 )
+
+
+_ENV_EPHEMERAL_ARTIFACT_ROOTS = tuple(filter(None, (os.environ.get("TEMP"), os.environ.get("TMP"))))
+EPHEMERAL_ARTIFACT_ROOTS = tuple(dict.fromkeys(
+    root for root in (
+        "/tmp", "/private/tmp", "/var/tmp", "/var/folders",
+        tempfile.gettempdir(), os.path.realpath(tempfile.gettempdir()),
+        *_ENV_EPHEMERAL_ARTIFACT_ROOTS,
+    ) if root
+))
+
+
+def artifact_path_tokens(artifact_or_test_id: str) -> tuple[str, ...]:
+    """Extract the evidence grammar's delimited path-like tokens."""
+    tokens = []
+    for raw in re.split(r"[\s,;]+", artifact_or_test_id):
+        token = raw.rstrip(".,;:!?)]}\"'`")
+        token = token.lstrip("([{\"'`")
+        if token and ("/" in token or "\\" in token or token.startswith("~")
+                      or re.match(r"^[A-Za-z]:", token)):
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def ephemeral_artifact_tokens(artifact_or_test_id: str) -> tuple[str, ...]:
+    """Return ephemeral path tokens; classification is advisory, never validity."""
+    ephemeral = []
+    for token in artifact_path_tokens(artifact_or_test_id):
+        path = token.replace("\\", "/")
+        if "scratchpad" in path.casefold().split("/"):
+            ephemeral.append(token)
+            continue
+        for root in EPHEMERAL_ARTIFACT_ROOTS:
+            normalized_root = root.replace("\\", "/").rstrip("/")
+            candidate = path
+            if re.match(r"^[A-Za-z]:", normalized_root) or root in _ENV_EPHEMERAL_ARTIFACT_ROOTS:
+                candidate, normalized_root = candidate.casefold(), normalized_root.casefold()
+            if candidate == normalized_root or candidate.startswith(normalized_root + "/"):
+                ephemeral.append(token)
+                break
+    return tuple(ephemeral)
 
 
 PROTOCOL_VERSION = 1
@@ -1127,6 +1170,22 @@ def _approval_rows(
     }
 
 
+def stale_readiness_receipt_ids(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    """Receipt bindings still held by each signoff's latest readiness approval."""
+    rows = tuple(records)
+    current = current_policy_receipt(rows)
+    if current is None:
+        return ()
+    return tuple(dict.fromkeys(
+        str(approval["policy_receipt_id"])
+        for _position, approval in _approval_rows(rows, approval_phase="readiness").values()
+        if approval.get("policy_receipt_id")
+        and approval["policy_receipt_id"] != current["receipt_id"]
+    ))
+
+
 def _finding_affects_signoff(
     head: Mapping[str, Any],
     signoff_key: str,
@@ -1458,7 +1517,11 @@ def review_authority_projection(
                 if isinstance(operator, Mapping) and _nonempty_string(operator.get("handle"))
                 else ""
             )
-            why = f"current executed approval{attribution} follows every affected repair"
+            why = (
+                f"current executed approval{attribution} follows every affected repair"
+                if receipt_binding_applies or selected_phase == "readiness"
+                else f"current executed approval{attribution}, not receipt-bound, follows every affected repair"
+            )
             next_action = "none"
         else:
             state = "pending"
@@ -2409,13 +2472,105 @@ REVERIFICATION_CONTEXT_NOT_FRESH = "reverification_context_not_fresh"
 REVERIFICATION_ACTOR_NOT_DISTINCT = "reverification_actor_not_distinct"
 REVERIFICATION_ANCHOR_UNRESOLVED = "reverification_anchor_unresolved"
 REVIEW_EVIDENCE_INDEPENDENCE_INVALID = "review_evidence_independence_invalid"
+REVIEW_CONTEXT_RETAINED = "review_context_retained"
+
 INDEPENDENCE_DIAGNOSTIC_CODES = frozenset(
     {
         REVERIFICATION_CONTEXT_NOT_FRESH,
         REVERIFICATION_ACTOR_NOT_DISTINCT,
         REVERIFICATION_ANCHOR_UNRESOLVED,
+        REVIEW_CONTEXT_RETAINED,
     }
 )
+
+
+def _evidence_run_kinds(records: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    rows = tuple(records)
+    runs = {row.get("review_run_id"): row.get("run_kind") for row in rows
+            if row.get("record_type") == "review_run"}
+    return {str(row.get("evidence_record_id")): str(runs[row.get("review_run_id")])
+            for row in rows if row.get("record_type") == "finding_synthesis"
+            and row.get("review_run_id") in runs}
+
+
+def _retained_review_context_start(
+    records: Iterable[Mapping[str, Any]], context_id: Any, fresh_context: Any,
+) -> str | None:
+    """Find a repair evidence record in the supplied chronological prefix."""
+    if fresh_context is not True or not _nonempty_string(context_id):
+        return None
+    rows = tuple(records)
+    kinds = _evidence_run_kinds(rows)
+    for row in rows:
+        context = row.get("verification_context")
+        if (kinds.get(str(row.get("evidence_record_id"))) == "repair_start"
+                and isinstance(context, Mapping)
+                and context.get("context_id") == context_id):
+            return str(row["evidence_record_id"])
+    return None
+
+
+def _retained_context_description(context_id: Any, repair_id: str) -> str:
+    return (f"{REVIEW_CONTEXT_RETAINED}: context `{context_id}` declares "
+            f"fresh_context=true after authoring repair_start evidence `{repair_id}`; "
+            "record the review from a fresh context")
+
+
+def _current_review_evidence_ids(rows: list[Mapping[str, Any]]) -> set[str]:
+    kinds = _evidence_run_kinds(rows)
+    latest = {}
+    for row in rows:
+        if (row.get("record_type") == "finding_synthesis"
+                and kinds.get(str(row.get("evidence_record_id"))) == "reverification"):
+            latest[str(row.get("finding_id"))] = str(row.get("evidence_record_id"))
+    current = set(latest.values())
+    for phase in APPROVAL_PHASES:
+        for claim, (_, row) in _approval_rows(rows, approval_phase=phase).items():
+            key = claim.removeprefix("approval:")
+            status = review_status_rows(rows, (key,), approval_phase=phase)
+            if status and status[0]["state"] == "approved":
+                current.add(str(row.get("evidence_record_id")))
+    return current
+
+
+def review_context_summary(records: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Describe actual context-bearing rows, retaining superseded contradictions."""
+    rows = list(records)
+    kinds = _evidence_run_kinds(rows)
+    current = _current_review_evidence_ids(rows)
+    summary: dict[str, dict[str, Any]] = {}
+    for position, row in enumerate(rows):
+        context = row.get("verification_context")
+        if not isinstance(context, Mapping) or not _nonempty_string(context.get("context_id")):
+            continue
+        context_id = str(context["context_id"])
+        evidence_id = str(row.get("evidence_record_id"))
+        kind = kinds.get(evidence_id) or row.get("claim_kind") or row.get("run_kind")
+        item = summary.setdefault(context_id, {
+            "context_id": context_id, "row_count": 0, "actors": [],
+            "first_kind": kind, "last_kind": kind,
+            "authored_finding": False, "authored_repair_start": False,
+            "authored_reverification": False, "authored_approval": False,
+            "retained_context_history": [],
+        })
+        item["row_count"] += 1
+        item["last_kind"] = kind
+        actor = context.get("actor")
+        if isinstance(actor, str) and actor not in item["actors"]:
+            item["actors"].append(actor)
+            item["actors"].sort()
+        item["authored_finding"] |= row.get("claim_kind") == "finding"
+        for name in ("repair_start", "reverification", "approval"):
+            item[f"authored_{name}"] |= kind == name
+        if kind in {"approval", "reverification"}:
+            repair_id = _retained_review_context_start(rows[:position], context_id, context.get("fresh_context"))
+            if repair_id is not None:
+                item["retained_context_history"].append({
+                    "evidence_record_id": evidence_id,
+                    "repair_start_record_id": repair_id,
+                    "current_authority": evidence_id in current,
+                })
+    return list(summary.values())
 
 
 def _resolving_repair_start_context(
@@ -2536,7 +2691,7 @@ def _independence_defect_description(
 def repair_independence_violations(
     records: Iterable[Mapping[str, Any]],
 ) -> tuple[str, ...]:
-    """Audit each finding's current/latest repair chain for independence.
+    """Audit current repair chains and current phase-specific approvals.
 
     Close-gate companion to the append-time rejection: ledgers appended by
     older code may already contain chains whose reverification shares its
@@ -2545,6 +2700,8 @@ def repair_independence_violations(
     followed by a distinct-role/context reverification) supersedes an invalid
     terminal chain and clears the audit.  Callers decide when to run this;
     generic validation never does, so sealed/closed archives stay passing.
+    Retained-context claims inspect only earlier rows, and superseded or
+    lapsed approvals remain history rather than blocking current authority.
     """
 
     rows = [dict(record) for record in records]
@@ -2559,6 +2716,9 @@ def repair_independence_violations(
         if record.get("record_type") == "executable_evidence"
     }
     latest_reverification: dict[str, dict[str, Any]] = {}
+    evidence_positions = {str(row.get("evidence_record_id")): position
+                          for position, row in enumerate(rows)
+                          if row.get("record_type") == "executable_evidence"}
     for record in rows:
         if record.get("record_type") != "finding_synthesis":
             continue
@@ -2570,6 +2730,7 @@ def repair_independence_violations(
             continue
         latest_reverification[finding_id] = record
     violations: list[str] = []
+    chain_defect_ids: set[str] = set()
     for finding_id in sorted(latest_reverification):
         row = latest_reverification[finding_id]
         cycle = row.get("cycle")
@@ -2584,7 +2745,7 @@ def repair_independence_violations(
         if not isinstance(context, Mapping):
             continue
         code = _reverification_independence_defect(
-            rows,
+            rows[:evidence_positions[str(row.get("evidence_record_id"))]],
             finding_id,
             cycle,
             context.get("actor"),
@@ -2593,6 +2754,7 @@ def repair_independence_violations(
         )
         if code is None:
             continue
+        chain_defect_ids.add(str(row.get("evidence_record_id")))
         description = _independence_defect_description(
             code, finding_id, cycle, context.get("actor"), context.get("context_id")
         )
@@ -2603,6 +2765,19 @@ def repair_independence_violations(
             "and distinct-context reverification; that new legal chain "
             "supersedes this one and makes the close audit eligible to clear."
         )
+    current_ids = _current_review_evidence_ids(rows)
+    for position, row in enumerate(rows):
+        if (str(row.get("evidence_record_id")) not in current_ids
+                or str(row.get("evidence_record_id")) in chain_defect_ids):
+            continue
+        context = row.get("verification_context")
+        if not isinstance(context, Mapping):
+            continue
+        repair_id = _retained_review_context_start(
+            rows[:position], context.get("context_id"), context.get("fresh_context")
+        )
+        if repair_id is not None:
+            violations.append(_retained_context_description(context.get("context_id"), repair_id))
     return tuple(violations)
 
 
@@ -2709,6 +2884,9 @@ def build_compact_review_event(
         if errors:
             return (), tuple(errors)
         evidence_id = _unique_record_id(prior, "ev-approval", str(signoff_key))
+        repair_id = _retained_review_context_start(prior, context_id, event.get("fresh_context"))
+        if repair_id is not None:
+            return (), (_retained_context_description(context_id, repair_id),)
         observed = str(event["observed"])
         return (
             {
@@ -2883,6 +3061,9 @@ def build_compact_review_event(
                 "reviewer lane reverifies). The repair waiver has different "
                 "semantics and is not an independence bypass.",
             )
+        repair_id = _retained_review_context_start(prior, context_id, event.get("fresh_context"))
+        if repair_id is not None:
+            return (), (_retained_context_description(context_id, repair_id),)
     origin_phase = _finding_origin_phases(prior).get(str(finding_id))
     evidence_phase = (
         "readiness"

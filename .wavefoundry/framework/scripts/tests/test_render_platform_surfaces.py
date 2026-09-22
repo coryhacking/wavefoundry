@@ -234,7 +234,7 @@ class PublicRenderReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertTrue(text.startswith(prefix))
             self.assertTrue(text.endswith(suffix))
             self.assertNotIn("stale protocol revision", text)
-            self.assertIn("four-way actionability gate", text)
+            self.assertIn("wf_review_wave(phase='implementation')", text)
             for rel in (
                 "docs/agents/qa-reviewer.md",
                 "docs/prompts/create-wave.prompt.md",

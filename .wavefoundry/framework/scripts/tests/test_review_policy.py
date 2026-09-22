@@ -965,6 +965,32 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
             )
         )
 
+    def test_policy_inputs_metadata_preserves_receipt_identity_and_history(self):
+        digest, inputs = review_policy.policy_input_snapshot(
+            wave_review={"enabled": True, "delivery_mode": "universal"},
+            project_lanes=(), review_policies={},
+            changes=(("1abc-bug example", "bug", b"## Requirements\nKeep this.\n"),),
+            requested_lanes=(),
+        )
+        fields = {
+            "schema_version": review_policy.REVIEW_POLICY_SCHEMA_VERSION,
+            "evaluator_version": review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+            "policy_input_digest": digest, "delivery_mode": "universal",
+            "primer_depth": "standard", "council_seats": ["red-team"],
+            "requested_lanes": [], "required_lanes": ["code-reviewer"],
+            "delivery_council_required": True,
+        }
+        old, _ = review_policy.build_policy_receipt(fields, None)
+        enriched, _ = review_policy.build_policy_receipt({**fields, "policy_inputs": inputs}, None)
+        self.assertEqual(old["receipt_id"], enriched["receipt_id"])
+        self.assertEqual(review_evidence.validate_review_evidence_records([old]), ())
+        self.assertEqual(review_evidence.validate_review_evidence_records([enriched]), ())
+        unchanged, append = review_policy.build_policy_receipt({**fields, "policy_inputs": inputs}, old)
+        self.assertFalse(append)
+        self.assertEqual(unchanged, old, "metadata never rewrites or supersedes legacy history")
+        malformed = {**enriched, "policy_inputs": {"changes": "bad", "project_policy_sha256": "bad"}}
+        self.assertTrue(review_policy.validate_policy_receipt(malformed))
+
     # One change body through the real policy digest path, shared by every
     # digest stability/sensitivity test below so none of them can drift into
     # asserting on the canonicalizer alone.

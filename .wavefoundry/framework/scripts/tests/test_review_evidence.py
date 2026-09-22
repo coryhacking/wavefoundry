@@ -3654,13 +3654,8 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         head = subject.current_synthesis_heads(records)["finding-1"]
         self.assertEqual(head.get("repair_execution_state"), "pending")
 
-    def test_same_context_on_another_finding_does_not_block(self) -> None:
-        """AC-1 control: context matching is by exact finding and cycle.
-
-        finding-2's repair_start (sharing the context the reverification will
-        use) is appended AFTER finding-1's own repair_start, so an
-        implementation that matches by cycle alone — ignoring the finding —
-        would resolve finding-2's chain and falsely reject."""
+    def test_same_context_on_another_finding_is_retained(self) -> None:
+        """1ypy4: another finding's repair context is retained, not fresh."""
         records = self._append([], self._finding_event())
         records = self._append(records, self._finding_event(finding_id="finding-2"))
         records = self._append(
@@ -3684,18 +3679,15 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
                 observed="repair_start recorded before the mutation",
             ),
         )
-        # finding-1's reverification reuses finding-2's repair context; only
-        # finding-1's own chain controls, so this is accepted.
-        records = self._append(
+        rows, errors = subject.build_compact_review_event(
             records,
             self._clearing_reverification(actor="qa-reviewer", context_id="ctx-shared"),
         )
-        head = subject.current_synthesis_heads(records)["finding-1"]
-        self.assertEqual(head.get("repair_execution_state"), "completed")
+        self.assertEqual(rows, ())
+        self.assertIn("review_context_retained", "\n".join(errors))
 
-    def test_same_context_on_earlier_cycle_does_not_block(self) -> None:
-        """AC-1 control: an earlier cycle sharing the context does not control
-        the current reverification."""
+    def test_same_context_on_earlier_cycle_is_retained(self) -> None:
+        """1ypy4: an earlier cycle's repair context is still retained."""
         records = self._chain_through_repair_start(repair_context="ctx-cycle1")
         records = self._append(
             records,
@@ -3719,12 +3711,139 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
             blocking_required_lanes=[],
             observed="cycle 2 repair independently reverified",
         )
-        records = self._append(records, event)
-        head = subject.current_synthesis_heads(records)["finding-1"]
-        self.assertEqual(head.get("cycle"), 2)
-        self.assertEqual(head.get("repair_execution_state"), "completed")
+        rows, errors = subject.build_compact_review_event(records, event)
+        self.assertEqual(rows, ())
+        self.assertIn("review_context_retained", "\n".join(errors))
 
     # ---- AC-2: same-actor protocol policy ----------------------------------
+
+    @staticmethod
+    def _retained_approval(context_id, *, key="qa-reviewer", phase="delivery", receipt=None):
+        return {
+            "event": "approval", "actor": "wave-council" if key.startswith("wave-council") else key,
+            "context_id": context_id, "signoff_key": key, "approval_phase": phase,
+            "policy_receipt_id": receipt, "fresh_context": True, "independent": True,
+            "observed": "reviewed current boundary", "artifact_or_test_id": "test:retained",
+            "integrity_checks": integrity_checks(),
+        }
+
+    def _completed_repair(self):
+        records = self._chain_through_repair_start()
+        return self._append(records, self._clearing_reverification(
+            actor="qa-reviewer", context_id="ctx-verifier"))
+
+    def test_retained_approval_refuses_and_names_repair_evidence(self):
+        records = self._completed_repair()
+        rows, errors = subject.build_compact_review_event(records, self._retained_approval("ctx-repair"))
+        self.assertEqual(rows, ())
+        repair_id = next(row["evidence_record_id"] for row in records
+                         if row.get("verification_context", {}).get("context_id") == "ctx-repair")
+        self.assertIn("review_context_retained", " ".join(errors))
+        self.assertIn(repair_id, " ".join(errors))
+        self.assertIn("review_context_retained", subject.INDEPENDENCE_DIAGNOSTIC_CODES)
+
+    def test_retained_approval_supersession_and_history(self):
+        records = self._completed_repair()
+        with patch.object(subject, "_retained_review_context_start", return_value=None):
+            records = self._append(records, self._retained_approval("ctx-repair"))
+        self.assertTrue(subject.repair_independence_violations(records))
+        records = self._append(records, self._retained_approval("ctx-new"))
+        self.assertEqual(subject.repair_independence_violations(records), ())
+        summary = {row["context_id"]: row for row in subject.review_context_summary(records)}
+        retained = summary["ctx-repair"]
+        self.assertEqual(retained["row_count"], 2)
+        self.assertEqual(retained["actors"], ["implementer", "qa-reviewer"])
+        self.assertEqual((retained["first_kind"], retained["last_kind"]), ("repair_start", "approval"))
+        self.assertTrue(retained["authored_finding"])
+        self.assertTrue(retained["authored_repair_start"])
+        self.assertTrue(retained["authored_approval"])
+        self.assertFalse(retained["authored_reverification"])
+        self.assertEqual(len(retained["retained_context_history"]), 1)
+        self.assertFalse(retained["retained_context_history"][0]["current_authority"])
+
+    def test_earlier_good_approval_does_not_supersede_later_retained_approval(self):
+        records = self._append(self._completed_repair(), self._retained_approval("ctx-new"))
+        with patch.object(subject, "_retained_review_context_start", return_value=None):
+            records = self._append(records, self._retained_approval("ctx-repair"))
+        self.assertTrue(subject.repair_independence_violations(records))
+
+    def test_future_repair_does_not_retroactively_taint_approval(self):
+        records = self._append([], self._retained_approval("ctx-later", key="architecture-reviewer"))
+        records = self._append(records, self._finding_event())
+        records = self._append(records, self._finding_event(
+            actor="implementer", context_id="ctx-later", run_kind="repair_start", cycle=1))
+        self.assertEqual(subject.repair_independence_violations(records), ())
+        summary = subject.review_context_summary(records)
+        self.assertFalse(summary[0]["retained_context_history"])
+
+    def test_same_context_batch_approvals_remain_legal(self):
+        records = self._append([], self._retained_approval("ctx-batch"))
+        records = self._append(records, self._retained_approval("ctx-batch", key="code-reviewer"))
+        self.assertEqual(subject.repair_independence_violations(records), ())
+        self.assertEqual(subject.review_context_summary(records)[0]["row_count"], 2)
+
+    def test_readiness_receipt_rotation_preserves_retained_audit_verdict(self):
+        for context_id, expected_bad in (("ctx-fresh", False), ("ctx-repair", True)):
+            with self.subTest(context=context_id):
+                records = self._completed_repair()
+                old = LapsedApprovalReasonTests._receipt("a" * 64, ["qa-reviewer"])
+                records.append(old)
+                event = self._retained_approval(context_id, phase="readiness", receipt=old["receipt_id"])
+                with patch.object(subject, "_retained_review_context_start", return_value=None):
+                    records = self._append(records, event)
+                self.assertEqual(bool(subject.repair_independence_violations(records)), expected_bad)
+                new = LapsedApprovalReasonTests._receipt("b" * 64, ["qa-reviewer"], old)
+                records.append(new)
+                # The old approval has lapsed; it is not current authority.
+                self.assertEqual(subject.repair_independence_violations(records), ())
+                event["policy_receipt_id"] = new["receipt_id"]
+                with patch.object(subject, "_retained_review_context_start", return_value=None):
+                    records = self._append(records, event)
+                self.assertEqual(bool(subject.repair_independence_violations(records)), expected_bad)
+
+    def test_approval_phases_have_independent_supersession(self):
+        records = self._completed_repair()
+        receipt = LapsedApprovalReasonTests._receipt("c" * 64, ["qa-reviewer"])
+        records.append(receipt)
+        with patch.object(subject, "_retained_review_context_start", return_value=None):
+            records = self._append(records, self._retained_approval("ctx-repair"))
+        records = self._append(records, self._retained_approval(
+            "ctx-fresh", phase="readiness", receipt=receipt["receipt_id"]))
+        self.assertTrue(subject.repair_independence_violations(records))
+        records = self._append(records, self._retained_approval("ctx-delivery"))
+        self.assertEqual(subject.repair_independence_violations(records), ())
+
+    def test_cross_finding_retained_reverification_replacement_clears(self):
+        records = self._chain_through_repair_start()
+        records = self._append(records, self._finding_event(finding_id="finding-2"))
+        records = self._append(records, self._finding_event(
+            finding_id="finding-2", actor="implementer", context_id="ctx-other-repair",
+            run_kind="repair_start", cycle=1))
+        event = self._clearing_reverification(actor="qa-reviewer", context_id="ctx-repair")
+        event["finding_id"] = "finding-2"
+        with patch.object(subject, "_retained_review_context_start", return_value=None):
+            records = self._append(records, event)
+        self.assertTrue(subject.repair_independence_violations(records))
+        records = self._append(records, self._clearing_reverification(
+            actor="qa-reviewer", context_id="ctx-first-verifier"))
+        records = self._append(records, self._finding_event(
+            finding_id="finding-2", actor="implementer", context_id="ctx-next-repair",
+            run_kind="repair_start", cycle=2, blocking_required_lanes=[]))
+        event["context_id"] = "ctx-second-verifier"
+        event["cycle"] = 2
+        records = self._append(records, event)
+        self.assertEqual(subject.repair_independence_violations(records), ())
+
+    def test_nonfresh_cross_finding_reverification_is_not_retained(self):
+        records = self._chain_through_repair_start()
+        records = self._append(records, self._finding_event(finding_id="finding-2"))
+        records = self._append(records, self._finding_event(
+            finding_id="finding-2", actor="implementer", context_id="ctx-other-repair",
+            run_kind="repair_start", cycle=1))
+        event = self._finding_event(finding_id="finding-2", run_kind="reverification", cycle=1,
+                                    actor="qa-reviewer", context_id="ctx-repair", fresh_context=False)
+        records = self._append(records, event)
+        self.assertEqual(subject.repair_independence_violations(records), ())
 
     def test_same_actor_reverification_is_rejected_as_protocol_policy(self) -> None:
         """AC-2 red test: actor equality with the resolving repair_start is
@@ -4732,11 +4851,28 @@ class OperatorReviewEvidenceTests(unittest.TestCase):
         rows, errors = subject.build_compact_review_event([], self.event("approval"))
         self.assertEqual(errors, ())
         plain = subject.review_status_rows(rows, ["qa-reviewer"])[0]
-        self.assertEqual(plain["why"], "current executed approval follows every affected repair")
+        self.assertEqual(plain["why"], "current executed approval, not receipt-bound, follows every affected repair")
         rows[0]["verification_context"]["operator"] = {"handle": "alice", "source": "explicit"}
         attributed = subject.review_status_rows(rows, ["qa-reviewer"])[0]
-        self.assertEqual(attributed["why"], "current executed approval by alice follows every affected repair")
+        self.assertEqual(attributed["why"], "current executed approval by alice, not receipt-bound, follows every affected repair")
         self.assertEqual(attributed["state"], plain["state"])
+        historical = copy.deepcopy(rows)
+        historical[0].pop("approval_phase", None)
+        historical[0]["claim_id"] = "approval:wave-council-readiness"
+        historical[0]["verification_context"]["actor"] = "wave-council"
+        readiness = subject.review_status_rows(historical, ["wave-council-readiness"])[0]
+        self.assertEqual(readiness["why"], "current executed approval by alice follows every affected repair")
+
+
+class EphemeralArtifactTokensTests(unittest.TestCase):
+    def test_roots_boundaries_and_path_token_grammar(self):
+        with patch.object(subject, "EPHEMERAL_ARTIFACT_ROOTS", ("/tmp", "C:\\Users\\Alice\\Temp")):
+            self.assertEqual(subject.ephemeral_artifact_tokens(
+                "/tmp/a.log, C:/users/ALICE/temp/b.log; project/scratchpad/check.txt."
+            ), ("/tmp/a.log", "C:/users/ALICE/temp/b.log", "project/scratchpad/check.txt"))
+            self.assertEqual(subject.ephemeral_artifact_tokens("/tmp-long/a docs/report.md test:unit"), ())
+            self.assertEqual(subject.artifact_path_tokens("test:unit"), ())
+            self.assertEqual(subject.artifact_path_tokens("test:unit /tmp/a"), ("/tmp/a",))
 
 
 if __name__ == "__main__":

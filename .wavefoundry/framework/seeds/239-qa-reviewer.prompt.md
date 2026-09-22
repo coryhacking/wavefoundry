@@ -46,13 +46,14 @@ Prompt and seed reachability tests prove contract presence only. They do not pro
 
 ## Evidence-integrity gate
 
-Before accepting a claimed test or fixture, verify all five conditions:
+Before accepting a claimed test or fixture, verify the first five conditions and the sixth when claiming a measured delta:
 
 1. **It ran.** There are zero unintended skips, filtered-out cases, early returns, signature fallbacks, or swallowed setup failures.
 2. **It reaches the claimed path.** Prefer the registered tool, CLI, endpoint/process, lifecycle gate, or real parser/subprocess boundary. A helper-only test is insufficient when the consumer can miswire, reorder, transform, or bypass it. Apply seed 209's fixture-fidelity rule: build prerequisite state through canonical producers, preserve deliberate inputs under test, and keep expected-value oracles independent. Read setup refusal messages; an earlier gate refusal proves nothing about the later span the test names.
 3. **Its boundary values are realistic.** Mocks and fakes use shapes and ordering that the real dependency can produce, including partial results followed by failure when applicable.
 4. **Its assertions are non-vacuous.** The fixture proves the target output or state transition, not merely that no exception occurred or that an unrelated artifact exists.
 5. **It detects the known-bad behavior.** Demonstrate a pre-fix failure, a focused mutation, or injected old behavior. If reverting the fix is unsafe or expensive, record why and use the closest safe focused alternative.
+6. **A claimed delta has a controlled comparison.** Attribute a before/after delta to the change only when the runs are shown to differ in nothing else; otherwise record the delta as unattributed. Apply seed 209's Code-Grounded Verification substrate rule, including stability within each run and qualification of other differences.
 
 If any condition fails, the evidence is `unverified`; it cannot satisfy a required delivery approval claim.
 
@@ -120,7 +121,7 @@ Return `approved`, `approved-with-notes`, or `needs-revision` with:
 - selected probe-budget cells and their results;
 - evidence-integrity failures, limitations, and residual uncertainty; and
 - findings in seed 209's Finding Record Schema for coordinator synthesis;
-- a **mutation table** for every mechanism the wave landed in your scope (mechanism, mutation applied, failing test or NOT CAUGHT): the per-mechanism prose projection of the Executable Evidence Record's `known_bad_detected` / `known_bad_detection_method: focused-mutation` fields, not a second evidence shape. Follow the packet's `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors) and `time_budget`; report at the budget and list what was not run (wave 1wuju).
+- Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (wave 1wuju).
 
 An approval states which public paths and required ACs were executed. Never summarize the basis as only “tests pass”.
 
