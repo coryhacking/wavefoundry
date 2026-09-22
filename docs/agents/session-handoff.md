@@ -2,23 +2,30 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 ## Current Session
 
-**Active wave:** *(none)*
-Idle after closure of `1yljp explicit-precision-rebuild`.
+**Active wave:** *(none — session idle)*
 
-**Last closed wave:** `1yljp explicit-precision-rebuild` — ordinary updates now refuse implicit precision conversion before embedding or epoch mutation, preserving compatible incremental updates. Delivery reviews approved; 9,479 tests passed (12 skipped), current framework receipt and docs gate verified. Changes are not committed.
+**Last closed wave:** `1ymzq handler-module-split-three` — six handler modules and shared containment delivered; all five changes and 27 ACs complete. Closed on 2026-09-22 after independent delivery approval and passing close gates. Operator subsequently requested committing and pushing the completed wave.
+
+## Verification and evidence
+
+Canonical framework receipt remains green/current: 9,508 tests across 121 files, 12 documented skips; final runner check was a verified cache hit. Full docs lint and close passed. All edit gates are closed. Three fresh non-implementing reviewer contexts supplied the required lanes and Council; shared-role correlation is disclosed in the wave's evidence/council-final.md.
+
+R1 passed against R0 with zero comparison violations. R2 `docs/reports/retrieval-quality-1ymzq-after.json` is the final NEW baseline on stable complete generation 1914; no invalidation or operator-review reasons. It is not a comparison across the final evaluator/fixture identity boundary. CPU query reranking followed isolated CoreML-probe failure; no full index rebuild occurred. Failed attempts and reproducible review probes are retained in the wave folder and report retention record.
 
 ## Open questions / Deferred decisions
 
-`1ymzk handler-module-split-two` remains paused with no source edits; resume under its existing plan. The benchmark-pair waiver applied only to the narrow 1yljp repair, not the handler split. Both invalid before reports remain in docs/reports/; they are not passing evidence. No rebuild is needed merely to obtain a benchmark: use a completed, stable index.
+No unfinished AC or task in 1ymzq. Broader search/WaveIndex, lifecycle/registrar extraction, server-free dashboard control and graph-language extractors remain separate work as recorded in wave Watchpoints. Native Windows and published-package qualification were not performed in this wave.
 
-Automatic reuse of a full-class embedding model on CPU remains outside this repair's scope. The shipped guard preserves the index and reports the compatible-provider or explicit-rebuild remedy.
+Recurring eligibility-reaper flapping from prior wave 1ymzk needs its own framework plan. Its measured before/after improvement reflected removal of policy-ineligible test paths, not extraction; preserve that historical caveat and invalid receipts. Prior-wave stray Progress Log placement/retention bookkeeping remains separate from this closure.
 
-Waveforge still owns its merge-time chunker version bump/invalidation verification and terminology-key remap; no downstream integration was run here.
+Automatic reuse of a full-class embedding model on CPU remains outside this wave; the shipped guard preserves the index and reports compatible-provider or explicit-rebuild remedies. Waveforge owns its merge-time chunker version/invalidation verification and terminology-key remap; no downstream integration ran here.
 
 ## Preserve
 
-Unrelated generated-document changes in docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md and docs/repo-index.md remain outside this wave commit. Preserve other unrelated working-tree changes. Prior wave 1ycrj committed as 8f8b7d3b.
+Wave 1ypy6 belongs to another session. Unrelated generated changes in docs/prompts/prompt-surface-manifest.json, docs/references/codebase-map.md and docs/repo-index.md, plus prior rejected memory records, were preserved. Prior wave 1ymzk is committed as `4a8b8951`. The wave commit includes its implementation, review evidence, retrieval receipts and this handoff.
+
+Retrospective: preserve caller IO/error boundaries with pure comparison; verify actual registered reload and shared-object identity; stabilize telemetry as well as source during evaluations. Canonical architecture/evaluation docs carry those lessons. The memory checkpoint produced no additional durable promotion; rejected duplicate candidate 1ypvn remains as history.

@@ -1247,7 +1247,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         )
         start = MagicMock()
         fake_server = MagicMock(wf_start_dashboard_response=start)
-        with patch.dict(sys.modules, {"server_impl": fake_server}):
+        with patch.dict(sys.modules, {"dashboard_handlers": fake_server}):
             with self.assertRaises(SystemExit):
                 self._capture_cleanup(failed_phase="docs_gate", lock_present=True)
         start.assert_not_called()
@@ -1326,7 +1326,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         )
         start = MagicMock(return_value={"status": "ok", "data": {"started": True}})
         fake_server = MagicMock(wf_start_dashboard_response=start)
-        with patch.dict(sys.modules, {"server_impl": fake_server}):
+        with patch.dict(sys.modules, {"dashboard_handlers": fake_server}):
             self._capture_cleanup(failed_phase=None, lock_present=True)
         start.assert_called_once_with(self.root, port=43210)
         self.assertIsNone(self.lib.read_upgrade_lock(self.root))
@@ -1344,7 +1344,7 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
                 return_value={"status": "error", "data": {}}
             )
         )
-        with patch.dict(sys.modules, {"server_impl": fake_server}):
+        with patch.dict(sys.modules, {"dashboard_handlers": fake_server}):
             with self.assertRaises(SystemExit):
                 self._capture_cleanup(failed_phase=None, lock_present=True)
         state = self.lib.read_upgrade_lock(self.root)
@@ -2640,7 +2640,7 @@ class RetiredModelCleanupTests(unittest.TestCase):
         fake_server = MagicMock()
         with patch.dict(sys.modules, {"upgrade_lib": fake_lib}), patch.object(
             self.mod, "_print_operator_summary"
-        ), patch.dict(sys.modules, {"server_impl": fake_server}):
+        ), patch.dict(sys.modules, {"dashboard_handlers": fake_server}):
             with self.assertRaises(SystemExit) as raised:
                 self.mod.phase_cleanup(
                     self.root,
@@ -4123,7 +4123,7 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
         producers.mkdir(parents=True)
         (producers / "producer.lock").write_bytes(b"")
 
-        with patch.dict(sys.modules, {"server_impl": self._fake_server()}):
+        with patch.dict(sys.modules, {"dashboard_handlers": self._fake_server()}):
             self.ext._cut_over_runtime_locks(self.root)
 
         for name, _offset in self.ext._LEGACY_RUNTIME_LOCKS:
@@ -4134,6 +4134,16 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
         self.assertTrue(state["dashboard_restart_pending"])
         self.assertEqual(state["dashboard_restart_port"], 43210)
         self.assertFalse((self.wf / "locks").exists())
+
+    def test_cutover_module_absence_uses_installed_modern_stop(self):
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        self.assertFalse((scripts / "dashboard_handlers.py").exists())
+        installed = self._fake_server()
+        with patch.dict(sys.modules, {"dashboard_handlers": None, "server_impl": installed}):
+            stopped, port = self.ext._stop_dashboard_for_lock_cutover(self.root)
+        self.assertTrue(stopped)
+        self.assertIsNone(port)
+        installed.wf_stop_dashboard_response.assert_called_once_with(self.root)
 
     def test_cutover_falls_back_to_pre_rename_dashboard_stop_symbol(self):
         """1t49m: the hook runs from the NEW archive against an INSTALLED
@@ -4151,7 +4161,7 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
             }
 
         pre_rename = types.SimpleNamespace(wave_dashboard_stop_response=old_stop)
-        with patch.dict(sys.modules, {"server_impl": pre_rename}):
+        with patch.dict(sys.modules, {"dashboard_handlers": None, "server_impl": pre_rename}):
             stopped, port = self.ext._stop_dashboard_for_lock_cutover(self.root)
         self.assertFalse(stopped)
         self.assertIsNone(port)
@@ -4170,14 +4180,14 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
             wf_stop_dashboard_response=new_stop,
             wave_dashboard_stop_response=old_stop,
         )
-        with patch.dict(sys.modules, {"server_impl": both}):
+        with patch.dict(sys.modules, {"dashboard_handlers": None, "server_impl": both}):
             stopped, _port = self.ext._stop_dashboard_for_lock_cutover(self.root)
         self.assertTrue(stopped)
 
     def test_cutover_fails_legibly_when_no_stop_symbol_exists(self):
         import types
 
-        with patch.dict(sys.modules, {"server_impl": types.SimpleNamespace()}):
+        with patch.dict(sys.modules, {"dashboard_handlers": None, "server_impl": types.SimpleNamespace()}):
             with self.assertRaisesRegex(
                 RuntimeError, "wave_dashboard_stop_response"
             ):
@@ -4191,7 +4201,7 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
         handle = adoption.open("a+b")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
-            with patch.dict(sys.modules, {"server_impl": self._fake_server()}):
+            with patch.dict(sys.modules, {"dashboard_handlers": self._fake_server()}):
                 with self.assertRaisesRegex(RuntimeError, "still held"):
                     self.ext._cut_over_runtime_locks(self.root)
         finally:
@@ -4213,7 +4223,7 @@ class RuntimeLockCutoverMigrationTests(unittest.TestCase):
         handle = lease.open("a+b")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
-            with patch.dict(sys.modules, {"server_impl": self._fake_server()}):
+            with patch.dict(sys.modules, {"dashboard_handlers": self._fake_server()}):
                 with self.assertRaisesRegex(RuntimeError, "producer lease"):
                     self.ext._cut_over_runtime_locks(self.root)
         finally:

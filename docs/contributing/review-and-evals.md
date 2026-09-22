@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 ## Review Lane Summary
 
@@ -321,15 +321,18 @@ pair (`docs/reports/retrieval-quality-post-1wur7-run1.json` and
 that wave shipped and is likewise incomparable after `1wuju`. The `1wuju`
 receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
 `1wuju` close) served as the before-receipt for wave `1wybs`. The current
-reference receipt is `docs/reports/retrieval-quality-1ymzk-after.json`:
-it records the delivered handler extraction and compares against
-`docs/reports/retrieval-quality-1y0bf-final.json`, the preceding standing
-reference. The fresh before receipt is
-`docs/reports/retrieval-quality-1ymzk-before-retry1.json`; it records pre-existing
-quality differences from the older reference before handler source edits.
-Read the exact verdict, comparison and limitations in the receipts and the
-`1ymzk` delivery evidence; the reference is not a claim that all historical
-quality comparisons passed. A receipt is valid as `--baseline` when its
+reference receipt is `docs/reports/retrieval-quality-1ymzq-after.json`:
+R2 was recorded on 2026-09-22 on stable complete generation 1914, with verdict `baseline` and no invalidation or operator-review reasons.
+It is a NEW baseline after `index_handlers.py` joined evaluator membership.
+That membership edit changes evaluator identity, so R2 is not a signed
+comparison against R0, R1, `1ymzk-after`, or `1y0bf-final`. The earlier staged
+window uses `docs/reports/retrieval-quality-1ymzq-before.json` (R0, captured after
+the unused containment bootstrap) and
+`docs/reports/retrieval-quality-1ymzq-mid-comparison.json` (R1, before index extraction).
+R1 passed against R0 with no comparison violations. R2 establishes the identity
+for subsequent comparable evaluations, not a no-regression claim across the
+index extraction's evaluator boundary. Read its exact verdict and limitations.
+A receipt is valid as `--baseline` when its
 identities are compatible, independently of its verdict; pass this reference
 while the evaluator is unchanged. After the next evaluator edit there is no
 reference receipt until the next ranking wave records its before-receipt, and

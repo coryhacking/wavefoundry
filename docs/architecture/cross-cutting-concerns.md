@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-22
 
 ## Configuration
 
@@ -128,6 +128,8 @@ approved internal distribution, leave it zipped, and rerun canonical setup.
 This recovery reporting adds no downloader, cache location, or selection path.
 
 ## Shared Utilities
+
+- `.wavefoundry/framework/scripts/path_containment.py` owns the resolving containment predicate and its pure already-resolved comparison; callers retain their existing resolution, symlink and failure policies.
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.
 - These are internal to `.wavefoundry/framework/scripts/`; not exposed as a public library.

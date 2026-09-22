@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 ## Domains
 
@@ -31,7 +31,7 @@ Last verified: 2026-09-21
 
 ## Handler ownership
 
-`codenav_handlers.py`, `graph_handlers.py`, `techdocs_handlers.py` and `memory_handlers.py` own response computation for code navigation, graph, TechDocs and memory tools. Memory services and their caps/caches move together, while lifecycle close-gate compositions and crediting extractors stay in the composition root. `memory_cli.py` imports the memory handlers directly, with composition-root loading deferred to the first call; `memory_eval.py` retains its shared server handle. `server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Every handler sibling participates in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
+`codenav_handlers.py`, `graph_handlers.py`, `techdocs_handlers.py` and `memory_handlers.py` own response computation for code navigation, graph, TechDocs and memory tools. Memory services and their caps/caches move together. `context_efficiency_handlers.py` owns projection and crediting extractors; `docs_handlers.py`, `dashboard_handlers.py`, `edit_gate_handlers.py` and `upgrade_handlers.py` own their named response families. `index_handlers.py` owns index responses, refresh execution and child-PID registries; monitor policy stays with `ImplHandler`, while `indexer`, `index_state_store` and `index_source_guard` retain build and persistence ownership. Lifecycle close-gate compositions, `wf_audit`, the secrets close gate and lint substrate stay in the composition root because they compose lifecycle policy or retain shared fixture seams. `memory_cli.py` imports the memory handlers directly, with composition-root loading deferred to the first call; `memory_eval.py` retains its shared server handle. `server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Every handler sibling participates in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
 
 ## Local setup assessment
 

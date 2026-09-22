@@ -252,10 +252,12 @@ def contained_stat_signature(
 
 
 def _contained_prompt(root: Path, relative: Path) -> Optional[Path]:
+    from path_containment import contained_resolved_path
+
     try:
         resolved_root = Path(root).resolve(strict=True)
         prompt = (resolved_root / relative).resolve(strict=True)
-        if not prompt.is_relative_to(resolved_root) or not prompt.is_file():
+        if contained_resolved_path(resolved_root, prompt) is None or not prompt.is_file():
             return None
         return prompt
     except (OSError, RuntimeError, ValueError):

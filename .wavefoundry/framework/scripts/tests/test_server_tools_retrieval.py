@@ -864,7 +864,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             return self.srv.run_index_rebuild(self.root, content=content, full=full, layer=layer)
 
     def test_returns_immediately_with_pre_build_stats(self):
@@ -884,7 +884,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen") as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="all", full=True)
         cmd = popen.call_args.args[0]
@@ -901,7 +901,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             inc = self.srv.run_index_rebuild(self.root, content="docs", full=False)
             full = self.srv.run_index_rebuild(self.root, content="docs", full=True)
         self.assertEqual(inc["index_scope"], "incremental_update")
@@ -911,7 +911,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen") as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="all", full=True)
         cmd = popen.call_args.args[0]
@@ -936,7 +936,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen") as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             popen.return_value = mock_proc
             self.srv.run_index_rebuild(self.root, content="code")
         cmd = popen.call_args.args[0]
@@ -953,7 +953,7 @@ class RunIndexRebuildTests(unittest.TestCase):
     def test_up_to_date_returns_without_spawning(self):
         self._write_index_state(file_hashes={"docs/a.md": "h1"}, docs_chunks=[{"id": "d1"}])
         with patch("subprocess.Popen") as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=True):
+             patch("index_handlers._index_is_up_to_date", return_value=True):
             result = self.srv.run_index_rebuild(self.root, content="docs", full=False)
         popen.assert_not_called()
         self.assertTrue(result["passed"])
@@ -965,7 +965,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc) as popen, \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=True):
+             patch("index_handlers._index_is_up_to_date", return_value=True):
             result = self.srv.run_index_rebuild(self.root, content="docs", full=True)
         popen.assert_called_once()
         self.assertFalse(result.get("up_to_date", False))
@@ -1027,7 +1027,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         self.srv._INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = 0.5
         try:
             with patch("subprocess.Popen", side_effect=_popen_side_effect), \
-                 patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+                 patch("index_handlers._index_is_up_to_date", return_value=False):
                 result = self.srv.run_index_rebuild(
                     self.root, content="graph", full=True
                 )
@@ -1079,7 +1079,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             self.srv.run_index_rebuild(self.root, content="docs")
         stats = self.srv._read_index_build_stats_file(self.root, "project")
         self.assertIsNotNone(stats)
@@ -1099,7 +1099,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             self.srv.run_index_rebuild(self.root, content="docs")
         stats = self.srv._read_index_build_stats_file(self.root, "project")
         self.assertIsNone(stats)
@@ -1108,7 +1108,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             self.srv.run_index_rebuild(self.root, content="docs")
         stats = self.srv._read_index_build_stats_file(self.root, "project")
         self.assertIsNone(stats)
@@ -1125,7 +1125,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             result = self.srv.run_index_rebuild(self.root, content="docs")
         self.assertIn("7 minute", result["notice"])
         self.assertIn("200 files", result["notice"])
@@ -1134,7 +1134,7 @@ class RunIndexRebuildTests(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch.object(self.srv, "_index_is_up_to_date", return_value=False):
+             patch("index_handlers._index_is_up_to_date", return_value=False):
             result = self.srv.run_index_rebuild(self.root, content="docs")
         self.assertNotIn("Last build", result["notice"])
 
@@ -1169,9 +1169,7 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
 
     def test_spawn_invalidates_cache(self):
         cache = self.srv.McpRepoCache(self.root)
-        with patch.object(
-            self.srv,
-            "run_index_rebuild",
+        with patch("index_handlers.run_index_rebuild",
             return_value={
                 "passed": True,
                 "already_running": False,
@@ -1194,9 +1192,7 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
 
     def test_up_to_date_does_not_invalidate_cache(self):
         cache = self.srv.McpRepoCache(self.root)
-        with patch.object(
-            self.srv,
-            "run_index_rebuild",
+        with patch("index_handlers.run_index_rebuild",
             return_value={
                 "passed": True,
                 "already_running": False,
@@ -1216,9 +1212,7 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
         invalidate.assert_not_called()
 
     def test_already_running_returns_diagnostic(self):
-        with patch.object(
-            self.srv,
-            "run_index_rebuild",
+        with patch("index_handlers.run_index_rebuild",
             return_value={
                 "passed": True,
                 "already_running": True,
@@ -1419,7 +1413,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         index = MagicMock()
         base = self._healthy_base()
         index.docs_health.return_value = base
-        with patch.object(self.srv, "_background_build_status", return_value="running"):
+        with patch("index_handlers._background_build_status", return_value="running"):
             result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("background_code_build_running", codes)
@@ -1428,7 +1422,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         index = MagicMock()
         base = self._healthy_base()
         index.docs_health.return_value = base
-        with patch.object(self.srv, "_background_build_status", return_value="completed"):
+        with patch("index_handlers._background_build_status", return_value="completed"):
             result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertNotIn("background_code_build_running", codes)
@@ -1437,7 +1431,7 @@ class WaveIndexHealthTests(unittest.TestCase):
         index = MagicMock()
         base = self._healthy_base()
         index.docs_health.return_value = base
-        with patch.object(self.srv, "_background_build_status", return_value="none"):
+        with patch("index_handlers._background_build_status", return_value="none"):
             result = self.srv.index_health_response(index)
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertNotIn("background_code_build_running", codes)
@@ -3339,8 +3333,7 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         self.assertTrue(self.server._background_refresh_active(self.state_path))
 
     def test_authoritative_held_build_lock_prevents_refresh(self):
-        with patch.object(
-            self.server, "_index_build_lock_info", return_value={"held": True}
+        with patch("index_handlers._index_build_lock_info", return_value={"held": True}
         ):
             self.assertTrue(self.server._background_refresh_active(self.state_path))
 
@@ -9985,7 +9978,7 @@ class TestGraphRefreshThenRecheck(unittest.TestCase):
         # but the helper's refresh runs first; we can't easily force the refresh
         # to raise without monkey-patching index_build_response.
         import unittest.mock as _mock
-        with _mock.patch.object(self.srv, "index_build_response", side_effect=RuntimeError("boom")):
+        with _mock.patch("index_handlers.index_build_response", side_effect=RuntimeError("boom")):
             result = self.srv._graph_refresh_then_recheck(self.root, lambda: "would-be-fresh")
             self.assertIsNone(result)
 
@@ -10040,7 +10033,8 @@ class TestGraphToolRefreshOnMiss(unittest.TestCase):
     def _assert_refresh_invoked_once(self, tool_call):
         """Run tool_call() while patching index_build_response; assert called once."""
         import unittest.mock as _mock
-        with _mock.patch.object(self.srv, "index_build_response", return_value={"status": "ok", "data": {}}) as patched:
+        with _mock.patch.object(self.srv, "index_build_response", return_value={"status": "ok", "data": {}}) as patched, \
+             _mock.patch("index_handlers.index_build_response", new=patched):
             tool_call()
             self.assertEqual(
                 patched.call_count, 1,
@@ -15239,7 +15233,7 @@ class FreshnessCacheAxesTests(unittest.TestCase):
         forever here — the reproduced P0."""
         stable_token = ("attempt-a", "complete", 7)
         calls, ctx = self._with_underlying([False, True])  # current, then stale
-        with ctx, patch.object(self.srv, "_epoch_state", return_value=stable_token):
+        with ctx, patch("index_handlers._epoch_state", return_value=stable_token):
             v1 = self.srv._index_freshness_verdict(self.root)
             self.assertEqual(v1["state"], "current")
             # Within the TTL, same token: cached — the underlying check runs once.
@@ -15260,12 +15254,12 @@ class FreshnessCacheAxesTests(unittest.TestCase):
         IMMEDIATELY, without waiting out the TTL."""
         calls, ctx = self._with_underlying([True, False])  # stale, then current
         with ctx:
-            with patch.object(self.srv, "_epoch_state", return_value=("attempt-a", "complete", 7)):
+            with patch("index_handlers._epoch_state", return_value=("attempt-a", "complete", 7)):
                 v1 = self.srv._index_freshness_verdict(self.root)
                 self.assertEqual(v1["state"], "stale")
             # Build publishes: generation advances. The cache entry is still
             # well inside its TTL — the token change alone must invalidate.
-            with patch.object(self.srv, "_epoch_state", return_value=("attempt-b", "complete", 8)):
+            with patch("index_handlers._epoch_state", return_value=("attempt-b", "complete", 8)):
                 v2 = self.srv._index_freshness_verdict(self.root)
             self.assertEqual(v2["state"], "current",
                              "the epoch axis must refresh without waiting out the TTL")
@@ -15273,13 +15267,13 @@ class FreshnessCacheAxesTests(unittest.TestCase):
 
     def test_unknown_states_pass_through(self):
         calls, ctx = self._with_underlying([None])
-        with ctx, patch.object(self.srv, "_epoch_state", return_value=None):
+        with ctx, patch("index_handlers._epoch_state", return_value=None):
             v = self.srv._index_freshness_verdict(self.root)
         self.assertEqual(v["state"], "unknown")
 
     def test_helper_exception_reads_unknown(self):
         with patch.object(self.srv, "_load_script", side_effect=RuntimeError("boom")), \
-             patch.object(self.srv, "_epoch_state", return_value=None):
+             patch("index_handlers._epoch_state", return_value=None):
             v = self.srv._index_freshness_verdict(self.root)
         self.assertEqual(v["state"], "unknown")
 
@@ -15368,7 +15362,8 @@ class IndexBuildLockStatusTests(unittest.TestCase):
         self.assertFalse(resp["data"]["lock"]["held"])
 
     def test_recovery_message_no_longer_instructs_deleting_the_file(self):
-        src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        src = ((SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+               + (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8"))
         self.assertNotIn("index-build.lock and retry", src)
         self.assertIn("index_build_status and read the `lock`", src)
 
@@ -15378,7 +15373,7 @@ class IndexBuildLockStatusTests(unittest.TestCase):
                        "started_at": 1.0, "ended_at": None, "note": "interrupted"}
         with tempfile.TemporaryDirectory() as tmp:
             idx = SimpleNamespace(root=Path(tmp), docs_health=lambda: {})
-            with patch.object(self.srv, "_index_build_lock_info", return_value=interrupted):
+            with patch("index_handlers._index_build_lock_info", return_value=interrupted):
                 resp = self.srv.index_health_response(idx)
         codes = [d.get("code") for d in resp.get("diagnostics", [])]
         self.assertIn("index_build_interrupted", codes)
@@ -15482,7 +15477,7 @@ class IndexOptimizeToolTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
-                 patch.object(self.srv, "run_index_rebuild", side_effect=fake_rebuild):
+                 patch("index_handlers.run_index_rebuild", side_effect=fake_rebuild):
                 resp = self.srv._index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=True)
         self.assertIn("docs", spawned)
         self.assertEqual(resp["data"]["rebuild_spawned"], ["docs"])
@@ -15492,7 +15487,7 @@ class IndexOptimizeToolTests(unittest.TestCase):
                             "bytes_before": 100, "bytes_after": 100}}
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.srv, "_load_script", return_value=self._fake_indexer(results)), \
-                 patch.object(self.srv, "run_index_rebuild") as rebuild:
+                 patch("index_handlers.run_index_rebuild") as rebuild:
                 resp = self.srv._index_optimize_response(Path(tmp), content="docs", rebuild_if_needed=False)
             rebuild.assert_not_called()
         self.assertEqual(resp["data"]["needs_rebuild"], ["docs"])
@@ -15668,9 +15663,9 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
         self.assertGreater(summary["size_bytes"], 0)
 
     def test_health_response_wires_state_store_block(self):
-        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        src = Path(self.srv.__file__).with_name("index_handlers.py").read_text(encoding="utf-8")
         fn_pos = src.index("def index_health_response(")
-        wired_pos = src.index('health["state_store"] = _state_store_health_summary(', fn_pos)
+        wired_pos = src.index('health["state_store"] = server_impl._state_store_health_summary(', fn_pos)
         self.assertGreater(wired_pos, fn_pos)
 
     def _load_iss(self):
@@ -15800,7 +15795,7 @@ class FtsRebuildContentTests(unittest.TestCase):
         self.assertTrue(iss.fts_search(self.index_dir, "code", "fn_7"))
 
     def test_fts_content_accepted_and_lock_guarded(self):
-        src = Path(self.srv.__file__).read_text(encoding="utf-8")
+        src = Path(self.srv.__file__).with_name("index_handlers.py").read_text(encoding="utf-8")
         # 1seax (1seau): the vocabulary lives in the canonical public-contract
         # module now, consumed by the handler instead of a hand-written literal.
         self.assertIn("from public_contract import INDEX_BUILD_CONTENT_VALUES", src)
@@ -15814,7 +15809,7 @@ class FtsRebuildContentTests(unittest.TestCase):
     def test_undercoverage_diagnostics_point_at_fts_rebuild(self):
         import inspect
 
-        src = (Path(self.srv.__file__).read_text(encoding="utf-8")
+        src = (Path(self.srv.__file__).with_name("index_handlers.py").read_text(encoding="utf-8")
                + inspect.getsource(self.srv.code_lexical_response))
         self.assertEqual(src.count("recovery_usage=\"index_build(content='fts')\""), 2)
 
@@ -16005,10 +16000,10 @@ class CloseTimeOptimizeTests(unittest.TestCase):
         for failure in failures:
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
                 fake, _ = self._fake_indexer(copy.deepcopy(failure))
-                with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                     patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 2}), \
+                with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                     patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 2}), \
                      patch.object(self.srv, "_load_script", return_value=fake), \
-                     patch.object(self.srv, "run_index_rebuild") as rebuild:
+                     patch("index_handlers.run_index_rebuild") as rebuild:
                     result = self.srv._maybe_optimize_index_on_close(Path(tmp))
                 self.assertFalse(result["ran"])
                 self.assertEqual(result["skipped"], "optimize_error")
@@ -16019,7 +16014,7 @@ class CloseTimeOptimizeTests(unittest.TestCase):
                 rebuild.assert_not_called()
                 fake, _ = self._fake_indexer(copy.deepcopy(failure))
                 with patch.object(self.srv, "_load_script", return_value=fake), \
-                     patch.object(self.srv, "run_index_rebuild") as rebuild:
+                     patch("index_handlers.run_index_rebuild") as rebuild:
                     result = self.srv._index_optimize_response(Path(tmp))
                 self.assertEqual(result["status"], "error")
                 self.assertIn("state_store_maintenance_failed", [d["code"] for d in result["diagnostics"]])
@@ -16123,8 +16118,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
                             "bytes_before": 700_000_000, "bytes_after": 60_000_000}}
         fake, calls = self._fake_indexer(results)
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0, "code": 1.2}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 18.0, "code": 1.2}), \
                  patch.object(self.srv, "_load_script", return_value=fake):
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
         self.assertIsNotNone(summary)
@@ -16138,8 +16133,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
     def test_noop_when_no_table_bloated(self):
         fake, calls = self._fake_indexer({})
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 1.3, "code": 1.1}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 1.3, "code": 1.1}), \
                  patch.object(self.srv, "_load_script", return_value=fake) as load:
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
         self.assertIsNone(summary)
@@ -16148,8 +16143,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
 
     def test_kill_switch_disables_even_when_bloated(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=False), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 42.0}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=False), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 42.0}), \
                  patch.object(self.srv, "_load_script") as load:
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
         self.assertIsNone(summary)
@@ -16158,8 +16153,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
     def test_skips_when_build_lock_held(self):
         fake, calls = self._fake_indexer({}, raise_busy=True)
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 18.0}), \
                  patch.object(self.srv, "_load_script", return_value=fake):
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
         self.assertIsNotNone(summary)
@@ -16169,8 +16164,8 @@ class CloseTimeOptimizeTests(unittest.TestCase):
     def test_optimize_error_is_swallowed_and_reported(self):
         fake, calls = self._fake_indexer({}, raises=RuntimeError("disk exploded"))
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 18.0}), \
                  patch.object(self.srv, "_load_script", return_value=fake):
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
         self.assertIsNotNone(summary)
@@ -16183,10 +16178,10 @@ class CloseTimeOptimizeTests(unittest.TestCase):
                             "bytes_before": 100, "bytes_after": 100}}
         fake, _calls = self._fake_indexer(results)
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", return_value=True), \
-                 patch.object(self.srv, "_index_table_bloat_ratios", return_value={"docs": 18.0}), \
+            with patch("index_handlers._close_optimize_enabled", return_value=True), \
+                 patch("index_handlers._index_table_bloat_ratios", return_value={"docs": 18.0}), \
                  patch.object(self.srv, "_load_script", return_value=fake), \
-                 patch.object(self.srv, "run_index_rebuild") as rebuild:
+                 patch("index_handlers.run_index_rebuild") as rebuild:
                 summary = self.srv._maybe_optimize_index_on_close(Path(tmp))
             rebuild.assert_not_called()  # tier-3 spawn lives only in the response wrapper, not at close
         self.assertEqual(summary["needs_rebuild_deferred"], ["docs"])
@@ -16194,7 +16189,7 @@ class CloseTimeOptimizeTests(unittest.TestCase):
     def test_never_raises_on_internal_failure(self):
         # Any unexpected error inside the helper must be swallowed (a close never fails on reclaim).
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(self.srv, "_close_optimize_enabled", side_effect=RuntimeError("boom")):
+            with patch("index_handlers._close_optimize_enabled", side_effect=RuntimeError("boom")):
                 self.assertIsNone(self.srv._maybe_optimize_index_on_close(Path(tmp)))
 
     # --- wiring lock: runs before the refresh trigger, wired into wf_close_wave ---
@@ -18208,7 +18203,7 @@ class ReapStateSurfaceTests(unittest.TestCase):
     def _unheld_lock(self):
         info = {"held": False, "present": False, "owner_pid": None, "owner_cmdline": None,
                 "started_at": None, "ended_at": None, "note": "no lock"}
-        return patch.object(self.srv, "_index_build_lock_info", return_value=info)
+        return patch("index_handlers._index_build_lock_info", return_value=info)
 
     def _status(self):
         with self._unheld_lock():

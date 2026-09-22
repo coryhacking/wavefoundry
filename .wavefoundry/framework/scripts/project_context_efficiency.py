@@ -16,9 +16,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".")
     args, _unknown = parser.parse_known_args(argv)
     try:
-        import server_impl
+        import context_efficiency_handlers
 
-        server_impl.project_pending_context_efficiency_root(
+        context_efficiency_handlers.project_pending_context_efficiency_root(
             Path(args.root).resolve(), automatic=True
         )
     except Exception:

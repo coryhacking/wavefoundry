@@ -2183,21 +2183,21 @@ class DashboardProcessControlTests(unittest.TestCase):
     def test_pid_is_live_requires_cmdline_match(self):
         # AC-1: a recorded PID that is os.kill-alive but NOT a dashboard for this
         # root (recycled/zombie) must read as not-live.
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[111]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[111]), \
              patch.object(self.server, "_pid_is_running", return_value=True):
             self.assertTrue(self.server._dashboard_pid_is_live(111, self.root))
             self.assertFalse(self.server._dashboard_pid_is_live(999, self.root))
         # Scan unavailable (None) → fall back to the bare liveness check.
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=None), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=None), \
              patch.object(self.server, "_pid_is_running", return_value=True):
             self.assertTrue(self.server._dashboard_pid_is_live(999, self.root))
 
     def test_stop_kills_orphans_with_absent_metadata(self):
         # AC-2: no recorded PID, but a live dashboard for this root exists → stop
         # must find and terminate it (orphan), not return already_stopped.
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[5555]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[5555]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         term.assert_any_call(5555)
         self.assertTrue(env["data"].get("stopped"))
@@ -2205,9 +2205,9 @@ class DashboardProcessControlTests(unittest.TestCase):
 
     def test_stop_kills_recorded_pid_and_orphans(self):
         self._write_dashboard_metadata(self.root, pid=4321)
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321, 6666]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[4321, 6666]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         terminated = {c.args[0] for c in term.call_args_list}
         self.assertEqual(terminated, {4321, 6666})
@@ -2303,9 +2303,9 @@ class DashboardProcessControlTests(unittest.TestCase):
             def poll(self):
                 return None
 
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[7777]), \
-             patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[7777]), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=False), \
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term, \
              patch.object(self.server, "DASHBOARD_START_WAIT_SECONDS", 0), \
              patch("subprocess.Popen", return_value=_FakeProc()):
             env = self.server.wf_start_dashboard_response(self.root)
@@ -2323,10 +2323,9 @@ class DashboardProcessControlTests(unittest.TestCase):
         # (zombie-safe) check now, so it must appear in the cmdline scan for this root — that is exactly
         # what a real live dashboard does. (A <defunct> recorded PID would be absent from the scan and is
         # covered by the zombie-stop tests.)
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321]), patch.object(
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[4321]), patch.object(
             self.server, "_pid_is_running", return_value=True
-        ), patch.object(
-            self.server, "_terminate_dashboard_pid", return_value=True
+        ), patch('dashboard_handlers._terminate_dashboard_pid', return_value=True
         ) as terminate:
             env = self.server.wf_stop_dashboard_response(self.root)
 
@@ -2353,8 +2352,7 @@ class DashboardProcessControlTests(unittest.TestCase):
             "usage": "http://127.0.0.1:43128/dashboard.html",
         }
 
-        with patch.object(self.server, "wf_stop_dashboard_response", return_value=stop_env) as stop, patch.object(
-            self.server, "wf_start_dashboard_response", return_value=start_env
+        with patch('dashboard_handlers.wf_stop_dashboard_response', return_value=stop_env) as stop, patch('dashboard_handlers.wf_start_dashboard_response', return_value=start_env
         ) as start:
             env = self.server.wf_restart_dashboard_response(self.root)
 
@@ -2463,8 +2461,8 @@ class DashboardChildReapTests(unittest.TestCase):
 
     def test_index_refresh_sweeps_dashboard_children(self):
         # AC-4(b): a dashboard that died is reaped by an index-refresh sweep with NO wf_*_dashboard call.
-        with patch.object(self.server, "_reap_dashboard_child_pids") as reap, \
-             patch.object(self.server, "_background_refresh_active", return_value=True):
+        with patch("index_handlers._reap_dashboard_child_pids") as reap, \
+             patch("index_handlers._background_refresh_active", return_value=True):
             self.server._start_background_index_refresh(self.root, "project")
         reap.assert_called_once_with()
 
@@ -2481,9 +2479,9 @@ class DashboardChildReapTests(unittest.TestCase):
         self.server._DASHBOARD_CHILD_PIDS.add(4321)
         with patch.object(self.server.os, "name", "posix"), \
              patch.object(self.server.os, "waitpid", return_value=(4321, 0)) as wp, \
-             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
@@ -2498,9 +2496,9 @@ class DashboardChildReapTests(unittest.TestCase):
         # NOT delete the metadata; it reports honestly with a dashboard_pid_unverified diagnostic and
         # never signals the PID (the 1rswx AC-3 never-kill-unverified control stands).
         meta_path = self._write_dashboard_metadata(self.root, pid=5555)
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertFalse(env["data"].get("already_stopped"))  # not a false success
@@ -2514,9 +2512,9 @@ class DashboardChildReapTests(unittest.TestCase):
         # Wave 1rvfw AC-2: a recorded PID that is NOT os.kill-alive (dead/absent), with no scanned pids,
         # still takes the clean already_stopped + metadata-cleared path.
         meta_path = self._write_dashboard_metadata(self.root, pid=5555)
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
@@ -2526,9 +2524,9 @@ class DashboardChildReapTests(unittest.TestCase):
     def test_stop_still_kills_live_dashboard(self):
         # AC-3: a genuinely-live dashboard for this root (present in the cmdline scan) is still terminated.
         self._write_dashboard_metadata(self.root, pid=4321)
-        with patch.object(self.server, "_dashboard_cmdline_pids", return_value=[4321]), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[4321]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term:
             env = self.server.wf_stop_dashboard_response(self.root)
         self.assertTrue(env["data"].get("stopped"))
         term.assert_called_once_with(4321)
@@ -2544,10 +2542,10 @@ class DashboardChildReapTests(unittest.TestCase):
                      "diagnostics": [], "next_tools": [], "usage": "http://127.0.0.1:43128/dashboard.html"}
         with patch.object(self.server.os, "name", "posix"), \
              patch.object(self.server.os, "waitpid", return_value=(4321, 0)), \
-             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=False), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True) as term, \
-             patch.object(self.server, "wf_start_dashboard_response", return_value=start_env) as start:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as term, \
+             patch('dashboard_handlers.wf_start_dashboard_response', return_value=start_env) as start:
             env = self.server.wf_restart_dashboard_response(self.root)
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("restarted"))
@@ -2560,9 +2558,9 @@ class DashboardChildReapTests(unittest.TestCase):
     def test_open_does_not_report_zombie_as_serving(self):
         self._write_dashboard_metadata(self.root, pid=4321)
         with patch.object(self.server, "_reap_dashboard_child_pids"), \
-             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(self.server, "_pid_is_running", return_value=True), \
-             patch.object(self.server, "wf_start_dashboard_response",
+             patch('dashboard_handlers.wf_start_dashboard_response',
                           return_value={"status": "ok", "data": {"started": True}, "diagnostics": [],
                                         "next_tools": [], "usage": ""}) as start:
             # A live recorded dashboard would return opened/url directly; a zombie must fall through to
@@ -2582,9 +2580,9 @@ class DashboardChildReapTests(unittest.TestCase):
 
         with patch.object(self.server.os, "name", "posix"), \
              patch.object(self.server, "_reap_dashboard_child_pids"), \
-             patch.object(self.server, "_dashboard_cmdline_pids", return_value=[]), \
-             patch.object(self.server, "_dashboard_url_reachable", return_value=False), \
-             patch.object(self.server, "_terminate_dashboard_pid", return_value=True), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=False), \
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True), \
              patch.object(self.server, "DASHBOARD_START_WAIT_SECONDS", 0), \
              patch("subprocess.Popen", return_value=_FakeProc()):
             self.server.wf_start_dashboard_response(self.root)
@@ -4898,7 +4896,7 @@ class DashboardManagedIdentityTests(unittest.TestCase):
             with self.subTest(args=args), \
                  patch.object(self.lib.subprocess_util, 'isolated_run', return_value=SimpleNamespace(stdout=f'424242 python dashboard_server.py {args}')), \
                  patch.object(self.impl, '_pid_is_running', return_value=True), \
-                 patch.object(self.impl, '_terminate_dashboard_pid') as terminate:
+                 patch('dashboard_handlers._terminate_dashboard_pid') as terminate:
                 result = self.impl.wf_stop_dashboard_response(self.root)
                 terminate.assert_not_called()
                 self.assertFalse(result['data'].get('stopped'))
@@ -4925,9 +4923,9 @@ class DashboardManagedIdentityTests(unittest.TestCase):
 
     def test_scan_unavailable_preserves_stop_fallback(self):
         self.lib.write_dashboard_metadata(self.root, {'pid': 424242})
-        with patch.object(self.impl, '_dashboard_cmdline_pids', return_value=None), \
+        with patch('dashboard_handlers._dashboard_cmdline_pids', return_value=None), \
              patch.object(self.impl, '_pid_is_running', return_value=True), \
-             patch.object(self.impl, '_terminate_dashboard_pid', return_value=True) as terminate:
+             patch('dashboard_handlers._terminate_dashboard_pid', return_value=True) as terminate:
             result = self.impl.wf_stop_dashboard_response(self.root)
         terminate.assert_called_once_with(424242)
         self.assertTrue(result['data']['stopped'])

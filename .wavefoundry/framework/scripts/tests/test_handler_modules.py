@@ -25,18 +25,207 @@ from server_tools_support import load_server
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[2]
-FAMILIES = {
-    'memory_handlers': ('memory_add', 'memory_propose', 'memory_backfill',
-        'memory_validate', 'memory_search', 'memory_brief', 'memory_reconcile',
-        'memory_purge', 'memory_consolidate', 'wf_memory_eval'),
-    'techdocs_handlers': ('wf_techdocs_audit', 'wf_techdocs_baseline'),
-    'codenav_handlers': ('code_list_files', 'code_read', 'code_keyword', 'code_lexical',
-        'code_constants', 'code_pattern', 'code_outline', 'code_definition',
-        'code_references', 'code_dependencies', 'code_hover', 'code_commit_provenance'),
-    'graph_handlers': ('code_impact', 'code_callgraph', 'code_callhierarchy',
-        'code_graph_path', 'code_graph_community', 'code_risk_score', 'wf_graph_report'),
-}
+# Explicit aliases preserve the retired gate response names and private optimize name.
+FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
+                     'memory_propose': 'memory_propose_response',
+                     'memory_backfill': 'memory_backfill_response',
+                     'memory_validate': 'memory_validate_response',
+                     'memory_search': 'memory_search_response',
+                     'memory_brief': 'memory_brief_response',
+                     'memory_reconcile': 'memory_reconcile_response',
+                     'memory_purge': 'memory_purge_response',
+                     'memory_consolidate': 'memory_consolidate_response',
+                     'wf_memory_eval': 'wf_memory_eval_response'},
+ 'techdocs_handlers': {'wf_techdocs_audit': 'wf_techdocs_audit_response',
+                       'wf_techdocs_baseline': 'wf_techdocs_baseline_response'},
+ 'codenav_handlers': {'code_list_files': 'code_list_files_response',
+                      'code_read': 'code_read_response',
+                      'code_keyword': 'code_keyword_response',
+                      'code_lexical': 'code_lexical_response',
+                      'code_constants': 'code_constants_response',
+                      'code_pattern': 'code_pattern_response',
+                      'code_outline': 'code_outline_response',
+                      'code_definition': 'code_definition_response',
+                      'code_references': 'code_references_response',
+                      'code_dependencies': 'code_dependencies_response',
+                      'code_hover': 'code_hover_response',
+                      'code_commit_provenance': 'code_commit_provenance_response'},
+ 'graph_handlers': {'code_impact': 'code_impact_response',
+                    'code_callgraph': 'code_callgraph_response',
+                    'code_callhierarchy': 'code_callhierarchy_response',
+                    'code_graph_path': 'code_graph_path_response',
+                    'code_graph_community': 'code_graph_community_response',
+                    'code_risk_score': 'code_risk_score_response',
+                    'wf_graph_report': 'wf_graph_report_response'},
+ 'context_efficiency_handlers': {'wf_context_efficiency_eval': 'wf_context_efficiency_eval_response'},
+ 'docs_handlers': {'wf_validate_docs': 'wf_validate_docs_response',
+                   'wf_garden_docs': 'wf_garden_docs_response',
+                   'wf_sync_surfaces': 'wf_sync_surfaces_response',
+                   'wf_scan_secrets': 'wf_scan_secrets_response'},
+ 'dashboard_handlers': {'wf_start_dashboard': 'wf_start_dashboard_response',
+                        'wf_stop_dashboard': 'wf_stop_dashboard_response',
+                        'wf_restart_dashboard': 'wf_restart_dashboard_response',
+                        'wf_open_dashboard': 'wf_open_dashboard_response'},
+ 'edit_gate_handlers': {'wf_open_gate': 'wave_open_gate_response',
+                        'wf_close_gate': 'wf_close_wave_gate_response',
+                        'wf_gate_status': 'wf_gate_status_response',
+                        'wf_get_handoff': 'wf_get_handoff_response',
+                        'wf_set_handoff': 'wf_set_handoff_response'},
+ 'upgrade_handlers': {'wf_upgrade': 'wf_upgrade_response',
+                      'wf_upgrade_status': 'wf_upgrade_status_response',
+                      'wf_audit_install': 'wf_audit_install_response'},
+ 'index_handlers': {'index_build': 'index_build_response',
+                    'index_build_status': 'index_build_status_response',
+                    'index_health': 'index_health_response',
+                    'index_optimize': '_index_optimize_response'}}
 
+
+
+
+# Literal classified sets captured from the admitted pre-move inventory.
+SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_config',
+                                 '_pending_ce_generations',
+                                 '_maybe_project_context_efficiency',
+                                 '_project_context_efficiency_wave',
+                                 '_flush_context_efficiency',
+                                 'project_pending_context_efficiency',
+                                 'project_pending_context_efficiency_root',
+                                 '_context_efficiency_state',
+                                 'wf_context_efficiency_eval_response',
+                                 '_state_sources_review_evidence',
+                                 '_state_sources_get_change',
+                                 '_state_sources_live_waves',
+                                 '_state_sources_list_plans',
+                                 '_state_sources_map',
+                                 '_state_sources_memory_validate',
+                                 '_state_sources_memory_propose',
+                                 '_state_sources_memory_views',
+                                 '_CE_PROJECTION_MIN_QUIET_SECONDS',
+                                 '_CE_PROJECTION_DEFAULT_QUIET_SECONDS',
+                                 '_CE_PROJECTION_MAX_QUIET_SECONDS',
+                                 '_CE_PROJECTION_POLL_SECONDS',
+                                 '_STATE_SOURCE_EXTRACTORS'],
+ 'docs_handlers': ['wf_validate_docs_response',
+                   'wf_garden_docs_response',
+                   'run_garden',
+                   'wf_sync_surfaces_response',
+                   'run_sync_surfaces',
+                   'wf_scan_secrets_response',
+                   '_subprocess_timeout_summary'],
+ 'dashboard_handlers': ['wf_start_dashboard_response',
+                        'wf_open_dashboard_response',
+                        '_dashboard_cmdline_pids',
+                        '_dashboard_pid_is_live',
+                        '_dashboard_url_reachable',
+                        '_dashboard_already_serving',
+                        '_dashboard_process_metadata',
+                        '_remove_dashboard_metadata',
+                        '_terminate_dashboard_pid',
+                        'wf_stop_dashboard_response',
+                        'wf_restart_dashboard_response',
+                        'DASHBOARD_START_WAIT_SECONDS'],
+ 'edit_gate_handlers': ['wave_open_gate_response',
+                        'wf_close_wave_gate_response',
+                        'wf_gate_status_response',
+                        '_force_gates_closed',
+                        'wf_get_handoff_response',
+                        'wf_set_handoff_response',
+                        '_update_handoff_wave_ref',
+                        '_read_guard_overrides',
+                        '_write_guard_overrides',
+                        '_VALID_GATES',
+                        '_EDIT_GOVERNANCE_GATE_MAP'],
+ 'upgrade_handlers': ['wf_upgrade_response',
+                      '_bounded_upgrade_response_envelope',
+                      'wf_audit_install_response',
+                      '_bounded_upgrade_summary',
+                      '_parse_bridge_release_required',
+                      '_upgrade_next_step',
+                      'wf_upgrade_status_response',
+                      '_load_upgrade_lib',
+                      '_upgrade_summary_sentinel',
+                      '_parse_upgrade_summary',
+                      '_install_artifact_display',
+                      '_install_audit_row_brief',
+                      '_project_retired_model_cleanup_fields',
+                      '_cutover_restart_required',
+                      'UPGRADE_OUTPUT_CAP_CHARS',
+                      'UPGRADE_SUMMARY_CAP_CHARS',
+                      'UPGRADE_SUMMARY_VALUE_CAP_CHARS',
+                      'UPGRADE_SUMMARY_MAX_ITEMS_PER_COLLECTION',
+                      'UPGRADE_RESPONSE_CAP_CHARS',
+                      'UPGRADE_BRIDGE_ARGV_CAP_CHARS',
+                      'UPGRADE_SUMMARY_KEY_CAP_CHARS',
+                      'UPGRADE_SUMMARY_METADATA_CAP_CHARS',
+                      'UPGRADE_SUMMARY_TERMINAL_KEYS',
+                      'RETIRED_MODEL_CLEANUP_KEYS',
+                      '_RETIRED_MODEL_CLEANUP_ITEM_RE',
+                      '_CUTOVER_RESTART_INSTRUCTION'],
+ 'index_handlers': ['_index_layer_readiness',
+                    '_index_readiness_overview',
+                    '_audit_build_summary',
+                    '_audit_index_snapshot',
+                    '_background_build_status',
+                    '_background_build_progress',
+                    '_index_dir_for_layer',
+                    '_epoch_token',
+                    '_epoch_state',
+                    '_index_freshness_verdict',
+                    '_index_rebuilding_response',
+                    '_index_runtime_failure_response',
+                    '_read_index_rebuild_stats',
+                    '_index_is_up_to_date',
+                    '_index_build_state_path',
+                    '_clear_index_build_state',
+                    '_index_build_log_path',
+                    '_project_background_build_log_path',
+                    '_index_build_stats_path',
+                    '_graph_health_summary',
+                    '_chunk_index_coverage',
+                    '_read_index_build_stats_file',
+                    '_write_index_build_stats_file',
+                    '_refresh_index_build_stats_from_finished_log',
+                    '_refresh_index_build_stats_from_finished_logs',
+                    '_index_build_active',
+                    '_check_index_writer_current',
+                    'run_index_rebuild',
+                    '_index_chunk_matching_address',
+                    '_background_refresh_state_path',
+                    '_indexable_refresh_path',
+                    '_load_background_refresh_state',
+                    '_lock_is_fresh',
+                    '_background_refresh_active',
+                    '_index_builder_cmdline_targets_root',
+                    '_register_background_build_pid',
+                    '_reap_background_build_pids',
+                    '_register_dashboard_child_pid',
+                    '_reap_dashboard_child_pids',
+                    '_start_background_index_refresh',
+                    '_trigger_background_index_refresh_for_paths',
+                    '_index_dir_size',
+                    '_close_optimize_enabled',
+                    '_index_table_bloat_ratios',
+                    '_sqlite_maintenance_failure',
+                    '_maybe_optimize_index_on_close',
+                    'index_health_response',
+                    '_index_optimize_response',
+                    'index_build_response',
+                    '_index_build_lock_info',
+                    'index_build_status_response',
+                    '_index_build_status_response_inner',
+                    '_graph_refresh_then_recheck',
+                    'BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS',
+                    'CLOSE_OPTIMIZE_BLOAT_RATIO',
+                    '_BACKGROUND_BUILD_PIDS',
+                    '_DASHBOARD_CHILD_PIDS',
+                    '_FRESHNESS_CACHE',
+                    '_FRESHNESS_TTL_SECONDS',
+                    '_FRESHNESS_CURRENT',
+                    '_FRESHNESS_STALE',
+                    '_FRESHNESS_UNKNOWN',
+                    '_FTS_DAMAGE_REASONS',
+                    '_INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS',
+                    'BACKGROUND_INDEX_LOCK_STALE_SECONDS']}
 
 def _unresolved(source, module, server):
     """Use Python's scope analysis, including nested functions/comprehensions."""
@@ -68,8 +257,7 @@ class HandlerStructureTests(unittest.TestCase):
                 source = (SCRIPTS / (name + '.py')).read_text()
                 tree = ast.parse(source)
                 local_defs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
-                for tool in tools:
-                    response = tool + '_response'
+                for tool, response in tools.items():
                     self.assertNotIn(response, server_defs)
                     self.assertIn(response, local_defs)
                     self.assertIs(getattr(server, response), getattr(module, response))
@@ -90,9 +278,7 @@ class HandlerStructureTests(unittest.TestCase):
         memory = importlib.import_module('memory_handlers')
         server_tree = ast.parse((SCRIPTS / 'server_impl.py').read_text())
         memory_tree = ast.parse((SCRIPTS / 'memory_handlers.py').read_text())
-        staying = {'_auto_populate_memory_for_wave', '_memory_validation_diagnostics',
-                   '_state_sources_memory_validate', '_state_sources_memory_propose',
-                   '_state_sources_memory_views'}
+        staying = {'_auto_populate_memory_for_wave', '_memory_validation_diagnostics'}
         def definitions(tree):
             return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
         self.assertTrue(staying <= definitions(server_tree))
@@ -108,6 +294,38 @@ class HandlerStructureTests(unittest.TestCase):
                        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
                        if isinstance(target, ast.Name)}
         self.assertFalse(set(moved) & assignments)
+
+
+    def test_split_three_complete_partitions_and_identity(self):
+        server = load_server()
+        root_tree = ast.parse((SCRIPTS / 'server_impl.py').read_text())
+        def owned(tree):
+            result = set()
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                    result.add(node.name)
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    for target in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                        result.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))
+            return result
+        root_owned = owned(root_tree)
+        for owner, names in SPLIT_THREE_ROSTERS.items():
+            module = importlib.import_module(owner)
+            tree = ast.parse((SCRIPTS / (owner + '.py')).read_text())
+            self.assertTrue(set(names) <= owned(tree), owner)
+            self.assertFalse(set(names) & root_owned, owner)
+            for name in names:
+                self.assertIs(getattr(server, name), getattr(module, name), (owner, name))
+            # Include function-local imports; sibling handler imports are forbidden.
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    self.assertFalse({a.name for a in node.names} & (set(FAMILIES) - {owner}))
+                elif isinstance(node, ast.ImportFrom):
+                    self.assertNotIn(node.module, set(FAMILIES) - {owner})
+        self.assertTrue({'register_mcp_surface', 'ImplHandler', '_maybe_refresh_if_stale',
+                         '_read_monitor_config', '_wrap_upgrade_publication_guard',
+                         '_indexer_module', '_run_post_write_lint', 'wf_audit_response'} <= root_owned)
+
 
 class HandlerResponseTests(unittest.TestCase):
     def setUp(self):
@@ -191,6 +409,30 @@ class HandlerResponseTests(unittest.TestCase):
                 self.assertIn(result['status'], {'ok', 'error'}, result)
                 self.assertTrue(result.get('data') or result.get('diagnostics'), result)
                 self.assertNotIn('NameError', str(result))
+
+    def test_docs_responses_reach_subprocess_and_manifest_without_transport(self):
+        # Boundary doubles replace external processes; real responses parse their
+        # outputs and real manifest files, including a known refusal path.
+        docs = importlib.import_module('docs_handlers')
+        def render(argv, **kwargs):
+            self.assertIn('render_platform_surfaces.py', argv[1])
+            Path(argv[argv.index('--manifest') + 1]).write_text(
+                json.dumps({'written': ['docs/changed.md']}))
+            return subprocess.CompletedProcess(argv, 0, 'rendered', '')
+        with patch.object(self.server, '_mcp_subprocess_run', side_effect=render) as run, \
+             patch.object(self.server, '_attach_lint_to_response', side_effect=lambda result, *args: result):
+            result = docs.wf_sync_surfaces_response(self.root, mode='run')
+        run.assert_called_once()
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['data']['written'], ['docs/changed.md'])
+        with patch.object(self.server, '_mcp_subprocess_run', return_value=
+                          subprocess.CompletedProcess([], 0, json.dumps({'failures': ['sentinel finding']}), '')) as run:
+            result = docs.wf_scan_secrets_response(self.root, mode='full')
+        run.assert_called_once()
+        self.assertIn('run_secrets_scan.py', run.call_args.args[0][1])
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['data']['failures'], ['sentinel finding'])
+
 
 
 class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
@@ -335,13 +577,15 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         old=getattr(runner.server_impl, response_name)
         source=Path(module_name+'.py')
-        source.write_text(source.read_text()+'\ndef '+response_name+'(root, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
+        source.write_text(source.read_text()+'\ndef '+response_name+'(root, *args, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
         result=runner.perform_mcp_reload()
         assert result['status']=='ok',result
         fresh=getattr(runner.server_impl, response_name)
         assert fresh is not old
         assert fresh(root)['data']['handler_reload_probe'] is True
-        served=runner.server_impl._TOOL_REGISTRY.get(tool_name).callable()
+        tool_args = {'wf_open_gate': {'gate': 'framework_edit_allowed'},
+                     'wf_context_efficiency_eval': {'wave_id': 'probe', 'phase_id': 'implementation', 'mode': 'register'}}.get(tool_name, {})
+        served=runner.server_impl._TOOL_REGISTRY.get(tool_name).callable(**tool_args)
         assert served['data']['handler_reload_probe'] is True,served
         print(json.dumps({'fresh':True,'served_modified_handler':True}))
     finally:
@@ -355,6 +599,12 @@ class HandlerReloadTests(unittest.TestCase):
             ('graph_handlers', 'wf_graph_report_response', 'wf_graph_report'),
             ('memory_handlers', 'memory_brief_response', 'memory_brief'),
             ('techdocs_handlers', 'wf_techdocs_audit_response', 'wf_techdocs_audit'),
+            ('index_handlers', 'index_build_response', 'index_build'),
+            ('upgrade_handlers', 'wf_upgrade_response', 'wf_upgrade'),
+            ('edit_gate_handlers', 'wave_open_gate_response', 'wf_open_gate'),
+            ('dashboard_handlers', 'wf_start_dashboard_response', 'wf_start_dashboard'),
+            ('docs_handlers', 'wf_validate_docs_response', 'wf_validate_docs'),
+            ('context_efficiency_handlers', 'wf_context_efficiency_eval_response', 'wf_context_efficiency_eval'),
         )
         for module, response, tool in cases:
             with self.subTest(module=module), tempfile.TemporaryDirectory() as temp:

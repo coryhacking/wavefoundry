@@ -34,7 +34,7 @@ class PublicContractTests(unittest.TestCase):
         )
 
     def test_server_handler_consumes_the_module(self):
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
         self.assertIn("from public_contract import INDEX_BUILD_CONTENT_VALUES", source)
         self.assertNotIn(
             'content not in {"docs", "code", "all", "graph", "map", "fts"}',
@@ -55,17 +55,19 @@ class PublicContractTests(unittest.TestCase):
         missed producer call arguments, comparisons, and failure_reason dict
         values (model_unavailable / index_missing drifted out of the tuple
         entirely). The repaired pin is indirection-proof: ZERO double-quoted
-        occurrences of any canonical reason value anywhere in server_impl —
+        occurrences of any canonical reason value anywhere in server_impl or index_handlers —
         every shape (assignment, call argument, comparison, dict value,
         docstring) must go through the aliases."""
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        index_source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
+        self.assertIn("_FRESHNESS_CURRENT, _FRESHNESS_STALE, _FRESHNESS_UNKNOWN = _INDEX_FRESHNESS_STATES", index_source)
         for required in (
-            "_FRESHNESS_CURRENT, _FRESHNESS_STALE, _FRESHNESS_UNKNOWN = _INDEX_FRESHNESS_STATES",
             "_MODE_LEXICAL_FALLBACK, _MODE_LIVE_FALLBACK) = _SEARCH_MODES",
             "(_REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED,\n"
             " _REASON_MODEL_UNAVAILABLE, _REASON_INDEX_MISSING) = _LEXICAL_FALLBACK_REASONS",
         ):
             self.assertIn(required, source)
+        source = source + "\n" + index_source
         import public_contract as pc
         for value in pc.LEXICAL_FALLBACK_REASONS:
             self.assertEqual(

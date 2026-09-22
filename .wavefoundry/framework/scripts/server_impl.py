@@ -47,11 +47,18 @@ for _wll_key in list(sys.modules):
             "lifecycle_gates",
             "sensor_runner",
             "index_source_guard",
+            "path_containment",
             "mcp_tool_registry",
             "graph_handlers",
             "codenav_handlers",
             "techdocs_handlers",
             "memory_handlers",
+            "index_handlers",
+            "upgrade_handlers",
+            "edit_gate_handlers",
+            "dashboard_handlers",
+            "docs_handlers",
+            "context_efficiency_handlers",
         }
     ):
         del sys.modules[_wll_key]
@@ -70,6 +77,7 @@ import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
 from operator_identity import resolve_operator
 import setup_readiness
 import index_source_guard
+import path_containment
 import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 
@@ -77,6 +85,137 @@ import lifecycle_gate_support
 import sensor_runner
 import lifecycle_gates
 import mcp_tool_registry  # tool registry and wrapper chain; stateless (wave 1y0h1)
+from index_handlers import (
+    _index_layer_readiness,
+    _index_readiness_overview,
+    _audit_build_summary,
+    _audit_index_snapshot,
+    _background_build_status,
+    _background_build_progress,
+    _index_dir_for_layer,
+    _epoch_token,
+    _epoch_state,
+    _index_freshness_verdict,
+    _index_rebuilding_response,
+    _index_runtime_failure_response,
+    _read_index_rebuild_stats,
+    _index_is_up_to_date,
+    _index_build_state_path,
+    _clear_index_build_state,
+    _index_build_log_path,
+    _project_background_build_log_path,
+    _index_build_stats_path,
+    _graph_health_summary,
+    _chunk_index_coverage,
+    _read_index_build_stats_file,
+    _write_index_build_stats_file,
+    _refresh_index_build_stats_from_finished_log,
+    _refresh_index_build_stats_from_finished_logs,
+    _index_build_active,
+    _check_index_writer_current,
+    run_index_rebuild,
+    _index_chunk_matching_address,
+    _background_refresh_state_path,
+    _indexable_refresh_path,
+    _load_background_refresh_state,
+    _lock_is_fresh,
+    _background_refresh_active,
+    _index_builder_cmdline_targets_root,
+    _register_background_build_pid,
+    _reap_background_build_pids,
+    _register_dashboard_child_pid,
+    _reap_dashboard_child_pids,
+    _start_background_index_refresh,
+    _trigger_background_index_refresh_for_paths,
+    _index_dir_size,
+    _close_optimize_enabled,
+    _index_table_bloat_ratios,
+    _sqlite_maintenance_failure,
+    _maybe_optimize_index_on_close,
+    index_health_response,
+    _index_optimize_response,
+    index_build_response,
+    _index_build_lock_info,
+    index_build_status_response,
+    _index_build_status_response_inner,
+    _graph_refresh_then_recheck,
+    BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS,
+    CLOSE_OPTIMIZE_BLOAT_RATIO,
+    _BACKGROUND_BUILD_PIDS,
+    _DASHBOARD_CHILD_PIDS,
+    _FRESHNESS_CACHE,
+    _FRESHNESS_TTL_SECONDS,
+    _FRESHNESS_CURRENT,
+    _FRESHNESS_STALE,
+    _FRESHNESS_UNKNOWN,
+    _FTS_DAMAGE_REASONS,
+    _INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS,
+    BACKGROUND_INDEX_LOCK_STALE_SECONDS,
+)
+from upgrade_handlers import (
+    wf_upgrade_response,
+    _bounded_upgrade_response_envelope,
+    wf_audit_install_response,
+    _bounded_upgrade_summary,
+    _parse_bridge_release_required,
+    _upgrade_next_step,
+    wf_upgrade_status_response,
+    _load_upgrade_lib,
+    _upgrade_summary_sentinel,
+    _parse_upgrade_summary,
+    _install_artifact_display,
+    _install_audit_row_brief,
+    _project_retired_model_cleanup_fields,
+    _cutover_restart_required,
+    UPGRADE_OUTPUT_CAP_CHARS,
+    UPGRADE_SUMMARY_CAP_CHARS,
+    UPGRADE_SUMMARY_VALUE_CAP_CHARS,
+    UPGRADE_SUMMARY_MAX_ITEMS_PER_COLLECTION,
+    UPGRADE_RESPONSE_CAP_CHARS,
+    UPGRADE_BRIDGE_ARGV_CAP_CHARS,
+    UPGRADE_SUMMARY_KEY_CAP_CHARS,
+    UPGRADE_SUMMARY_METADATA_CAP_CHARS,
+    UPGRADE_SUMMARY_TERMINAL_KEYS,
+    RETIRED_MODEL_CLEANUP_KEYS,
+    _RETIRED_MODEL_CLEANUP_ITEM_RE,
+    _CUTOVER_RESTART_INSTRUCTION,
+)
+from edit_gate_handlers import (
+    wave_open_gate_response,
+    wf_close_wave_gate_response,
+    wf_gate_status_response,
+    _force_gates_closed,
+    wf_get_handoff_response,
+    wf_set_handoff_response,
+    _update_handoff_wave_ref,
+    _read_guard_overrides,
+    _write_guard_overrides,
+    _VALID_GATES,
+    _EDIT_GOVERNANCE_GATE_MAP,
+)
+from dashboard_handlers import (
+    wf_start_dashboard_response,
+    wf_open_dashboard_response,
+    _dashboard_cmdline_pids,
+    _dashboard_pid_is_live,
+    _dashboard_url_reachable,
+    _dashboard_already_serving,
+    _dashboard_process_metadata,
+    _remove_dashboard_metadata,
+    _terminate_dashboard_pid,
+    wf_stop_dashboard_response,
+    wf_restart_dashboard_response,
+    DASHBOARD_START_WAIT_SECONDS,
+)
+from docs_handlers import (
+    wf_validate_docs_response,
+    wf_garden_docs_response,
+    run_garden,
+    wf_sync_surfaces_response,
+    run_sync_surfaces,
+    wf_scan_secrets_response,
+    _subprocess_timeout_summary,
+)
 from memory_handlers import (
     MEMORY_BRIEF_CAP,
     MEMORY_SEARCH_CAP,
@@ -271,6 +410,30 @@ if "_SETUP_LOADED_IDENTITY" not in globals():
     _SETUP_LOADED_IDENTITY = setup_readiness.capture_loaded_identity()
 
 import context_efficiency
+from context_efficiency_handlers import (
+    _read_ce_projection_config,
+    _pending_ce_generations,
+    _maybe_project_context_efficiency,
+    _project_context_efficiency_wave,
+    _flush_context_efficiency,
+    project_pending_context_efficiency,
+    project_pending_context_efficiency_root,
+    _context_efficiency_state,
+    wf_context_efficiency_eval_response,
+    _state_sources_review_evidence,
+    _state_sources_get_change,
+    _state_sources_live_waves,
+    _state_sources_list_plans,
+    _state_sources_map,
+    _state_sources_memory_validate,
+    _state_sources_memory_propose,
+    _state_sources_memory_views,
+    _CE_PROJECTION_MIN_QUIET_SECONDS,
+    _CE_PROJECTION_DEFAULT_QUIET_SECONDS,
+    _CE_PROJECTION_MAX_QUIET_SECONDS,
+    _CE_PROJECTION_POLL_SECONDS,
+    _STATE_SOURCE_EXTRACTORS,
+)
 import lifecycle_lock as _lifecycle_lock_authority
 import publication_control
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
@@ -331,7 +494,6 @@ from review_evidence import (
     validate_review_evidence_records,
 )
 
-DASHBOARD_START_WAIT_SECONDS = 5.0
 
 
 def _wf_log(message: str) -> None:
@@ -948,11 +1110,9 @@ be distinguished from a cache miss. Compared with ``is``, so it must be a
 module-level singleton. If ``server.py`` is ever re-executed in the same
 process, a new object will be created and old cache entries will be treated as
 misses — acceptable because the cache is process-scoped."""
-BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS = 15.0
 # How long a .build.lock directory is trusted before being considered stale.
 # Both this value and indexer.LOCK_STALE_SECONDS encode "max time a build can run
 # before its lock is declared stale." Change them together if that assumption changes.
-BACKGROUND_INDEX_LOCK_STALE_SECONDS = 60 * 60
 # Wave 1p2q3 (1p2w5): synchronous verification window after run_index_rebuild's
 # Popen call. We poll the subprocess for up to TIMEOUT seconds in POLL_INTERVAL
 # increments. A process that survives the window has acquired its locks and is
@@ -960,55 +1120,12 @@ BACKGROUND_INDEX_LOCK_STALE_SECONDS = 60 * 60
 # code surfaces as build_failed_early in the response. Tests can monkeypatch
 # the constants to short-circuit the wait.
 _INDEX_BUILD_VERIFY_TIMEOUT_SECONDS = 1.5
-_INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS = 0.1
 
 
-def _index_layer_readiness(layer: dict[str, Any]) -> str:
-    """Per-layer index state for operators (missing / stale / current / idle)."""
-    has_sources = bool(layer.get("has_sources"))
-    meta_present = bool(layer.get("meta_present"))
-    docs_present = bool(layer.get("docs_present"))
-    stale_paths = layer.get("stale_paths") or []
-    if has_sources and (not meta_present or not docs_present):
-        return "missing"
-    if stale_paths:
-        return "stale"
-    if meta_present and docs_present:
-        return "current"
-    return "idle"
 
 
-def _index_readiness_overview(
-    missing_layers: list[str],
-    stale_layers: list[str],
-    compatible_chunks: bool,
-    has_any_index: bool,
-) -> str:
-    """Aggregate readiness: incomplete, needs_update, degraded, absent, or ready."""
-    if missing_layers:
-        return "incomplete"
-    if stale_layers:
-        return "needs_update"
-    if has_any_index and not compatible_chunks:
-        return "degraded"
-    if not has_any_index:
-        return "absent"
-    return "ready"
 
 
-def _audit_build_summary(index_dir: Path) -> dict[str, Any]:
-    """Bounded store read for the audit snapshot; {} on any failure.
-
-    Operator review repair (1t59p cycle 1): this MUST stay on the
-    read_build_summary path (layer scalars plus one COUNT). The per-file
-    exporter materializes every per-file bookkeeping row, which is the
-    O(indexed-files) cost this snapshot exists to avoid.
-    """
-    try:
-        iss = _load_script("index_state_store")
-        return iss.read_build_summary(index_dir) or {}
-    except Exception:
-        return {}
 
 
 def _vector_layer_available(index_dir: Path, layer: str) -> bool:
@@ -1016,73 +1133,6 @@ def _vector_layer_available(index_dir: Path, layer: str) -> bool:
     return bool(_load_script("sqlite_vector_store").layer_available(index_dir, layer))
 
 
-def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
-    """Bounded metadata-only index readiness for ``wf_audit`` (wave 1t59p).
-
-    Reads ONLY the index control plane: the completed-build epoch (SQLite),
-    SQLite layer/schema presence (never vector payloads), the bounded build
-    summary (layer scalars plus one COUNT — never per-file rows), and the
-    configured include-prefixes. It must never read vector payloads,
-    load a model, hash the working tree, or materialize per-file store rows —
-    those are the unbounded first-call costs this snapshot exists to avoid
-    (the native-Windows field report). Freshness is therefore UNKNOWN here by
-    construction; the explicit ``index_health`` tool owns full hash-walk
-    verification.
-    """
-    epoch_complete = _store_has_completed_build(index_dir)
-    docs_present = _vector_layer_available(index_dir, "docs")
-    code_present = _vector_layer_available(index_dir, "code")
-    snapshot = _audit_build_summary(index_dir) if epoch_complete else {}
-    try:
-        code_prefixes = tuple(
-            _load_script("indexer")._workflow_project_include_prefixes(root).get("code", ())
-        )
-    except Exception:
-        code_prefixes = ()
-    # Operator review repair (1t59p cycle 1): readiness derives from NO
-    # per-file metadata — configuration is the scope authority. Prefixes
-    # configured with no code vector layer is the 1p7is missing-layer signal
-    # (e.g. an OOM-killed code embedding pass), read fail-closed.
-    code_sources_in_scope = bool(code_prefixes)
-    code_layer_missing = code_sources_in_scope and not code_present
-    raw_chunker_versions = snapshot.get("chunker_versions", {})
-    indexed_chunker_versions: dict[str, str] = (
-        raw_chunker_versions if isinstance(raw_chunker_versions, dict) else {}
-    )
-    current_chunker_version = _read_chunker_version()
-    chunker_version_mismatch = bool(
-        current_chunker_version
-        and epoch_complete
-        and any(v != current_chunker_version for v in indexed_chunker_versions.values() if v)
-    )
-    missing_layers: list[str] = []
-    if epoch_complete and not (docs_present or code_present):
-        missing_layers.append("project")
-    if code_layer_missing:
-        missing_layers.append("code")
-    metadata_ready = (
-        epoch_complete and (docs_present or code_present) and not code_layer_missing
-    )
-    readiness_overview = _index_readiness_overview(
-        missing_layers, [], docs_present or code_present, epoch_complete
-    )
-    return {
-        "metadata_ready": metadata_ready,
-        "epoch_complete": epoch_complete,
-        "docs_present": docs_present,
-        "code_present": code_present,
-        "code_sources_in_scope": code_sources_in_scope,
-        "code_layer_missing": code_layer_missing,
-        "indexed_chunker_versions": indexed_chunker_versions,
-        "current_chunker_version": current_chunker_version,
-        "chunker_version_mismatch": chunker_version_mismatch,
-        "readiness_overview": readiness_overview,
-        # The honesty contract (1t59o AC-2): this snapshot never scanned the
-        # working tree, so it must never be read as a freshness verdict.
-        "freshness_checked": False,
-        "freshness": "unknown",
-        "freshness_verification_tool": "index_health",
-    }
 
 
 @contextlib.contextmanager
@@ -3340,84 +3390,10 @@ def docs_lint_full_scan_timeout_seconds(root: Path) -> float:
 # logs plus status tools, never deadlines. Defaults are generous for slow
 # machines and config-tunable per op (the 1p9bg/1p9iu fail-safe contract).
 SUBPROCESS_OPS_OUTPUT_CAP_CHARS = 200_000
-UPGRADE_OUTPUT_CAP_CHARS = 60_000
-UPGRADE_SUMMARY_CAP_CHARS = 24_000
-UPGRADE_SUMMARY_VALUE_CAP_CHARS = 2_000
-UPGRADE_SUMMARY_MAX_ITEMS_PER_COLLECTION = 100
-UPGRADE_RESPONSE_CAP_CHARS = 100_000
-UPGRADE_BRIDGE_ARGV_CAP_CHARS = 24_000
-UPGRADE_SUMMARY_KEY_CAP_CHARS = 128
-UPGRADE_SUMMARY_METADATA_CAP_CHARS = 4_000
-RETIRED_MODEL_CLEANUP_KEYS = (
-    "retired_model_cleanup_status",
-    "retired_model_cleanup_removed",
-    "retired_model_cleanup_absent",
-    "retired_model_cleanup_unowned",
-    "retired_model_cleanup_failed",
-)
-_RETIRED_MODEL_CLEANUP_ITEM_RE = re.compile(
-    r"^(?:fastembed|clean-onnx|static-onnx|coreml):"
-    r"(?:default|custom):[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$"
-)
 
 
-def _project_retired_model_cleanup_fields(value: object) -> dict[str, Any]:
-    """Project the five terminal fields onto their path-free public vocabulary."""
-    projected: dict[str, Any] = {
-        "retired_model_cleanup_status": "not_applicable",
-        "retired_model_cleanup_removed": [],
-        "retired_model_cleanup_absent": [],
-        "retired_model_cleanup_unowned": [],
-        "retired_model_cleanup_failed": [],
-    }
-    if not isinstance(value, Mapping):
-        return projected
-    status = value.get("retired_model_cleanup_status")
-    if status in {"not_applicable", "dry_run", "complete", "failed"}:
-        projected["retired_model_cleanup_status"] = status
-    for key in RETIRED_MODEL_CLEANUP_KEYS[1:]:
-        items = value.get(key)
-        if not isinstance(items, list):
-            continue
-        accepted: set[str] = set()
-        for item in items:
-            if not isinstance(item, str):
-                continue
-            base, separator, suffix = item.partition("|")
-            expected_failure = key == "retired_model_cleanup_failed"
-            if expected_failure != (separator == "|" and suffix == "remove_failed"):
-                continue
-            if _RETIRED_MODEL_CLEANUP_ITEM_RE.fullmatch(base):
-                accepted.add(item)
-        projected[key] = sorted(accepted)
-    return projected
 
 
-UPGRADE_SUMMARY_TERMINAL_KEYS = {
-    "review_sidecar_cleanup",
-    "from_version",
-    "to_version",
-    "zip_applied",
-    "pruned_count",
-    "docs_gate",
-    "index_update",
-    "failed_phase",
-    "is_major_or_minor",
-    # Wave 1u44o: the delegated-summary degradation marker must never be
-    # silently dropped by bounding; it is the field that DISCLOSES that the
-    # summary fell back to the pre-extraction in-process builder. Kept flat and
-    # small on the producer side so it also survives the unknown-scalar budget
-    # path on a server launched before this registration existed.
-    "summary_source_degraded",
-    # Wave 1uf68: the summary-schema freshness token. A dropped token yields
-    # None, which reads as ABSENT to any consumer not also checking the
-    # truncation flag, exactly the ambiguity between "no token" and "old code"
-    # that carrying the token at the cleanup emit site exists to remove. This
-    # registration lives in the MCP server's in-process module, so it takes
-    # effect only after a full host restart; emission is unaffected by that.
-    "summary_schema_version",
-    *RETIRED_MODEL_CLEANUP_KEYS,
-}
 
 
 
@@ -3439,14 +3415,6 @@ def _bounded_subprocess_output(
     )
 
 
-def _subprocess_timeout_summary(op: str, timeout_s: float) -> str:
-    return (
-        f"{op} subprocess exceeded its {timeout_s:.0f}s bound and was stopped. "
-        "No partial output is trusted. Re-run the tool; on a legitimately "
-        f"slower machine raise docs/workflow-config.json subprocess_ops."
-        f"{op}_timeout_seconds (the bound is config-tunable, default "
-        f"{SUBPROCESS_OPS_TIMEOUT_DEFAULT:.0f}s)."
-    )
 
 
 # Wave 1p9pe: defensive mirror of indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT (120s), used only when the
@@ -3914,9 +3882,7 @@ def resolve_path_under_root(repo_root: Path, user_path: str) -> tuple[Optional[P
             recovery_tools=["wf_validate_docs", "wf_current_wave"],
             recovery_usage="wf_validate_docs()",
         )
-    try:
-        candidate.relative_to(root)
-    except ValueError:
+    if path_containment.contained_resolved_path(root, candidate) is None:
         return None, _diagnostic(
             "path_outside_allowed_roots",
             f"Path {user_path!r} resolves outside the configured repository root.",
@@ -4460,39 +4426,8 @@ def _read_chunker_version() -> str:
     return _chunker_version_cache
 
 
-def _background_build_status(root: Path) -> str:
-    """Return 'running', 'completed', or 'none' for the background code build.
-
-    Uses a PID file written by _spawn_background_code_build to detect whether
-    the process is still alive. 'completed' means the PID file exists but the
-    process has already exited (build finished or crashed).
-    """
-    pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
-    if not pid_path.exists():
-        return "none"
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        return "completed"
-    # Wave 1p6d6: route through the guarded _pid_is_running (Windows-correct via tasklist)
-    # instead of an inline os.kill that misjudges liveness on native Windows.
-    return "running" if _pid_is_running(pid) else "completed"
 
 
-def _background_build_progress(root: Path) -> str:
-    """Return the latest non-empty line from the background build log, if any."""
-    log_path = _project_background_build_log_path(root)
-    if not log_path.exists():
-        return ""
-    try:
-        log_text = log_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    for line in reversed(log_text.splitlines()):
-        text = line.strip()
-        if text:
-            return text
-    return ""
 
 
 def _infer_tags(path: str, root: Optional[Path] = None) -> list[str]:
@@ -4850,115 +4785,10 @@ def run_validate_changed(root: Path) -> dict:
     }
 
 
-def run_garden(root: Path) -> dict:
-    """Run docs_gardener and return structured summary (bounded; wave 1seax)."""
-    import subprocess as _subprocess
-
-    script = Path(__file__).resolve().parent / "docs_gardener.py"
-    timeout_s = subprocess_ops_timeout_seconds(root, "gardener")
-    try:
-        result = _mcp_subprocess_run(
-            [_preferred_python(), str(script)],
-            cwd=str(root),
-            env={**os.environ, "PROJECT_ROOT": str(root)},
-            timeout=timeout_s,
-        )
-    except _subprocess.TimeoutExpired:
-        return {
-            "passed": False,
-            "timed_out": True,
-            "files_updated": 0,
-            "updated": [],
-            "output": _subprocess_timeout_summary("gardener", timeout_s),
-        }
-    output, truncated = _bounded_subprocess_output(result.stdout + result.stderr)
-    # Stable output contract with docs_gardener.py (wave 1tbvo): one
-    # `docs-gardener: updated <path>` line per updated file. Exact-prefix
-    # parse — the old "wrote" grep silently matched nothing once the
-    # gardener's prose changed, dropping the index-refresh trigger.
-    # Parse the COMPLETE stdout, never the bounded text: the bound exists for
-    # the human-facing `output` field only, and parsing the shortened value
-    # under-counted large runs and emitted a corrupted final path fragment
-    # (operator reproduction: 6,000 records -> 2,273 reported).
-    _updated_prefix = "docs-gardener: updated "
-    updated = [
-        l[len(_updated_prefix):].strip()
-        for l in result.stdout.splitlines()
-        if l.startswith(_updated_prefix)
-    ]
-    summary = {
-        "passed": result.returncode == 0,
-        "files_updated": len(updated),
-        "updated": updated,
-        "output": output,
-    }
-    if truncated:
-        summary["output_truncated"] = True
-    return summary
 
 
-def run_sync_surfaces(root: Path) -> dict:
-    """Run render_platform_surfaces and return structured summary.
-
-    Wave 1t72b (1t729): the renderer emits a JSON manifest of the files it
-    actually changed via --manifest (recorded inside its write chokepoints);
-    the old files_written prose-line grep is retired (it held log lines, not
-    paths, and had no consumers).
-
-    Wave 1u2b0 (1u2az) SECURITY INVARIANT: this agent-invocable render must
-    NEVER pass the renderer's opt-in permission-allowlist CLI switch (the one
-    the operator-run upgrade and install orchestrations pass). Permissions
-    rendering (the MCP allowlist merged into .claude/settings.json) is
-    reachable only from those orchestrations; adding that switch here would
-    reopen the agent permission-escalation channel wave 1u2b0 closed. A test
-    pins that this module never names the switch, so keep its spelling out of
-    this file entirely, prose included.
-    """
-    import subprocess as _subprocess
-
-    script = Path(__file__).resolve().parent / "render_platform_surfaces.py"
-    timeout_s = subprocess_ops_timeout_seconds(root, "surface_render")
-    with tempfile.TemporaryDirectory() as manifest_dir:
-        manifest_path = Path(manifest_dir) / "render-manifest.json"
-        try:
-            result = _mcp_subprocess_run(
-                [_preferred_python(), str(script), "--manifest", str(manifest_path)],
-                cwd=str(root),
-                env={**os.environ, "PROJECT_ROOT": str(root)},
-                timeout=timeout_s,
-            )
-        except _subprocess.TimeoutExpired:
-            return {
-                "passed": False,
-                "timed_out": True,
-                "written": [],
-                "output": _subprocess_timeout_summary("surface_render", timeout_s),
-            }
-        written: list[str] = []
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            written = [
-                str(entry) for entry in payload.get("written") or []
-                if isinstance(entry, str)
-            ]
-        except (OSError, ValueError):
-            written = []
-    output, truncated = _bounded_subprocess_output(result.stdout + result.stderr)
-    summary = {
-        "passed": result.returncode == 0,
-        "written": written,
-        "output": output,
-    }
-    if truncated:
-        summary["output_truncated"] = True
-    return summary
 
 
-def _index_dir_for_layer(root: Path, layer: str = "project") -> Path:
-    # Wave 1p4ww: single project index — the framework layer is folded in.
-    if layer == "project":
-        return root / ".wavefoundry" / "index"
-    raise ValueError(f"Unsupported layer '{layer}'.")
 
 
 def _store_build_meta(index_dir: Path) -> dict[str, Any]:
@@ -4972,42 +4802,10 @@ def _store_build_meta(index_dir: Path) -> dict[str, Any]:
         return {}
 
 
-def _epoch_token(root: Path) -> "tuple[str, int] | None":
-    """The reader epoch token (1sed6): ``(attempt_id, generation)`` of the
-    COMPLETE build epoch, or None when the index is not servable (absent,
-    uninitialized, mid-build, interrupted, unreadable). Cheap: one short
-    read-only query, never held across the operation."""
-    try:
-        iss = _load_script("index_state_store")
-        return iss.build_epoch_token(root / ".wavefoundry" / "index")
-    except Exception:
-        return None
 
 
-def _epoch_state(root: Path, *, propagate_runtime_errors: bool = False) -> "tuple[str, str, int] | None":
-    """The ABA-proof consistency token (1sed6 review fix): the full build-state
-    row ``(attempt_id, status, generation)`` in ANY state; None only when the
-    store is absent/unreadable. Used for the pre/post seqlock compare at every
-    tool — unlike the complete-only ``_epoch_token``, it distinguishes
-    ``building A`` from ``building B``, so an operation that straddled a
-    finalize + re-fence (both endpoints "not ready") is still discarded.
-
-    Registered seqlock boundaries request typed runtime failures so an unusable
-    runtime cannot be mistaken for a legitimately missing or building epoch.
-    """
-    try:
-        iss = _load_script("index_state_store")
-        return iss.build_epoch_state_token(root / ".wavefoundry" / "index")
-    except Exception as exc:
-        if propagate_runtime_errors:
-            import sqlite_runtime as runtime
-            if isinstance(exc, (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired)):
-                raise
-        return None
 
 
-_FRESHNESS_TTL_SECONDS = 5.0
-_FRESHNESS_CACHE: "dict[str, tuple[float, object, dict]]" = {}
 
 
 # Wave 1seax (1seau, operator-review repair): the emitting sites consume the
@@ -5018,96 +4816,16 @@ from public_contract import (
     LEXICAL_FALLBACK_REASONS as _LEXICAL_FALLBACK_REASONS,
     SEARCH_MODES as _SEARCH_MODES,
 )
-_FRESHNESS_CURRENT, _FRESHNESS_STALE, _FRESHNESS_UNKNOWN = _INDEX_FRESHNESS_STATES
 (_MODE_SEMANTIC, _MODE_EXACT, _MODE_HYBRID,
  _MODE_LEXICAL_FALLBACK, _MODE_LIVE_FALLBACK) = _SEARCH_MODES
 (_REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED,
  _REASON_MODEL_UNAVAILABLE, _REASON_INDEX_MISSING) = _LEXICAL_FALLBACK_REASONS
 
 
-def _index_freshness_verdict(root: Path) -> dict[str, Any]:
-    """Cheap cached three-state freshness verdict (wave 1seav / 1sbxq).
-
-    ``{"state": "current" | "stale" | "unknown", "reason": str}`` — replaces
-    code_ask's per-call ``_layer_health`` O(corpus) hash walk. The cache has
-    BOTH invalidation axes (P0 plan repair): a root-scoped seconds-scale TTL
-    (the build generation only advances at finalization, so TTL bounds
-    edit-detection latency between builds) AND the 1sed7 epoch state token
-    (any build transition — publish, fence — refreshes immediately without
-    waiting out the TTL). Exceptions and undeterminable states are "unknown",
-    never silently "current" (the 1sbfj honesty rule).
-    """
-    key = str(root)
-    now = time.monotonic()
-    tok = _epoch_state(root)
-    cached = _FRESHNESS_CACHE.get(key)
-    if cached is not None and now < cached[0] and cached[1] == tok:
-        return cached[2]
-    try:
-        idx = _load_script("indexer")
-        result = idx.project_layer_freshness(root)
-        stale = result.get("stale")
-        state = (
-            _FRESHNESS_UNKNOWN if stale is None
-            else (_FRESHNESS_STALE if stale else _FRESHNESS_CURRENT)
-        )
-        verdict = {"state": state, "reason": str(result.get("reason", ""))}
-    except Exception as exc:  # noqa: BLE001 - honesty rule
-        verdict = {"state": _FRESHNESS_UNKNOWN, "reason": f"freshness check failed: {exc}"}
-    _FRESHNESS_CACHE[key] = (now + _FRESHNESS_TTL_SECONDS, tok, verdict)
-    return verdict
 
 
-def _index_rebuilding_response(tool: str, payload: dict) -> dict[str, Any]:
-    """Structured not-ready/rebuilding result (1sed6 AC-4): the index has no
-    complete epoch, or it changed while the operation ran — results (if any)
-    were discarded rather than served as current."""
-    payload = dict(payload)
-    # AC-3 (review fix): the search_mode/fallback_reason contract is carried
-    # on EVERY response from the gated search tools, including refusals.
-    payload.setdefault("search_mode", None)
-    payload.setdefault("fallback_reason", _REASON_INDEX_NOT_READY)
-    payload.setdefault("results", [])
-    response = _response(
-        "error", payload,
-        diagnostics=[_diagnostic(
-            _REASON_INDEX_NOT_READY,
-            "The semantic index has no completed build epoch (building, interrupted, "
-            "or not yet built) or it changed while this query ran — results were "
-            "discarded rather than served from a mixed index state. Check "
-            "index_build_status; retry after the build completes.",
-            recovery_tools=["index_build_status", "index_build"],
-            recovery_usage="index_build_status()",
-        )],
-        next_tools=["index_build_status"],
-        usage="index_build_status()",
-    )
-    return _attach_retrieval_failure_context(tool, response)
 
 
-def _index_runtime_failure_response(tool: str, root: Path, payload: dict, exc: Exception) -> dict[str, Any]:
-    """Discard the complete operation when either epoch probe cannot use storage."""
-    payload = {**payload, "search_mode": None, "fallback_reason": _REASON_QUERY_FAILED,
-               "results": []}
-    code = getattr(exc, "code", _REASON_QUERY_FAILED)
-    compatibility_failure = code in {
-        "index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}
-    recovery = ("Restart the affected Wavefoundry host, then call index_health(). "
-                "Preserve the index; do not rebuild it with this older runtime."
-                if compatibility_failure else "index_health()")
-    message = _bounded_failure_detail(root, exc)
-    if not compatibility_failure:
-        message = ("Semantic index runtime is unusable: " + message
-                   + " Results were discarded; resolve the runtime or filesystem issue and retry.")
-    response = _response(
-        "error", payload,
-        diagnostics=[_diagnostic(
-            code, message,
-            recovery_tools=["index_health"], recovery_usage=recovery,
-        )],
-        next_tools=["index_health"], usage=recovery,
-    )
-    return _attach_retrieval_failure_context(tool, response)
 
 
 def _store_has_completed_build(index_dir: Path) -> bool:
@@ -5119,198 +4837,22 @@ def _store_has_completed_build(index_dir: Path) -> bool:
         return False
 
 
-def _read_index_rebuild_stats(root: Path, layer: str) -> dict[str, Any]:
-    index_dir = _index_dir_for_layer(root, layer)
-
-    meta: dict[str, Any] = {}
-    doc_chunks = 0
-    code_chunks = 0
-
-    if True:
-        try:
-            meta = _store_build_meta(index_dir)
-        except (OSError, json.JSONDecodeError):
-            meta = {}
-
-    try:
-        counts = _load_script("sqlite_vector_store").layer_counts(index_dir)
-        doc_chunks, code_chunks = counts.get("docs", 0), counts.get("code", 0)
-    except Exception:
-        pass
-
-    return {
-        "files_total": len(meta.get("file_meta") or meta.get("file_hashes") or {}),
-        "doc_chunks": doc_chunks,
-        "code_chunks": code_chunks,
-        "available_content": list(meta.get("content", [])),
-        "built_at": meta.get("built_at", ""),
-    }
 
 
-def _index_is_up_to_date(root: Path, layer: str, content: str = "docs") -> bool:
-    """Return True if the index has no stale or missing files.
-
-    Runs the indexer with --dry-run (hash check only, no embedding/writes) and
-    checks whether it reports the index as current. Used by run_index_rebuild
-    to short-circuit spawning a background process when there is nothing to do.
-    """
-    import subprocess
-    scripts_dir = Path(__file__).resolve().parent
-    index_dir = _index_dir_for_layer(root, layer)
-    if not _store_has_completed_build(index_dir):
-        return False
-    if layer == "project" and content in {"all", "graph"}:
-        # setup_index.py (all) and graph-only mode don't support --dry-run; treat as always stale
-        return False
-    else:
-        check_content = content
-    cmd = [
-        _preferred_python(), str(scripts_dir / "indexer.py"),
-        "--root", str(root), "--content", check_content, "--dry-run",
-    ]
-    # Project layer: indexer.py reads workflow-config include-prefixes itself.
-    try:
-        result = _mcp_subprocess_run(
-            cmd, capture_output=True, cwd=str(root),
-            env={**os.environ, "PROJECT_ROOT": str(root)},
-            timeout=30,
-        )
-        return result.returncode == 0 and "build_index: index is up to date" in (result.stdout + result.stderr)
-    except Exception:
-        return False
 
 
-def _index_build_state_path(root: Path, layer: str = "project") -> Path:
-    return root / ".wavefoundry" / "index" / "index-build.json"
 
 
-def _clear_index_build_state(root: Path, layer: str) -> None:
-    try:
-        _index_build_state_path(root, layer).unlink()
-    except OSError:
-        pass
 
 
-def _index_build_log_path(root: Path, layer: str = "project") -> Path:
-    return root / ".wavefoundry" / "logs" / "project-index-build.log"
 
 
-def _project_background_build_log_path(root: Path) -> Path:
-    return root / ".wavefoundry" / "logs" / "project-background-build.log"
 
 
-def _index_build_stats_path(root: Path, layer: str = "project") -> Path:
-    return root / ".wavefoundry" / "index" / "index-build-stats.json"
 
 
-def _graph_health_summary(root: Path) -> dict[str, Any]:
-    """Wave 13129 (1316n): summary of graph presence + last-built per layer.
-
-    Operators reading index_health get this alongside semantic-layer
-    readiness so the "did my rebuild touch graph?" question is answerable
-    inline without inspecting timestamps manually.
-
-    Returns dict with shape:
-        {
-            "project": {"present": bool, "last_built_at": str | None,
-                        "node_count": int | None, "edge_count": int | None,
-                        "generation": int, "component": str},
-        }
-
-    Wave 1p4ww: single project graph — the framework layer is folded in.
-    Wave 1xny6: served from the generation-bound snapshot. ``last_built_at``
-    is the payload's own ``generated_at`` rather than an artifact mtime, and
-    ``component`` names the database component instead of a deleted filename —
-    a read-only health call opens nothing under the retired graph folder.
-    """
-    gs = _graph_snapshot_module()
-    summary: dict[str, Any] = {}
-    for layer in ("project",):
-        try:
-            snapshot = gs.acquire(root, layer)
-        except Exception:
-            snapshot = None
-        component = gs.component_path(gs.GRAPH_COMPONENT)
-        if snapshot is None or not snapshot.present:
-            summary[layer] = {
-                "present": False, "last_built_at": None,
-                "node_count": None, "edge_count": None,
-                "generation": 0 if snapshot is None else snapshot.generation,
-                "state": "failed" if snapshot is None else snapshot.state,
-                "diagnostic": None if snapshot is None else snapshot.diagnostic,
-                "component": component,
-            }
-            continue
-        payload = snapshot.graph or {}
-        nodes = payload.get("nodes") or []
-        edges = payload.get("edges") or []
-        counts = payload.get("counts") or {}
-        summary[layer] = {
-            "present": True,
-            "last_built_at": str(payload.get("generated_at") or "") or None,
-            "node_count": len(nodes) if isinstance(nodes, list) else counts.get("nodes"),
-            "edge_count": len(edges) if isinstance(edges, list) else counts.get("edges"),
-            "generation": snapshot.generation,
-            "graph_generation": snapshot.graph_content_generation,
-            "component": component,
-        }
-    return summary
 
 
-def _chunk_index_coverage(
-    root: Path, tables: "tuple[str, ...]" = ("docs", "code"),
-) -> dict[str, Any]:
-    """Compare native vector and registry populations exactly without reading payloads.
-
-    SQLite chunk IDs are unique. Even one missing vector is a real coverage
-    defect; the legacy duplicate-row tolerance no longer applies.
-    """
-    coverage: dict[str, Any] = {}
-    index_dir = root / ".wavefoundry" / "index"
-    try:
-        iss = _load_script("index_state_store")
-        vectors = _load_script("sqlite_vector_store")
-        counts = vectors.layer_counts(index_dir)
-        conn = iss.open_read_only(index_dir)
-        if conn is None:
-            return coverage
-        try:
-            populations = {table: vectors.vector_integrity(conn, table) for table in tables}
-        finally:
-            conn.close()
-        for table_name in tables:
-            population = populations[table_name]
-            if not any(population.values()) and not vectors.layer_available(index_dir, table_name):
-                continue
-            vector_rows = int(counts.get(table_name, 0))
-            registry_rows = iss.registry_chunk_count(index_dir, table_name)
-            if registry_rows is None:
-                continue
-            covered = (vector_rows == registry_rows and not population["missing_vectors"]
-                       and not population["orphan_vectors"])
-            entry: dict[str, Any] = {
-                "vector_rows": vector_rows,
-                "registry_rows": int(registry_rows),
-                "canonical_rows": population["canonical"],
-                "raw_vector_rows": population["vectors"],
-                "missing_vectors": population["missing_vectors"],
-                "orphan_vectors": population["orphan_vectors"],
-                "covered": covered,
-            }
-            # 1wngv: same-ID/distinct-content census recorded at the last
-            # derived rebuild — non-zero means the registry/FTS layer holds
-            # one row per colliding id, so derived-state coverage is not
-            # complete for that content even when the counts above match.
-            if hasattr(iss, "chunk_id_collision_counts"):
-                _coll, _sample = iss.chunk_id_collision_counts(index_dir, table_name)
-                if _coll:
-                    entry["id_collisions"] = int(_coll)
-                    if _sample:
-                        entry["id_collision_sample"] = _sample[:5]
-            coverage[table_name] = entry
-    except Exception:  # noqa: BLE001 - advisory only
-        pass
-    return coverage
 
 
 def _state_store_health_summary(root: Path) -> dict[str, Any]:
@@ -5383,25 +4925,8 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
     return summary
 
 
-def _read_index_build_stats_file(root: Path, layer: str) -> Optional[dict[str, Any]]:
-    """Return persisted build stats from a previous completed build, or None."""
-    try:
-        path = _index_build_stats_path(root, layer)
-        if not path.exists():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
 
 
-def _write_index_build_stats_file(root: Path, layer: str, stats: dict[str, Any]) -> None:
-    """Persist build stats — never raises."""
-    try:
-        path = _index_build_stats_path(root, layer)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(stats), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def _parse_finished_build_stats_from_log(
@@ -5478,477 +5003,13 @@ def _parse_finished_build_stats_from_log(
     return stats, float(finished_ts or 0.0)
 
 
-def _refresh_index_build_stats_from_finished_log(
-    root: Path,
-    layer: str,
-    *,
-    log_path: Optional[Path] = None,
-    state_path: Optional[Path] = None,
-    fallback_stats: Optional[dict[str, Any]] = None,
-) -> Optional[dict[str, Any]]:
-    """Persist build stats from a finished build log, if available."""
-    candidate_log = log_path or _index_build_log_path(root, layer)
-    parsed = _parse_finished_build_stats_from_log(
-        root,
-        layer,
-        candidate_log,
-        state_path=state_path or _index_build_state_path(root, layer),
-        fallback_stats=fallback_stats,
-    )
-    if parsed is None:
-        return None
-    stats, _ = parsed
-    _write_index_build_stats_file(root, layer, stats)
-    return stats
 
 
-def _refresh_index_build_stats_from_finished_logs(root: Path, layer: str) -> Optional[dict[str, Any]]:
-    """Persist build stats from the freshest finished build log for a layer."""
-    if not isinstance(root, Path):
-        return None
-    try:
-        active = _index_build_active(root, layer)
-    except Exception:
-        active = False
-    if active:
-        return None
-
-    fallback_stats = _read_index_build_stats_file(root, layer) or {}
-    candidates: list[tuple[Path, Optional[Path]]] = []
-    if layer == "project":
-        candidates.append((_project_background_build_log_path(root), None))
-    candidates.append((_index_build_log_path(root, layer), _index_build_state_path(root, layer)))
-
-    best_stats: Optional[dict[str, Any]] = None
-    best_ts = -1.0
-    for candidate_log, candidate_state in candidates:
-        parsed = _parse_finished_build_stats_from_log(
-            root,
-            layer,
-            candidate_log,
-            state_path=candidate_state,
-            fallback_stats=fallback_stats,
-        )
-        if parsed is None:
-            continue
-        stats, finished_ts = parsed
-        if finished_ts >= best_ts:
-            best_ts = finished_ts
-            best_stats = stats
-
-    if best_stats is None:
-        return None
-    _write_index_build_stats_file(root, layer, best_stats)
-    return best_stats
 
 
-def _index_build_active(root: Path, layer: str) -> bool:
-    """Return True if a index_build-spawned process is currently running."""
-    state_path = _index_build_state_path(root, layer)
-    if not state_path.exists():
-        return False
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    pid = state.get("pid")
-    if isinstance(pid, int) and _pid_is_running(pid):
-        return True
-    # Brief throttle covers the Popen → indexer lock-acquire window (~1-2s cold start).
-    # Reuses BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS (15s) — same race condition.
-    started_at = state.get("started_at")
-    if isinstance(started_at, (int, float)):
-        import time
-        if (time.time() - float(started_at)) < BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS:
-            return True
-    return False
 
 
-def _check_index_writer_current(root: Path) -> None:
-    """Preflight local work scheduling; publication rechecks in its transaction."""
-    # Reject a stale coordinator before it schedules work, including map/FTS
-    # entry points. The child still rechecks under its publication transaction.
-    import index_compatibility
-    index_compatibility.ensure_runtime_current()
-    import index_state_store
-    conn = index_state_store.open_read_only(root / ".wavefoundry" / "index")
-    if conn is not None:
-        try:
-            index_compatibility.check_connection(conn)
-        finally:
-            conn.close()
 
-def run_index_rebuild(
-    root: Path,
-    *,
-    content: str = "docs",
-    full: bool = False,
-    rechunk: bool = False,
-    layer: str = "project",
-) -> dict:
-    """Spawn indexer.py as a background process and return immediately with pre-build stats.
-
-    The indexer runs detached; stdout/stderr are written to ``index-build.log`` in the
-    index directory. Exposed as MCP ``index_build`` with ``mode='update'|'rebuild'``.
-    """
-    import subprocess
-    import time
-    from public_contract import INDEX_BUILD_CONTENT_VALUES
-    if content not in INDEX_BUILD_CONTENT_VALUES:
-        raise ValueError(f"Unsupported content '{content}'.")
-    # Wave 1p4ww: single project index — the framework layer is folded in.
-    if layer != "project":
-        raise ValueError(f"Unsupported layer '{layer}'.")
-
-    _check_index_writer_current(root)
-
-    # Wave 1p601: content="map" is a map-only refresh — run the ~0.09s codebase
-    # map generator (change-only/idempotent) WITHOUT a full index rebuild. No
-    # subprocess, fail-safe (never raises into the tool).
-    if content == "map":
-        regenerated = False
-        try:
-            gen = _load_script("gen_codebase_map")
-            regenerated = bool(gen.generate_safe(root, force=True))
-        except Exception:
-            regenerated = False
-        out_rel = "docs/references/codebase-map.md"
-        return {
-            "passed": True,
-            "already_running": False,
-            "up_to_date": False,
-            "content": "map",
-            "full": False,
-            "mode": "map-refresh",
-            "index_scope": "codebase_map_only",
-            "layer": layer,
-            "regenerated": regenerated,
-            "notice": (
-                f"Codebase map refreshed → {out_rel}."
-                if regenerated
-                else "Codebase map refresh skipped (no artifacts yet or generator unavailable)."
-            ),
-            "map_path": out_rel,
-        }
-
-    # Wave 1sc7c (1sek8): content="fts" — from-scratch rebuild of the DERIVED
-    # chunk state (FTS5 lexical tables + chunk registry) from the
-    # canonical SQLite chunks. Embedding-free and in-process (seconds):
-    # the clean recovery for an under-covered/corrupt lexical layer without a
-    # semantic build. Runs under the whole-index build lock.
-    if content == "fts":
-        idx_mod = _load_script("indexer")
-        index_dir = root / ".wavefoundry" / "index"
-        _fts_busy = {
-            "passed": True,
-            "already_running": True,
-            "content": "fts",
-            "mode": "derived-rebuild",
-            "index_scope": "derived_chunk_state_only",
-            "layer": layer,
-            "notice": "Another build holds the index lock — retry when it finishes.",
-        }
-        if _index_build_active(root, layer):
-            return _fts_busy
-        _fts_t0 = time.monotonic()
-        try:
-            with idx_mod._index_build_lock(index_dir):
-                tables = idx_mod.rebuild_derived_chunk_state(index_dir)
-        except idx_mod.IndexBuildAlreadyRunning:
-            return _fts_busy
-        _fts_ms = round((time.monotonic() - _fts_t0) * 1000)
-        # Independent-review N1: the restore-only refusal is a TOP-LEVEL
-        # {"error": str} — it must fail this response, not slip past the
-        # dict-only comprehensions as passed=True.
-        if isinstance(tables.get("error"), str):
-            return {
-                "passed": False,
-                "already_running": False,
-                "content": "fts",
-                "mode": "derived-rebuild",
-                "index_scope": "derived_chunk_state_only",
-                "layer": layer,
-                "error": tables["error"],
-                "duration_ms": _fts_ms,
-                "notice": tables["error"],
-            }
-        rows = {k: v.get("rows_written") for k, v in tables.items() if isinstance(v, dict)}
-        errors = {k: v.get("error") for k, v in tables.items()
-                  if isinstance(v, dict) and v.get("error")}
-        return {
-            "passed": not errors,
-            "already_running": False,
-            "content": "fts",
-            "full": True,
-            "mode": "derived-rebuild",
-            "index_scope": "derived_chunk_state_only",
-            "layer": layer,
-            "tables": tables,
-            "duration_ms": _fts_ms,
-            "notice": (
-                "Derived chunk state (FTS5 + registry) rebuilt from SQLite chunks: "
-                + ", ".join(f"{k}={v}" for k, v in rows.items())
-                if rows and not errors else
-                "FTS rebuild completed with issues — see tables."
-            ),
-        }
-
-    if _index_build_active(root, layer):
-        log_path = _index_build_log_path(root, layer)
-        pre_stats = _read_index_rebuild_stats(root, layer)
-        _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
-        return {
-            "passed": True,
-            "already_running": True,
-            "notice": (
-                f"An index build for the {layer} layer is already in progress. "
-                f"Watch progress: {log_path}"
-            ),
-            "content": content,
-            "full": full,
-            "mode": "rebuild" if full else ("rechunk" if rechunk else "update"),
-            "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
-            "layer": layer,
-            "stats": pre_stats,
-            "log": str(log_path),
-        }
-
-    scripts_dir = Path(__file__).resolve().parent
-    python_exec = _preferred_python()
-
-    if layer == "project" and content == "all":
-        script = scripts_dir / "setup_index.py"
-        cmd = [python_exec, str(script), "--root", str(root), "--include-code", "--verbose"]
-    elif layer == "project" and content == "graph":
-        script = scripts_dir / "setup_index.py"
-        cmd = [python_exec, str(script), "--root", str(root), "--graph-only", "--verbose"]
-    else:
-        script = scripts_dir / "indexer.py"
-        cmd = [python_exec, str(script), "--root", str(root), "--content", content, "--verbose"]
-    # Project layer (docs/code): indexer.py reads workflow-config include-prefixes itself.
-    if full:
-        cmd.append("--full")
-    # Wave 1p4n4 (mode='rechunk'): re-chunk all files + reuse embeddings by hash, no version change.
-    # Meaningful only for chunked content (graph has no embeddings to reuse).
-    if rechunk and content in {"docs", "code", "all"}:
-        cmd.append("--rechunk")
-
-    pre_stats = _read_index_rebuild_stats(root, layer)
-    _index_label = {"docs": "docs/seed", "code": "code", "all": "docs/seed + code"}.get(content, content)
-    _file_count = pre_stats.get("files_total", "?")
-
-    # rechunk must NOT short-circuit on an up-to-date index — re-chunking unchanged files is the point.
-    if not full and not rechunk and _index_is_up_to_date(root, layer, content):
-        # Paths excluded by workflow configuration can outlive walk bookkeeping.
-        # Reaping belongs exclusively to the indexer's zero-change maintenance
-        # path (read-only plan, then fenced execution under the build lock).
-        # This up-to-date response must never mutate storage itself.
-        reaped_uptd: dict[str, int] = {"docs": 0, "code": 0, "total": 0}
-        return {
-            "passed": True,
-            "already_running": False,
-            "up_to_date": True,
-            "notice": f"Index is up to date — no rebuild needed.",
-            "content": content,
-            "full": False,
-            "mode": "update",
-            "index_scope": "incremental_update",
-            "layer": layer,
-            "stats": pre_stats,
-            "stranded_rows_reaped": reaped_uptd.get("total", 0),
-            "stranded_rows_reaped_by_table": reaped_uptd,
-        }
-
-    # Persist stats from the previous completed build before overwriting the log.
-    state_path = _index_build_state_path(root, layer)
-    log_path = _index_build_log_path(root, layer)
-    prev_log_text = ""
-    if log_path.exists():
-        try:
-            prev_log_text = log_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            pass
-    if prev_log_text:
-        _m = re.search(
-            r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?",
-            prev_log_text,
-        )
-        if _m:
-            _prev_state: dict[str, Any] = {}
-            try:
-                _prev_state = json.loads(_index_build_state_path(root, layer).read_text(encoding="utf-8"))
-            except Exception:
-                pass
-            _prev_started = _prev_state.get("started_at")
-            _finished_ts: Optional[float] = None
-            try:
-                _finished_ts = log_path.stat().st_mtime
-            except OSError:
-                pass
-            _elapsed = (
-                int(_finished_ts - float(_prev_started))
-                if _finished_ts is not None and isinstance(_prev_started, (int, float))
-                else None
-            )
-            _write_index_build_stats_file(root, layer, {
-                "elapsed_seconds": _elapsed,
-                "files_indexed": int(_m.group(1)),
-                "doc_chunks": int(_m.group(2)),
-                "code_chunks": int(_m.group(3)),
-                "built_at": (
-                    datetime.datetime.utcfromtimestamp(_finished_ts).isoformat() + "Z"
-                    if _finished_ts is not None else None
-                ),
-                "content": _prev_state.get("content", content),
-                "mode": "rebuild" if _prev_state.get("full") else "update",
-            })
-
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
-    try:
-        kwargs: dict[str, Any] = {
-            "stdout": log_file,
-            "stderr": log_file,
-            "stdin": subprocess.DEVNULL,
-            "cwd": str(root),
-                "env": {
-                    **os.environ,
-                    "PROJECT_ROOT": str(root),
-                    "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH": str(state_path),
-                    "WAVEFOUNDRY_TIMESTAMP_LOGS": "1",
-                },
-            }
-        if os.name == "nt":
-            kwargs["creationflags"] = (
-                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
-            )
-        else:
-            kwargs["start_new_session"] = True
-        proc = subprocess.Popen(cmd, **kwargs)
-    finally:
-        log_file.close()
-    state_path.write_text(
-        json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full}),
-        encoding="utf-8",
-    )
-
-    _build_stats = _read_index_build_stats_file(root, layer)
-    _timing_hint = ""
-    if _build_stats and isinstance(_build_stats.get("elapsed_seconds"), int):
-        _mins = round(_build_stats["elapsed_seconds"] / 60)
-        _prev_files = _build_stats.get("files_indexed", "?")
-        _timing_hint = f" Last build took ~{_mins} minute{'s' if _mins != 1 else ''} for {_prev_files} files — expect similar."
-
-    if content == "graph":
-        notice = (
-            f"Rebuilding graph index ({layer} layer) — extracting nodes/edges and re-clustering communities. "
-            f"No semantic embedding; duration depends on corpus size and graph work. "
-            f"Watch progress: {log_path}"
-        )
-    elif full:
-        notice = (
-            f"Rebuilding {_index_label} index ({layer} layer) — {_file_count} source files. "
-            f"The index is being built locally and may take 5–10 minutes depending on repository size."
-            f"{_timing_hint} "
-            f"Watch progress: {log_path}"
-        )
-    else:
-        notice = (
-            f"Updating {_index_label} index ({layer} layer) — scanning for changes. "
-            f"The index is being built locally and may take 5–10 minutes depending on repository size."
-            f"{_timing_hint} "
-            f"Watch progress: {log_path}"
-        )
-
-    mode_label = "rebuild" if full else ("rechunk" if rechunk else "update")
-    # Wave 1p2q3 (1p2w5): synchronous post-Popen verification window. The
-    # subprocess can die in its first few hundred ms with "lock file busy"
-    # written to the log; the prior code returned `passed: True` immediately
-    # after Popen and the caller got no signal that the rebuild silently
-    # failed. We poll briefly (≤1.5s, sampled every 100ms): a process that
-    # survives the window has acquired its locks and is in `build_index`
-    # proper. If the process exited inside the window with a non-zero exit
-    # code, surface the failure to the caller.
-    import time as _time
-    _verify_deadline = _time.monotonic() + _INDEX_BUILD_VERIFY_TIMEOUT_SECONDS
-    _early_exit_code: int | None = None
-    while _time.monotonic() < _verify_deadline:
-        _poll_result = proc.poll()
-        # Real `subprocess.Popen.poll()` returns Optional[int]: None means
-        # "still running", an int is the exit code. We type-check here both
-        # to guard against test mocks that don't configure poll() and to
-        # tolerate any future Popen wrapper returning richer objects.
-        if isinstance(_poll_result, int):
-            _early_exit_code = _poll_result
-            break
-        _time.sleep(_INDEX_BUILD_VERIFY_POLL_INTERVAL_SECONDS)
-    if _early_exit_code is not None and _early_exit_code != 0:
-        # Subprocess died inside the verification window. Read the log to
-        # surface a useful diagnostic to the caller.
-        log_tail = ""
-        try:
-            log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-2048:]
-        except OSError:
-            pass
-        lock_busy = (
-            "Another index build is already running" in log_tail
-            or "lock file busy" in log_tail
-        )
-        diagnostic_code = "build_skipped_lock_busy" if lock_busy else "index_build_subprocess_failed"
-        # Look up the lock-holder PID so the caller can decide whether to
-        # wait or to clean up after a known-dead holder.
-        lock_owner_pid: int | None = None
-        try:
-            import importlib.util as _importlib_util
-            _indexer_spec = _importlib_util.spec_from_file_location(
-                "wavefoundry_indexer_for_lock_owner",
-                Path(__file__).resolve().parent / "indexer.py",
-            )
-            if _indexer_spec is not None and _indexer_spec.loader is not None:
-                _indexer_mod = _importlib_util.module_from_spec(_indexer_spec)
-                _indexer_spec.loader.exec_module(_indexer_mod)
-                _lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
-                _meta = _indexer_mod.read_index_build_lock_metadata(_lock_path)
-                if isinstance(_meta, dict) and isinstance(_meta.get("pid"), int):
-                    lock_owner_pid = int(_meta["pid"])
-        except Exception:
-            pass
-        return {
-            "passed": False,
-            "already_running": False,
-            "build_failed_early": True,
-            "exit_code": _early_exit_code,
-            "lock_owner_pid": lock_owner_pid,
-            "diagnostic_code": diagnostic_code,
-            "notice": (
-                f"Index rebuild subprocess (pid {proc.pid}) exited within {1.5}s with code "
-                f"{_early_exit_code}"
-                + (f" — lock held by pid {lock_owner_pid}." if lock_busy and lock_owner_pid else ".")
-            ),
-            "content": content,
-            "full": full,
-            "mode": mode_label,
-            "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
-            "layer": layer,
-            "stats": pre_stats,
-            "log": str(log_path),
-            "log_tail": log_tail,
-            "pid": proc.pid,
-        }
-    return {
-        "passed": True,
-        "already_running": False,
-        "notice": notice,
-        "content": content,
-        "full": full,
-        "mode": mode_label,
-        "index_scope": "full_rebuild" if full else ("rechunk_reuse" if rechunk else "incremental_update"),
-        "layer": layer,
-        "stats": pre_stats,
-        "log": str(log_path),
-        "pid": proc.pid,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -7037,44 +6098,6 @@ def _read_map_excerpt(
     return text[:max_chars]
 
 
-def _index_chunk_matching_address(index: WaveIndex, address: str, parsed: dict[str, Any]) -> Optional[dict[str, Any]]:
-    try:
-        index._ensure_loaded()
-    except (IndexNotReadyError, OSError, ValueError, Exception):
-        return None
-    scheme = parsed["scheme"]
-    want = address.strip()
-    path = (parsed.get("path") or "").replace("\\", "/").replace("'", "''")
-    # Determine which SQLite layer(s) to read and which prefix(es) to match.
-    if scheme == "code":
-        table_prefixes = [(getattr(index, "_code_vector_layer", None), "code")]
-    elif scheme == "seed":
-        table_prefixes = [
-            (getattr(index, "_docs_vector_layer", None), "seed"),
-            (getattr(index, "_docs_vector_layer", None), "doc"),
-        ]
-    else:
-        table_prefixes = [(getattr(index, "_docs_vector_layer", None), "doc")]
-    seen_tables: set[int] = set()
-    for table, prefix in table_prefixes:
-        if table is None:
-            continue
-        table_id = id(table)
-        if table_id in seen_tables:
-            continue
-        seen_tables.add(table_id)
-        try:
-            where = f"path = '{path}'" if path else None
-            rows = _load_script("sqlite_vector_store").payload_rows(
-                index.index_dir, table, predicate=where
-            )
-        except Exception:
-            rows = []
-        for row in rows:
-            ch = {k: v for k, v in row.items() if k != "vector"}
-            if _result_id(prefix, ch) == want:
-                return ch
-    return None
 
 
 def wf_map_response(root: Path, address: str, index: WaveIndex) -> dict[str, Any]:
@@ -7410,64 +6433,6 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
 # declared-wave branch and the legacy prose branch.
 
 
-def _update_handoff_wave_ref(existing: str, wave_id: Optional[str]) -> str:
-    """Surgically update the Active wave reference and Last verified in session-handoff.md.
-
-    Only the ``**Active wave:**`` line and the ``Last verified:`` metadata field are
-    updated.  All other content is preserved unchanged.  If the file is empty or the
-    ``**Active wave:**`` pattern is absent, a minimal valid scaffold is written instead.
-
-    Args:
-        existing: Current file content (empty string when the file does not exist).
-        wave_id: Wave ID to mark as active, or None to clear (renders as ``*(none)*``).
-    """
-    active_ref = f"`{wave_id}`" if wave_id else "*(none)*"
-    today = datetime.date.today().isoformat()
-
-    if not existing.strip():
-        status = "active" if wave_id else "idle"
-        return (
-            "# Session Handoff\n\n"
-            "Owner: wave-coordinator\n"
-            f"Status: {status}\n"
-            f"Last verified: {today}\n\n"
-            "## Current Session\n\n"
-            f"**Active wave:** {active_ref}\n"
-        )
-
-    lines = existing.splitlines(keepends=True)
-    found_active = False
-    out: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("**Active wave:**"):
-            out.append(f"**Active wave:** {active_ref}\n")
-            found_active = True
-        elif stripped.startswith("Last verified:"):
-            out.append(f"Last verified: {today}\n")
-        else:
-            out.append(line)
-
-    if not found_active:
-        # Active wave line absent — insert it under ## Current Session if that section
-        # exists, preserving all other content.  Only fall back to a minimal scaffold
-        # if the file has no Current Session section at all.
-        result = "".join(out)
-        if "## Current Session" in result:
-            result = re.sub(
-                r"(## Current Session\s*\n+)",
-                rf"\1**Active wave:** {active_ref}\n",
-                result,
-                count=1,
-            )
-            return result
-        # No Current Session section — append one.
-        if not result.endswith("\n"):
-            result += "\n"
-        result += f"\n## Current Session\n\n**Active wave:** {active_ref}\n"
-        return result
-
-    return "".join(out)
 
 
 def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
@@ -7780,42 +6745,10 @@ def _mark_change_item_response(
     )
 
 
-def _install_artifact_display(root: Path, artifact: Path) -> str:
-    """Repo-relative artifact path for the install audit's operator-facing envelope.
-
-    Wave 1wybs (1wybr): the 1uu9z convention renders repository paths
-    repo-relative. An operator-authored row can name an artifact that resolves
-    outside the repository, where ``_repo_rel`` raises ``ValueError``; the
-    envelope then carries a ``..``-relative path (delivery review CODE-DEL-5)
-    and, only for a path with no common anchor (a different Windows drive),
-    the resolved string, rather than crashing.
-    """
-    try:
-        return _repo_rel(root, artifact)
-    except ValueError:
-        pass
-    try:
-        relative = os.path.relpath(artifact.resolve(strict=False), root.resolve())
-    except ValueError:
-        return str(artifact)
-    return relative.replace("\\", "/")
 
 
-def _background_refresh_state_path(root: Path, layer: str = "project") -> Path:
-    return root / ".wavefoundry" / "index" / "background-refresh.json"
 
 
-def _indexable_refresh_path(rel_path: str) -> bool:
-    normalized = rel_path.replace("\\", "/")
-    if not normalized:
-        return False
-    if normalized.startswith(".wavefoundry/index/") or normalized.startswith(".wavefoundry/framework/index/"):
-        return False
-    skip_suffixes = {
-        ".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
-        ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip",
-    }
-    return Path(normalized).suffix.lower() not in skip_suffixes
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -7846,118 +6779,12 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
-def _load_background_refresh_state(state_path: Path) -> dict[str, Any]:
-    if not state_path.exists():
-        return {}
-    try:
-        loaded = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
 
 
-def _lock_is_fresh(lock_path: Path) -> bool:
-    """Return True if ``lock_path`` exists and its mtime is within the stale threshold."""
-    import time as _time
-
-    if not lock_path.exists():
-        return False
-    try:
-        age = _time.time() - lock_path.stat().st_mtime
-    except OSError:
-        return False
-    return age < BACKGROUND_INDEX_LOCK_STALE_SECONDS
 
 
-def _background_refresh_active(state_path: Path) -> bool:
-    # Reap server-owned children before consulting their durable PID record.
-    # Otherwise a completed POSIX child remains os.kill-alive as a zombie and
-    # this predicate prevents the monitor from ever reaching the launcher that
-    # historically owned the reap sweep.
-    _reap_background_build_pids()
-    index_dir = state_path.parent
-    # The whole-index OS lock is the cross-process authority. It can be held
-    # before a child has written its background state or acquired a per-table
-    # lock, so consult it before using either weaker carrier to permit a spawn.
-    try:
-        root = index_dir.parent.parent
-        if _index_build_lock_info(root).get("held") is True:
-            return True
-    except Exception:  # noqa: BLE001
-        # The indexer's acquire-time lock remains the final single-flight
-        # authority if this observational probe is unavailable.
-        pass
-
-    state = _load_background_refresh_state(state_path)
-    pid = state.get("pid")
-    started_at = state.get("started_at")
-    if isinstance(pid, int) and _pid_is_running(pid):
-        # The state file outlives both the child and MCP hot reload. Confirm
-        # that an unregistered live/reused PID is actually an index builder;
-        # the indexer's classifier is already zombie-, PID-reuse-, and
-        # native-Windows-aware. Probe failure remains fail-safe ("live").
-        if pid in _BACKGROUND_BUILD_PIDS:
-            return True
-        try:
-            indexer_module = _load_script("indexer")
-            owner = indexer_module.classify_index_build_lock_owner(
-                {"pid": pid, "started_at": started_at}
-            )
-        except Exception:  # noqa: BLE001
-            return True
-        if owner == "live":
-            try:
-                cmdline = indexer_module._process_cmdline(pid)
-            except Exception:  # noqa: BLE001
-                return True
-            if cmdline is None:
-                return True
-            if _index_builder_cmdline_targets_root(cmdline, root):
-                return True
-    # Short throttle covers the brief window between Popen() and the indexer acquiring
-    # its build lock (~1-2 seconds on a cold start).
-    if isinstance(started_at, (int, float)):
-        import time
-        if (time.time() - float(started_at)) < BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS:
-            return True
-    return False
 
 
-def _index_builder_cmdline_targets_root(cmdline: str, root: Path) -> bool:
-    """Whether a readable index-builder command explicitly targets ``root``.
-
-    Persisted background PIDs can be recycled by another Wavefoundry indexer.
-    The generic owner classifier proves the executable class; this second
-    check binds that live process to the repository whose state file named it.
-    """
-
-    try:
-        tokens = [
-            token.strip("\"'")
-            for token in shlex.split(cmdline, posix=os.name != "nt")
-        ]
-    except ValueError:
-        return True  # unreadable quoting is a probe failure: preserve single-flight safety
-    raw_root: str | None = None
-    for index, token in enumerate(tokens):
-        if token == "--root" and index + 1 < len(tokens):
-            raw_root = tokens[index + 1]
-            break
-        if token.startswith("--root="):
-            raw_root = token.partition("=")[2]
-            break
-    if not raw_root:
-        return False
-    if os.name == "nt":
-        import ntpath
-
-        return ntpath.normcase(ntpath.normpath(raw_root)) == ntpath.normcase(
-            ntpath.normpath(str(root))
-        )
-    try:
-        return Path(raw_root).resolve(strict=False) == root.resolve(strict=False)
-    except OSError:
-        return False
 
 
 # Wave 1p98u: the long-lived MCP server spawns detached background index builds (below) with
@@ -7966,31 +6793,10 @@ def _index_builder_cmdline_targets_root(cmdline: str, root: Path) -> bool:
 # until reaped. That stale defunct PID then made the index-build lock read as "live" and blocked
 # every later build. Track the PIDs we launch and reap the finished ones on the next spawn. POSIX-only:
 # Windows detached processes (DETACHED_PROCESS) do not create zombies and os.waitpid is not applicable.
-_BACKGROUND_BUILD_PIDS: set[int] = set()
 
 
-def _register_background_build_pid(pid: int) -> None:
-    if os.name == "nt" or not isinstance(pid, int) or pid <= 0:
-        return
-    _BACKGROUND_BUILD_PIDS.add(pid)
 
 
-def _reap_background_build_pids() -> None:
-    """Reap finished server-launched background builds so they don't linger as zombies.
-
-    POSIX-only. Only ever waits on PIDs this server launched; a PID that is not our child (already
-    reaped/reparented) raises ChildProcessError, treated as gone. Never blocks (WNOHANG); a
-    still-running child stays registered for a later sweep."""
-    if os.name == "nt":
-        return
-    for pid in list(_BACKGROUND_BUILD_PIDS):
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except (ChildProcessError, OSError):
-            _BACKGROUND_BUILD_PIDS.discard(pid)  # not our child / already reaped / gone
-            continue
-        if ended_pid == pid:
-            _BACKGROUND_BUILD_PIDS.discard(pid)  # reaped — no longer a zombie
 
 
 # Wave 1rswx: the same non-reparenting spawn problem 1p98u fixed for background builds also applies to
@@ -8001,124 +6807,14 @@ def _reap_background_build_pids() -> None:
 # the identical WNOHANG sweep pattern. POSIX-only for the same reason (Windows detached processes create
 # no zombies; os.waitpid is not applicable). Deliberately NOT a SIGCHLD handler — rejected in 1p98u
 # because it breaks the server's synchronous subprocess.run/.wait() with ECHILD.
-_DASHBOARD_CHILD_PIDS: set[int] = set()
 
 
-def _register_dashboard_child_pid(pid: int) -> None:
-    if os.name == "nt" or not isinstance(pid, int) or pid <= 0:
-        return
-    _DASHBOARD_CHILD_PIDS.add(pid)
 
 
-def _reap_dashboard_child_pids() -> None:
-    """Reap finished server-launched dashboard children so they don't linger as zombies.
-
-    POSIX-only, WNOHANG, and scoped to PIDs this server itself spawned (never a bare/recycled PID) —
-    mirrors ``_reap_background_build_pids``. A still-running dashboard stays registered for a later
-    sweep; a PID that is not (or no longer) our child raises ChildProcessError and is dropped."""
-    if os.name == "nt":
-        return
-    for pid in list(_DASHBOARD_CHILD_PIDS):
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except (ChildProcessError, OSError):
-            _DASHBOARD_CHILD_PIDS.discard(pid)  # not our child / already reaped / gone
-            continue
-        if ended_pid == pid:
-            _DASHBOARD_CHILD_PIDS.discard(pid)  # reaped — no longer a zombie
 
 
-def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
-    # Wave 1p4ww: single project index — the framework layer is folded in.
-    if layer != "project":
-        return False
-    # Publication upgrades require a truly quiet repository. Check before
-    # reaping, creating the state directory, or spawning the native indexer.
-    if publication_control.native_publication_block_reason(
-        root, "background_index_refresh"
-    ) is not None:
-        return False
-    import sqlite_runtime as runtime
-    try:
-        _check_index_writer_current(root)
-    except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
-        _wf_log(f"[wavefoundry] background index refresh refused: {exc}")
-        return False
-    # Wave 1p98u: reap any prior finished background builds before launching another, so server-owned
-    # zombies don't accumulate across a session (each new refresh sweeps the previous ones).
-    _reap_background_build_pids()
-    # Wave 1rswx: sweep finished dashboard children on this frequently-hit path too, so a dashboard that
-    # dies mid-session is reaped during ordinary editing — not left until the next explicit
-    # wf_*_dashboard call or server exit (readiness amendment / AC-4).
-    _reap_dashboard_child_pids()
-    state_path = _background_refresh_state_path(root, layer)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    if _background_refresh_active(state_path):
-        return False
-    indexer = root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
-    if not indexer.exists():
-        return False
-    import subprocess
-    cmd = [
-        _preferred_python(), str(indexer), "--root", str(root),
-        "--content", "all",
-    ]
-    # The project index contains both semantic layers. Passing ``all`` is
-    # required: indexer.py otherwise defaults to docs-only even though it reads
-    # both workflow-config include-prefix lists. This matches the Claude
-    # turn-end flusher and keeps code embeddings current on monitor recovery.
-    # Wave 1p6d6: detach the background reindex correctly per-OS — on Windows start_new_session
-    # is a no-op, so without creationflags the child stays in the server's process group and dies
-    # with it. Mirror the three sibling spawns (server_impl.py:3487, :6654, setup_index.py).
-    detach_kwargs = {}
-    if os.name == "nt":
-        detach_kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
-        )
-    else:
-        detach_kwargs["start_new_session"] = True
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,  # never inherit the JSON-RPC stdin (sibling-consistent; wave 1p88t)
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(root),
-        close_fds=os.name != "nt",
-        **detach_kwargs,
-    )
-    import time
-    # Wave 1p98u: track this server-launched build so a later spawn reaps it once it exits (POSIX),
-    # instead of leaving a defunct PID that makes the index-build lock read as "live".
-    _register_background_build_pid(proc.pid)
-    state_path.write_text(
-        json.dumps({"pid": proc.pid, "started_at": time.time(), "layer": layer}),
-        encoding="utf-8",
-    )
-    return True
 
 
-def _trigger_background_index_refresh_for_paths(root: Path, paths: Iterable[str | Path]) -> dict[str, bool]:
-    normalized_paths: list[str] = []
-    for path in paths:
-        if isinstance(path, Path):
-            normalized = _repo_rel(root, path)
-        else:
-            normalized = str(path).replace("\\", "/")
-            while normalized.startswith("./"):
-                normalized = normalized[2:]
-        if normalized:
-            normalized_paths.append(normalized)
-    # Wave 1p4ww: framework seeds + README are folded into the project docs index, so a
-    # change to either triggers the single project refresh (no separate framework layer).
-    fold_prefixes = (".wavefoundry/framework/seeds/", ".wavefoundry/framework/README.md")
-    project_needed = any(
-        _indexable_refresh_path(path)
-        and (path.startswith("docs/") or path.startswith(fold_prefixes))
-        for path in normalized_paths
-    )
-    return {
-        "project": _start_background_index_refresh(root, "project") if project_needed else False,
-    }
 
 
 # ── In-session index-staleness monitor (wave 1p5xu) ─────────────────────────────
@@ -8250,92 +6946,12 @@ def _read_monitor_config(root: Path) -> dict[str, Any]:
     return {"enabled": enabled, "interval_seconds": interval, "quiet_period_seconds": quiet}
 
 
-_CE_PROJECTION_MIN_QUIET_SECONDS = 90.0
-_CE_PROJECTION_DEFAULT_QUIET_SECONDS = 120.0
-_CE_PROJECTION_MAX_QUIET_SECONDS = 600.0
-_CE_PROJECTION_POLL_SECONDS = 15.0
 
 
-def _read_ce_projection_config(root: Path) -> dict[str, Any]:
-    quiet = _CE_PROJECTION_DEFAULT_QUIET_SECONDS
-    try:
-        cfg = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
-        raw = (((cfg.get("context_efficiency") or {}).get("projection") or {})
-               .get("quiet_period_seconds"))
-        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-            quiet = float(raw)
-    except Exception:  # noqa: BLE001
-        pass
-    quiet = min(
-        _CE_PROJECTION_MAX_QUIET_SECONDS,
-        max(_CE_PROJECTION_MIN_QUIET_SECONDS, quiet),
-    )
-    return {"enabled": True, "interval_seconds": _CE_PROJECTION_POLL_SECONDS,
-            "quiet_period_seconds": quiet}
 
 
-def _pending_ce_generations(root: Path) -> tuple[dict[str, int], str | None]:
-    state = context_efficiency.pending_wave_ids(root)
-    if not state.get("ok"):
-        return {}, str(state.get("error") or state.get("status") or "unavailable")
-    generations: dict[str, int] = {}
-    for wave_id in state.get("pending", []):
-        snapshot = context_efficiency.read_wave_snapshot(root, str(wave_id))
-        generations[str(wave_id)] = int(snapshot.get("generation", 0))
-    return generations, None
 
 
-def _maybe_project_context_efficiency(
-    root: Path,
-    observed: dict[str, tuple[int, float]],
-    *,
-    now: float | None = None,
-) -> dict[str, Any]:
-    """Trailing-edge automatic CE projection; never records a tool cost."""
-
-    checked_at = time.time() if now is None else float(now)
-    cfg = _read_ce_projection_config(root)
-    pending, error = _pending_ce_generations(root)
-    if error:
-        return {"last_checked_at": checked_at, "reason": "authority_unavailable",
-                "error": error, "triggered": False, "pending_count": 0}
-    for wave_id in list(observed):
-        if wave_id not in pending:
-            observed.pop(wave_id, None)
-    eligible: list[str] = []
-    for wave_id, generation in pending.items():
-        previous = observed.get(wave_id)
-        if previous is None or previous[0] != generation:
-            observed[wave_id] = (generation, checked_at)
-            continue
-        if checked_at - previous[1] >= float(cfg["quiet_period_seconds"]):
-            eligible.append(wave_id)
-    if not eligible:
-        return {"last_checked_at": checked_at, "reason": "quiet_period_pending"
-                if pending else "nothing_pending", "triggered": False,
-                "pending_count": len(pending)}
-    projected: list[str] = []
-    failure: dict[str, Any] | None = None
-    result = project_pending_context_efficiency_root(
-        root, automatic=True, wave_ids=eligible
-    )
-    projected = list(result.get("projected", []))
-    for wave_id in projected:
-        observed.pop(wave_id, None)
-    if not result.get("ok"):
-        failure = {
-            "wave_id": result.get("failed_wave"),
-            **dict(result.get("detail") or {}),
-        }
-    return {
-        "last_checked_at": checked_at,
-        "reason": "projected" if projected and failure is None else
-                  (str(failure.get("reason") or "projection_failed") if failure else "projection_failed"),
-        "triggered": bool(projected),
-        "projected": projected,
-        "pending_count": len(pending),
-        **({"failure": failure} if failure else {}),
-    }
 
 
 def _move_change_doc(source: Path, target: Path) -> None:
@@ -8589,7 +7205,9 @@ def _contained_wave_review_paths(root: Path, wave_md: Path) -> tuple[Path, Path]
             f"wave directory must resolve to a wave folder within {allowed_depth} level(s) of {roots.waves_rel}"
         )
     try:
-        wave_dir.relative_to(root_resolved)
+        if path_containment.contained_resolved_path(root_resolved, wave_dir) is None:
+            # Obtain the original native ValueError cause only after refusal.
+            wave_dir.relative_to(root_resolved)
     except ValueError as exc:
         raise ValueError("wave directory resolves outside the repository") from exc
     expected_wave_md = wave_dir / "wave.md"
@@ -9235,183 +7853,22 @@ def _change_create_response(
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
-_VALID_GATES = {"seed_edit_allowed", "framework_edit_allowed", "design_system_edit_allowed"}
 
 
-def _read_guard_overrides(root: Path) -> dict[str, Any]:
-    """Read .wavefoundry/guard-overrides.json; return empty dict on missing/malformed."""
-    path = root / ".wavefoundry" / "guard-overrides.json"
-    if not path.exists():
-        return {}
-    try:
-        import json as _json
-        return _json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
-def _write_guard_overrides(root: Path, data: dict[str, Any]) -> None:
-    """Write data to .wavefoundry/guard-overrides.json."""
-    import json as _json
-    path = root / ".wavefoundry" / "guard-overrides.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def _force_gates_closed(root: Path, mode: str) -> list[dict[str, Any]]:
-    """Close all edit gates and return a diagnostic listing which were open.
-
-    In dry-run mode the gate file is not written; the diagnostic is still returned
-    so callers can report what would have been closed.
-
-    Args:
-        root: Repository root.
-        mode: ``"create"`` to write the gate file; any other value is a dry-run.
-    """
-    overrides = _read_guard_overrides(root)
-    open_gates = [g for g in _VALID_GATES if overrides.get(g, {}).get("enabled", False)]
-    if not open_gates:
-        return []
-    if mode == "create":
-        for gate in _VALID_GATES:
-            overrides.setdefault(gate, {})["enabled"] = False
-        _write_guard_overrides(root, overrides)
-    return [
-        _diagnostic(
-            "gates_forced_closed",
-            f"The following edit gate(s) were open and have been {'closed' if mode == 'create' else 'detected (dry-run — not closed)' }: {', '.join(sorted(open_gates))}. "
-            "Use wf_open_gate / wf_close_gate to manage gates explicitly.",
-            recovery_tools=["wf_close_gate"],
-            recovery_usage="wf_close_gate(gate='seed_edit_allowed')",
-        )
-    ]
 
 
-def wave_open_gate_response(root: Path, gate: str) -> dict[str, Any]:
-    """Open an edit gate, enabling the corresponding guard in guard-overrides.json."""
-    gate_s = (gate or "").strip()
-    if gate_s not in _VALID_GATES:
-        return _response(
-            "error",
-            {"gate": gate_s, "valid_gates": sorted(_VALID_GATES)},
-            diagnostics=[_diagnostic("invalid_arguments", f"Unknown gate '{gate_s}'. Valid gates: {sorted(_VALID_GATES)}.")],
-            next_tools=["wf_open_gate"],
-            usage=f"wf_open_gate(gate='seed_edit_allowed')",
-        )
-    overrides = _read_guard_overrides(root)
-    if overrides.get(gate_s, {}).get("enabled", False):
-        return _response(
-            "error",
-            {"gate": gate_s, "enabled": True},
-            diagnostics=[_diagnostic(
-                "gate_already_open",
-                f"Gate '{gate_s}' is already open. Close it with wf_close_gate before opening again.",
-                recovery_tools=["wf_close_gate"],
-                recovery_usage=f"wf_close_gate(gate={gate_s!r})",
-            )],
-            next_tools=["wf_close_gate"],
-            usage=f"wf_close_gate(gate={gate_s!r})",
-        )
-    overrides.setdefault(gate_s, {})["enabled"] = True
-    _write_guard_overrides(root, overrides)
-    return _response(
-        "ok",
-        {"gate": gate_s, "enabled": True},
-        next_tools=["wf_close_gate"],
-        usage=f"wf_close_gate(gate={gate_s!r})",
-    )
 
 
-def wf_close_wave_gate_response(root: Path, gate: str) -> dict[str, Any]:
-    """Close an edit gate, disabling the corresponding guard in guard-overrides.json."""
-    gate_s = (gate or "").strip()
-    if gate_s not in _VALID_GATES:
-        return _response(
-            "error",
-            {"gate": gate_s, "valid_gates": sorted(_VALID_GATES)},
-            diagnostics=[_diagnostic("invalid_arguments", f"Unknown gate '{gate_s}'. Valid gates: {sorted(_VALID_GATES)}.")],
-            next_tools=["wf_close_gate"],
-            usage=f"wf_close_gate(gate='seed_edit_allowed')",
-        )
-    overrides = _read_guard_overrides(root)
-    already_closed = not overrides.get(gate_s, {}).get("enabled", False)
-    overrides.setdefault(gate_s, {})["enabled"] = False
-    _write_guard_overrides(root, overrides)
-    diagnostics: list[dict[str, Any]] = []
-    if already_closed:
-        diagnostics.append(_diagnostic(
-            "gate_already_closed",
-            f"Gate '{gate_s}' was already closed — no change made.",
-        ))
-    return _response(
-        "ok",
-        {"gate": gate_s, "enabled": False},
-        diagnostics=diagnostics if diagnostics else None,
-        next_tools=["wf_open_gate"],
-        usage=f"wf_open_gate(gate={gate_s!r})",
-    )
 
 
-def wf_gate_status_response(root: Path) -> dict[str, Any]:
-    """Return the current enabled/disabled state of all edit gates."""
-    overrides = _read_guard_overrides(root)
-    gates = {gate: overrides.get(gate, {}).get("enabled", False) for gate in sorted(_VALID_GATES)}
-    return _response(
-        "ok",
-        {"gates": gates},
-        next_tools=["wf_open_gate", "wf_close_gate"],
-    )
 
 
-def wf_get_handoff_response(root: Path) -> dict[str, Any]:
-    """Read docs/agents/session-handoff.md and return its content and mtime."""
-    handoff_path = root / "docs" / "agents" / "session-handoff.md"
-    if not handoff_path.exists():
-        return _response(
-            "ok",
-            {"path": "docs/agents/session-handoff.md", "content": None, "mtime": None},
-            diagnostics=[
-                _diagnostic(
-                    "handoff_not_found",
-                    "docs/agents/session-handoff.md does not exist. Use wf_set_handoff to create it.",
-                    recovery_tools=["wf_current_wave"],
-                    recovery_usage="wf_current_wave()",
-                )
-            ],
-            next_tools=["wf_set_handoff", "wf_current_wave"],
-            usage="wf_set_handoff(content='# Session Handoff\\n\\n...')",
-        )
-    try:
-        content = handoff_path.read_text(encoding="utf-8")
-        mtime = handoff_path.stat().st_mtime
-    except OSError as exc:
-        return _response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("read_error", str(exc))], next_tools=["wf_current_wave"], usage="wf_current_wave()")
-    return _response(
-        "ok",
-        {"path": "docs/agents/session-handoff.md", "content": content, "mtime": mtime},
-        next_tools=["wf_set_handoff", "wf_current_wave"],
-        usage="wf_current_wave()",
-    )
 
 
-def wf_set_handoff_response(root: Path, content: str, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    """Write content to docs/agents/session-handoff.md, creating the file if absent."""
-    handoff_path = root / "docs" / "agents" / "session-handoff.md"
-    try:
-        handoff_path.parent.mkdir(parents=True, exist_ok=True)
-        handoff_path.write_text(content, encoding="utf-8")
-    except OSError as exc:
-        return _response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("write_error", str(exc))], next_tools=["wf_current_wave"], usage="wf_current_wave()")
-    _trigger_background_index_refresh_for_paths(root, ["docs/agents/session-handoff.md"])
-    envelope = _response(
-        "ok",
-        {"path": "docs/agents/session-handoff.md", "written": True, "size": len(content)},
-        next_tools=["wf_get_handoff", "wf_current_wave"],
-        usage="wf_get_handoff()",
-    )
-    # wf_set_handoff has no `mode` param — it always writes. Pass "create"
-    # so the lint integration fires.
-    return _attach_lint_to_response(envelope, root, "create")
 
 
 def _human_bytes(n: int) -> str:
@@ -9444,461 +7901,20 @@ def _path_size_bytes(p: Path) -> int:
     return total
 
 
-def _index_dir_size(index_dir: Path) -> Optional[dict[str, Any]]:
-    """Wave 1p9a9: total + top-level component on-disk size of the index dir. Read-only, best-effort;
-    a missing dir or any stat error yields ``None`` (never raises). The per-component breakdown
-    (``index.sqlite`` / ``memory-state.sqlite`` / …) makes storage growth diagnosable."""
-    try:
-        if not index_dir.exists():
-            return None
-        components: dict[str, int] = {}
-        total = 0
-        for entry in sorted(index_dir.iterdir(), key=lambda e: e.name):
-            sz = _path_size_bytes(entry)
-            components[entry.name] = sz
-            total += sz
-    except OSError:
-        return None
-    return {"total_bytes": total, "total_human": _human_bytes(total), "components": components}
 
 
 # Close-time reclamation remains opportunistic: retain reusable pages until
 # free space exceeds 40 percent. Maintenance owns the bounded reclaim policy.
-CLOSE_OPTIMIZE_BLOAT_RATIO = 1.0 / 0.6
 
 
-def _close_optimize_enabled(root: Path) -> bool:
-    """Kill-switch for the wave 1rycf close-time optimize. Reads
-    ``docs/workflow-config.json`` ``indexing.close_optimize_enabled`` (default ``True``). Fail-safe:
-    any read/parse error or missing key yields the default; never raises."""
-    try:
-        cfg = _read_workflow_config(root)
-        indexing = cfg.get("indexing")
-        if isinstance(indexing, dict) and "close_optimize_enabled" in indexing:
-            return bool(indexing.get("close_optimize_enabled"))
-    except Exception:  # noqa: BLE001 — a config read must never gate the close
-        pass
-    return True
 
 
-def _index_table_bloat_ratios(root: Path) -> dict[str, float]:
-    """Page bloat in the one shared database; no payload scans.
-
-    Wave 1xny6 lane L6b retired the separate ``graph`` entry with the
-    standalone graph state store it measured. Graph rows live in the shared
-    database now, so the docs/code ratios already describe their pages, and
-    procedure step 6 deletes the retired folder that file lived in -- a second
-    arm here could only ever report on a file the upgrade removes.
-    """
-    ratios: dict[str, float] = {}
-    index_dir = root / ".wavefoundry" / "index"
-    try:
-        vectors = _load_script("sqlite_vector_store")
-        space = vectors.storage_space(index_dir)
-        pages, free = int(space["page_count"]), int(space["freelist_count"])
-        if pages > 0 and free > 0:
-            ratio = pages / max(1, pages - free)
-            ratios.update({layer: ratio for layer in ("docs", "code")
-                           if vectors.layer_available(index_dir, layer)})
-    except Exception:
-        pass
-    return ratios
 
 
-def _sqlite_maintenance_failure(results: dict[str, Any]) -> Optional[str]:
-    """Keep nested maintenance failures visible in both operator response paths."""
-    errors = []
-    # A top-level error with store results means maintenance started but
-    # publication failed. A bare error is the pre-maintenance epoch refusal.
-    if "stores" in results and results.get("error"):
-        errors.append(str(results["error"]))
-    for name, res in results.get("stores", {}).items():
-        if res.get("error") or res.get("integrity") not in (None, "ok"):
-            errors.append(f"{name}: {res.get('error') or res.get('integrity')}")
-    finalize = results.get("finalize")
-    if isinstance(finalize, dict) and finalize.get("error"):
-        errors.append(str(finalize["error"]))
-    return "; ".join(errors) or None
 
 
-def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
-    """Opportunistically maintain stores when either has at least 40 percent free pages.
-
-    Skip when disabled, unnecessary, lock-busy, or maintenance fails. Never
-    rebuild or re-embed during close; report any recovery requirement instead.
-    """
-    try:
-        if not _close_optimize_enabled(root):
-            return None
-        ratios = _index_table_bloat_ratios(root)
-        bloated = sorted(t for t, r in ratios.items() if r >= CLOSE_OPTIMIZE_BLOAT_RATIO)
-        if not bloated:
-            return None
-        index_dir = root / ".wavefoundry" / "index"
-        idx = _load_script("indexer")
-        already_running = getattr(idx, "IndexBuildAlreadyRunning", None)
-        try:
-            results = idx.optimize_index_tables(index_dir, tuple(t for t in bloated if t in ("docs", "code")))
-        except Exception as exc:  # noqa: BLE001
-            if already_running is not None and isinstance(exc, already_running):
-                return {"ran": False, "skipped": "index_build_lock_held",
-                        "bloated_tables": bloated,
-                        "ratios": {t: round(ratios[t], 2) for t in bloated}}
-            return {"ran": False, "skipped": "optimize_error", "error": str(exc),
-                    "bloated_tables": bloated}
-        if not results:
-            return {"ran": False, "skipped": _REASON_INDEX_NOT_READY,
-                    "error": "Maintenance did not run: no initialized shared index is available.",
-                    "bloated_tables": bloated,
-                    "recovery_tools": ["index_health"], "recovery_usage": "index_health()"}
-        failure = _sqlite_maintenance_failure(results)
-        if failure:
-            return {"ran": False, "skipped": "optimize_error", "error": failure,
-                    "bloated_tables": bloated, "stores": results.get("stores", {}),
-                    "recovery_tools": ["index_health"], "recovery_usage": "index_health()"}
-        if isinstance(results.get("error"), str):
-            return {"ran": False, "skipped": _REASON_INDEX_NOT_READY, "error": results["error"],
-                    "bloated_tables": bloated,
-                    "recovery_tools": ["index_build"], "recovery_usage": "index_build(content='all')"}
-        stores = results.pop("stores", {})
-        results.pop("finalize", None)
-        reclaimed_total = sum(int(value.get("reclaimed_bytes") or 0)
-                              for value in stores.values() if isinstance(value, dict))
-        deferred_rebuild: list[str] = []
-        tables_out: dict[str, Any] = {}
-        for t, res in (results or {}).items():
-            if not isinstance(res, dict):
-                continue
-            before = int(res.get("bytes_before") or 0)
-            after = int(res.get("bytes_after") or 0)
-            reclaimed = max(0, before - after)
-            reclaimed_total += reclaimed
-            if res.get("needs_rebuild"):
-                deferred_rebuild.append(t)
-            tables_out[t] = {"tier": res.get("tier"), "reclaimed_bytes": reclaimed,
-                             "reclaimed": _human_bytes(reclaimed)}
-        return {
-            "ran": True,
-            "bloated_tables": bloated,
-            "ratios": {t: round(ratios[t], 2) for t in bloated},
-            "tables": tables_out,
-            "stores": stores,
-            "reclaimed_bytes": reclaimed_total,
-            "reclaimed": _human_bytes(reclaimed_total),
-            # Tier-3 rebuild is DEFERRED at close (never spawned inline) — surface it so a follow-up
-            # index_optimize / index_build can pick it up.
-            "needs_rebuild_deferred": sorted(deferred_rebuild),
-        }
-    except Exception:  # noqa: BLE001 — the close must never fail because of opportunistic reclaim
-        return None
 
 
-def index_health_response(
-    index: WaveIndex,
-    *,
-    background_monitors: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Return structured health status for the project index layer.
-
-    Runs file-hash comparison against the store's recorded build hashes and reports missing, stale, or
-    ready state.  Wave 1p4ww folded the framework docs into this single project
-    index.  Intended as an explicit diagnostic tool; not on the search hot path.
-    """
-    setup_usage = "wf setup --root ."
-    update_usage = "index_build(content='all', mode='update')"
-    rebuild_usage = "index_build(content='all', mode='rebuild')"
-    preserve_usage = (
-        "Preserve index.sqlite, its WAL/SHM files, and any migration receipt. "
-        "Diagnose the storage failure and use explicit recovery before retrying; "
-        "do not delete or rebuild the only copy."
-    )
-    try:
-        health = index.docs_health()
-    except Exception as exc:
-        code = getattr(exc, "code", "index_health_error")
-        if code == "storage_runtime_unavailable":
-            recovery_usage = setup_usage
-            message = f"{exc} From the target repository, run {setup_usage}, then restart the MCP host."
-        elif code in {"index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}:
-            recovery_usage = "Restart the affected Wavefoundry host, then call index_health(). Preserve the existing index."
-            message = str(exc)
-        elif code == "storage_recovery_required":
-            recovery_usage = str(exc)
-            message = str(exc)
-        else:
-            recovery_usage = "Resolve the reported error before retrying index_health(). " + preserve_usage
-            message = str(exc)
-        return _response(
-            "error",
-            {
-                "layers": {},
-                **(
-                    {"background_monitors": dict(background_monitors)}
-                    if background_monitors is not None
-                    else {}
-                ),
-            },
-            diagnostics=[
-                _diagnostic(
-                    code,
-                    f"Could not compute index health: {message}",
-                    recovery_tools=["wf_help"],
-                    recovery_usage=recovery_usage,
-                )
-            ],
-            next_tools=["wf_help"],
-            usage=recovery_usage,
-        )
-
-    diagnostics: list[dict[str, Any]] = []
-    for layer in health.get("missing_layers", []):
-        diagnostics.append(
-            _diagnostic(
-                _REASON_INDEX_MISSING,
-                f"Index layer missing: {layer}. From the target repository, run {setup_usage}.",
-                recovery_tools=["wf_help"],
-                recovery_usage=setup_usage,
-            )
-        )
-    for layer in health.get("stale_layers", []):
-        diagnostics.append(
-            _diagnostic(
-                "index_stale",
-                f"Index layer stale: {layer}. Refresh: {rebuild_usage if health.get('chunker_version_mismatch_layers') else update_usage}",
-                recovery_tools=["index_build"],
-                recovery_usage=rebuild_usage if health.get("chunker_version_mismatch_layers") else update_usage,
-            )
-        )
-    overview = health.get("readiness_overview")
-    if overview == "degraded":
-        diagnostics.append(
-            _diagnostic(
-                "index_degraded",
-                "Index metadata is present but merged semantic chunks did not load; search may fall back to lexical retrieval.",
-                recovery_tools=["wf_help"],
-                recovery_usage=setup_usage,
-            )
-        )
-    elif overview == "absent":
-        diagnostics.append(
-            _diagnostic(
-                "index_absent",
-                "No index metadata found under the project index dir (nothing to search semantically yet).",
-                recovery_tools=["wf_help"],
-                recovery_usage=setup_usage,
-            )
-        )
-    if health.get("code_layer_missing"):
-        diagnostics.append(
-            _diagnostic(
-                "code_layer_missing",
-                "Code sources are in scope but the code SQLite vector layer is absent — likely an "
-                "interrupted or OOM-killed code embedding pass. code_ask / code_search have no code layer "
-                "until it is rebuilt: index_build(content='code').",
-                recovery_tools=["index_build"],
-                recovery_usage="index_build(content='code')",
-            )
-        )
-    for layer in health.get("chunker_version_mismatch_layers", []):
-        diagnostics.append(
-            _diagnostic(
-                "chunker_version_mismatch",
-                f"Index layer '{layer}' was built with an older chunker version. "
-                f"A full rebuild is required: {rebuild_usage}",
-                recovery_tools=["index_build"],
-                recovery_usage=rebuild_usage,
-            )
-        )
-    background_build_status = _background_build_status(index.root)
-    if background_build_status == "running":
-        diagnostics.append(
-            _diagnostic(
-                "background_code_build_running",
-                "A background code index build is in progress. "
-                f"Watch progress: {index.root / '.wavefoundry' / 'logs' / 'project-background-build.log'}",
-                recovery_tools=[],
-                recovery_usage="index_health()",
-            )
-        )
-
-    # Wave 1p99o: surface the authoritative index-build lock status so a leftover lock file (present
-    # by design, not held) is diagnosable at a glance and agents don't misread its presence as "a build
-    # is running."
-    health["size"] = _index_dir_size(index.root / ".wavefoundry" / "index")  # wave 1p9a9
-    lock_info = _index_build_lock_info(index.root)
-    health["lock"] = lock_info
-    if (
-        lock_info.get("present")
-        and not lock_info.get("held")
-        and lock_info.get("ended_at") is None
-        and lock_info.get("started_at") is not None
-    ):
-        diagnostics.append(
-            _diagnostic(
-                "index_build_interrupted",
-                "The last index build did NOT finish cleanly (interrupted or killed) — the index may be "
-                "partial. Consider a rebuild: index_build(content='all', mode='rebuild'). The lock "
-                "file is present but NOT held; do not delete it (it persists by design). Use "
-                "index_build_status for the authoritative lock state.",
-                recovery_tools=["index_build", "index_build_status"],
-                recovery_usage="index_build(content='all', mode='rebuild')",
-            )
-        )
-
-    _refresh_index_build_stats_from_finished_logs(index.root, "project")
-    # Always return "ok" when health data was successfully computed — agents
-    # read ``readiness_overview`` and ``diagnostics`` to decide whether to
-    # reindex.  Reserve ``status: "error"`` for the except branch above (i.e.
-    # when the health check itself crashed, not when the index is merely absent
-    # or stale).
-    project_stats = _read_index_build_stats_file(index.root, "project")
-    if project_stats is not None:
-        health["previous_build_stats"] = project_stats
-
-    # Wave 13129 (1316n): graph readiness reported separately from semantic
-    # readiness. A consumer caught the silent "rebuild didn't touch graph" misread
-    # because there was no breakout. Operators now see graph_present /
-    # graph_last_built_at per layer alongside the existing fields.
-    health["graph"] = _graph_health_summary(index.root)
-    if background_monitors is not None:
-        health["background_monitors"] = dict(background_monitors)
-
-    # Wave 1rsh9 (1rq4h): index-state store presence + schema version + two-layer
-    # integrity verdict (quick_check + freshness-fingerprint binding). Absence
-    # is a normal not-yet-built state, never an error (AC-2/AC-6).
-    health["state_store"] = _state_store_health_summary(index.root)
-    try:
-        vector_store = _load_script("sqlite_vector_store")
-        counts = vector_store.layer_counts(index.root / ".wavefoundry" / "index")
-        health["capacity"] = vector_store.capacity_qualification(counts)
-        if not health["capacity"]["qualified"]:
-            diagnostics.append(_diagnostic(
-                "capacity_unqualified",
-                "The local vector index exceeds the measured retrieval-latency envelope for "
-                + ", ".join(health["capacity"]["exceeded_layers"])
-                + ". Indexing and exact search continue normally; performance at this size "
-                "needs qualification on this machine. No files or results are dropped.",
-            ))
-    except Exception:
-        pass  # Store absence/corruption has its own health diagnostics.
-    vector_defects = {
-        layer: {key: details.get(key, 0) for key in ("missing_vectors", "orphan_vectors")}
-        for layer, details in (health["state_store"].get("chunk_index") or {}).items()
-        if details.get("missing_vectors") or details.get("orphan_vectors")
-    }
-    if vector_defects:
-        diagnostics.append(_diagnostic(
-            "vector_population_mismatch",
-            "Canonical chunks and vectors differ: " + json.dumps(vector_defects, sort_keys=True)
-            + ". Run an index update to reconcile the native vector population.",
-            recovery_tools=["index_build"], recovery_usage="index_build(content='all', mode='update')",
-        ))
-    # Wave 1x6ti (1x551): the reap's persisted deferral / preservation record,
-    # the same reader index_build_status uses, plus one diagnostic per
-    # non-empty map (a deferral the operator must act on; a preserved subtree
-    # served as of the last readable build).
-    _reap_block = _reap_state_block(index.root)
-    if _reap_block is not None:
-        health["reap"] = _reap_block
-        diagnostics.extend(_reap_state_diagnostics(_reap_block))
-    # 1sbfj: coverage advisory — a structurally-sound store whose chunk
-    # registry/FTS covers fewer rows than the canonical SQLite tables, so retrieval
-    # is running partially blind (the field defect read as `integrity: ok`).
-    # The next index build heals it (the reconcile backfills from canonical chunks,
-    # including on zero-change builds).
-    _uncovered = [
-        f"{t} (registry {c.get('registry_rows')} of {c.get('vector_rows')} vector rows)"
-        for t, c in (health["state_store"].get("chunk_index") or {}).items()
-        if c.get("covered") is False and not c.get("missing_vectors") and not c.get("orphan_vectors")
-    ]
-    if _uncovered:
-        diagnostics.append(
-            _diagnostic(
-                "chunk_index_undercovered",
-                "The derived chunk index (FTS/registry) covers materially less than the "
-                "Vector layers: " + "; ".join(sorted(_uncovered)) + ". Lexical (BM25) "
-                "retrieval is running partially blind until it heals. Rebuild the derived "
-                "lexical layer directly (embedding-free, seconds): "
-                "index_build(content='fts') — or any ordinary build backfills it.",
-                recovery_tools=["index_build", "index_build_status"],
-                recovery_usage="index_build(content='fts')",
-            )
-        )
-    # 1wngv (wave 1wpif): same-ID/distinct-content collisions detected by the
-    # store-layer census at the last derived rebuild. This fires BEFORE the
-    # coverage numbers can read as complete: one id maps to multiple
-    # different chunks, and the registry/FTS layer keeps only one of them.
-    _colliding = [
-        f"{t} ({c.get('id_collisions')} colliding id(s))"
-        for t, c in (health["state_store"].get("chunk_index") or {}).items()
-        if c.get("id_collisions")
-    ]
-    if _colliding:
-        diagnostics.append(
-            _diagnostic(
-                "chunk_id_collisions",
-                "The derived chunk index recorded same-ID/distinct-content collisions at "
-                "its last rebuild: " + "; ".join(sorted(_colliding)) + ". One id maps to "
-                "multiple different chunks, so the registry/FTS layer keeps only one of "
-                "them and derived-state coverage is NOT complete for the colliding "
-                "content. A full rebuild under the current chunker clears chunker-emitted "
-                "collisions: index_build(content='all', mode='rebuild').",
-                recovery_tools=["index_build", "index_build_status"],
-                recovery_usage="index_build(content='all', mode='rebuild')",
-            )
-        )
-    # 1wpag (wave 1wpif): FTS liveness / parity / keyed-integrity verdict per
-    # table (the epoch-cached result the serving chokepoint uses). Damage means
-    # code_lexical returns typed query_failed and the hybrid tools carry
-    # lexical_undercoverage until the next ordinary build heals the table.
-    _fts_damaged = [
-        f"{t} ({v.get('reason')}; fts_rows={v.get('fts_rows')}, registry_rows={v.get('registry_rows')})"
-        for t, v in (health["state_store"].get("fts") or {}).items()
-        if v.get("ok") is False and v.get("reason") in _FTS_DAMAGE_REASONS
-    ]
-    if _fts_damaged:
-        diagnostics.append(
-            _diagnostic(
-                "fts_integrity_failed",
-                "The derived FTS5 lexical state failed its liveness/parity/keyed-integrity "
-                "probe: " + "; ".join(sorted(_fts_damaged)) + ". Lexical retrieval "
-                "(code_lexical, the hybrid FTS half, the degraded fallbacks) reports typed "
-                "query_failed / lexical_undercoverage instead of a healthy zero until the "
-                "next ordinary build heals the table under the build lock (one heal per "
-                "table per epoch): index_build(content='all', mode='update').",
-                recovery_tools=["index_build", "index_build_status"],
-                recovery_usage="index_build(content='all', mode='update')",
-            )
-        )
-
-    if health["state_store"].get("integrity") == "structural-fail":
-        # Retain concurrent findings (including FTS damage), but never suggest
-        # competing writes while the canonical store needs explicit recovery.
-        for diagnostic in diagnostics:
-            diagnostic["message"] = (
-                "Additional finding: " + diagnostic["code"].replace("_", " ")
-                + ". Details remain in the health data. Canonical storage recovery "
-                "takes precedence over other index maintenance."
-            )
-            diagnostic["recovery_tools"] = ["wf_help"]
-            diagnostic["recovery_usage"] = preserve_usage
-        diagnostics.insert(0, _diagnostic(
-            "state_store_structural_fail",
-            "The canonical index store failed its structural integrity check. " + preserve_usage,
-            recovery_tools=["wf_help"], recovery_usage=preserve_usage,
-        ))
-        next_tools, usage = ["wf_help"], preserve_usage
-    elif lock_info.get("held") or background_build_status == "running":
-        next_tools, usage = ["index_build_status"], "index_build_status()"
-    elif health.get("chunker_version_mismatch_layers"):
-        next_tools, usage = ["index_build"], rebuild_usage
-    elif health.get("missing_layers") or overview in {"absent", "incomplete", "degraded"}:
-        next_tools, usage = ["wf_help"], setup_usage
-    elif health.get("stale_layers") or not health.get("semantic_ready"):
-        next_tools, usage = ["index_build"], update_usage
-    else:
-        next_tools, usage = ["docs_search"], "docs_search(query='...')"
-    return _response("ok", health, diagnostics=diagnostics, next_tools=next_tools, usage=usage)
 
 
 @_fail_closed_on_record_layout("wf_audit")
@@ -10268,795 +8284,23 @@ def wf_audit_response(
     )
 
 
-def wf_validate_docs_response(root: Path) -> dict[str, Any]:
-    result = run_validate(root)
-    status = "ok" if result["passed"] else "error"
-    diagnostics = [
-        _diagnostic("docs_lint_error", error, recovery_tools=["wf_validate_docs"])
-        for error in result["errors"]
-    ] + [
-        _diagnostic("docs_lint_warning", warning, recovery_tools=["wf_validate_docs"], advisory=True)
-        for warning in result["warnings"]
-    ]
-    return _response(
-        status,
-        result,
-        diagnostics=diagnostics,
-        next_tools=["wf_garden_docs"] if result["passed"] else ["wf_help"],
-        usage="wf_garden_docs()" if result["passed"] else "wf_help(goal='maintain_framework')",
-    )
 
 
 # --- Wave 1p35d (1p35h): install-time audit tool ---
 
 
-def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[str, Any]:
-    """Run the three-check install audit and return the first failure or the next step.
-
-    Check sequence (stops on first failure):
-      0. resolve and parse the install log.
-      1. docs-lint — block on real findings while carrying expected pending absences.
-      2. checked-row artifact validation — for every ``[x]`` row, verify its
-         expected artifact exists on disk. Mismatch surfaces the agent-recovery
-         path.
-      3. first unchecked row — when both checks pass, return the next pending
-         row with its seed pointer and the instruction to mark ``[x]`` and
-         re-call. When no pending rows remain, return ``status: complete``.
-
-    The ``phase`` argument optionally limits the audit (and the next-step return)
-    to a single phase. Missing log file returns an actionable error pointing at
-    ``install-wavefoundry.md``.
-    """
-    # Local import to avoid a hard cycle if install_log_lib later imports
-    # from server_impl (it currently doesn't, but defensive).
-    import install_log_lib
-
-    log_text = install_log_lib.read_install_log(root)
-    if log_text is None:
-        return _response(
-            "error",
-            {
-                "status": "missing_log",
-                "expected_path": str(root / install_log_lib.INSTALL_LOG_REL_PATH),
-            },
-            diagnostics=[
-                _diagnostic(
-                    "install_log_missing",
-                    (
-                        "No install log at .wavefoundry/install-log.md. "
-                        "If this is a fresh install, copy the template at "
-                        ".wavefoundry/framework/install/install-log.template.md to "
-                        ".wavefoundry/install-log.md (substitute {{generated_at}} with "
-                        "today's date), then re-call wf_audit_install. See "
-                        "install-wavefoundry.md at the repo root for bootstrap "
-                        "instructions."
-                    ),
-                    recovery_tools=[],
-                )
-            ],
-            next_tools=[],
-            usage="wf_audit_install()",
-        )
-
-    rows = install_log_lib.parse_log(log_text)
-
-    # Wave 1p9bh: a present log that parsed to ZERO rows is corrupted (typically a non-UTF-8 write
-    # mojibake'd the em-dash row separators). Fail loudly here rather than sailing through CHECK 2/3 to a
-    # vacuous "complete" (the empty-input vacuous-truth defect).
-    if install_log_lib.is_unparseable(log_text, rows):
-        return _response(
-            "error",
-            {
-                "status": "unparseable_log",
-                "expected_path": str(root / install_log_lib.INSTALL_LOG_REL_PATH),
-                "next_action": (
-                    "The install log exists but no rows could be parsed — its row separators are "
-                    "likely mojibake from a non-UTF-8 write. Rewrite it as UTF-8 (the framework "
-                    "install-log writer, or an explicit `-Encoding utf8` write on Windows PowerShell), "
-                    "then re-call wf_audit_install. Do NOT treat the install as complete."
-                ),
-            },
-            diagnostics=[
-                _diagnostic(
-                    "install_log_unparseable",
-                    (
-                        "Install log present but zero rows parsed — likely an encoding corruption "
-                        "(a non-UTF-8 write mojibake'd the em-dash row separators). Rewrite as UTF-8."
-                    ),
-                    recovery_tools=["wf_audit_install"],
-                )
-            ],
-            next_tools=[],
-            usage="wf_audit_install()",
-        )
-
-    # CHECK 1 — docs-lint. Expected missing future artifacts are carried as
-    # pending context; every other finding still blocks advancement.
-    lint_result = run_validate(root)
-    lint_errors = list(lint_result.get("errors", []))
-    # Wave 1wuju (QA-DEL-2): a synthesized verdict-gap entry bypasses the
-    # expected-absence classifier below (RTD-1 again: its tail may quote an
-    # absence-marker phrase and it can never be deferred).
-    verdict_gap_errors = [e for e in lint_errors if e.startswith(DOCS_LINT_VERDICT_GAP_PREFIX)]
-    classifiable_errors = [e for e in lint_errors if not e.startswith(DOCS_LINT_VERDICT_GAP_PREFIX)]
-    # Wave 1wuju (1wujs AC-1; delivery review ARCH-DEL-2): the install audit runs
-    # the full-corpus lint, which includes docs/waves, so an advisory sensor's
-    # finding on an activated carrier surfaces here too, flagged and non-blocking.
-    lint_warning_diagnostics = _docs_lint_warning_diagnostics(
-        lint_result, recovery_tools=["wf_audit_install", "wf_validate_docs"]
-    )
-    blocking, expected_pending = install_log_lib.classify_lint_errors(
-        classifiable_errors, rows, root
-    )
-    # Wave 1wybs (1wybr): the 1viyu passed-false-with-no-errors branch that
-    # used to sit here is unreachable, because run_validate synthesizes a
-    # verdict-gap entry on every non-zero exit and its timeout branch returns
-    # an error entry; the real-parser test in the lifecycle suite proves that
-    # contract end to end (RTD-1: the entry is never deferred).
-    blocking = [*verdict_gap_errors, *blocking]
-    pending_cap = 25
-    pending_lint = {
-        "count": len(expected_pending),
-        "errors": expected_pending[:pending_cap],
-        "truncated": len(expected_pending) > pending_cap,
-        "note": (
-            "These missing artifacts are expected while Phase 2 seed rows remain pending; "
-            "they become blocking at the final install gate."
-        ),
-    }
-    if blocking:
-        return _response(
-            "error",
-            {
-                "status": "lint_errors",
-                "phase": phase,
-                "errors": blocking,
-                "warnings": lint_result.get("warnings", []),
-                "pending_lint": pending_lint,
-                "next_action": (
-                    "Fix the blocking docs-lint errors above before advancing the install log. "
-                    "After fixing, re-call wf_audit_install."
-                ),
-            },
-            diagnostics=[
-                _diagnostic(
-                    "docs_lint_error",
-                    error,
-                    recovery_tools=["wf_audit_install", "wf_validate_docs"],
-                )
-                for error in blocking
-            ] + lint_warning_diagnostics,
-            next_tools=["wf_audit_install"],
-            usage="wf_audit_install()",
-        )
-
-    scope_rows = install_log_lib.filter_phase(rows, phase)
-
-    # CHECK 2 — checked-row artifact validation. Block on missing artifacts.
-    missing = install_log_lib.checked_rows_missing_artifact(scope_rows, root)
-    if missing:
-        first_row, first_path = missing[0]
-        first_display = _install_artifact_display(root, first_path)
-        return _response(
-            "error",
-            {
-                "status": "checked_but_missing",
-                "phase": phase,
-                "row": _install_audit_row_brief(first_row),
-                "expected_artifact": first_display,
-                "all_missing": [
-                    {
-                        "row": _install_audit_row_brief(r),
-                        "expected_artifact": _install_artifact_display(root, p),
-                    }
-                    for r, p in missing
-                ],
-                "pending_lint": pending_lint,
-                "next_action": (
-                    f"Row {first_row.number} is marked [x] but its expected artifact "
-                    f"({first_row.target}) does not exist at {first_display}. "
-                    f"Re-execute the step ({first_row.source}), confirm the artifact, "
-                    f"then re-call wf_audit_install."
-                ),
-            },
-            diagnostics=[
-                _diagnostic(
-                    "install_log_checked_but_missing",
-                    (
-                        f"Row {r.number} ({r.source}) marked [x] but artifact "
-                        f"{r.target!r} does not exist at {_install_artifact_display(root, p)}."
-                    ),
-                    recovery_tools=["wf_audit_install"],
-                )
-                for r, p in missing
-            ] + lint_warning_diagnostics,
-            next_tools=["wf_audit_install"],
-            usage="wf_audit_install()",
-        )
-
-    # CHECK 3 — first unchecked row, or complete.
-    next_row = install_log_lib.first_unchecked_row(scope_rows)
-    if next_row is None:
-        # All rows in scope are terminal.
-        complete_overall = install_log_lib.is_complete(rows)
-        return _response(
-            "ok",
-            {
-                "status": "complete" if complete_overall else "phase_complete",
-                "phase": phase,
-                "message": (
-                    "Install complete: every row is [x] or [~]."
-                    if complete_overall
-                    else f"Phase {phase} complete; other phases still have pending rows."
-                ),
-                "pending_lint": pending_lint,
-            },
-            diagnostics=lint_warning_diagnostics or None,
-            next_tools=[],
-            usage="wf_audit_install()",
-        )
-
-    return _response(
-        "ok",
-        {
-            "status": "next_step",
-            "phase": phase,
-            "row": _install_audit_row_brief(next_row),
-            "instructions": (
-                f"Execute the step indicated by row {next_row.number} "
-                f"({next_row.source}: {next_row.slug}). When the expected outcome is "
-                f"reached, mark this row [x] in .wavefoundry/install-log.md and call "
-                f"wf_audit_install again."
-            ),
-            "pending_lint": pending_lint,
-        },
-        diagnostics=lint_warning_diagnostics or None,
-        next_tools=["wf_audit_install"],
-        usage="wf_audit_install()",
-    )
 
 
-def _install_audit_row_brief(row: Any) -> dict[str, Any]:
-    """Return a JSON-friendly summary of an install-log row."""
-    return {
-        "number": row.number,
-        "slug": row.slug,
-        "kind": row.kind,
-        "source": row.source,
-        "target": row.target,
-        "phase": row.phase,
-        "state": row.state,
-        # Wave 1p8gw: expose the parsed field classification so consumers can tell a stat-able artifact
-        # PATH apart from a prose verification DESCRIPTION (the description-as-path defect).
-        "field": getattr(row, "field", None),
-        "artifact_path": getattr(row, "artifact_path", None),
-        "description": getattr(row, "description", None),
-    }
 
 
-def wf_garden_docs_response(root: Path, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    if (mode or "").strip().lower() == "dry_run":
-        return _response(
-            "ok",
-            {"mode": "dry_run", "skipped": True},
-            diagnostics=[_diagnostic(
-                "dry_run",
-                "Pass mode='run' to execute the docs gardener.",
-                recovery_tools=[],
-                recovery_usage="wf_garden_docs(mode='run')",
-            )],
-            next_tools=["wf_garden_docs"],
-            usage="wf_garden_docs(mode='run')",
-        )
-    with project_state_publication_lock(root):
-        result = run_garden(root)
-    status = "ok" if result["passed"] else "error"
-    diagnostics = [] if result["passed"] else [
-        _diagnostic(
-            "docs_gardener_failed",
-            result["output"].strip() or "docs_gardener failed",
-            recovery_tools=["wf_validate_docs"],
-            recovery_usage="wf_validate_docs()",
-        )
-    ]
-    # 1ro43 Req 7: gardening has a drift worklist — point at it. The gardener's
-    # `Last verified` stamps are mechanical and carry no verification meaning;
-    # drift disposal is a deliberate review recorded via `Verified against:`.
-    if result["passed"]:
-        try:
-            _drift = _load_script("index_state_store").drift_worklist(
-                root / ".wavefoundry" / "index", limit=3
-            )
-            if _drift.get("flagged_count", 0) > 0:
-                diagnostics.append(_diagnostic(
-                    "doc_code_drift_flagged",
-                    (
-                        f"{_drift['flagged_count']} living doc(s) are drift-flagged (gardener "
-                        "stamps do NOT clear drift — only a doc content update or a deliberate "
-                        "`Verified against: <hex-sha>` review stamp resets the clock). See "
-                        "wf_audit's `doc_drift` worklist for the ordered entries."
-                    ),
-                    recovery_tools=["wf_audit"],
-                    recovery_usage="wf_audit()",
-                ))
-        except Exception:
-            pass
-    if cache and result["passed"]:
-        cache.invalidate()
-    if result["passed"] and result.get("files_updated", 0):
-        _trigger_background_index_refresh_for_paths(root, ["docs/"])
-    return _response(
-        status,
-        result,
-        diagnostics=diagnostics,
-        next_tools=["wf_validate_docs", "wf_sync_surfaces"] if result["passed"] else ["wf_validate_docs"],
-        usage="wf_sync_surfaces()" if result["passed"] else "wf_validate_docs()",
-    )
 
 
-def wf_sync_surfaces_response(root: Path, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    if (mode or "").strip().lower() == "dry_run":
-        return _response(
-            "ok",
-            {"mode": "dry_run", "skipped": True},
-            diagnostics=[_diagnostic(
-                "dry_run",
-                "Pass mode='run' to execute render_platform_surfaces.",
-                recovery_tools=[],
-                recovery_usage="wf_sync_surfaces(mode='run')",
-            )],
-            next_tools=["wf_sync_surfaces"],
-            usage="wf_sync_surfaces(mode='run')",
-        )
-    result = run_sync_surfaces(root)
-    status = "ok" if result["passed"] else "error"
-    diagnostics = [] if result["passed"] else [
-        _diagnostic(
-            "render_platform_surfaces_failed",
-            result["output"].strip() or "render_platform_surfaces failed",
-            recovery_tools=["wf_validate_docs"],
-            recovery_usage="wf_validate_docs()",
-        )
-    ]
-    if cache and result["passed"]:
-        cache.invalidate()
-    envelope = _response(
-        status,
-        result,
-        diagnostics=diagnostics,
-        next_tools=["wf_validate_docs"],
-        usage="wf_validate_docs()",
-    )
-    # wf_sync_surfaces is a write-side tool (renders host config + native
-    # wrappers); attach lint regardless of mode_s for consistency with other
-    # gated tools.
-    mode_for_lint = "create" if status != "dry_run" else "dry_run"
-    return _attach_lint_to_response(envelope, root, mode_for_lint)
 
 
-def _index_optimize_response(
-    root: Path,
-    content: str = "all",
-    rebuild_if_needed: bool = True,
-    cache: Optional[McpRepoCache] = None,
-) -> dict[str, Any]:
-    """Maintain the shared SQLite index and graph store once under the build lock.
-
-    Preserve per-layer statistics and per-store integrity results. Reclaim free
-    pages incrementally without re-embedding or routinely rewriting the database.
-    """
-    content_s = (content or "all").strip().lower()
-    layer_map = {"docs": ("docs",), "code": ("code",), "all": ("docs", "code"), "": ("docs", "code")}
-    tables = layer_map.get(content_s)
-    if tables is None:
-        return _response(
-            "error",
-            {"content": content, "operation": "optimize"},
-            diagnostics=[_diagnostic(
-                "invalid_arguments",
-                f"index_optimize's content selects the vector layers — it must be 'docs', 'code', or "
-                f"'all' (got {content!r}). The shared SQLite index is maintained once "
-                f"alongside whichever vector selection runs.",
-            )],
-            next_tools=["index_health"],
-            usage="index_optimize(content='all')",
-        )
-    index_dir = root / ".wavefoundry" / "index"
-    idx = _load_script("indexer")
-    already_running = getattr(idx, "IndexBuildAlreadyRunning", None)
-    try:
-        results = idx.optimize_index_tables(index_dir, tuple(tables))
-    except Exception as exc:  # noqa: BLE001
-        if already_running is not None and isinstance(exc, already_running):
-            return _response(
-                "error",
-                {"content": content_s, "operation": "optimize"},
-                diagnostics=[_diagnostic(
-                    "build_skipped_lock_busy",
-                    f"A build is already running ({exc}). Call index_build_status and read the "
-                    f"`lock` object; retry index_optimize once `held` is false.",
-                    recovery_tools=["index_build_status"],
-                    recovery_usage="index_build_status()",
-                )],
-                next_tools=["index_build_status"],
-                usage="index_build_status()",
-            )
-        return _response(
-            "error",
-            {"content": content_s, "operation": "optimize"},
-            diagnostics=[_diagnostic("index_optimize_failed", f"Optimize failed: {exc}")],
-            next_tools=["index_health"],
-            usage="index_health()",
-        )
-    maintenance_failure = _sqlite_maintenance_failure(results)
-    stores_out: dict[str, Any] = {}
-    store_diagnostics: list[dict[str, Any]] = []
-    stores_reclaimed = 0
-    try:
-        raw_stores = results.pop("stores", {})
-        for name, res in raw_stores.items():
-            s_before = int(res.get("size_before_bytes") or 0)
-            s_after = int(res.get("size_after_bytes") or 0)
-            s_reclaimed = int(res.get("reclaimed_bytes") or 0)
-            stores_reclaimed += s_reclaimed
-            stores_out[name] = {
-                **res,
-                "present": bool(res.get("present")),
-                "integrity": res.get("integrity"),
-                "size_before_bytes": s_before,
-                "size_before": _human_bytes(s_before),
-                "size_after_bytes": s_after,
-                "size_after": _human_bytes(s_after),
-                "reclaimed_bytes": s_reclaimed,
-                "reclaimed": _human_bytes(s_reclaimed),
-                "error": res.get("error"),
-            }
-            if res.get("present") and res.get("integrity") == "structural-fail":
-                store_diagnostics.append(_diagnostic(
-                    "state_store_structural_fail",
-                    (f"SQLite store '{name}' failed its integrity check. "
-                     "Preserve index.sqlite and any -wal/-shm companions before explicit "
-                     "recovery; a pending migration must follow its retained receipt. "
-                     "The shared semantic store is not automatically discarded."
-                     if name == "index-state" else
-                     f"SQLite store '{name}' failed its integrity check; rebuild the derived graph store."),
-                    recovery_tools=["index_health"] if name == "index-state" else ["index_build"],
-                    recovery_usage="index_health()" if name == "index-state" else "index_build(content='graph', mode='rebuild')",
-                ))
-    except Exception as exc:  # noqa: BLE001
-        if already_running is not None and isinstance(exc, already_running):
-            store_diagnostics.append(_diagnostic(
-                "build_skipped_lock_busy",
-                f"SQLite store maintenance skipped — a build is running ({exc}). Retry once "
-                f"index_build_status reports lock.held false.",
-                recovery_tools=["index_build_status"],
-                recovery_usage="index_build_status()",
-            ))
-        else:
-            store_diagnostics.append(_diagnostic(
-                "state_store_maintenance_failed", f"SQLite store maintenance failed: {exc}",
-            ))
-    if maintenance_failure:
-        return _response(
-            "error",
-            {"content": content_s, "operation": "optimize", "tables": {}, "stores": stores_out,
-             "error": maintenance_failure, "total_reclaimed_bytes": stores_reclaimed,
-             "total_reclaimed": _human_bytes(stores_reclaimed)},
-            diagnostics=store_diagnostics + [_diagnostic(
-                "state_store_maintenance_failed", maintenance_failure,
-                recovery_tools=["index_health"], recovery_usage="index_health()",
-            )],
-            next_tools=["index_health"], usage="index_health()",
-        )
-    if not results:
-        return _response(
-            "ok",
-            {"content": content_s, "operation": "optimize", "tables": {},
-             "stores": stores_out,
-             "total_reclaimed_bytes": stores_reclaimed,
-             "total_reclaimed": _human_bytes(stores_reclaimed),
-             "note": "No matching vector layers present to optimize."},
-            diagnostics=store_diagnostics,
-            next_tools=["index_health"],
-            usage="index_health()",
-        )
-    # Independent-review N2: the restore-only refusal is a top-level
-    # {"error": str}; iterating it as per-table dicts raised AttributeError.
-    if isinstance(results.get("error"), str):
-        return _response(
-            "error",
-            {"error": results["error"]},
-            diagnostics=[_diagnostic(
-                _REASON_INDEX_NOT_READY,
-                results["error"],
-                recovery_tools=["index_build"],
-                recovery_usage="index_build(content='all')",
-            )],
-            next_tools=["index_build"],
-            usage="index_build(content='all')",
-        )
-    # 1sed6: a dirty optimize deliberately leaves the epoch un-finalized —
-    # surface that as a diagnostic instead of listing "finalize" as a table.
-    results.pop("finalize", None)
-    tables_out: dict[str, Any] = {}
-    needs_rebuild: list[str] = []
-    total_before = 0
-    total_after = 0
-    for t, res in results.items():
-        if not isinstance(res, dict):
-            continue
-        before = int(res.get("bytes_before") or 0)
-        after = int(res.get("bytes_after") or 0)
-        total_before += before
-        total_after += after
-        reclaimed = max(0, before - after)
-        tables_out[t] = {
-            "tier": res.get("tier"),
-            "rows": res.get("rows"),
-            "needs_rebuild": bool(res.get("needs_rebuild")),
-            "size_before_bytes": before,
-            "size_before": _human_bytes(before),
-            "size_after_bytes": after,
-            "size_after": _human_bytes(after),
-            "reclaimed_bytes": reclaimed,
-            "reclaimed": _human_bytes(reclaimed),
-            "error": res.get("error"),
-        }
-        if res.get("needs_rebuild"):
-            needs_rebuild.append(t)
-    if cache:
-        cache.invalidate()
-    diagnostics = list(store_diagnostics)
-    rebuilt: list[str] = []
-    if needs_rebuild and rebuild_if_needed:
-        # Tier 3: a table was unreadable for a rewrite. The build lock is released now (optimize_index_tables
-        # exited its `with`), so spawn a full re-embed rebuild for each — run_index_rebuild is
-        # background + single-flight.
-        for layer in needs_rebuild:
-            try:
-                run_index_rebuild(root, content=layer, full=True, rechunk=False, layer="project")
-                rebuilt.append(layer)
-            except Exception as exc:  # noqa: BLE001
-                diagnostics.append(_diagnostic(
-                    "index_rebuild_spawn_failed",
-                    f"Table '{layer}' needs a rebuild but the rebuild spawn failed ({exc}). "
-                    f"Run index_build(content='{layer}', mode='rebuild').",
-                ))
-        if rebuilt:
-            diagnostics.append(_diagnostic(
-                "index_optimize_rebuild_spawned",
-                f"Tables {rebuilt} were unreadable (Tier 3) and a full rebuild was spawned in the "
-                f"background. Poll index_build_status.",
-                recovery_tools=["index_build_status"],
-                recovery_usage="index_build_status()",
-            ))
-    elif needs_rebuild:
-        diagnostics.append(_diagnostic(
-            "index_optimize_needs_rebuild",
-            f"Tables {needs_rebuild} were unreadable (Tier 3) and need a full rebuild. "
-            f"Run index_build(content='{needs_rebuild[0]}', mode='rebuild').",
-            recovery_tools=["index_build"],
-            recovery_usage=f"index_build(content='{needs_rebuild[0]}', mode='rebuild')",
-        ))
-    total_reclaimed = max(0, total_before - total_after) + stores_reclaimed
-    return _response(
-        "ok",
-        {
-            "content": content_s,
-            "operation": "optimize",
-            "tables": tables_out,
-            "stores": stores_out,
-            "total_reclaimed_bytes": total_reclaimed,
-            "total_reclaimed": _human_bytes(total_reclaimed),
-            "needs_rebuild": needs_rebuild,
-            "rebuild_spawned": rebuilt,
-        },
-        diagnostics=diagnostics,
-        next_tools=["index_health"],
-        usage="index_health()",
-    )
 
 
-def index_build_response(
-    root: Path,
-    *,
-    content: str = "docs",
-    mode: str = "update",
-    layer: str = "project",
-    cache: Optional[McpRepoCache] = None,
-) -> dict[str, Any]:
-    content_s = (content or "").strip().lower()
-    layer_s = (layer or "").strip().lower()
-    mode_s = (mode or "").strip().lower()
-    if mode_s not in {"update", "rebuild", "rechunk"}:
-        return _response(
-            "error",
-            {"content": content, "mode": mode, "layer": layer},
-            diagnostics=[
-                _diagnostic(
-                    "invalid_arguments",
-                    f"Unsupported mode {mode!r}. Use 'update' (incremental, changed files only), "
-                    "'rechunk' (re-chunk every file but reuse embeddings by hash — only new/changed "
-                    "chunks re-embed), or 'rebuild' (full re-embed from scratch). To reclaim on-disk "
-                    "bloat without re-embedding, use index_optimize().",
-                    recovery_tools=["index_optimize", "wf_help"],
-                    recovery_usage="wf_help(goal='refresh_semantic_index')",
-                )
-            ],
-            next_tools=["index_optimize", "wf_help"],
-            usage="wf_help(goal='refresh_semantic_index')",
-        )
-    import sqlite_runtime as runtime
-    full = mode_s == "rebuild"
-    rechunk = mode_s == "rechunk"
-    try:
-        result = run_index_rebuild(root, content=content_s, full=full, rechunk=rechunk, layer=layer_s)
-    except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
-        return _index_runtime_failure_response(
-            "index_build", root, {"content": content, "mode": mode_s, "layer": layer}, exc)
-    except ValueError as exc:
-        return _response(
-            "error",
-            {"content": content, "mode": mode_s, "layer": layer},
-            diagnostics=[
-                _diagnostic(
-                    "invalid_arguments",
-                    str(exc),
-                    recovery_tools=["wf_help"],
-                    recovery_usage="wf_help(goal='maintain_framework')",
-                )
-            ],
-            next_tools=["wf_help"],
-            usage="wf_help(goal='maintain_framework')",
-        )
-    # Only invalidate the cache when a rebuild was actually spawned and the
-    # subprocess survived the verification window — not for up-to-date,
-    # already-running, or early-exit short-circuits.
-    if (
-        cache
-        and not result.get("up_to_date")
-        and not result.get("already_running")
-        and not result.get("build_failed_early")
-    ):
-        cache.invalidate()
-    diagnostics = []
-    if result.get("already_running"):
-        diagnostics.append(_diagnostic(
-            "index_build_already_running",
-            result["notice"],
-            recovery_tools=["index_health"],
-            recovery_usage="index_health()",
-        ))
-    # Wave 1p2q3 (1p2w5): synchronous Popen-verification surfaced a subprocess
-    # early-exit. Emit a `build_skipped_lock_busy` (or
-    # `index_build_subprocess_failed`) diagnostic carrying the lock-holder pid
-    # so the caller sees a clear actionable recovery path instead of a
-    # misleading success response.
-    if result.get("build_failed_early"):
-        _failure_code = str(result.get("diagnostic_code") or "index_build_subprocess_failed")
-        _failure_message = str(result.get("notice") or "Index rebuild subprocess exited early.")
-        if result.get("lock_owner_pid"):
-            _failure_message = (
-                f"{_failure_message} Recovery: call index_build_status and read the `lock` object — "
-                f"if `held` is true a build is running, so wait; if it is not held (stale), the lock is "
-                f"reclaimed automatically on the next build, so just retry index_build. Do not "
-                f"delete the lock file — it persists by design and its presence does not mean a build is running."
-            )
-        diagnostics.append(_diagnostic(
-            _failure_code,
-            _failure_message,
-            recovery_tools=["index_build_status", "index_build"],
-            recovery_usage="index_build_status()",
-        ))
-    # Wave 13129 (1316n): surface graph state regardless of content. Operators
-    # running content='code'|'docs'|'all' need to see the graph wasn't touched
-    # (a consumer's misread on 1.2.1+315o). When content is not 'graph', append a
-    # clarifying note pointing at content='graph' for graph refresh.
-    graph_health = _graph_health_summary(root)
-    target_layer = "project"
-    layer_graph = graph_health.get(target_layer, {})
-    if layer_graph.get("present"):
-        result["graph_node_count"] = layer_graph.get("node_count")
-        result["graph_edge_count"] = layer_graph.get("edge_count")
-        result["graph_last_built_at"] = layer_graph.get("last_built_at")
-    if content_s != "graph":
-        result["graph_rebuilt"] = False
-        existing_notice = str(result.get("notice") or "")
-        graph_callout = (
-            " | NOTE: The graph layer was NOT rebuilt by this call. "
-            "Run index_build(content='graph') if graph-layer refresh is required."
-        )
-        if graph_callout not in existing_notice:
-            result["notice"] = (existing_notice + graph_callout).strip(" |")
-    else:
-        # Wave 1p2q3 (1p2w5): graph_rebuilt reflects whether a rebuild actually
-        # ran. A subprocess early-exit (lock-busy) means the rebuild never
-        # happened despite the spawn; do not claim graph_rebuilt: true.
-        result["graph_rebuilt"] = not (
-            result.get("already_running")
-            or result.get("up_to_date")
-            or result.get("build_failed_early")
-        )
-        # Wave 1p2q3 (131hh): explicit graph rebuild — notify MCP clients that
-        # cached wavefoundry://graph/* resources may be stale. Skip when the
-        # request was already-running, up-to-date, or failed early (no rebuild
-        # fired in any of those cases).
-        if result["graph_rebuilt"]:
-            _dispatch_graph_resources_updated(root=root, layer=target_layer)
-    return _response(
-        "ok" if not result.get("build_failed_early") else "error",
-        result,
-        diagnostics=diagnostics,
-        next_tools=["index_health"],
-        usage="index_health()",
-    )
 
 
-def _index_build_lock_info(root: Path) -> dict[str, Any]:
-    """Authoritative index-build lock status (wave 1p99o).
-
-    ``held`` is determined by **non-destructively testing the real OS lock**
-    (``indexer._index_build_lock_held`` — POSIX ``fcntl`` ``F_GETLK`` / native Windows momentary
-    ``msvcrt``), never from file presence. The lock FILE persists **by design** as a last-owner record,
-    so ``present: true`` does not imply a build is running — read ``held``. ``ended_at`` (best-effort,
-    written on a clean build exit) distinguishes a clean finish from an **interrupted** build (a hard
-    kill can't write it). Plain terminology only — no "zombie"."""
-    index_dir = root / ".wavefoundry" / "index"
-    lock_path = index_dir / "index-build.lock"
-    info: dict[str, Any] = {
-        "held": False,
-        "present": False,
-        "owner_pid": None,
-        "owner_cmdline": None,
-        "started_at": None,
-        "ended_at": None,
-        "note": "No index-build lock file is present; no build is running.",
-    }
-    try:
-        idx = _indexer_module()
-        present = lock_path.exists()
-        info["present"] = present
-        if not present:
-            return info
-        meta = idx.read_index_build_lock_metadata(lock_path)
-        held, holder_pid = idx._index_build_lock_held(index_dir)
-    except Exception:  # noqa: BLE001 — best-effort; status must never break
-        return info
-    meta = meta if isinstance(meta, dict) else {}
-    started_at = meta.get("started_at") if isinstance(meta.get("started_at"), (int, float)) else None
-    ended_at = meta.get("ended_at") if isinstance(meta.get("ended_at"), (int, float)) else None
-    cmdline = meta.get("cmdline") if isinstance(meta.get("cmdline"), str) else None
-    meta_pid = meta.get("pid") if isinstance(meta.get("pid"), int) else None
-    info["started_at"] = started_at
-    info["ended_at"] = ended_at
-    info["owner_cmdline"] = cmdline
-    # Prefer the kernel-reported holder PID when held (ground truth); else the last recorded owner.
-    info["owner_pid"] = holder_pid if (held and holder_pid) else meta_pid
-    info["held"] = bool(held)
-    if held:
-        info["note"] = f"A build is running (owner pid {info['owner_pid']})."
-    elif held is None:
-        info["note"] = (
-            "The lock state could not be determined; treat it as not held — the acquire-time lock is "
-            "the authority. The lock file's presence does not mean a build is running."
-        )
-    elif ended_at is not None:
-        info["note"] = (
-            "The last build finished cleanly; the lock is not held. The lock file persists as a "
-            "last-owner record — its presence does not mean a build is running."
-        )
-    elif started_at is not None:
-        info["note"] = (
-            "The last build did NOT finish cleanly (interrupted or killed) — the index may be partial; "
-            "consider a rebuild. The lock file persists by design; its presence does not mean a build "
-            "is running."
-        )
-    else:
-        info["note"] = (
-            "A lock file is present but has no recorded owner; the lock is not held. Its presence does "
-            "not mean a build is running."
-        )
-    return info
 
 
 def _reap_state_block(root: Path) -> Optional[dict[str, Any]]:
@@ -11119,1938 +8363,62 @@ def _reap_state_diagnostics(block: Optional[dict[str, Any]]) -> list[dict[str, A
     return out
 
 
-def index_build_status_response(root: Path, layer: str = "project") -> dict[str, Any]:
-    """Wrapper (wave 1p99o): attach the authoritative ``lock`` object to every return path so callers
-    ask the classifier, not the by-design-persistent lock file, whether a build is running.
 
-    1sed6 review fix: also attach the store's build ``epoch`` on every return
-    path, and never report ``idle`` over a non-complete epoch — a builder that
-    died between fence and finalize is ``interrupted`` (readers are failed
-    closed), which callers must see to know a rebuild is required.
-    """
-    resp = _index_build_status_response_inner(root, layer=layer)
-    data = resp.get("data")
-    if isinstance(data, dict):
-        # Read order matters (review F5): epoch state FIRST, lock second, and
-        # a positive interrupted classification re-reads the state — so a
-        # build finalizing (or starting) between the two reads cannot yield a
-        # one-poll false "interrupted".
-        def _read_epoch() -> dict[str, Any]:
-            out: dict[str, Any] = {"status": "absent", "generation": None, "scope": ""}
-            try:
-                iss = _load_script("index_state_store")
-                state = iss.read_build_state(root / ".wavefoundry" / "index")
-                if state is not None:
-                    out = {
-                        "status": state.get("status"),
-                        "generation": state.get("generation"),
-                        "scope": state.get("scope", ""),
-                    }
-            except Exception:
-                pass
-            return out
-        epoch = _read_epoch()
-        lock_info = _index_build_lock_info(root)
-        data["lock"] = lock_info
-        held = bool(lock_info.get("held")) if isinstance(lock_info, dict) else False
-        if epoch.get("status") == "building" and not held:
-            epoch = _read_epoch()  # double-check: rule out a finalize between reads
-        epoch["interrupted"] = epoch.get("status") == "building" and not held
-        data["epoch"] = epoch
-        if data.get("state") == "idle" and epoch["interrupted"]:
-            data["state"] = "interrupted"
-            resp.setdefault("diagnostics", []).append(_diagnostic(
-                "index_build_interrupted",
-                "The store records a `building` epoch but no build holds the lock — a prior "
-                "builder died between fence and finalize. Readers are failed closed; run "
-                "index_build to recover (an unchanged retry heals the epoch).",
-                recovery_tools=["index_build"],
-                recovery_usage="index_build(content='all')",
-            ))
-        # Wave 1x6ti (1x551): the reap's deferral / preservation record rides
-        # EVERY state (finished, idle, running beside previous_stats, and
-        # interrupted), read from the store and never from the log; omitted
-        # when no record exists.
-        reap_block = _reap_state_block(root)
-        if reap_block is not None:
-            data["reap"] = reap_block
-    return resp
 
 
-def _index_build_status_response_inner(root: Path, layer: str = "project") -> dict[str, Any]:
-    import time as _time
-    layer_s = (layer or "").strip().lower()
-    # Wave 1p4ww: single project index — the framework layer is folded in.
-    if layer_s != "project":
-        return _response("error", {"layer": layer}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported layer '{layer}'. Use 'project'.")])
-    state_path = _index_build_state_path(root, layer_s)
-    log_path = _index_build_log_path(root, layer_s)
-    index_dir = state_path.parent
-    stale_locks_cleaned: list[dict[str, Any]] = []
-    background_status = _background_build_status(root) if layer_s == "project" else "none"
 
-    if not state_path.exists():
-        if background_status == "running":
-            pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
-            background_pid: Optional[int] = None
-            background_started_at: Optional[float] = None
-            try:
-                background_pid = int(pid_path.read_text(encoding="utf-8").strip())
-            except (OSError, ValueError):
-                background_pid = None
-            try:
-                background_started_at = pid_path.stat().st_mtime
-            except OSError:
-                background_started_at = None
-            now = _time.time()
-            background_elapsed = (
-                int(now - float(background_started_at))
-                if isinstance(background_started_at, (int, float))
-                else None
-            )
-            running_data: dict[str, Any] = {
-                "layer": layer_s,
-                "state": "running",
-                "source": "background",
-                "pid": background_pid,
-                "started_at": background_started_at,
-                "elapsed_seconds": background_elapsed,
-                "progress": _background_build_progress(root),
-            }
-            _running_prev = _read_index_build_stats_file(root, layer_s)
-            if _running_prev is not None:
-                running_data["previous_stats"] = _running_prev
-            if stale_locks_cleaned:
-                running_data["stale_locks_cleaned"] = stale_locks_cleaned
-            return _response(
-                "ok",
-                running_data,
-                next_tools=["index_build_status"],
-                usage="index_build_status()",
-            )
-        idle_data: dict[str, Any] = {"layer": layer_s, "state": "idle"}
-        if stale_locks_cleaned:
-            idle_data["stale_locks_cleaned"] = stale_locks_cleaned
-        return _response("ok", idle_data, next_tools=["index_build"], usage="index_build()")
 
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        _clear_index_build_state(root, layer_s)
-        idle_data = {"layer": layer_s, "state": "idle"}
-        if stale_locks_cleaned:
-            idle_data["stale_locks_cleaned"] = stale_locks_cleaned
-        return _response("ok", idle_data, next_tools=["index_build"], usage="index_build()")
 
-    pid = state.get("pid")
-    started_at = state.get("started_at")
-    now = _time.time()
-    elapsed = int(now - float(started_at)) if isinstance(started_at, (int, float)) else None
 
-    # Read log once — used for last_line (progress) and done-marker detection.
-    # Check log for completion marker before trusting _pid_is_running — the OS can
-    # recycle a PID to an unrelated process after the indexer exits, causing a false positive.
-    log_text = ""
-    last_line = ""
-    if log_path.exists():
-        try:
-            log_text = log_path.read_text(encoding="utf-8", errors="replace")
-            last_line = next((l.strip() for l in reversed(log_text.splitlines()) if l.strip()), "")
-        except OSError:
-            pass
-    # Either the "done — N files indexed" completion line or the "index is up to date"
-    # early-exit message counts as a terminal state. Without the second pattern, a zombie
-    # process (defunct on macOS) keeps reporting state="running" indefinitely because
-    # os.kill(pid, 0) succeeds on zombies until the parent reaps them.
-    log_done = bool(re.search(r"done\s*[—-]+\s*\d+\s+files? indexed", log_text)) or bool(
-        re.search(r"index is up to date", log_text)
-    )
 
-    if layer_s == "project" and background_status == "running":
-        pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
-        background_pid: Optional[int] = None
-        background_started_at: Optional[float] = None
-        try:
-            background_pid = int(pid_path.read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
-            background_pid = None
-        try:
-            background_started_at = pid_path.stat().st_mtime
-        except OSError:
-            background_started_at = None
-        background_elapsed = (
-            int(now - float(background_started_at))
-            if isinstance(background_started_at, (int, float))
-            else None
-        )
-        running_data: dict[str, Any] = {
-            "layer": layer_s,
-            "state": "running",
-            "source": "background",
-            "pid": background_pid,
-            "started_at": background_started_at,
-            "elapsed_seconds": background_elapsed,
-            "progress": _background_build_progress(root),
-        }
-        _running_prev = _read_index_build_stats_file(root, layer_s)
-        if _running_prev is not None:
-            running_data["previous_stats"] = _running_prev
-        if stale_locks_cleaned:
-            running_data["stale_locks_cleaned"] = stale_locks_cleaned
-        return _response(
-            "ok",
-            running_data,
-            next_tools=["index_build_status"],
-            usage="index_build_status()",
-        )
 
-    if not log_done and isinstance(pid, int) and _pid_is_running(pid):
-        running_data: dict[str, Any] = {
-            "layer": layer_s,
-            "state": "running",
-            "source": "foreground",
-            "mode": "rebuild" if state.get("full") else state.get("mode", "update"),
-            "pid": pid,
-            "started_at": started_at,
-            "elapsed_seconds": elapsed,
-            "progress": last_line,
-        }
-        _running_prev = _read_index_build_stats_file(root, layer_s)
-        if _running_prev is not None:
-            running_data["previous_stats"] = _running_prev
-        if stale_locks_cleaned:
-            running_data["stale_locks_cleaned"] = stale_locks_cleaned
-        return _response(
-            "ok",
-            running_data,
-            next_tools=["index_build_status"],
-            usage="index_build_status()",
-        )
 
-    # Process not running (or log confirms done) — build finished (or crashed). Parse summary from log.
-    _refresh_index_build_stats_from_finished_log(root, layer_s)
-    _clear_index_build_state(root, layer_s)
-    finished_at = None
-    if log_path.exists():
-        try:
-            finished_at = int(log_path.stat().st_mtime)
-        except OSError:
-            pass
-    finished_elapsed = int(float(finished_at) - float(started_at)) if finished_at and isinstance(started_at, (int, float)) else elapsed
 
-    files_indexed: Optional[int] = None
-    doc_chunks: Optional[int] = None
-    code_chunks: Optional[int] = None
-    if log_text:
-        m = re.search(r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?", log_text)
-        if m:
-            files_indexed, doc_chunks, code_chunks = int(m.group(1)), int(m.group(2)), int(m.group(3))
 
-    previous_stats = _read_index_build_stats_file(root, layer_s)
-    summary: dict[str, Any] = {"layer": layer_s, "state": "finished", "started_at": started_at, "finished_at": finished_at, "elapsed_seconds": finished_elapsed}
-    if files_indexed is not None:
-        summary.update({"files_indexed": files_indexed, "doc_chunks": doc_chunks, "code_chunks": code_chunks})
-    else:
-        summary["last_log_line"] = last_line
-    if previous_stats is not None:
-        summary["previous_stats"] = previous_stats
-    if stale_locks_cleaned:
-        summary["stale_locks_cleaned"] = stale_locks_cleaned
-    return _response("ok", summary, next_tools=["index_health"], usage="index_health()")
 
 
-def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str, Any]:
-    """Start the local dashboard server (with browser open) or return its URL if already running."""
-    import subprocess
-    import time as _time
-    import dashboard_lib
 
-    # Wave 1rswx: reap finished dashboard children on entry so a prior crashed instance's zombie can't
-    # linger and can't be misread by the reconcile/liveness checks below.
-    _reap_dashboard_child_pids()
 
-    meta_path = dashboard_lib.dashboard_metadata_path(root)  # 1p64x: the server lock file
 
-    def running_meta() -> dict[str, Any] | None:
-        if not meta_path.exists():
-            return None
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            pid = meta.get("pid")
-            url = meta.get("url", "")
-            # Wave 1p654: require the PID be a live dashboard for THIS root, not
-            # merely os.kill-alive — a recycled/zombie PID must not read as running.
-            if isinstance(pid, int) and _dashboard_pid_is_live(pid, root) and url:
-                return {"pid": pid, "url": url}
-        except (OSError, json.JSONDecodeError):
-            pass
-        return None
 
-    def already_running(meta: dict[str, Any], *, starting: bool = False) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            "already_running": True,
-            "pid": meta.get("pid"),
-            "url": meta.get("url"),
-        }
-        if starting:
-            data["starting"] = True
-        return _response(
-            "ok",
-            data,
-            next_tools=["wf_open_dashboard"],
-            usage=str(meta.get("url") or "wf_open_dashboard()"),
-        )
 
-    def wait_for_running(timeout: float = DASHBOARD_START_WAIT_SECONDS) -> dict[str, Any] | None:
-        deadline = _time.monotonic() + timeout
-        while _time.monotonic() < deadline:
-            meta = running_meta()
-            if meta is not None:
-                return meta
-            _time.sleep(0.25)
-        return None
 
-    meta = running_meta()
-    if meta is not None:
-        return already_running(meta)
-    # Wave 1p8pf: also early-out when a dashboard is serving under a drifted/non-matching PID (reachable
-    # URL + a live dashboard process) so we never even acquire the start lock to spawn a duplicate.
-    serving = _dashboard_already_serving(root, meta_path)
-    if serving is not None:
-        return already_running(serving)
 
-    try:
-        start_lock = dashboard_lib.dashboard_start_lock(root)
-        start_lock.__enter__()
-    except dashboard_lib.DashboardLockBusy:
-        meta = wait_for_running()
-        if meta is not None:
-            return already_running(meta, starting=True)
-        return _response(
-            "ok",
-            {"already_running": True, "starting": True, "pid": None, "url": None},
-            diagnostics=[_diagnostic(
-                "dashboard_start_in_progress",
-                "Another dashboard start is already in progress for this repository.",
-            )],
-            next_tools=["wf_open_dashboard"],
-            usage="wf_open_dashboard()",
-        )
 
-    try:
-        meta = running_meta()
-        if meta is not None:
-            return already_running(meta)
 
-        # Wave 1p8pf: reconcile-before-spawn — a dashboard may be serving under a DIFFERENT PID than
-        # any we recorded (the field race: prior spawn wrote metadata under PID X, this start polls for
-        # PID Y). Recognize it by URL-reachability + a live dashboard process and return that URL
-        # instead of spawning a duplicate (which climbed ports). running_meta() above already adopted
-        # the live-recorded-PID case; this catches the PID-drift case before we kill orphans/spawn.
-        serving = _dashboard_already_serving(root, meta_path)
-        if serving is not None:
-            return already_running(serving)
 
-        # Wave 1p654: no valid recorded instance — but orphaned dashboards for this
-        # root may still be alive (drifted/removed metadata). Terminate them so we
-        # converge to exactly one instance instead of spawning alongside (the cause
-        # of orphan accumulation + port climb). A genuinely-live instance was
-        # already adopted by running_meta()/_dashboard_already_serving above; this only
-        # fires on real drift (a dead/unreachable recorded instance).
-        orphan_diags: list[dict[str, Any]] = []
-        _orphans = _dashboard_cmdline_pids(root) or []
-        if _orphans:
-            for _op in _orphans:
-                _terminate_dashboard_pid(_op)
-            orphan_diags.append(_diagnostic(
-                "dashboard_orphan_detected",
-                f"Terminated {len(_orphans)} orphaned dashboard process(es) for this repository before starting.",
-            ))
 
-        scripts_dir = Path(__file__).resolve().parent
-        cmd = [_preferred_python(), str(scripts_dir / "dashboard_server.py")]
-        if port is not None:
-            cmd.extend(["--port", str(port)])
-        if dashboard_lib.dashboard_browser_open_enabled():
-            cmd.append("--open")
-        cmd.extend(["--root", str(root.resolve())])
-        spawn_kwargs: dict[str, Any] = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "stdin": subprocess.DEVNULL,
-            "cwd": str(root),
-        }
-        if os.name == "nt":
-            spawn_kwargs["creationflags"] = (
-                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _windows_no_window_flag()
-            )
-        else:
-            spawn_kwargs["start_new_session"] = True
 
-        try:
-            proc = subprocess.Popen(cmd, **spawn_kwargs)
-        except OSError as exc:
-            return _response(
-                "error",
-                {},
-                diagnostics=[_diagnostic("spawn_failed", str(exc))],
-            )
-
-        # Wave 1rswx: track this server-launched dashboard so a later sweep (index-refresh or any
-        # dashboard entry point) reaps it once it exits (POSIX), instead of leaving a defunct PID that
-        # a bare os.kill liveness check would misread as a live kill target.
-        _register_dashboard_child_pid(proc.pid)
-
-        # A child PID/metadata write alone does not prove a serving dashboard.
-        # Keep pending children registered; reap exited children before returning.
-        deadline = _time.monotonic() + DASHBOARD_START_WAIT_SECONDS
-        while True:
-            exited = proc.poll() is not None
-            serving = _dashboard_already_serving(root, meta_path)
-            if serving and _dashboard_url_reachable(serving["url"]):
-                if exited:
-                    proc.wait()
-                    _DASHBOARD_CHILD_PIDS.discard(proc.pid)
-                if serving["pid"] != proc.pid:
-                    return already_running(serving)
-                if not exited:
-                    return _response(
-                        "ok", {"started": True, **serving},
-                        diagnostics=orphan_diags or None, usage=serving["url"],
-                    )
-            if exited:
-                proc.wait()
-                _DASHBOARD_CHILD_PIDS.discard(proc.pid)
-                return _response(
-                    "error", {"started": False, "starting": False, "pid": None, "url": None},
-                    diagnostics=[*orphan_diags, _diagnostic(
-                        "dashboard_child_exited", "Dashboard child exited before serving.",
-                    )],
-                )
-            if _time.monotonic() >= deadline:
-                return _response(
-                    "ok", {"started": False, "starting": True, "pid": proc.pid, "url": None},
-                    diagnostics=[*orphan_diags, _diagnostic(
-                        "url_not_ready", "Dashboard child is still starting; serving is not confirmed.",
-                    )],
-                )
-            _time.sleep(0.25)
-    finally:
-        start_lock.__exit__(None, None, None)
-
-
-def wf_open_dashboard_response(root: Path) -> dict[str, Any]:
-    """Open the browser to the running dashboard, or start the dashboard (with browser open) if not running."""
-    import webbrowser
-    import dashboard_lib
-
-    # Wave 1rswx: reap finished dashboard children so a zombie recorded PID isn't reported as serving.
-    _reap_dashboard_child_pids()
-
-    meta_path = dashboard_lib.dashboard_metadata_path(root)
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            pid = meta.get("pid")
-            url = meta.get("url", "")
-            # Wave 1rswx: zombie-safe liveness (cmdline-verified) so a <defunct> recorded PID is not
-            # reported as a live/serving dashboard (Req 7 / AC-5) — align with the start-path treatment.
-            if isinstance(pid, int) and _dashboard_pid_is_live(pid, root) and url:
-                opened = False
-                if dashboard_lib.dashboard_browser_open_enabled():
-                    webbrowser.open(url)
-                    opened = True
-                return _response(
-                    "ok",
-                    {"opened": opened, "url": url, "browser_suppressed": not opened},
-                    usage=url,
-                )
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    # Dashboard not running — delegate to start (which spawns with --open).
-    return wf_start_dashboard_response(root)
-
-
-def _dashboard_cmdline_pids(root: Path) -> list[int] | None:
-    """Live dashboard PIDs for ``root`` by cmdline scan — delegates to the shared
-    ``dashboard_lib.dashboard_cmdline_pids`` (1p654; relocated to the shared module
-    in the 1p654 review follow-up so upgrade dashboard detection reuses it)."""
-    import dashboard_lib
-
-    return dashboard_lib.dashboard_cmdline_pids(root)
-
-
-def _dashboard_pid_is_live(pid: int, root: Path) -> bool:
-    """True only if ``pid`` is running AND is a dashboard for ``root`` (1p654).
-
-    Hardens the bare ``_pid_is_running`` (a zombie or recycled PID passes
-    ``os.kill(pid, 0)``) by requiring a cmdline match. When the scan is
-    unavailable (``_dashboard_cmdline_pids`` returns None), falls back to the bare
-    liveness check so unsupported platforms keep their current behavior.
-    """
-    if not _pid_is_running(pid):
-        return False
-    live = _dashboard_cmdline_pids(root)
-    if live is None:
-        return True
-    return pid in live
-
-
-def _dashboard_url_reachable(url: str, timeout: float = 1.0) -> bool:
-    """True iff ``url`` answers an HTTP request (any status — a serving dashboard).
-
-    Wave 1p8pf: the dashboard start path must recognize an already-serving dashboard by
-    URL-reachability, not by matching the just-spawned PID. A reachable URL is proof the server
-    is up regardless of which PID owns it; any HTTP response (incl. 4xx/5xx) counts as serving —
-    only a connection failure / timeout means "not reachable". Never raises.
-    """
-    if not url:
-        return False
-    import urllib.request
-    import urllib.error
-
-    try:
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=timeout):  # noqa: S310 — loopback dashboard URL
-            return True
-    except urllib.error.HTTPError:
-        # The server answered with an HTTP error status — it IS serving.
-        return True
-    except Exception:
-        # Connection refused / DNS / timeout / SSE-hang — treat as not (yet) reachable.
-        return False
-
-
-def _dashboard_already_serving(root: Path, meta_path: Path) -> dict[str, Any] | None:
-    """Reconcile-before-spawn: return a serving dashboard's metadata, or None.
-
-    Wave 1p8pf: a dashboard counts as already-serving when EITHER
-      (a) the recorded metadata names a live dashboard PID for ``root`` with a URL
-          (the wave-1p654 ``running_meta`` contract — the common reconcile case, incl. the field
-          race once the just-spawned child's PID is the live recorded one), OR
-      (b) the recorded URL is actually HTTP-reachable AND a live dashboard process exists for
-          ``root`` (cmdline scan) — the dashboard is genuinely serving under a PID that differs from
-          the recorded one (the field race: a prior spawn wrote metadata under a different PID). A
-          reachable URL means killing+respawning would only churn a working server.
-    A present-but-DEAD recorded PID whose URL is NOT reachable is a genuine drift — return None so the
-    orphan reconciliation terminates the stale process and respawns (converge to one instance).
-    Returns ``{"pid", "url"}`` when serving, else None. Never raises.
-    """
-    if not meta_path.exists():
-        return None
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    pid = meta.get("pid")
-    url = meta.get("url", "") or ""
-    if not url:
-        return None
-    # (a) live recorded PID + URL.
-    if isinstance(pid, int) and _dashboard_pid_is_live(pid, root):
-        return {"pid": pid, "url": url}
-    # (b) a genuinely-reachable URL backed by a live dashboard process for this root (any PID) — adopt
-    # rather than churn. A NON-reachable URL falls through to the orphan reconciliation (drift).
-    if _dashboard_url_reachable(url):
-        live = _dashboard_cmdline_pids(root)
-        if live:
-            return {"pid": live[0], "url": url}
-    return None
-
-
-def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:
-    import dashboard_lib
-
-    meta_path = dashboard_lib.dashboard_metadata_path(root)
-    return meta_path, dashboard_lib.read_dashboard_metadata(root)
-
-
-def _remove_dashboard_metadata(meta_path: Path) -> bool:
-    try:
-        meta_path.unlink()
-        return True
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return False
-
-
-def _terminate_dashboard_pid(pid: int) -> bool:
-    import subprocess
-    import time as _time
-
-    if pid <= 0:
-        return True
-
-    if os.name == "nt":
-        try:
-            completed = _mcp_subprocess_run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=False,
-                cwd=str(Path.cwd()),
-                check=False,
-            )
-        except OSError:
-            return False
-        return completed.returncode == 0 or not _pid_is_running(pid)
-
-    import signal
-
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return True
-    except OSError:
-        return False
-
-    deadline = _time.monotonic() + 5.0
-    while _time.monotonic() < deadline:
-        if not _pid_is_running(pid):
-            return True
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            ended_pid = 0
-        except OSError:
-            ended_pid = 0
-        if ended_pid == pid:
-            return True
-        _time.sleep(0.1)
-
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return True
-    except OSError:
-        return False
-
-    deadline = _time.monotonic() + 2.0
-    while _time.monotonic() < deadline:
-        if not _pid_is_running(pid):
-            return True
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            ended_pid = 0
-        except OSError:
-            ended_pid = 0
-        if ended_pid == pid:
-            return True
-        _time.sleep(0.1)
-
-    return not _pid_is_running(pid)
-
-
-def wf_stop_dashboard_response(root: Path) -> dict[str, Any]:
-    # Wave 1rswx: reap any of our finished dashboard children first, so a recorded PID that is now a
-    # <defunct> zombie is cleared from the process table (and no longer passes os.kill(pid,0)) before we
-    # classify targets — otherwise the zombie was added as a kill target and stop returned stop_failed.
-    _reap_dashboard_child_pids()
-
-    meta_path, meta = _dashboard_process_metadata(root)
-    pid = meta.get("pid")
-    url = meta.get("url", "")
-
-    summary: dict[str, Any] = {
-        "pid": pid if isinstance(pid, int) else None,
-        "url": url if isinstance(url, str) else "",
-    }
-
-    # Wave 1p654: reconcile against ALL live dashboards for this root — not just the
-    # recorded PID — so a drifted/removed metadata file can't leave an orphan alive.
-    scanned = _dashboard_cmdline_pids(root)
-    targets: set[int] = set(scanned or [])
-    # Wave 1rswx: classify the recorded PID with the cmdline-verified, zombie-safe check (not a bare
-    # os.kill liveness). A <defunct> recorded PID fails this test — so it is treated as already stopped
-    # (metadata cleared below) instead of a live kill target that SIGTERM/SIGKILL can never reap. A
-    # genuinely-live dashboard for this root is already in ``targets`` via the cmdline scan above.
-    #
-    # SECURITY CONTROL (1rswx AC-3): we never fall back to killing an os.kill-alive-but-unverified
-    # recorded PID, because a zombie/recycled PID is indistinguishable from a scan-missed live dashboard
-    # WITHOUT the cmdline check — SIGKILLing it could hit a PID recycled to an unrelated process. So when
-    # the scan RUNS but misses a genuinely-live dashboard (e.g. a symlink path component repointed
-    # mid-session so its --root no longer resolves-equal), that instance is NOT added to targets and is
-    # never signalled. The scan-UNAVAILABLE (None) case still falls back to bare liveness inside
-    # _dashboard_pid_is_live. (Wave 1rvfw handles the reporting for that unverified-alive case below.)
-    if isinstance(pid, int) and pid > 0 and _dashboard_pid_is_live(pid, root):
-        targets.add(pid)
-
-    if not targets:
-        # Wave 1rvfw: distinguish "genuinely stopped" from "alive but unverifiable". If the recorded PID
-        # is still os.kill-alive but was NOT cmdline-verified (not in targets), do NOT claim
-        # already_stopped and do NOT delete the metadata — that would be a false success plus state loss
-        # while the process keeps serving. Report honestly (already_stopped=False, stopped=False, keep
-        # metadata) with a distinct diagnostic and leave the kill decision untouched (the PID is never
-        # signalled — the AC-3 control stands). A genuinely dead/reaped/absent PID — including a
-        # 1rswx-reaped <defunct> zombie, which is no longer os.kill-alive — takes the clean
-        # already_stopped + metadata-cleared path below.
-        if isinstance(pid, int) and pid > 0 and _pid_is_running(pid):
-            summary.update({"already_stopped": False, "stopped": False})
-            return _response(
-                "ok",
-                summary,
-                diagnostics=[_diagnostic(
-                    "dashboard_pid_unverified",
-                    f"Recorded dashboard PID {pid} is alive but could not be verified as a dashboard for "
-                    "this repository (it may be a recycled PID now owned by an unrelated process, or a "
-                    "live dashboard the process scan could not match for this root). It was NOT "
-                    "terminated and the metadata was kept; investigate and stop it manually if it is a "
-                    "stray dashboard.",
-                )],
-                usage="wf_stop_dashboard()",
-            )
-        summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
-        return _response("ok", summary, usage="wf_stop_dashboard()")
-
-    failed = [p for p in sorted(targets) if not _terminate_dashboard_pid(p)]
-    stopped = [p for p in sorted(targets) if p not in failed]
-    if failed:
-        return _response(
-            "error",
-            {**summary, "stopped_pids": stopped},
-            diagnostics=[_diagnostic("stop_failed", f"Dashboard process(es) {failed} for this repository did not exit cleanly.")],
-            usage="wf_stop_dashboard()",
-        )
-
-    orphan_count = len([p for p in stopped if p != pid])
-    summary.update({"stopped": True, "stopped_pids": stopped, "metadata_removed": _remove_dashboard_metadata(meta_path)})
-    if orphan_count:
-        summary["orphans_terminated"] = orphan_count
-    return _response("ok", summary, usage="wf_stop_dashboard()")
-
-
-def wf_restart_dashboard_response(root: Path) -> dict[str, Any]:
-    # R7 (revised): Allow restart during upgrade. The restarted dashboard
-    # detects the upgrade lock at startup and enters upgrade_paused
-    # automatically, then resumes when the lock is removed. Blocking the
-    # restart was redundant and prevented legitimate recovery via restart.
-
-    # Capture the current port before stopping so the restarted server reuses
-    # the same port — the browser tab stays valid without a refresh.
-    restart_port: int | None = None
-    try:
-        _, pre_meta = _dashboard_process_metadata(root)
-        recorded_port = pre_meta.get("port")
-        if isinstance(recorded_port, int) and recorded_port > 0:
-            restart_port = recorded_port
-    except Exception:  # noqa: BLE001
-        pass
-
-    stop_env = wf_stop_dashboard_response(root)
-    stop_data = stop_env.get("data", {})
-    if stop_env.get("status") != "ok" or not (
-        stop_data.get("stopped") is True or stop_data.get("already_stopped") is True
-    ):
-        return {**stop_env, "data": {**stop_data, "restarted": False}}
-    start_env = wf_start_dashboard_response(root, port=restart_port)
-    data = dict(stop_env.get("data", {}))
-    data.update(start_env.get("data", {}))
-    data["restarted"] = start_env.get("status") == "ok" and data.get("started") is True
-    return _response(
-        start_env.get("status", "error"),
-        data,
-        diagnostics=list(stop_env.get("diagnostics", [])) + list(start_env.get("diagnostics", [])),
-        next_tools=list(start_env.get("next_tools", [])),
-        usage=start_env.get("usage", ""),
-    )
-
-
-def _load_upgrade_lib() -> Any:
-    """Import upgrade_lib from the scripts directory, ensuring it is on sys.path."""
-    _scripts_dir = str(Path(__file__).resolve().parent)
-    if _scripts_dir not in sys.path:
-        sys.path.insert(0, _scripts_dir)
-    try:
-        import upgrade_lib as _ulib  # noqa: PLC0415
-        return _ulib
-    except ImportError:
-        return None
 
 
 # Wave 1p8eu / TA-1 — the sentinel prefix is the SINGLE constant defined in upgrade_wavefoundry; import
 # it (never redefine) so the emit side and the parse side cannot silently desync. A literal fallback is
 # kept ONLY for the (practically impossible) case where upgrade_wavefoundry is unimportable in the
 # server process — it must equal the canonical value, which a round-trip test enforces.
-def _upgrade_summary_sentinel() -> str:
-    """Return the canonical ``WAVE_UPGRADE_SUMMARY_JSON:`` sentinel from upgrade_wavefoundry."""
-    _scripts_dir = str(Path(__file__).resolve().parent)
-    if _scripts_dir not in sys.path:
-        sys.path.insert(0, _scripts_dir)
-    try:
-        import upgrade_wavefoundry as _uw  # noqa: PLC0415
-        return _uw.WAVE_UPGRADE_SUMMARY_SENTINEL
-    except Exception:  # noqa: BLE001 — fail-safe; the round-trip test pins the fallback to canonical
-        return "WAVE_UPGRADE_SUMMARY_JSON:"
 
 
-def _parse_upgrade_summary(output: str) -> dict[str, Any] | None:
-    """Parse the structured operator summary from the upgrade subprocess output (wave 1p8eu).
-
-    Scans ``output`` for the last ``WAVE_UPGRADE_SUMMARY_JSON:`` sentinel line and returns the parsed
-    JSON dict. FAIL-SAFE: returns ``None`` when the sentinel is absent or the JSON is malformed (any
-    parse error, including RecursionError on a pathological payload) — the caller then falls back to
-    the raw ``output`` with no exception. The last occurrence wins so a re-run that appends to the log
-    surfaces the most recent summary.
-    """
-    if not output:
-        return None
-    sentinel = _upgrade_summary_sentinel()
-    found: dict[str, Any] | None = None
-    for line in output.splitlines():
-        if line.startswith(sentinel):
-            payload = line[len(sentinel):].strip()
-            # F1 — broaden to Exception so a RecursionError (deeply-nested JSON) cannot escape and
-            # violate the AC-3 "malformed → no exception" guarantee.
-            try:
-                parsed = json.loads(payload)
-            except Exception:  # noqa: BLE001 — any parse failure → skip this line, fall back to output
-                continue
-            if isinstance(parsed, dict):
-                found = parsed
-    return found
 
 
-def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
-    """Bound repo-sized summary collections without hiding terminal scalars.
-
-    The upgrade log retains the complete sentinel.  MCP callers receive every
-    scalar plus bounded list fields and explicit per-field counts.  The
-    collection budget is shared so several large result sets cannot each
-    consume the full response allowance.
-    """
-
-    summary = {
-        **dict(summary),
-        **_project_retired_model_cleanup_fields(summary),
-    }
-    cleanup_list_keys = RETIRED_MODEL_CLEANUP_KEYS[1:]
-    collection_keys = tuple(
-        key
-        for key, value in summary.items()
-        if isinstance(value, list) and key not in cleanup_list_keys
-    )
-    # The cleanup lists are finite by construction (20 exact default/custom
-    # targets) and reserve capacity ahead of repo-sized generic collections.
-    bounded: dict[str, Any] = {
-        key: list(summary.get(key) or [])[:20]
-        for key in cleanup_list_keys
-    }
-    original_chars = len(json.dumps(summary, ensure_ascii=False, default=str))
-    collection_chars = len(
-        json.dumps(bounded, ensure_ascii=False, default=str)
-    )
-    scalar_items = [
-        (key, value)
-        for key, value in summary.items()
-        if key not in collection_keys
-    ]
-    scalar_entry_chars = {
-        key: (
-            len(json.dumps(key, ensure_ascii=False))
-            + len(json.dumps(value, ensure_ascii=False, default=str))
-        )
-        for key, value in scalar_items
-    }
-    terminal_chars = sum(
-        chars
-        for key, chars in scalar_entry_chars.items()
-        if key in UPGRADE_SUMMARY_TERMINAL_KEYS
-        and chars <= UPGRADE_SUMMARY_VALUE_CAP_CHARS
-    )
-    unknown_scalar_budget = max(0, UPGRADE_SUMMARY_CAP_CHARS - terminal_chars)
-    scalar_returned_chars = 0
-    scalar_returned_fields = 0
-    scalar_omitted_fields = 0
-    scalar_omitted_value_chars = 0
-    scalar_metadata_chars = 0
-    scalar_metadata_fields_omitted = 0
-    oversized_key_fields = 0
-    oversized_key_chars = 0
-    collection_returned_fields = 0
-    collection_omitted_fields = 0
-    any_truncated = False
-
-    for key, value in scalar_items:
-        key_chars = len(key)
-        value_chars = len(json.dumps(value, ensure_ascii=False, default=str))
-        entry_chars = scalar_entry_chars[key]
-        if key_chars > UPGRADE_SUMMARY_KEY_CAP_CHARS:
-            oversized_key_fields += 1
-            oversized_key_chars += key_chars
-            scalar_omitted_fields += 1
-            scalar_omitted_value_chars += value_chars
-            any_truncated = True
-            continue
-        is_terminal = key in UPGRADE_SUMMARY_TERMINAL_KEYS
-        fits_aggregate = is_terminal or entry_chars <= unknown_scalar_budget
-        if value_chars <= UPGRADE_SUMMARY_VALUE_CAP_CHARS and fits_aggregate:
-            bounded[key] = value
-            scalar_returned_chars += entry_chars
-            scalar_returned_fields += 1
-            if not is_terminal:
-                unknown_scalar_budget -= entry_chars
-            continue
-        # The trusted current producer emits only small terminal scalars and a
-        # tiny cleanup mapping. Future/malformed sentinel detail is observable
-        # by count but cannot defeat either the per-value or aggregate cap.
-        scalar_omitted_fields += 1
-        scalar_omitted_value_chars += value_chars
-        metadata = {
-            key: None,
-            f"{key}_total_chars": value_chars,
-            f"{key}_truncated": True,
-        }
-        metadata_chars = len(
-            json.dumps(metadata, ensure_ascii=False, default=str)
-        )
-        if (
-            scalar_metadata_chars + metadata_chars
-            <= UPGRADE_SUMMARY_METADATA_CAP_CHARS
-        ):
-            bounded.update(metadata)
-            scalar_metadata_chars += metadata_chars
-        else:
-            scalar_metadata_fields_omitted += 1
-        any_truncated = True
-
-    for key in collection_keys:
-        key_chars = len(key)
-        if key_chars > UPGRADE_SUMMARY_KEY_CAP_CHARS:
-            oversized_key_fields += 1
-            oversized_key_chars += key_chars
-            collection_omitted_fields += 1
-            any_truncated = True
-            continue
-        values = list(summary.get(key) or [])
-        returned = values[:UPGRADE_SUMMARY_MAX_ITEMS_PER_COLLECTION]
-        total = len(values)
-        candidate: dict[str, Any] = {}
-        candidate_chars = 0
-        while True:
-            returned_count = len(returned)
-            remaining = total - returned_count
-            truncated = remaining > 0
-            candidate = {
-                key: returned,
-                f"{key}_total": total,
-                f"{key}_returned": returned_count,
-                f"{key}_remaining": remaining,
-                f"{key}_truncated": truncated,
-            }
-            candidate_chars = len(
-                json.dumps(candidate, ensure_ascii=False, default=str)
-            )
-            if collection_chars + candidate_chars + 1 <= UPGRADE_SUMMARY_CAP_CHARS:
-                break
-            if not returned:
-                candidate = {}
-                break
-            returned.pop()
-        if not candidate:
-            collection_omitted_fields += 1
-            any_truncated = True
-            continue
-        collection_chars += candidate_chars + 1
-        collection_returned_fields += 1
-        any_truncated = any_truncated or truncated
-        bounded.update(candidate)
-
-    bounded["summary_total_chars"] = original_chars
-    bounded["summary_collection_cap_chars"] = UPGRADE_SUMMARY_CAP_CHARS
-    bounded["summary_scalar_cap_chars"] = UPGRADE_SUMMARY_CAP_CHARS
-    bounded["summary_scalar_returned_chars"] = scalar_returned_chars
-    bounded["summary_scalar_fields_total"] = len(scalar_items)
-    bounded["summary_scalar_fields_returned"] = scalar_returned_fields
-    bounded["summary_scalar_fields_truncated"] = (
-        len(scalar_items) - scalar_returned_fields
-    )
-    bounded["summary_scalar_fields_omitted"] = scalar_omitted_fields
-    bounded["summary_scalar_omitted_value_chars"] = scalar_omitted_value_chars
-    bounded["summary_scalar_metadata_cap_chars"] = UPGRADE_SUMMARY_METADATA_CAP_CHARS
-    bounded["summary_scalar_metadata_returned_chars"] = scalar_metadata_chars
-    bounded["summary_scalar_metadata_fields_omitted"] = (
-        scalar_metadata_fields_omitted
-    )
-    bounded["summary_oversized_key_fields_omitted"] = oversized_key_fields
-    bounded["summary_oversized_key_chars_total"] = oversized_key_chars
-    bounded["summary_collection_fields_total"] = len(collection_keys)
-    bounded["summary_collection_fields_returned"] = collection_returned_fields
-    bounded["summary_collection_fields_omitted"] = collection_omitted_fields
-    bounded["summary_key_cap_chars"] = UPGRADE_SUMMARY_KEY_CAP_CHARS
-    bounded["summary_value_cap_chars"] = UPGRADE_SUMMARY_VALUE_CAP_CHARS
-    bounded["summary_max_items_per_collection"] = (
-        UPGRADE_SUMMARY_MAX_ITEMS_PER_COLLECTION
-    )
-    bounded["summary_truncated"] = any_truncated
-    return bounded
 
 
-def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, Any]:
-    """Keep the complete public upgrade envelope within its named host cap."""
-
-    diagnostics = response.get("diagnostics")
-    if isinstance(diagnostics, list):
-        bounded_diagnostics: list[dict[str, Any]] = []
-        for diagnostic in diagnostics:
-            if not isinstance(diagnostic, dict):
-                continue
-            code = diagnostic.get("code")
-            normalized: dict[str, Any] = {
-                "code": (
-                    code[:UPGRADE_SUMMARY_KEY_CAP_CHARS]
-                    if isinstance(code, str)
-                    else "upgrade_diagnostic"
-                )
-            }
-            message = diagnostic.get("message")
-            if isinstance(message, str):
-                if len(message) > UPGRADE_SUMMARY_VALUE_CAP_CHARS:
-                    normalized["message"] = (
-                        message[:UPGRADE_SUMMARY_VALUE_CAP_CHARS]
-                        + "\n[... diagnostic truncated; see log_path when available ...]"
-                    )
-                    normalized["message_total_chars"] = len(message)
-                    normalized["message_truncated"] = True
-                else:
-                    normalized["message"] = message
-            recovery_tools = diagnostic.get("recovery_tools")
-            if isinstance(recovery_tools, list):
-                normalized["recovery_tools"] = [
-                    item[:UPGRADE_SUMMARY_KEY_CAP_CHARS]
-                    for item in recovery_tools[:20]
-                    if isinstance(item, str)
-                ]
-            recovery_usage = diagnostic.get("recovery_usage")
-            if isinstance(recovery_usage, str):
-                normalized["recovery_usage"] = recovery_usage[
-                    :UPGRADE_SUMMARY_VALUE_CAP_CHARS
-                ]
-            omitted = len(set(diagnostic) - {
-                "code",
-                "message",
-                "recovery_tools",
-                "recovery_usage",
-            })
-            if omitted:
-                normalized["omitted_field_count"] = omitted
-            bounded_diagnostics.append(normalized)
-        response["diagnostics"] = bounded_diagnostics
-
-    data = response.get("data")
-    if not isinstance(data, dict):
-        return response
-    memory_gate = data.get("memory_backfill")
-    if isinstance(memory_gate, Mapping):
-        data["memory_backfill"] = _bounded_upgrade_summary(memory_gate)
-
-    data["response_cap_chars"] = UPGRADE_RESPONSE_CAP_CHARS
-    data["response_truncated"] = False
-    data["response_total_chars_before_bound"] = 0
-    total_before = len(json.dumps(response, ensure_ascii=False, default=str))
-    data["response_total_chars_before_bound"] = total_before
-    if total_before <= UPGRADE_RESPONSE_CAP_CHARS:
-        return response
-
-    data["response_truncated"] = True
-    output = data.get("output")
-    if isinstance(output, str) and output:
-        # Leave headroom for the count metadata and JSON escaping in the final
-        # serialization. The complete child stream remains in ``log_path``.
-        current = len(json.dumps(response, ensure_ascii=False, default=str))
-        excess = max(0, current - UPGRADE_RESPONSE_CAP_CHARS)
-        keep = max(0, len(output) - excess - 2_000)
-        marker = (
-            "\n[... response envelope capped; see log_path for the complete run ...]"
-        )
-        data["output"] = output[:keep] + marker if keep else marker.strip()
-        data["output_truncated"] = True
-
-    # Legitimate upgrade envelopes fit after the repo-sized summary/worklist
-    # collections and raw output are bounded. Keep a fail-safe for unusually
-    # verbose reload metadata without sacrificing terminal/recovery fields.
-    if (
-        len(json.dumps(response, ensure_ascii=False, default=str))
-        > UPGRADE_RESPONSE_CAP_CHARS
-        and "mcp_reload" in data
-    ):
-        data["mcp_reload"] = {
-            "omitted_from_response": True,
-            "reason": "upgrade response envelope cap",
-        }
-
-    if (
-        len(json.dumps(response, ensure_ascii=False, default=str))
-        > UPGRADE_RESPONSE_CAP_CHARS
-    ):
-        essential_data_keys = (
-            "phase",
-            "exit_code",
-            "state",
-            "log_path",
-            "output_total_chars",
-            "summary",
-            "memory_backfill",
-            "bridge_release_required",
-            "response_cap_chars",
-            "response_total_chars_before_bound",
-        )
-        compacted_data = {
-            key: data[key] for key in essential_data_keys if key in data
-        }
-        retained_source_fields = len(compacted_data)
-        compacted_data["response_truncated"] = True
-        compacted_data["response_hard_compacted"] = True
-        compacted_data["response_fields_omitted"] = (
-            len(data) - retained_source_fields
-        )
-        compacted: dict[str, Any] = {
-            "status": response.get("status", "error"),
-            "data": compacted_data,
-            "diagnostics": response.get("diagnostics", []),
-        }
-        next_step = response.get("next_step")
-        if isinstance(next_step, str):
-            compacted["next_step"] = next_step[:UPGRADE_SUMMARY_VALUE_CAP_CHARS]
-        next_tools = response.get("next_tools")
-        if isinstance(next_tools, list):
-            compacted["next_tools"] = next_tools[:20]
-        response = compacted
-
-    # Terminal compaction is the final serialization authority after all
-    # field-specific bounds. It progressively removes non-terminal detail
-    # while retaining state, log location, diagnostics, and a valid recovery
-    # argv.
-    if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
-        data = response.get("data")
-        if isinstance(data, dict):
-            summary = data.get("summary")
-            if isinstance(summary, Mapping):
-                data["summary"] = {
-                    **{
-                        key: summary.get(key)
-                        for key in RETIRED_MODEL_CLEANUP_KEYS
-                    },
-                    "other_fields_omitted_from_response": True,
-                    "reason": "upgrade response envelope cap",
-                }
-            if "memory_backfill" in data:
-                data["memory_backfill"] = {
-                    "omitted_from_response": True,
-                    "reason": "upgrade response envelope cap",
-                }
-    if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
-        data = response.get("data")
-        terminal_data_keys = (
-            "phase",
-            "exit_code",
-            "state",
-            "log_path",
-            "bridge_release_required",
-            "response_cap_chars",
-            "response_total_chars_before_bound",
-            "summary",
-        )
-        terminal_data = (
-            {key: data[key] for key in terminal_data_keys if key in data}
-            if isinstance(data, dict)
-            else {}
-        )
-        terminal_data["response_truncated"] = True
-        terminal_data["response_hard_compacted"] = True
-        response = {
-            "status": response.get("status", "error"),
-            "data": terminal_data,
-            "diagnostics": list(response.get("diagnostics") or [])[:10],
-        }
-    if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
-        data = response.get("data")
-        if isinstance(data, dict):
-            log_path = data.get("log_path")
-            if isinstance(log_path, str):
-                data["log_path"] = log_path[:4_096]
-        response["diagnostics"] = [
-            {
-                "code": str(item.get("code") or "upgrade_diagnostic")[
-                    :UPGRADE_SUMMARY_KEY_CAP_CHARS
-                ],
-                "message": str(item.get("message") or "")[
-                    :UPGRADE_SUMMARY_VALUE_CAP_CHARS
-                ],
-            }
-            for item in list(response.get("diagnostics") or [])[:10]
-            if isinstance(item, Mapping)
-        ]
-    if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
-        data = response.get("data")
-        bridge = data.get("bridge_release_required") if isinstance(data, dict) else None
-        compact_bridge: dict[str, Any] | None = None
-        if isinstance(bridge, Mapping):
-            argv = bridge.get("command_argv")
-            safe_argv = (
-                list(argv)
-                if isinstance(argv, list)
-                and len(argv) <= 32
-                and all(
-                    isinstance(item, str) and len(item) <= 4_096
-                    for item in argv
-                )
-                and len(json.dumps(argv, ensure_ascii=False))
-                <= UPGRADE_BRIDGE_ARGV_CAP_CHARS
-                else None
-            )
-            compact_bridge = {
-                "status": str(bridge.get("status") or "error")[
-                    :UPGRADE_SUMMARY_KEY_CAP_CHARS
-                ],
-                "code": "bridge_release_required",
-                "package": str(bridge.get("package") or "")[:4_096],
-                "package_present": bool(bridge.get("package_present")),
-                "command_argv": safe_argv,
-                "handoff_compacted": True,
-            }
-        terminal_data = {
-            "phase": str(data.get("phase") or "")[:UPGRADE_SUMMARY_KEY_CAP_CHARS]
-            if isinstance(data, dict)
-            else "",
-            "state": str(data.get("state") or "")[:UPGRADE_SUMMARY_KEY_CAP_CHARS]
-            if isinstance(data, dict)
-            else "",
-            "log_path": str(data.get("log_path") or "")[:4_096]
-            if isinstance(data, dict)
-            else "",
-            "response_cap_chars": UPGRADE_RESPONSE_CAP_CHARS,
-            "response_truncated": True,
-            "response_hard_compacted": True,
-        }
-        if compact_bridge is not None:
-            terminal_data["bridge_release_required"] = compact_bridge
-        response = {
-            "status": str(response.get("status") or "error")[
-                :UPGRADE_SUMMARY_KEY_CAP_CHARS
-            ],
-            "data": terminal_data,
-            "diagnostics": [
-                {
-                    "code": "upgrade_response_compacted",
-                    "message": (
-                        "Non-terminal upgrade response detail exceeded the public "
-                        "envelope cap; inspect log_path for the complete run."
-                    ),
-                }
-            ],
-        }
-    if len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS:
-        data = response.get("data")
-        response = {
-            "status": "error",
-            "data": {
-                "phase": str(data.get("phase") or "")[
-                    :UPGRADE_SUMMARY_KEY_CAP_CHARS
-                ]
-                if isinstance(data, dict)
-                else "",
-                "state": str(data.get("state") or "")[
-                    :UPGRADE_SUMMARY_KEY_CAP_CHARS
-                ]
-                if isinstance(data, dict)
-                else "",
-                "log_path": str(data.get("log_path") or "")[:4_096]
-                if isinstance(data, dict)
-                else "",
-                "response_cap_chars": UPGRADE_RESPONSE_CAP_CHARS,
-                "response_truncated": True,
-                "response_hard_compacted": True,
-            },
-            "diagnostics": [
-                {
-                    "code": "upgrade_response_cap_exceeded",
-                    "message": (
-                        "The structured recovery carrier exceeded the public response "
-                        "cap and was refused; inspect log_path for the complete run."
-                    ),
-                }
-            ],
-        }
-
-    return response
 
 
-def _parse_bridge_release_required(output: str) -> dict[str, Any] | None:
-    """Return the last well-formed protocol-bridge handoff in subprocess output."""
-
-    found: dict[str, Any] | None = None
-    allowed_fields = {
-        "status",
-        "code",
-        "runner_protocol",
-        "minimum_runner_protocol",
-        "why",
-        "package",
-        "package_present",
-        "command_argv",
-        "command",
-        "hosts_to_stop",
-        "restart_guidance",
-        "legacy_wrapper_limitation",
-        "acquisition",
-    }
-    prose_fields = {
-        "why",
-        "command",
-        "hosts_to_stop",
-        "restart_guidance",
-        "legacy_wrapper_limitation",
-        "acquisition",
-    }
-    integer_fields = {"runner_protocol", "minimum_runner_protocol"}
-    short_text_fields = {"status", "code"}
-    for line in (output or "").splitlines():
-        try:
-            parsed = json.loads(line.strip())
-        except Exception:  # noqa: BLE001 — unknown output retains generic handling
-            continue
-        if (
-            isinstance(parsed, dict)
-            and parsed.get("code") == "bridge_release_required"
-            and isinstance(parsed.get("package"), str)
-            and isinstance(parsed.get("package_present"), bool)
-        ):
-            package = parsed["package"]
-            argv = parsed.get("command_argv")
-            if len(package) > 4_096:
-                continue
-            if any(
-                key in parsed
-                and (
-                    not isinstance(parsed[key], int)
-                    or isinstance(parsed[key], bool)
-                )
-                for key in integer_fields
-            ):
-                continue
-            if any(
-                key in parsed
-                and (
-                    not isinstance(parsed[key], str)
-                    or len(parsed[key]) > UPGRADE_SUMMARY_KEY_CAP_CHARS
-                )
-                for key in short_text_fields
-            ):
-                continue
-            if any(
-                key in parsed and not isinstance(parsed[key], str)
-                for key in prose_fields
-            ):
-                continue
-            if argv is not None and (
-                not isinstance(argv, list)
-                or len(argv) > 32
-                or any(not isinstance(item, str) or len(item) > 4_096 for item in argv)
-                or len(json.dumps(argv, ensure_ascii=False))
-                > UPGRADE_BRIDGE_ARGV_CAP_CHARS
-            ):
-                continue
-            normalized = {
-                key: value for key, value in parsed.items() if key in allowed_fields
-            }
-            truncated_fields: list[str] = []
-            for key in prose_fields:
-                value = normalized.get(key)
-                if isinstance(value, str) and len(value) > UPGRADE_SUMMARY_VALUE_CAP_CHARS:
-                    normalized[key] = (
-                        value[:UPGRADE_SUMMARY_VALUE_CAP_CHARS]
-                        + "\n[... bridge text truncated; see log_path ...]"
-                    )
-                    truncated_fields.append(key)
-            if truncated_fields:
-                normalized["text_truncated_fields"] = truncated_fields
-            omitted_count = len(set(parsed) - allowed_fields)
-            if omitted_count:
-                normalized["omitted_field_count"] = omitted_count
-            found = normalized
-    return found
 
 
 # 1.15 review-evidence cutover: full-restart instruction that replaces the
 # in-process reload suggestion on cutover-active runs. An in-process reload
 # leaves the host on mixed-version lifecycle code across the cutover boundary.
-_CUTOVER_RESTART_INSTRUCTION = (
-    "The 1.15 review-evidence cutover acted on this repository: fully restart "
-    "every attached MCP/agent host (including this one) before lifecycle "
-    "mutation resumes. An in-process wf_reload_mcp is not sufficient and was "
-    "not performed."
-)
 
 
-def _cutover_restart_required(root: Path, summary: dict[str, Any] | None) -> bool:
-    """True when this upgrade run was cutover-active (full restart required).
-
-    Detection reads the ``review_sidecar_cleanup`` counts recorded by the
-    upgrade in its machine-readable channels: the parsed summary sentinel
-    first (the only channel that survives cleanup's lock removal), then the
-    retained upgrade lock state. Absent counts mean the run never reached the
-    cutover phase — reload behavior stays untouched.
-    """
-    counts: Any = None
-    if isinstance(summary, dict):
-        counts = summary.get("review_sidecar_cleanup")
-    if not isinstance(counts, dict):
-        try:
-            _ulib = _load_upgrade_lib()
-            lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
-            counts = (
-                lock.get("review_sidecar_cleanup")
-                if isinstance(lock, dict)
-                else None
-            )
-        except Exception:
-            counts = None
-    return isinstance(counts, dict) and bool(counts.get("restart_required"))
 
 
-def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
-    """Return a phase-aware ``(next_step, next_tools)`` for the wf_upgrade response (wave 1p8eu)."""
-    if phase == "preflight_to_docs_gate":
-        return (
-            "Run the agent editing pass (drift/journal/spec reconciliation per seed-160), then "
-            "call wf_upgrade(phase='update_index') and wf_upgrade(phase='cleanup').",
-            ["wf_upgrade_status", "wf_reload_mcp"],
-        )
-    if phase in ("update_index", "rebuild_index"):
-        return (
-            "Call wf_upgrade(phase='cleanup') to remove the upgrade lock and print the summary.",
-            ["wf_upgrade_status", "wf_reload_mcp"],
-        )
-    if phase == "cleanup":
-        return (
-            "Upgrade complete. Call wf_reload_mcp() if the in-process server code is not yet "
-            "reloaded; review the summary's reconciliation findings and resolve stale references.",
-            ["wf_reload_mcp", "wf_upgrade_status"],
-        )
-    if phase == "resume_after_gate":
-        return (
-            "Docs gate recovery also established or refreshed the historical-memory "
-            "checkpoint. Inspect the returned memory worklist; validate any pending "
-            "candidates, then call wf_upgrade(phase='resume_after_memory').",
-            ["memory_backfill", "memory_validate", "wf_upgrade_status"],
-        )
-    if phase == "resume_after_memory":
-        return (
-            "When the response reports indexed, call wf_upgrade(phase='cleanup'). "
-            "If it remains awaiting validation, continue bounded backfill and "
-            "memory_validate calls first.",
-            ["memory_backfill", "memory_validate", "wf_upgrade_status"],
-        )
-    return ("Check wf_upgrade_status for the current lock state.", ["wf_upgrade_status"])
 
 
 INDEX_GUARD_RESPONSE_VERSION = 1
 
 
-def wf_upgrade_response(
-    root: Path,
-    phase: str = "preflight_to_docs_gate",
-    mode: str = "apply",
-    confirm_hosts_stopped: bool = False,
-    rebuild_storage: bool = False,
-) -> dict[str, Any]:
-    """Invoke upgrade_wavefoundry.py for the requested phase (12r0b).
-
-    mode values:
-      "dry_run" — print the full upgrade plan + hook inventory (seed diffs,
-          extension module source, convention hook scripts) without modifying
-          anything on disk. Use this before the real upgrade to review what
-          will change and inspect any hook code. The phase parameter is
-          ignored in dry_run mode.
-      "apply" (default) — execute the requested phase for real.
-
-    phase values (apply mode only):
-      "preflight_to_docs_gate" — phases 0–3 (default): pre-flight, surface
-          rendering, pruning, docs gate. Non-interactive (--yes).
-      "update_index" — phase 4 (default): incremental docs index update
-          (blocking) + code index (background). Re-embeds only files that
-          changed; auto-escalates to full rebuild when chunker or embedding
-          model version changed. Use for normal post-editing-pass runs.
-      "rebuild_index" — phase 4 (full): re-embeds every file from scratch.
-          Use when update_index is insufficient (e.g. index corruption, or
-          a chunker bump that the auto-escalation did not catch).
-      "cleanup" — phase 5: remove upgrade lock + print operator summary.
-      "resume_after_gate" — rebuild and persist current review-status projection,
-          then re-run docs-gardener + docs-lint against the already-extracted
-          tree (no extract/render/prune). Recovers a retained lock whose
-          failed_phase is "review_status_projection" or "docs_gate"; preserves
-          the actual failing phase on retry and, after the gate passes,
-          establishes or refreshes the historical-memory checkpoint. It may
-          return action-required memory work; continue with "resume_after_memory".
-      "resume_after_memory" — recompute the authoritative historical-memory
-          pending set and publish Phase 4 only after it reaches zero. This and
-          every index/cleanup phase refuse while review projection or docs lint
-          has a retained failed phase; recover through "resume_after_gate".
-    """
-    if type(confirm_hosts_stopped) is not bool:
-        return _response("error", {}, diagnostics=[_diagnostic(
-            "invalid_arguments", "confirm_hosts_stopped must be an explicit boolean.")])
-    if type(rebuild_storage) is not bool:
-        return _response("error", {}, diagnostics=[_diagnostic(
-            "invalid_arguments", "rebuild_storage must be an explicit boolean.")])
-    if rebuild_storage and mode == "apply" and phase != "preflight_to_docs_gate":
-        return _response("error", {}, diagnostics=[_diagnostic(
-            "invalid_arguments", "Select rebuild_storage during ordinary upgrade resume (preflight_to_docs_gate); the receipt retains it for later phases.")])
-    valid_modes = ("apply", "dry_run")
-    if mode not in valid_modes:
-        return _response(
-            "error",
-            {"mode": mode, "valid_modes": list(valid_modes)},
-            diagnostics=[_diagnostic("invalid_mode", f"Unknown mode {mode!r}. Valid: {valid_modes}")],
-        )
-
-    valid_phases = (
-        "preflight_to_docs_gate",
-        "update_index",
-        "rebuild_index",
-        "cleanup",
-        "resume_after_gate",
-        "resume_after_memory",
-    )
-    if mode == "apply" and phase not in valid_phases:
-        return _response(
-            "error",
-            {"phase": phase, "valid_phases": list(valid_phases)},
-            diagnostics=[_diagnostic("invalid_phase", f"Unknown phase {phase!r}. Valid: {valid_phases}")],
-        )
-
-    upgrade_script = Path(__file__).resolve().parent / "upgrade_wavefoundry.py"
-    if not upgrade_script.exists():
-        return _response(
-            "error",
-            {},
-            diagnostics=[_diagnostic("script_not_found", f"upgrade_wavefoundry.py not found at {upgrade_script}")],
-        )
-
-    if mode == "dry_run":
-        cmd = [_preferred_python(), str(upgrade_script), "--root", str(root), "--dry-run"]
-    else:
-        # Pre-create the log file so log_path in the response is always valid,
-        # even if the upgrade fails before the script opens it.  The upgrade
-        # script manages truncation (mode="w") and appending (mode="a") itself.
-        _log_path = root / ".wavefoundry" / "logs" / "upgrade.log"
-        try:
-            _log_path.parent.mkdir(parents=True, exist_ok=True)
-            _log_path.touch(exist_ok=True)
-        except OSError:
-            pass
-
-        # All apply-mode phases run non-interactively (no TTY in MCP).
-        cmd = [_preferred_python(), str(upgrade_script), "--root", str(root), "--yes"]
-        if phase == "update_index":
-            cmd.append("--update-index")
-        elif phase == "rebuild_index":
-            cmd.append("--rebuild-index")
-        elif phase == "cleanup":
-            cmd.append("--cleanup")
-        elif phase == "resume_after_gate":
-            cmd.append("--resume-after-gate")  # rebuild review projection, then re-run docs gate
-        elif phase == "resume_after_memory":
-            cmd.append("--resume-after-memory")
-        if confirm_hosts_stopped:
-            cmd.append("--confirm-hosts-stopped")
-        if rebuild_storage:
-            cmd.append("--rebuild-storage")
-        # phase == "preflight_to_docs_gate": --yes only (default run)
-
-    # Bind an expected restart response to this child invocation. A previous
-    # receipt (or exit 3 by itself) must never disguise a new upgrade failure.
-    storage_invocation = uuid.uuid4().hex
-    try:
-        result = _mcp_subprocess_run(
-            cmd,
-            cwd=str(root),
-            check=False,
-            env={**os.environ, "WAVEFOUNDRY_STORAGE_OLD_MCP_PID": str(os.getpid()),
-                 "WAVEFOUNDRY_STORAGE_INVOCATION": storage_invocation},
-        )
-    except OSError as exc:
-        return _bounded_upgrade_response_envelope(
-            _response(
-                "error",
-                {"phase": phase},
-                diagnostics=[_diagnostic("spawn_failed", str(exc))],
-            )
-        )
-
-    output = (result.stdout or "") + (result.stderr or "")
-    # log_path is deterministic and always present for apply-mode phases;
-    # dry_run is read-only so it writes no log file.
-    log_path = (
-        str(root / ".wavefoundry" / "logs" / "upgrade.log")
-        if mode == "apply"
-        else None
-    )
-    displayed_output, output_truncated = _bounded_subprocess_output(
-        output,
-        cap_chars=UPGRADE_OUTPUT_CAP_CHARS,
-        truncation_hint=(
-            "see log_path for the complete run"
-            if log_path is not None
-            else "full output is available only from an apply-mode upgrade log"
-        ),
-    )
-    data = {
-        "phase": phase,
-        "exit_code": result.returncode,
-        "output": displayed_output.strip(),
-        "output_truncated": output_truncated,
-        "output_total_chars": len(output),
-        "log_path": log_path,
-    }
-
-    # Wave 1p8eu — parse the structured operator summary emitted by upgrade_wavefoundry.py on its
-    # WAVE_UPGRADE_SUMMARY_JSON: sentinel line into data['summary'] so agents read computed fields
-    # (from/to version, pruned_count, docs_gate, index_update, failed_phase, is_major_or_minor, the
-    # 1p8et reconciliation findings) instead of regex-scraping prose. FAIL-SAFE: an absent or
-    # malformed sentinel leaves 'output' as the only payload — never raises; 'output' and 'exit_code'
-    # stay unchanged (back-compatible).
-    summary = _parse_upgrade_summary(output)
-    if summary is not None:
-        data["summary"] = _bounded_upgrade_summary(summary)
-
-    # Wave 1u44n: an OBSERVED failed/refused Phase 4 publication must reach the
-    # caller as a diagnostic naming index_health, on the success AND failure
-    # envelopes. The summary's `index_update` value domain carries it for the
-    # sentinel-emitting phases; the standalone --update/--rebuild-index phases
-    # (no sentinel) are detected from the child's printed failure marker.
-    _index_pub_failed = bool(
-        (
-            summary is not None
-            and str(summary.get("index_update") or "").startswith(
-                "publication failed"
-            )
-        )
-        or "Index publication FAILED" in output
-    )
-    _index_pub_diag = (
-        _diagnostic(
-            "index_publication_failed",
-            "Index publication did not complete; the semantic index epoch is "
-            "incomplete and readers fail closed. Run index_build, then "
-            "confirm with index_health.",
-            recovery_tools=["index_health", "index_build"],
-            recovery_usage="index_health()",
-        )
-        if _index_pub_failed
-        else None
-    )
-    _retired_cleanup_failed = bool(
-        (
-            summary is not None
-            and summary.get("retired_model_cleanup_status") == "failed"
-        )
-        or "retired_model_cleanup_failed" in output
-    )
-    _retired_cleanup_diag = (
-        _diagnostic(
-            "retired_model_cleanup_failed",
-            "An owned retired model component could not be removed; the "
-            "upgrade lock was retained for an exact cleanup retry.",
-            recovery_tools=["wf_upgrade_status", "wf_upgrade"],
-            recovery_usage="wf_upgrade(phase='cleanup')",
-        )
-        if _retired_cleanup_failed
-        else None
-    )
-
-    # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
-    # both the success AND the failure response carry them.
-    _next_step, _next_tools = _upgrade_next_step(phase)
-    if result.returncode != 0 and (
-        phase == "resume_after_gate" or "--resume-after-gate" in output
-    ):
-        _next_step = (
-            "Resolve the typed review-state or docs findings, then retry "
-            "wf_upgrade(phase='resume_after_gate'). Index publication and "
-            "cleanup remain blocked until that recovery succeeds."
-        )
-        _next_tools = ["wf_upgrade_status", "wf_upgrade"]
-
-    if result.returncode == 3 and mode == "apply":
-        try:
-            migration = _load_script("sqlite_storage_migration")
-            storage_action = migration.read_restart_action(root, 3, storage_invocation)
-        except (OSError, RuntimeError, ValueError, AttributeError):
-            storage_action = None
-        if isinstance(storage_action, dict):
-            storage_action = dict(storage_action)
-            hosts = storage_action.get("old_hosts", [])
-            storage_action["old_hosts"] = hosts[:50]
-            storage_action["old_hosts_total"] = len(hosts)
-            storage_action["old_hosts_omitted"] = max(0, len(hosts) - 50)
-            storage_action["receipt_path"] = str(root / ".wavefoundry/index/sqlite-migration.json")
-            response = _response(
-                "ok",
-                {**data, "state": "restart_required", "restart_required": True,
-                 "code": "storage_restart_required", "action_required": storage_action,
-                 "failed_phase": None},
-                diagnostics=[],
-                next_tools=["wf_upgrade_status"],
-            )
-            response["next_step"] = (
-                "Save action_required.command_argv before stopping MCP. Stop all "
-                "Wavefoundry dashboard and MCP servers for this repository, including "
-                "other editors and this invoking server. Run the exact command through "
-                "the ordinary non-MCP shell; do not start another MCP server to resume. "
-                "Preserve the migration receipt and selected package. Follow the CLI "
-                "recovery instructions before restarting hosts."
-            )
-            return _bounded_upgrade_response_envelope(response)
-
-    if result.returncode == 3 and mode == "apply":
-        try:
-            extensions = _load_script("upgrade_extensions")
-            guard_action = extensions.read_index_guard_action(root, 3, storage_invocation)
-        except (OSError, RuntimeError, ValueError, AttributeError):
-            guard_action = None
-        if isinstance(guard_action, dict):
-            guard_action = dict(guard_action)
-            hosts = guard_action.get("old_hosts", [])
-            guard_action["old_hosts"] = hosts[:50]
-            guard_action["old_hosts_total"] = len(hosts)
-            guard_action["old_hosts_omitted"] = max(0, len(hosts) - 50)
-            response = _response(
-                "action_required", {**data, "state": "restart_required", "restart_required": True,
-                       "code": "index_guard_restart_required", "action_required": guard_action,
-                       "failed_phase": None},
-                diagnostics=[], next_tools=["wf_upgrade_status"],
-            )
-            response["next_step"] = extensions.INDEX_GUARD_NEXT_STEP
-            return _bounded_upgrade_response_envelope(response)
-
-    if result.returncode == 4:
-        memory_gate: dict[str, Any] = {}
-        action_required: dict[str, Any] = {}
-        try:
-            _ulib = _load_upgrade_lib()
-            lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
-            run_id = (
-                str(lock.get("memory_backfill_run_id") or "").strip()
-                if isinstance(lock, dict)
-                else ""
-            )
-            if run_id:
-                backfill = _load_script("memory_backfill")
-                memory_gate = {
-                    **backfill.run_summary(root, run_id),
-                    **backfill.validation_worklist(root, run_id),
-                }
-            if isinstance(lock, dict) and isinstance(lock.get("action_required"), dict):
-                action_required = dict(lock["action_required"])
-        except (OSError, RuntimeError, ValueError) as exc:
-            memory_gate = {"status_error": str(exc)}
-        action_valid = (
-            action_required.get("kind") == "historical_memory"
-            and action_required.get("resume_phase") == "resume_after_memory"
-            and bool(action_required.get("token"))
-            and bool(action_required.get("run_id"))
-            and action_required.get("run_id") == run_id
-            and action_required.get("state") in {
-                "awaiting_memory_validation", "awaiting_memory_publication"
-            }
-        )
-        if not action_valid:
-            # A code-4 child exit without the durable, self-identifying memory
-            # checkpoint is not a normal pause.  Fall through to generic error
-            # handling so malformed bridges and real Phase-4 failures stay
-            # visible rather than being relabelled as validation work.
-            result.returncode = 1
-        if result.returncode != 4:
-            pass
-        else:
-            publication_ready = action_required.get("state") == "awaiting_memory_publication"
-            state = "awaiting_memory_publication" if publication_ready else "awaiting_memory_validation"
-            next_tools = (
-            ["wf_reload_mcp", "wf_upgrade_status", "wf_upgrade"]
-            if publication_ready
-            else ["wf_reload_mcp", "memory_backfill", "memory_validate"]
-            )
-            action = _response(
-            "ok",
-            {
-                **data,
-                "state": state,
-                "memory_backfill": memory_gate,
-                "action_required": action_required,
-                "failed_phase": None,
-            },
-            diagnostics=[],
-            next_tools=next_tools,
-            )
-            action["next_step"] = (
-            "Reload the newly installed MCP implementation, then call "
-            "wf_upgrade(phase='resume_after_memory') to publish the prepared historical memory."
-            if publication_ready else
-            "Reload the newly installed MCP implementation, run bounded historical "
-            "memory backfill and focused validation, then call "
-            "wf_upgrade(phase='resume_after_memory')."
-            )
-            return _bounded_upgrade_response_envelope(action)
-    if result.returncode != 0:
-        bridge_handoff = _parse_bridge_release_required(output)
-        if bridge_handoff is not None:
-            handoff = _response(
-                "error",
-                {**data, "bridge_release_required": bridge_handoff},
-                diagnostics=[
-                    _diagnostic(
-                        "bridge_release_required",
-                        str(bridge_handoff.get("why") or "A protocol bridge is required."),
-                    )
-                ],
-                next_tools=["wf_stop_dashboard"],
-            )
-            handoff["next_step"] = (
-                "Stop the dashboard through wf_stop_dashboard, disconnect/stop every "
-                "Wavefoundry MCP server for this repository, keep the agent session idle, "
-                "and have the agent run command_argv through its ordinary non-MCP shell. "
-                "Then fully restart every attached host and follow the package's structured "
-                "recovery result."
-                if bridge_handoff.get("package_present")
-                else "Download the named single Wavefoundry package, then repeat this upgrade call."
-            )
-            return _bounded_upgrade_response_envelope(handoff)
-        exit_meanings = {1: "docs gate failed", 2: "surface rendering failed", 3: "pre-flight check failed"}
-        reason = exit_meanings.get(result.returncode, f"exited {result.returncode}")
-        if result.returncode == 1 and (
-            phase == "resume_after_gate" or "--resume-after-gate" in output
-        ):
-            reason = "review-state projection or docs gate failed"
-        if result.returncode == 1 and _index_pub_failed:
-            # 1u44n: the standalone index phases reuse exit 1; do not mislabel
-            # an observed publication failure as a docs-gate failure.
-            reason = "index publication failed"
-        err = _response(
-            "error",
-            data,
-            diagnostics=[_diagnostic("upgrade_failed", f"Upgrade phase '{phase}' failed: {reason}")],
-            next_tools=_next_tools,
-        )
-        if _index_pub_diag is not None:
-            err.setdefault("diagnostics", []).append(_index_pub_diag)
-        err["next_step"] = _next_step
-        if _retired_cleanup_diag is not None:
-            err.setdefault("diagnostics", []).append(_retired_cleanup_diag)
-            err["next_step"] = (
-                "Resolve the exact component ownership or filesystem removal "
-                "failure, then retry wf_upgrade(phase='cleanup')."
-            )
-            err["next_tools"] = ["wf_upgrade_status", "wf_upgrade"]
-        return _bounded_upgrade_response_envelope(err)
-
-    # 1.15 cutover scoping: when this run's review-sidecar cleanup was
-    # cutover-active (counts carry restart_required), the in-process reload
-    # below must NOT fire and the wf_reload_mcp suggestion is replaced by the
-    # full-restart instruction. Non-cutover runs keep the established reload
-    # flow and guidance untouched.
-    cutover_restart = mode == "apply" and _cutover_restart_required(root, summary)
-    if cutover_restart:
-        _next_tools = [t for t in _next_tools if t != "wf_reload_mcp"]
-        if phase == "cleanup":
-            _next_step = (
-                "Upgrade complete. " + _CUTOVER_RESTART_INSTRUCTION + " After "
-                "restarting, review the summary's reconciliation findings and "
-                "resolve stale references."
-            )
-        else:
-            _next_step = _next_step + " " + _CUTOVER_RESTART_INSTRUCTION
-
-    resp = _response("ok", data, usage=f"wf_upgrade(phase='{phase}')", next_tools=_next_tools)
-    if _index_pub_diag is not None:
-        # 1u44n: a zero-exit run whose summary reports a failed publication
-        # still carries the index_health-naming diagnostic.
-        resp.setdefault("diagnostics", []).append(_index_pub_diag)
-    resp["next_step"] = _next_step
-    # Wave 1p3dk / 1p3ho: reload the MCP server's in-process code after the
-    # main upgrade phase or cleanup so subsequent MCP calls (index_health,
-    # code_ask, etc.) use the freshly-extracted server_impl. Without this, the
-    # parent MCP process keeps the old code in memory even though the new
-    # framework files are on disk. Phase `preflight_to_docs_gate` now runs
-    # Phase 4 (index update) inside the subprocess too, so reload here is the
-    # final step that brings the running server in sync with everything else.
-    if mode == "apply" and phase in ("preflight_to_docs_gate", "cleanup"):
-        if cutover_restart:
-            resp.setdefault("diagnostics", []).append(
-                _diagnostic(
-                    "mcp_reload_suppressed",
-                    "In-process MCP reload suppressed: "
-                    + _CUTOVER_RESTART_INSTRUCTION,
-                )
-            )
-        else:
-            try:
-                import server as _srv
-                reload_resp = _srv.perform_mcp_reload()
-                if reload_resp.get("status") == "ok":
-                    resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
-                    resp.setdefault("diagnostics", []).extend(
-                        reload_resp.get("diagnostics", [])
-                    )
-                else:
-                    resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
-            except Exception as exc:
-                resp.setdefault("diagnostics", []).append(
-                    _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
-                )
-    return _bounded_upgrade_response_envelope(resp)
 
 
-def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
-    """Return the current upgrade lock state (R5 — 12r08)."""
-    _ulib = _load_upgrade_lib()
-    if _ulib is not None:
-        lock = _ulib.read_upgrade_lock(root)
-    else:
-        lock = None
-
-    if lock is None:
-        data: dict[str, Any] = {
-            "in_progress": False,
-            "started_at": None,
-            "from_version": None,
-            "to_version": None,
-            "pid": None,
-            "retired_model_cleanup_status": "not_applicable",
-            "retired_model_cleanup_removed": [],
-            "retired_model_cleanup_absent": [],
-            "retired_model_cleanup_unowned": [],
-            "retired_model_cleanup_failed": [],
-        }
-    else:
-        cleanup_projection = _project_retired_model_cleanup_fields(lock)
-        data = {
-            "in_progress": True,
-            "started_at": lock.get("started_at"),
-            "from_version": lock.get("from_version"),
-            "to_version": lock.get("to_version"),
-            "pid": lock.get("pid"),
-            "current_phase": lock.get("current_phase"),
-            "failed_phase": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_phase"),
-            "failed_at": None if isinstance(lock.get("action_required"), dict) else lock.get("failed_at"),
-            "action_required": lock.get("action_required"),
-            **cleanup_projection,
-        }
-        run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-        if run_id:
-            try:
-                backfill = _load_script("memory_backfill")
-                data["memory_backfill"] = {
-                    **backfill.run_summary(root, run_id),
-                    **backfill.validation_worklist(root, run_id),
-                }
-            except (OSError, RuntimeError, ValueError) as exc:
-                data["memory_backfill"] = {
-                    "run_id": run_id,
-                    "status_error": str(exc),
-                }
-    return _response("ok", data, usage="wf_upgrade_status()")
 
 
 def wf_run_sensors_response(root: Path) -> dict[str, Any]:
@@ -13093,107 +8461,6 @@ def wf_run_sensors_response(root: Path) -> dict[str, Any]:
     )
 
 
-def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str, Any]:
-    """Run the secrets scanner and return a structured findings summary.
-
-    mode: "incremental" uses git-changed files; "full" scans all tracked files.
-    New findings are appended to docs/scan-findings.json as status 'pending'.
-
-    Runs in a subprocess (matching the graph indexer architecture) so that
-    ProcessPoolExecutor workers and the multiprocessing resource_tracker belong
-    to the child process and exit when it does — the MCP server never acquires
-    a resource_tracker of its own.
-    """
-    import sys as _sys
-    scripts_dir = Path(__file__).resolve().parent
-    if str(scripts_dir) not in _sys.path:
-        _sys.path.insert(0, str(scripts_dir))
-
-    try:
-        from wave_lint_lib.constants import SCAN_FINDINGS_PATH
-    except ImportError as exc:
-        return _response(
-            "error",
-            {"error": f"secrets scanner not available: {exc}"},
-            diagnostics=[_diagnostic("import_error", str(exc))],
-        )
-
-    import time as _time, json as _json
-
-    scan_script = scripts_dir / "run_secrets_scan.py"
-    _t0 = _time.monotonic()
-    failures: list[str] = []
-
-    try:
-        proc = _mcp_subprocess_run(
-            [_preferred_python(), str(scan_script), "--root", str(root), "--mode", mode],
-            timeout=300, cwd=str(root),
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
-        _out = _json.loads(proc.stdout)
-        failures = _out.get("failures", [])
-        rules_hash_changed = _out.get("rules_hash_changed", False)
-        escalated_to_full = _out.get("escalated_to_full", False)
-    except Exception as _exc:
-        # Subprocess unavailable or failed — fall back to in-process serial scan.
-        rules_hash_changed = False
-        escalated_to_full = False
-        try:
-            from wave_lint_lib.secrets_validators import check_hardcoded_secrets
-            failures = check_hardcoded_secrets(root, scan_all=(mode == "full"), max_workers=1)
-        except Exception:
-            return _response(
-                "error",
-                {"error": f"secrets scan failed: {_exc}"},
-                diagnostics=[_diagnostic("scan_error", str(_exc))],
-            )
-
-    elapsed_s = round(_time.monotonic() - _t0, 3)
-
-    import json as _json
-    findings_path = root / SCAN_FINDINGS_PATH
-    findings: list[dict] = []
-    if findings_path.exists():
-        try:
-            data = _json.loads(findings_path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                findings = data
-        except Exception:
-            pass
-
-    by_status: dict[str, int] = {}
-    for entry in findings:
-        s = entry.get("status", "unknown")
-        by_status[s] = by_status.get(s, 0) + 1
-
-    all_ok = len(failures) == 0
-    return _response(
-        "ok" if all_ok else "error",
-        {
-            "mode": mode,
-            "effective_mode": "full" if (mode == "full" or escalated_to_full) else mode,
-            "rules_hash_changed": rules_hash_changed,
-            "escalated_to_full": escalated_to_full,
-            "clean": all_ok,
-            "elapsed_s": elapsed_s,
-            "total_findings": len(findings),
-            "by_status": by_status,
-            "failures_total": len(failures),
-            "failures": failures[:20] if failures else [],
-            "findings_file": SCAN_FINDINGS_PATH,
-        },
-        diagnostics=[
-            _diagnostic(
-                "secrets_scan_failures",
-                f"{len(failures)} secrets check failure(s) — review {SCAN_FINDINGS_PATH}",
-                recovery_tools=["wf_scan_secrets"],
-                recovery_usage="wf_scan_secrets(mode='full')",
-            )
-        ] if failures else [],
-        next_tools=["wf_audit"] if all_ok else ["wf_scan_secrets"],
-        usage="wf_audit()" if all_ok else "wf_scan_secrets(mode='full')",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -16672,11 +11939,6 @@ def _walk_repo_for_navigation(root: Path) -> list[Path]:
 # Wave 1p3dk / 1p3ha: edit-governance gate detection map. Path prefixes that
 # require a specific gate to be open before edits. Surfaced in the
 # `edit_governance` response field so agents see the requirement at read time.
-_EDIT_GOVERNANCE_GATE_MAP = (
-    (".wavefoundry/framework/seeds/", "seed_edit_allowed"),
-    (".wavefoundry/framework/scripts/", "framework_edit_allowed"),
-    (".wavefoundry/framework/dashboard/", "framework_edit_allowed"),
-)
 
 def _cached_ts_parse(absolute_path: Optional[Path], ts_lang: str, source: str) -> Any:
     """Wave 1p3dk / 1p3hd: shared tree-sitter parse wrapper consumed by every
@@ -16821,7 +12083,6 @@ _FTS_SERVE_STATE: "dict[str, dict[str, Any]]" = {}
 _FTS_DETAIL_CAP = 240
 # Verdict reasons that mean the table is DAMAGED (heal-eligible). Everything
 # else is healthy, not promised (fts_disabled), or not-yet-built.
-_FTS_DAMAGE_REASONS = frozenset({"probe_failed", "digest_mismatch", "digest_unavailable"})
 
 
 def _path_prefix_pattern(candidate: str) -> "re.Pattern[str] | None":
@@ -18411,51 +13672,6 @@ def _graph_seed_node_ids(data: dict[str, Any], tool: str) -> list[str]:
     return ids
 
 
-def _graph_refresh_then_recheck(
-    root: Path,
-    recheck_fn: Callable[[], Any],
-) -> Any:
-    """Run an incremental graph update, then re-call ``recheck_fn`` and return its result.
-
-    Wave 1304x / 1304r: shared helper used by every graph-using MCP tool when its
-    initial graph query returns no result. Incremental refresh is ~4ms when nothing
-    has changed (measured during wave 12xr3 close-review), so it's cheap to attempt
-    inline. Returns ``None`` on any exception so callers fall through to their
-    existing not-found / suggestions path without surfacing the refresh error;
-    exceptions are logged to stderr via ``_wf_log`` so operators see real failures
-    rather than silent degradation.
-
-    Usage pattern:
-        candidate = primary_query(...)
-        if candidate is None or empty:
-            candidate = _graph_refresh_then_recheck(root, lambda: primary_query(...))
-            if candidate:
-                # found after refresh — proceed
-            else:
-                # genuinely missing — emit suggestions / not-found
-    """
-    try:
-        index_build_response(root, content="graph", mode="update")
-    except Exception as exc:
-        _wf_log(f"[wavefoundry] graph refresh failed during recheck: {exc!r}")
-        return None
-    # Wave 1xny6: the refresh may have published a new generation. Drop the
-    # cached snapshot AND rebind any pin held by the calling response — the
-    # response asked for the newer generation, so serving it the pre-build one
-    # would report its own successful refresh as "still missing".
-    try:
-        _load_graph_query().invalidate_query_index_cache(root)
-    except Exception:
-        pass
-    try:
-        _graph_snapshot_module().repin(root, "project")
-    except Exception:
-        pass
-    try:
-        return recheck_fn()
-    except Exception as exc:
-        _wf_log(f"[wavefoundry] recheck closure failed after graph refresh: {exc!r}")
-        return None
 
 
 
@@ -20328,372 +15544,14 @@ def _wave_checkpoint_floor(root: Path, wave_id: str) -> dict[str, Any]:
     return parsed or context_efficiency.empty_checkpoint(wave_md.parent.name)
 
 
-def _project_context_efficiency_wave(
-    root: Path,
-    wave_id: str,
-    *,
-    handler: "ImplHandler | None" = None,
-    automatic: bool = False,
-) -> dict[str, Any]:
-    """Publish one durable CE generation without recording or flushing telemetry.
-
-    ``automatic`` callers are fail-fast on publication-lock contention and never
-    seal, compact, or change process focus. Lifecycle/reload callers retain the
-    historical hard-boundary behavior through ``automatic=False``.
-    """
-
-    wave_md = _find_wave_md(root, wave_id)
-    if wave_md is None:
-        return {"persistence": "failed", "projection": "wave_not_found"}
-    canonical_wave = wave_md.parent.name
-    try:
-        with (index_source_guard.index_source_guard(root, wait=False) if automatic else nullcontext()), \
-                project_state_publication_lock(root, wait=not automatic):
-            # Status, floor, and the durable generation are one publication
-            # decision.  Read all three only after acquiring the shared lock;
-            # otherwise a concurrent close can be overwritten with sealed=0.
-            current, current_read_error = _read_wave_record_text(wave_md)
-            if current is None:
-                # Wave 1v0lw: same failed shape the broad handler below
-                # produced, with the sanitized cause.
-                return {
-                    "persistence": "failed",
-                    "projection": "pending",
-                    "error": current_read_error,
-                    "wave_id": canonical_wave,
-                }
-            status_match = _STATUS_PATTERN.search(current)
-            sealed = bool(status_match and status_match.group(1) == "closed")
-            if automatic and sealed:
-                return {
-                    "persistence": "durable",
-                    "projection": "pending",
-                    "reason": "closed_wave_requires_hard_boundary",
-                    "wave_id": canonical_wave,
-                }
-            floor = context_efficiency.parse_checkpoint_block(current)
-            context_efficiency.reconcile_checkpoint_authority(
-                root,
-                canonical_wave,
-                floor or context_efficiency.empty_checkpoint(canonical_wave),
-                sealed=sealed,
-            )
-            snapshot = context_efficiency.read_wave_snapshot(root, canonical_wave)
-            if automatic and not snapshot.get("pending"):
-                return {
-                    "persistence": "durable",
-                    "projection": "published",
-                    "sealed": sealed,
-                    "compacted": False,
-                    "changed": False,
-                    "already_current": True,
-                }
-            published = dict(snapshot)
-            published["pending"] = False
-            updated = context_efficiency.replace_checkpoint_block(current, published)
-            exploration = _load_script("exploration_avoided")
-            updated = exploration.replace_checkpoint_block(
-                updated, root, canonical_wave
-            )
-            if updated != current:
-                _atomic_replace_text(
-                    wave_md, updated, "context-efficiency-projection"
-                )
-            marked = context_efficiency.mark_checkpoint_published(
-                root,
-                canonical_wave,
-                published,
-                expected_generation=int(snapshot.get("generation", 0)),
-                seal=sealed,
-            )
-            compacted = (
-                context_efficiency.compact_published_wave(
-                    root,
-                    canonical_wave,
-                    expected_generation=int(snapshot.get("generation", 0)),
-                )
-                if marked and sealed
-                else not sealed
-            )
-            focus_clear_error = ""
-            if marked and sealed and compacted and handler is not None:
-                if _focus_clear_write_needed(handler):
-                    applied, clear_error = _attempt_focus_state(
-                        handler, action="clear"
-                    )
-                    if not applied:
-                        focus_clear_error = clear_error
-        return {
-            "persistence": "durable",
-            "projection": "published" if marked and compacted else "pending",
-            "sealed": sealed,
-            "compacted": bool(marked and sealed and compacted),
-            "changed": updated != current,
-            **(
-                {"focus_clear_error": focus_clear_error}
-                if focus_clear_error
-                else {}
-            ),
-        }
-    except index_source_guard.RuntimeLockBusy as exc:
-        return {
-            "persistence": "durable", "projection": "pending",
-            "reason": "index_source_busy", "error": str(exc),
-            "wave_id": canonical_wave,
-        }
-    except index_source_guard.RuntimeLockError as exc:
-        return {
-            "persistence": "durable", "projection": "pending",
-            "reason": "index_source_unavailable", "error": str(exc),
-            "wave_id": canonical_wave,
-        }
-    except ProjectPublicationUnavailable as exc:
-        return {
-            "persistence": "durable",
-            "projection": "pending",
-            "reason": "publication_lock_busy",
-            "error": str(exc),
-            "wave_id": canonical_wave,
-        }
-    except Exception as exc:
-        return {
-            "persistence": "failed",
-            "projection": "pending",
-            "error": f"{type(exc).__name__}: {exc}",
-            "wave_id": canonical_wave,
-        }
 
 
-def _flush_context_efficiency(
-    handler: "ImplHandler",
-    wave_id: str,
-    *,
-    transfer_general: bool = False,
-) -> tuple[dict[str, Any], context_efficiency.FlushResult | None]:
-    """Persist one process buffer and project its durable wave checkpoint."""
-
-    root = handler.root
-    canonical_wave = wave_id
-    try:
-        wave_md = _find_wave_md(root, wave_id)
-        if wave_md is None:
-            return (
-                {"persistence": "failed", "projection": "wave_not_found"},
-                None,
-            )
-        canonical_wave = wave_md.parent.name
-        floor = _wave_checkpoint_floor(root, canonical_wave)
-        initial_markdown, initial_read_error = _read_wave_record_text(wave_md)
-        if initial_markdown is None:
-            # Wave 1v0lw: same failed shape the broad handler below produced,
-            # with the sanitized cause.
-            return (
-                {
-                    "persistence": "failed",
-                    "projection": "pending",
-                    "error": initial_read_error,
-                    "wave_id": canonical_wave,
-                },
-                None,
-            )
-        status_match = _STATUS_PATTERN.search(initial_markdown)
-        sealed = bool(status_match and status_match.group(1) == "closed")
-        context_efficiency.reconcile_checkpoint_authority(
-            root, canonical_wave, floor, sealed=sealed
-        )
-        # Wave 1t3ek (1t3el): boundary adoption stamps the stage the wave is
-        # actually in — plan while planned/paused (create/prepare boundaries),
-        # implement while OPEN, review once the ledger holds a delivery run.
-        wave_status = status_match.group(1) if status_match else ""
-        if wave_status in ("active", "implementing"):
-            transfer_stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
-        else:
-            transfer_stage = "plan"
-        flushed = handler.telemetry.flush(
-            root,
-            transfer_general_to=canonical_wave if transfer_general else None,
-            transfer_stage=transfer_stage,
-            checkpoint_floors=None,
-        )
-        if not flushed.success:
-            return (
-                {
-                    "persistence": "failed",
-                    "projection": "pending",
-                    "error": flushed.error,
-                },
-                flushed,
-            )
-        projection = _project_context_efficiency_wave(
-            root, canonical_wave, handler=handler, automatic=False
-        )
-        return (
-            {
-                **projection,
-                "credited_invocations": sorted(
-                    f"{wave}:{invocation_id}"
-                    for wave, invocation_id in flushed.credited_keys
-                ),
-                "duplicate_invocations": sorted(
-                    f"{wave}:{invocation_id}"
-                    for wave, invocation_id in flushed.duplicate_keys
-                ),
-            },
-            flushed,
-        )
-    except Exception as exc:
-        return (
-            {
-                "persistence": "failed",
-                "projection": "pending",
-                "error": f"{type(exc).__name__}: {exc}",
-                "wave_id": canonical_wave,
-            },
-            None,
-        )
 
 
-def project_pending_context_efficiency(
-    handler: "ImplHandler",
-) -> dict[str, Any]:
-    """Project every pending durable wave generation before reload/upgrade."""
-
-    return project_pending_context_efficiency_root(
-        handler.root, handler=handler, automatic=False
-    )
 
 
-def project_pending_context_efficiency_root(
-    root: Path,
-    *,
-    handler: "ImplHandler | None" = None,
-    automatic: bool = False,
-    wave_ids: Iterable[str] | None = None,
-) -> dict[str, Any]:
-    """Project pending generations from a root-bound, accounting-neutral path.
-
-    ``wave_ids`` limits an automatic trailing-edge pass to generations that
-    have already satisfied its quiet period. Hard boundaries omit it and
-    retain the all-pending barrier.
-    """
-
-    pending_state = context_efficiency.pending_wave_ids(root)
-    if not pending_state.get("ok"):
-        return {
-            "ok": False,
-            "projected": [],
-            "failed_wave": None,
-            "detail": {
-                "persistence": "failed",
-                "projection": "unavailable",
-                "error": pending_state.get("error"),
-                "authority_status": pending_state.get("status"),
-            },
-        }
-    pending = list(pending_state.get("pending", []))
-    if wave_ids is not None:
-        selected = {str(wave_id) for wave_id in wave_ids}
-        pending = [wave_id for wave_id in pending if wave_id in selected]
-    projected: list[str] = []
-    skipped_unknown: list[dict[str, Any]] = []
-    automatic_failures: list[dict[str, Any]] = []
-    for wave_id in pending:
-        result = _project_context_efficiency_wave(
-            root, wave_id, handler=handler, automatic=automatic
-        )
-        if result.get("projection") == "wave_not_found":
-            # Hardening (1t59p, operator-approved): a phantom or misattributed
-            # wave key must never brick reload/upgrade. Leave its rows pending,
-            # surface it explicitly, and keep projecting the real waves.
-            skipped_unknown.append({"wave_id": wave_id, "detail": result})
-            continue
-        if result.get("projection") != "published":
-            if automatic:
-                automatic_failures.append({"wave_id": wave_id, "detail": result})
-                continue
-            return {
-                "ok": False,
-                "projected": projected,
-                "failed_wave": wave_id,
-                "detail": result,
-            }
-        projected.append(wave_id)
-    out: dict[str, Any] = {"ok": not automatic_failures, "projected": projected}
-    if skipped_unknown:
-        out["skipped_unknown_waves"] = skipped_unknown
-    if automatic_failures:
-        out["failed_wave"] = automatic_failures[0]["wave_id"]
-        out["detail"] = automatic_failures[0]["detail"]
-        out["automatic_failures"] = automatic_failures
-    return out
 
 
-def _context_efficiency_state(
-    handler: "ImplHandler", wave_ids: Iterable[str]
-) -> dict[str, Any]:
-    """Read-only durable + current-process overlay; never creates the store."""
-
-    canonical_waves = sorted({wave for wave in wave_ids if wave})
-    health = context_efficiency.read_store_health(handler.root)
-    if health["status"] == "failed":
-        durable = {
-            wave_id: _wave_checkpoint_floor(handler.root, wave_id)
-            for wave_id in canonical_waves
-        }
-        durable_general = {
-            "calls": 0,
-            "request_debit": 0,
-            "response_debit": 0,
-            "source_credit": 0,
-            "estimated_tokens_saved": 0,
-        }
-        durable_source = "published_checkpoint_floor"
-        durable_general_available = False
-    else:
-        durable = {
-            wave_id: context_efficiency.read_wave_snapshot(
-                handler.root, wave_id
-            )
-            for wave_id in canonical_waves
-        }
-        durable_general = context_efficiency.read_general_totals(handler.root)
-        durable_source = (
-            "sidecar"
-            if health["status"] in {"healthy", "accounting_gap"}
-            else "empty_store"
-        )
-        durable_general_available = True
-    producer_id: str | None = None
-    try:
-        buffered = handler.telemetry.buffered_snapshot()
-        producer_id = buffered.pop("producer_id", None)
-    except Exception:
-        buffered = {
-            "focus": None,
-            "retrieval": {},
-            "workflow_credit_intents": [],
-            "general_note": context_efficiency.GENERAL_ASSOCIATION_NOTE,
-            "available": False,
-            "persistence": "failed",
-        }
-    if health["status"] in {"healthy", "accounting_gap"}:
-        durable_general = context_efficiency.read_general_totals(
-            handler.root, producer_id
-        )
-    return {
-        "durable_waves": durable,
-        "current_process": buffered,
-        "durable_general": durable_general,
-        "durable_source": durable_source,
-        "durable_general_available": durable_general_available,
-        "persistence_health": health,
-        "visibility": (
-            "SQLite is the live write-through authority. Process focus and "
-            "producer-scoped general attribution remain isolated; wave.md is "
-            "the last published checkpoint. Accounting gaps suppress a "
-            "positive headline."
-        ),
-    }
 
 
 def _implementation_review_complete(response: dict[str, Any]) -> bool:
@@ -20722,154 +15580,6 @@ def _implementation_review_complete(response: dict[str, Any]) -> bool:
     )
 
 
-def wf_context_efficiency_eval_response(
-    root: Path,
-    wave_id: str,
-    phase_id: str,
-    *,
-    mode: str,
-    report_path: str = "",
-    applicability: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Register or attach one phase-scoped paired evaluation."""
-
-    mode_s = str(mode or "").strip().lower()
-    try:
-        if mode_s == "scaffold":
-            # Wave 1t72b (1t72a): write a pair-artifact skeleton whose shape is
-            # derived from the scorer's own canonical constants — no parallel
-            # schema. Placeholders (negative tokens, empty ids, incomplete
-            # arms) FAIL score_pairs until genuinely filled, so a scaffold can
-            # never accidentally qualify.
-            applicability = context_efficiency.registered_applicability(
-                root, wave_id, phase_id
-            )
-            if applicability is None:
-                raise ValueError(
-                    "no applicability registered for this (wave, phase) — run "
-                    "mode='register' first, then mode='scaffold'"
-                )
-            candidate = Path(report_path)
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            resolved_root = root.resolve(strict=True)
-            target = candidate.resolve()
-            if not target.is_relative_to(resolved_root):
-                raise ValueError("report_path must be a contained path")
-            if target.exists():
-                raise ValueError("report_path already exists; refusing to overwrite")
-            scorer = _load_script("score_context_efficiency_pairs")
-            placeholder_arm = {}
-            for key in scorer.ARM_KEYS:
-                if key == "quality":
-                    placeholder_arm[key] = {k: -1 for k in scorer.QUALITY_KEYS}
-                elif key == "completed":
-                    placeholder_arm[key] = False
-                elif key == "usage_source":
-                    placeholder_arm[key] = "provider_reported"
-                elif key == "quality_scored_blind":
-                    placeholder_arm[key] = True
-                else:
-                    placeholder_arm[key] = -1
-            skeleton = {
-                "schema_version": 1,
-                "evaluation_id": "",
-                "supersedes_evaluation_id": None,
-                "applicability": applicability,
-                "pairs": [
-                    {
-                        key: (
-                            "" if key == "pair_id"
-                            else 0 if key == "assisted_direct_net"
-                            else dict(placeholder_arm)
-                        )
-                        for key in scorer.PAIR_KEYS
-                    }
-                    for _ in range(scorer.MIN_QUALIFYING_PAIRS)
-                ],
-            }
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                json.dumps(skeleton, indent=1) + "\n", encoding="utf-8"
-            )
-            result = {
-                "scaffolded": True,
-                "path": str(target.relative_to(resolved_root)),
-                "pairs": scorer.MIN_QUALIFYING_PAIRS,
-                "protocol": "docs/references/context-efficiency-paired-evaluation.md",
-            }
-        elif mode_s == "register":
-            result = context_efficiency.attach_evaluation(
-                root,
-                wave_id,
-                phase_id,
-                mode=mode_s,
-                applicability=applicability,
-            )
-        elif mode_s in {"attach", "replace"}:
-            candidate = Path(report_path)
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            resolved_root = root.resolve(strict=True)
-            report_file = candidate.resolve(strict=True)
-            if (
-                not report_file.is_relative_to(resolved_root)
-                or not report_file.is_file()
-            ):
-                raise ValueError("report_path must be a contained file")
-            payload = json.loads(report_file.read_text(encoding="utf-8"))
-            scorer = _load_script("score_context_efficiency_pairs")
-            report = scorer.score_pairs(payload)
-            result = context_efficiency.attach_evaluation(
-                root,
-                wave_id,
-                phase_id,
-                mode=mode_s,
-                report=report,
-            )
-            result["scorer"] = {
-                "qualifying_pairs": int(report["qualifying_pairs"]),
-                "quality_gate_passed": bool(report["quality_gate_passed"]),
-                "matched_pair_residual": int(report["matched_pair_residual"]),
-            }
-        elif mode_s == "revoke":
-            result = context_efficiency.attach_evaluation(
-                root, wave_id, phase_id, mode=mode_s
-            )
-        else:
-            raise ValueError(
-                "mode must be register, scaffold, attach, replace, or revoke"
-            )
-        return _response(
-            "ok",
-            result,
-            next_tools=["wf_current_wave"],
-            usage=(
-                "wf_context_efficiency_eval("
-                f"wave_id={wave_id!r}, phase_id={phase_id!r}, mode={mode_s!r})"
-            ),
-        )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return _response(
-            "error",
-            {
-                "failed": True,
-                "stage": "context_efficiency_evaluation",
-                "error": f"{type(exc).__name__}: {exc}",
-            },
-            diagnostics=[
-                {
-                    "code": "context_efficiency_evaluation_invalid",
-                    "message": str(exc),
-                }
-            ],
-            usage=(
-                "Register applicability first, generate a skeleton with "
-                "mode='scaffold', fill it per "
-                "docs/references/context-efficiency-paired-evaluation.md, then "
-                "attach the contained pair artifact."
-            ),
-        )
 
 
 def _lifecycle_milestone_completed(
@@ -21657,160 +16367,20 @@ def _artifact_from_written_paths(field: str):
     return extract
 
 
-def _state_sources_review_evidence(root: Path, result: Mapping[str, Any]) -> list[str]:
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    # Wave 1t59p (1t6ow): the read-only list event conveys whole-ledger state
-    # on every response (summary, chain heads, and approval currency derive
-    # from every record, not just the filtered rows), so it credits the live
-    # ledger file it read on the caller's behalf. The canonical source-proof
-    # machinery keeps this once-only per (wave, phase, source, version).
-    if data.get("event") == "list":
-        value = data.get("events_path")
-        return [value] if isinstance(value, str) and value else []
-    if data.get("mode") != "create" or data.get("replayed"):
-        return []
-    paths = []
-    for field in ("events_path", "path"):
-        value = data.get(field)
-        if isinstance(value, str) and value:
-            paths.append(value)
-    return paths
 
 
-def _state_sources_memory_validate(root: Path, result: Mapping[str, Any]) -> list[str]:
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    record = data.get("record")
-    path = record.get("path") if isinstance(record, Mapping) else None
-    return [str(path)] if path else []
 
 
-def _state_sources_memory_propose(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Best-effort: resolve the change docs the drafted records derive from."""
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok" or not data.get("written"):
-        return []
-    change_ids: set[str] = set()
-    for item in data.get("written") or []:
-        source = item.get("source_event") if isinstance(item, Mapping) else None
-        if isinstance(source, str) and source.startswith("decision-log:"):
-            parts = source.split(":", 2)
-            if len(parts) >= 2 and parts[1]:
-                change_ids.add(parts[1])
-    paths: list[str] = []
-    # Finding `commit-provenance-nested-wave-dir`: the shared discovery walk
-    # (flat or nested) locates the wave folders; the change-id prefix glob is
-    # kept, now applied inside each discovered folder.
-    wave_dirs = record_paths.discover_wave_dirs(root)
-    try:
-        for change_id in sorted(change_ids):
-            for wave_dir in wave_dirs:
-                matches = sorted(wave_dir.glob(f"{change_id}*.md"))
-                if matches:
-                    paths.append(str(matches[0].relative_to(root)))
-                    break
-    except OSError:
-        pass
-    return paths
 
 
-def _state_sources_get_change(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Credit only change docs whose content the response conveys.
-
-    Bulk rows cap content at 300 lines and carry a structural ``truncated``
-    field; a truncated row conveys an excerpt, not the document, so it earns
-    no whole-file credit. Listing digests (wf_current_wave, wf_list_waves,
-    wf_list_plans, wf_map, memory_search, memory_brief) are deliberately
-    absent from the extractor table for the same reason: their responses
-    reference documents without conveying them, so deterministic whole-file
-    credit would scale with corpus size rather than information delivered.
-    Counterfactual read-avoidance for digests belongs to paired evaluations
-    (wf_context_efficiency_eval), never the measured ledger.
-    """
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    paths: list[str] = []
-    change = data.get("change")
-    if isinstance(change, Mapping) and change.get("path") and change.get("content"):
-        paths.append(str(change["path"]))
-    for row in data.get("changes") or []:
-        if (
-            isinstance(row, Mapping)
-            and row.get("path")
-            and row.get("content")
-            and not row.get("truncated")
-        ):
-            paths.append(str(row["path"]))
-    return paths
 
 
-def _state_sources_live_waves(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Credit the LIVE working set a wave listing enumerates — never history.
-
-    Whole-corpus credit was rejected (operator direction, 2026-07-20): a
-    listing sweeps every wave record to answer a one-line question, so credit
-    would scale with repository age. The bounded middle ground credits only
-    rows the response marks non-closed — the waves an operator acting on this
-    listing would actually open — so credit tracks work in flight, not the
-    archive tail.
-    """
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    paths: list[str] = []
-    for row in data.get("waves") or []:
-        if (
-            isinstance(row, Mapping)
-            and row.get("path")
-            and str(row.get("status") or "") not in ("closed", "")
-        ):
-            paths.append(str(row["path"]))
-    return paths
 
 
-def _state_sources_list_plans(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Plan docs under docs/plans/ are pending work by construction — the
-    listing enumerates the live backlog, bounded by work in flight."""
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    return [
-        str(row["path"])
-        for row in data.get("plans") or []
-        if isinstance(row, Mapping) and row.get("path")
-    ]
 
 
-def _state_sources_memory_views(*rows_keys: str):
-    """Memory views credit the record files they surface (operator direction,
-    2026-07-20): each surfaced row names a real record file an agent without
-    the tool would have opened, and the response cap bounds the set."""
-    def extract(root: Path, result: Mapping[str, Any]) -> list[str]:
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
-        if result.get("status") != "ok":
-            return []
-        paths: list[str] = []
-        for key in rows_keys:
-            for row in data.get(key) or []:
-                if isinstance(row, Mapping) and row.get("path"):
-                    paths.append(str(row["path"]))
-        return paths
-    return extract
 
 
-def _state_sources_map(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """wf_map resolves exactly one address; credit the one resolved document."""
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    if result.get("status") != "ok":
-        return []
-    path = data.get("path")
-    if isinstance(path, str) and path and data.get("file_exists"):
-        return [path]
-    return []
 
 
 def _review_evidence_cost_focus(
@@ -22036,18 +16606,6 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
 # (seed_get, wf_get_prompt). Listings credit only the live working set they
 # enumerate, never closed history (see _state_sources_live_waves); memory
 # views credit the capped set of record files they surface.
-_STATE_SOURCE_EXTRACTORS: dict[str, Any] = {
-    "wf_review_event": _state_sources_review_evidence,
-    "memory_validate": _state_sources_memory_validate,
-    "memory_propose": _state_sources_memory_propose,
-    "wf_get_change": _state_sources_get_change,
-    "wf_current_wave": _state_sources_live_waves,
-    "wf_list_waves": _state_sources_live_waves,
-    "wf_list_plans": _state_sources_list_plans,
-    "wf_map": _state_sources_map,
-    "memory_search": _state_sources_memory_views("records"),
-    "memory_brief": _state_sources_memory_views("advisories", "community_scoped"),
-}
 
 
 _ARTIFACT_EXTRACTORS: dict[str, Any] = {

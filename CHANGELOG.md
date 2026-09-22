@@ -20,6 +20,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Handler ownership.** Context-efficiency, documentation hygiene, dashboard, edit-gate, upgrade and index responses now live in dedicated modules with unchanged MCP registration and reload support. Upgrade dashboard calls retain compatibility with older installations. Wave `1ymzq`.
+
+- **Shared containment comparison.** Existing path guards retain their resolution and error policies while sharing a pure already-resolved comparison; the resolving utility also supports strict and symlink-component refusal modes. Wave `1ymzq`.
+
 - **TechDocs and memory handlers in their own modules.** Responses move to `techdocs_handlers.py` and `memory_handlers.py`, with public tool registration, behavior and reload compatibility preserved. The memory CLI imports its handler module directly; lifecycle close-gate compositions stay in the server. Wave `1ymzk`.
 
 - **Readiness converges in one bounded round.** Prepare uses one full review, one bounded repair pass and one focused verification, then escalates any remaining blocker to the operator instead of looping; focused packets carry the repair diff and the directly affected contracts. Wave `1yfzu`.

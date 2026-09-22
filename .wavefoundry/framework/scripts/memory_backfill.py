@@ -155,6 +155,8 @@ def _canonical_waves_dir(root: Path) -> Path | None:
 
 def _contained_source_file(root: Path, wave_dir: Path, path: Path) -> bool:
     """Accept only ordinary files physically contained by this project wave."""
+    from path_containment import contained_resolved_path
+
 
     try:
         waves_real = _canonical_waves_dir(root)
@@ -165,8 +167,8 @@ def _contained_source_file(root: Path, wave_dir: Path, path: Path) -> bool:
         return (
             not wave_dir.is_symlink()
             and not path.is_symlink()
-            and wave_real.is_relative_to(waves_real)
-            and path_real.is_relative_to(wave_real)
+            and contained_resolved_path(waves_real, wave_real) is not None
+            and contained_resolved_path(wave_real, path_real) is not None
             and path.is_file()
         )
     except (OSError, RuntimeError):

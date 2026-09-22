@@ -16,16 +16,9 @@ from unittest.mock import patch
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_server():
-    if str(SCRIPTS_ROOT) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS_ROOT))
-    spec = importlib.util.spec_from_file_location(
-        "server_impl_lifecycle_lock", SCRIPTS_ROOT / "server_impl.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["server_impl_lifecycle_lock"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+# Extracted handlers resolve the public composition-root module per call.
+# Use the shared loader so patches target that exact module identity.
+from server_tools_support import load_server
 
 
 srv = load_server()

@@ -1,0 +1,64 @@
+[
+  {
+    "mechanism": "index_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "upgrade_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "edit_gate_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "dashboard_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "docs_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "context_efficiency_handlers reload",
+    "mutation": "omit purge membership",
+    "caught": true,
+    "failure": "ager.py:52\n                             wavefoundry://codebase-map                         \n                    WARNING  Resource already exists:     resource_manager.py:52\n                             wavefoundry://waves                                \nTraceback (most recent call last):\n  File \"<string>\", line 20, in <module>\n    assert fresh is not old\n           ^^^^^^^^^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "mechanism": "test_index_handler_identity.IndexHandlerIdentityTests",
+    "caught": true,
+    "tests": 1,
+    "skips": 0,
+    "failure": "af6bd9dbd4779139ab864098f51d5f27b884914cd1a4b36bf5e233d', 'graph_indexer.py': 'add85bd213f62976faa71b26f7e1b92a00e4c44cfab8169695c93be38abb9ed1', 'graph_query.py': '3ff07433314cf72b62d2491df1478231c32226855d06ca4564b9282f369ea0c7', 'graph_cluster.py': 'cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a', 'accel_embedder.py': 'f546e85714362fd3d0650231d00a8f44a071c3044bdb6357ec2c2675e8fa6925', 'path_containment.py': '15cc52d14baa90e69618ecfdd5d983a46b2e1533841fea896eee68c1184478aa'}\n"
+  },
+  {
+    "mechanism": "test_path_containment.ResolvedComparisonTests",
+    "caught": true,
+    "tests": 1,
+    "skips": 0,
+    "failure": "rgs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1173, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/unittest/mock.py\", line 1228, in _execute_mock_call\n    raise effect\nAssertionError: resolve\n"
+  },
+  {
+    "mechanism": "test_handler_modules.HandlerPackagingAndEvaluatorTests.test_generated_manifest_contains_all_handler_modules",
+    "caught": true,
+    "tests": 1,
+    "skips": 0,
+    "failure": "est_contains_all_handler_modules\n    self.assertIn('scripts/' + name + '.py', entries)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'scripts/index_handlers.py' not found in ['MANIFEST', 'scripts/codenav_handlers.py', 'scripts/context_efficiency_handlers.py', 'scripts/dashboard_handlers.py', 'scripts/docs_handlers.py', 'scripts/edit_gate_handlers.py', 'scripts/graph_handlers.py', 'scripts/memory_handlers.py', 'scripts/techdocs_handlers.py', 'scripts/upgrade_handlers.py']\n"
+  },
+  {
+    "mechanism": "upgrade fallback",
+    "caught": true,
+    "failure": " INSTALLED\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0lellrov/scripts/upgrade_extensions.py\", line 339, in _stop_dashboard_for_lock_cutover\n    import dashboard_handlers\nModuleNotFoundError: import of dashboard_handlers halted; None in sys.modules\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0lellrov/scripts/tests/test_upgrade_wavefoundry.py\", line 4165, in test_cutover_falls_back_to_pre_rename_dashboard_stop_symbol\n    stopped, port = self.ext._stop_dashboard_for_lock_cutover(self.root)\n                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0lellrov/scripts/upgrade_extensions.py\", line 356, in _stop_dashboard_for_lock_cutover\n    raise RuntimeError(f\"unable to stop dashboard before lock cutover: {exc}\") from exc\nRuntimeError: unable to stop dashboard before lock cutover: import of dashboard_handlers halted; None in sys.modules\n\n----------------------------------------------------------------------\nRan 2 tests in 0.023s\n\nFAILED (errors=2)\n"
+  }
+]

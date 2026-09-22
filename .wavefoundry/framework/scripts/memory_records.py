@@ -764,6 +764,8 @@ def _contained_record_path(root: Path, memory_id: str) -> Path:
     outside the canonical root. NEVER creates directories — the caller does
     ``mkdir`` only after this returns.
     """
+    from path_containment import contained_resolved_path
+
     memory_id = validate_memory_id(memory_id)
     memory_root = canonical_memory_root(root)
     if memory_root is None:
@@ -775,13 +777,15 @@ def _contained_record_path(root: Path, memory_id: str) -> Path:
     expected_root = repo / MEMORY_DIR
     path = memory_root / f"{memory_id}.md"
     resolved = path.resolve()
-    if resolved.parent != expected_root or not resolved.is_relative_to(repo):
+    if resolved.parent != expected_root or contained_resolved_path(repo, resolved) is None:
         raise ValueError(f"memory id {memory_id!r} escapes the memory root")
     return path
 
 
 def _contained_memory_subdir_path(root: Path, memory_id: str, subdir: str) -> Path:
     """Resolve one reserved memory subdirectory path without allowing escapes."""
+    from path_containment import contained_resolved_path
+
     memory_id = validate_memory_id(memory_id)
     if subdir not in ("archive", "pointers"):
         raise ValueError(f"unknown memory subdirectory: {subdir!r}")
@@ -795,13 +799,15 @@ def _contained_memory_subdir_path(root: Path, memory_id: str, subdir: str) -> Pa
     expected_parent = repo / MEMORY_DIR / subdir
     path = memory_root / subdir / f"{memory_id}.md"
     resolved = path.resolve()
-    if resolved.parent != expected_parent or not resolved.is_relative_to(repo):
+    if resolved.parent != expected_parent or contained_resolved_path(repo, resolved) is None:
         raise ValueError(f"memory id {memory_id!r} escapes the {subdir} directory")
     return path
 
 
 def _contained_purge_staging_path(root: Path, memory_id: str) -> Path:
     """Resolve the index-excluded purge staging path without allowing escapes."""
+    from path_containment import contained_resolved_path
+
     memory_id = validate_memory_id(memory_id)
     memory_root = canonical_memory_root(root)
     if memory_root is None:
@@ -813,7 +819,7 @@ def _contained_purge_staging_path(root: Path, memory_id: str) -> Path:
     expected_parent = repo / MEMORY_ARCHIVE_DIR / ".purge-staging"
     path = memory_root / "archive" / ".purge-staging" / f"{memory_id}.md"
     resolved = path.resolve()
-    if resolved.parent != expected_parent or not resolved.is_relative_to(repo):
+    if resolved.parent != expected_parent or contained_resolved_path(repo, resolved) is None:
         raise ValueError(f"memory id {memory_id!r} escapes the purge staging directory")
     return path
 

@@ -1,0 +1,31 @@
+[
+  {
+    "file": "test_server_tools.py",
+    "line": 5473,
+    "symbol": "_load_upgrade_lib",
+    "old_target": "self.srv",
+    "new_owner": "upgrade_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 5508,
+    "symbol": "_load_upgrade_lib",
+    "old_target": "self.srv",
+    "new_owner": "upgrade_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 5528,
+    "symbol": "_load_upgrade_lib",
+    "old_target": "self.srv",
+    "new_owner": "upgrade_handlers"
+  },
+  {
+    "file": "test_upgrade_wavefoundry.py",
+    "line": 9395,
+    "symbol": "_load_upgrade_lib",
+    "old_target": "server",
+    "new_owner": "archived server fixture (retained)",
+    "reason": "This caller executes the unchanged historical server ABI, not upgrade_handlers."
+  }
+]

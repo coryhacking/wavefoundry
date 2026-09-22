@@ -1137,6 +1137,8 @@ def set_reprepare_marker(wave_text: str, required: bool) -> str:
 
 def contained_relative_path(root: Path, relative: str) -> Path:
     """Resolve a registry destination without permitting symlink escape."""
+    from path_containment import contained_resolved_path
+
 
     root_real = root.resolve(strict=True)
     target = root / relative
@@ -1146,7 +1148,7 @@ def contained_relative_path(root: Path, relative: str) -> Path:
         if cursor.is_symlink():
             raise ValueError(f"review-policy carrier may not traverse symlink: {relative}")
     resolved = target.resolve(strict=False)
-    if not resolved.is_relative_to(root_real):
+    if contained_resolved_path(root_real, resolved) is None:
         raise ValueError(f"review-policy carrier escapes root: {relative}")
     return target
 

@@ -22,8 +22,8 @@ class OptimizeResultContractTests(unittest.TestCase):
                 result = self.bi.optimize_index_tables(self.index_dir)
             elif consumer == 'close':
                 with patch.object(server, '_load_script', return_value=self.bi), \
-                        patch.object(server, '_close_optimize_enabled', return_value=True), \
-                        patch.object(server, '_index_table_bloat_ratios', return_value={'docs': 2}):
+                        patch('index_handlers._close_optimize_enabled', return_value=True), \
+                        patch('index_handlers._index_table_bloat_ratios', return_value={'docs': 2}):
                     result = server._maybe_optimize_index_on_close(self.root)
             elif consumer == 'mcp':
                 with patch.object(server, '_load_script', return_value=self.bi):

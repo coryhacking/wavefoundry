@@ -1659,6 +1659,8 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
     resolved path also prevents a later open from re-following the symlink
     chain that was checked here.
     """
+    from path_containment import contained_resolved_path
+
 
     root = repo_root.resolve()
     candidate = repo_root / destination
@@ -1668,7 +1670,7 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
         raise RuntimeError(
             f"review carrier path cannot be resolved safely: {destination}: {exc}"
         ) from exc
-    if not resolved.is_relative_to(root):
+    if contained_resolved_path(root, resolved) is None:
         raise RuntimeError(
             "review carrier path escapes the repository root through a symlink: "
             f"{destination}"

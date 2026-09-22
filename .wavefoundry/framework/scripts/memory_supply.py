@@ -112,13 +112,15 @@ def _backtick_refs(text: str) -> list[str]:
 
 
 def _contained_source_file(wave_dir: Path, path: Path) -> bool:
+    from path_containment import contained_resolved_path
+
     try:
         wave_real = wave_dir.resolve(strict=True)
         path_real = path.resolve(strict=True)
         return (
             not wave_dir.is_symlink()
             and not path.is_symlink()
-            and path_real.is_relative_to(wave_real)
+            and contained_resolved_path(wave_real, path_real) is not None
             and path.is_file()
         )
     except (OSError, RuntimeError):

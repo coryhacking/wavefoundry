@@ -143,6 +143,8 @@ SUMMARY_RESULT_KINDS = frozenset({"code-summary", "doc-summary"})
 PRODUCTION_RETRIEVAL_MODULES = (
     "server_impl.py", "codenav_handlers.py", "indexer.py", "chunker.py", "index_state_store.py",
     "graph_indexer.py", "graph_query.py", "graph_cluster.py", "accel_embedder.py",
+    "path_containment.py",
+    "index_handlers.py",
 )
 PRODUCTION_VERSION_CONSTANTS = {
     "chunker": ("chunker.py", "CHUNKER_VERSION"),

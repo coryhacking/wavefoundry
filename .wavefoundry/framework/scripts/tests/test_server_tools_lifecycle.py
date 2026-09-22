@@ -3550,7 +3550,7 @@ class GardenDocsIndexRefreshTriggerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _garden(self, garden_result: dict) -> tuple[dict, MagicMock]:
-        with patch.object(self.srv, "run_garden", return_value=garden_result), patch.object(
+        with patch("docs_handlers.run_garden", return_value=garden_result), patch.object(
             self.srv, "_trigger_background_index_refresh_for_paths"
         ) as trigger:
             result = self.srv.wf_garden_docs_response(self.root, mode="run")
@@ -3837,16 +3837,13 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         export_meta_snapshot materializes every build_file_meta row —
         O(indexed files) — and its own docstring says to prefer the bounded
         read_build_summary)."""
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-        start = source.index("def wf_audit_response")
-        end = source.index("def wf_audit_install_response")
-        body = source[start:end]
+        import inspect
+        body = inspect.getsource(self.srv.wf_audit_response)
         for forbidden in ("docs_health", "_ensure_loaded", "_layer_current_hashes",
                           "lancedb", "export_meta_snapshot", "file_meta"):
             self.assertNotIn(forbidden, body, f"wf_audit_response references {forbidden}")
-        helper_start = source.index("def _audit_build_summary")
-        helper_end = source.index("@contextlib.contextmanager", helper_start)
-        helper_body = source[helper_start:helper_end]
+        helper_body = "\n".join(inspect.getsource(getattr(self.srv, name)) for name in (
+            "_audit_build_summary", "_vector_layer_available", "_audit_index_snapshot"))
         self.assertIn("read_build_summary", helper_body)
         for forbidden in ("export_meta_snapshot", "file_meta", "docs_health",
                           "_ensure_loaded", "_layer_current_hashes", "lancedb"):
@@ -3858,7 +3855,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         _seed_store_state(self.index_dir, {"content": ["docs"], "file_hashes": {}})
         current_cv = self.srv._read_chunker_version()
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch.object(self.srv, "_audit_build_summary", return_value={
+             patch("index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {"docs": current_cv},
                  "file_count": 1,
              }):
@@ -3887,7 +3884,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         (self.index_dir / "docs.lance").mkdir()
         idx_mod = self.srv._load_script("indexer")
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch.object(self.srv, "_audit_build_summary", return_value={
+             patch("index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {},
                  "file_count": 1,
              }), \
@@ -3902,7 +3899,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         while freshness stays unknown."""
         (self.index_dir / "docs.lance").mkdir()
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch.object(self.srv, "_audit_build_summary", return_value={
+             patch("index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {"docs": "0"},
                  "file_count": 1,
              }):
@@ -3926,7 +3923,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         result = self.srv.index_health_response(idx)
         idx.docs_health.assert_called_once()
         self.assertEqual(result["status"], "ok")
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
         start = source.index("def index_health_response")
         self.assertIn("docs_health", source[start:start + 4000])
 
@@ -9703,11 +9700,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         import codenav_handlers
         import graph_handlers
         import techdocs_handlers
+        import docs_handlers
 
         module = ast.Module(body=[
             node
             for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support,
-                          codenav_handlers, graph_handlers, techdocs_handlers)
+                          codenav_handlers, graph_handlers, techdocs_handlers, docs_handlers)
             for node in ast.parse(Path(owner.__file__).read_text(encoding="utf-8")).body
         ], type_ignores=[])
         owner: dict[int, str] = {}

@@ -390,7 +390,7 @@
             "value": "Another build holds the index lock — retry when it finishes."
           },
           "grade": 3,
-          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "path": ".wavefoundry/framework/scripts/index_handlers.py",
           "tools": [
             "code_lexical"
           ]
@@ -1360,7 +1360,7 @@
             "value": "_reap_dashboard_child_pids"
           },
           "grade": 3,
-          "path": ".wavefoundry/framework/scripts/server_impl.py",
+          "path": ".wavefoundry/framework/scripts/index_handlers.py",
           "tools": [
             "code_ask"
           ]

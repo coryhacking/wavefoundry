@@ -1,0 +1,37 @@
+[
+  {
+    "mechanism": "containment boundary",
+    "test": "test_path_containment.ContainedPathTests.test_parent_escape_with_missing_tail",
+    "baseline": 0,
+    "mutant": 1,
+    "output": "F\n======================================================================\nFAIL: test_parent_escape_with_missing_tail (test_path_containment.ContainedPathTests.test_parent_escape_with_missing_tail)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_path_containment.py\", line 27, in test_parent_escape_with_missing_tail\n    self.assertIsNone(subject.contained_path(self.root, \"../outside/missing/leaf\"))\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: PosixPath('/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp_t84vozo/outside/missing/leaf') is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n"
+  },
+  {
+    "mechanism": "symlink component refusal",
+    "test": "test_path_containment.ContainedPathTests.test_leave_and_reenter_link",
+    "baseline": 0,
+    "mutant": 1,
+    "output": "F\n======================================================================\nFAIL: test_leave_and_reenter_link (test_path_containment.ContainedPathTests.test_leave_and_reenter_link)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_path_containment.py\", line 83, in test_leave_and_reenter_link\n    self.assertIsNone(subject.contained_path(self.root, candidate, refuse_symlink_components=True))\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: PosixPath('/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpabi4_d_r/root/missing') is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n"
+  },
+  {
+    "mechanism": "loop uncertainty",
+    "test": "test_path_containment.ContainedPathTests.test_loop_refused_on_each_interpreter_branch",
+    "baseline": 0,
+    "mutant": 1,
+    "output": "F\n======================================================================\nFAIL: test_loop_refused_on_each_interpreter_branch (test_path_containment.ContainedPathTests.test_loop_refused_on_each_interpreter_branch)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_path_containment.py\", line 76, in test_loop_refused_on_each_interpreter_branch\n    self.assertIsNone(subject.contained_path(self.root, loop, strict=strict))\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: PosixPath('/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpp7169l3l/root/loop') is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n"
+  },
+  {
+    "mechanism": "CE patch transparency",
+    "test": "test_index_source_guard.SourceGuardTests.test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write",
+    "baseline": 0,
+    "mutant": 1,
+    "output": "F\n======================================================================\nFAIL: test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write (test_index_source_guard.SourceGuardTests.test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_index_source_guard.py\", line 108, in test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write\n    self.wait_until(lambda: handler._ce_projection_status.get('reason') == 'index_source_busy')\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_index_source_guard.py\", line 56, in wait_until\n    self.fail('bounded concurrent operation did not reach its expected state')\n    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: bounded concurrent operation did not reach its expected state\n\n----------------------------------------------------------------------\nRan 1 test in 3.015s\n\nFAILED (failures=1)\n"
+  },
+  {
+    "mechanism": "upgrade old tree fallback",
+    "test": "test_upgrade_wavefoundry.RuntimeLockCutoverMigrationTests.test_cutover_module_absence_uses_installed_modern_stop",
+    "baseline": 0,
+    "mutant": 1,
+    "output": "E\n======================================================================\nERROR: test_cutover_module_absence_uses_installed_modern_stop (test_upgrade_wavefoundry.RuntimeLockCutoverMigrationTests.test_cutover_module_absence_uses_installed_modern_stop)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 339, in _stop_dashboard_for_lock_cutover\n    import dashboard_handlers\nModuleNotFoundError: import of dashboard_handlers halted; None in sys.modules\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 4143, in test_cutover_module_absence_uses_installed_modern_stop\n    stopped, port = self.ext._stop_dashboard_for_lock_cutover(self.root)\n                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"/private/tmp/1ymzq-code-review-scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 357, in _stop_dashboard_for_lock_cutover\n    raise RuntimeError(f\"unable to stop dashboard before lock cutover: {exc}\") from exc\nRuntimeError: unable to stop dashboard before lock cutover: import of dashboard_handlers halted; None in sys.modules\n\n----------------------------------------------------------------------\nRan 1 test in 0.014s\n\nFAILED (errors=1)\n"
+  }
+]

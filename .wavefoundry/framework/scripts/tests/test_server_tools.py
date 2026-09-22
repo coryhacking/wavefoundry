@@ -2793,7 +2793,7 @@ class WaveMcpReloadTests(unittest.TestCase):
 
     def test_reload_helper_has_exactly_two_production_call_sites(self):
         observed: list[tuple[str, int]] = []
-        for path in (SERVER_PATH, SCRIPTS_ROOT / "server_impl.py"):
+        for path in (SERVER_PATH, SCRIPTS_ROOT / "server_impl.py", SCRIPTS_ROOT / "upgrade_handlers.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
@@ -2808,7 +2808,7 @@ class WaveMcpReloadTests(unittest.TestCase):
                 )
                 if name == "perform_mcp_reload":
                     observed.append((path.name, node.lineno))
-        self.assertEqual([name for name, _line in observed], ["server.py", "server_impl.py"])
+        self.assertEqual([name for name, _line in observed], ["server.py", "upgrade_handlers.py"])
 
     def test_reload_reports_launch_identity_not_a_recomputed_one(self):
         """Wave 1u2b0 (AC-2), falsifiable form: the reported identity is the one captured at
@@ -4061,7 +4061,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         # Wave 1rswx: open now classifies the recorded PID with the zombie-safe cmdline-verified check,
         # so a genuinely-running dashboard must appear in the cmdline scan for this root.
         with self._dashboard_lib_patch(), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True), \
              patch("webbrowser.open") as mock_wb:
             result = self.srv.wf_open_dashboard_response(self.root)
@@ -4077,8 +4077,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         import server_impl
         mock_lib = _make_mock_dashboard_lib(self._meta_path)  # meta_path doesn't exist
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
-             patch.object(
-                 server_impl, "wf_start_dashboard_response",
+             patch('dashboard_handlers.wf_start_dashboard_response',
                  return_value={"status": "ok", "data": {"started": True}},
              ) as mock_start:
             result = self.srv.wf_open_dashboard_response(self.root)
@@ -4092,7 +4091,7 @@ class WaveDashboardOpenTests(unittest.TestCase):
         mock_lib = _make_mock_dashboard_lib(self._meta_path)
         import server_impl
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[12345]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[12345]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
             result = self.srv.wf_start_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -4183,8 +4182,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         side_effect, fake_pid = self._spawn_child(holders, hold_lock=True, write_meta=True)
         try:
             with patch("subprocess.Popen", side_effect=side_effect), \
-                 patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
-                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
+                 patch('dashboard_handlers._dashboard_cmdline_pids', side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch('dashboard_handlers._dashboard_url_reachable', return_value=True), \
                  patch.object(server_impl, "_pid_is_running", return_value=True):
                 result = self.srv.wf_start_dashboard_response(self.root)
             self.assertEqual(result["status"], "ok")
@@ -4207,8 +4206,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         holders: list = []
         side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=False)
         with patch("subprocess.Popen", side_effect=side_effect), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
-                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch('dashboard_handlers._dashboard_url_reachable', return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
             result = self.srv.wf_start_dashboard_response(self.root)
@@ -4226,8 +4225,8 @@ class WaveDashboardPersistentStartLockTests(unittest.TestCase):
         holders: list = []
         side_effect, _ = self._spawn_child(holders, hold_lock=False, write_meta=True)
         with patch("subprocess.Popen", side_effect=side_effect), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
-                 patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', side_effect=lambda root: [99999] if self.meta_path.exists() else []), \
+                 patch('dashboard_handlers._dashboard_url_reachable', return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
             result = self.srv.wf_start_dashboard_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -4288,7 +4287,7 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
     def test_start_spawns_without_open_flag_when_suppressed(self):
         import server_impl
         with patch("subprocess.Popen") as popen, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             popen.return_value = MagicMock(pid=99999)
             self.srv.wf_start_dashboard_response(self.root)
@@ -4305,7 +4304,7 @@ class WaveDashboardBrowserSuppressTests(unittest.TestCase):
         import server_impl
         # Wave 1rswx: the recorded PID must appear in the cmdline scan to be classified live (zombie-safe).
         with patch("webbrowser.open") as mock_wb, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[os.getpid()]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[os.getpid()]), \
              patch.object(server_impl, "_pid_is_running", return_value=True):
             result = server_impl.wf_open_dashboard_response(self.root)
         mock_wb.assert_not_called()
@@ -4354,8 +4353,8 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
             return MagicMock(pid=POLLER_PID, poll=MagicMock(return_value=0))
 
         with patch("subprocess.Popen", side_effect=_popen_side_effect) as popen, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", side_effect=lambda root: [CHILD_PID] if self.meta_path.exists() else []), \
-             patch.object(server_impl, "_dashboard_url_reachable", return_value=True), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', side_effect=lambda root: [CHILD_PID] if self.meta_path.exists() else []), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=True), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             result = self.srv.wf_start_dashboard_response(self.root)
 
@@ -4383,8 +4382,8 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
 
         with patch("subprocess.Popen") as popen, \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[4924]), \
-             patch.object(server_impl, "_dashboard_url_reachable", return_value=True):
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[4924]), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=True):
             result = self.srv.wf_start_dashboard_response(self.root)
 
         popen.assert_not_called()
@@ -4398,8 +4397,8 @@ class WaveDashboardPidRaceTests(unittest.TestCase):
         import server_impl
 
         with patch("subprocess.Popen") as popen, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
-             patch.object(server_impl, "_dashboard_url_reachable", return_value=False), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=False), \
              patch.object(server_impl, "_pid_is_running", return_value=False), \
              patch.object(server_impl, "DASHBOARD_START_WAIT_SECONDS", 0.0):
             popen.return_value = MagicMock(pid=4920, poll=MagicMock(return_value=None))
@@ -4470,7 +4469,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         mock_proc = MagicMock(pid=12345)
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.Popen", return_value=mock_proc) as popen_mock, \
-             patch.object(self.srv, "_background_refresh_active", return_value=False):
+             patch("index_handlers._background_refresh_active", return_value=False):
             started = self.srv._start_background_index_refresh(self.root, "project")
         self.assertTrue(started)
         called_cmd = popen_mock.call_args.args[0]
@@ -4482,7 +4481,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         import server_impl
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.Popen", return_value=MagicMock(pid=99999)) as popen_mock, \
-             patch.object(server_impl, "_dashboard_cmdline_pids", return_value=[]), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
              patch.object(server_impl, "_pid_is_running", return_value=False):
             self.srv.wf_start_dashboard_response(self.root)
         called_cmd = popen_mock.call_args.args[0]
@@ -4679,7 +4678,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
-             patch.object(self.srv, "wf_start_dashboard_response",
+             patch('dashboard_handlers.wf_start_dashboard_response',
                           return_value={"status": "ok", "data": {}}):
             result = self.srv.wf_restart_dashboard_response(self.root)
         self.assertNotEqual(result["status"], "error")
@@ -4693,7 +4692,7 @@ class WaveDashboardRestartUpgradeGuardTests(unittest.TestCase):
         mock_lib = _make_mock_dashboard_lib(self.root / ".wavefoundry" / "locks" / "dashboard-server.lock")
         with patch.dict(sys.modules, {"dashboard_lib": mock_lib}), \
              patch.object(self.srv, "_pid_is_running", return_value=False), \
-             patch.object(self.srv, "wf_start_dashboard_response",
+             patch('dashboard_handlers.wf_start_dashboard_response',
                           return_value={"status": "ok", "data": {}}):
             result = self.srv.wf_restart_dashboard_response(self.root)
         # Should not be blocked by upgrade guard.
@@ -5471,7 +5470,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         }
         upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
         with patch("subprocess.run", return_value=mock_proc), \
-             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
+             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
@@ -5506,7 +5505,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         }
         upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
         with patch("subprocess.run", return_value=mock_proc), \
-             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib), \
+             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -5526,7 +5525,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             read_upgrade_lock=lambda _root: {"memory_backfill_run_id": "run-2"}
         )
         with patch("subprocess.run", return_value=mock_proc), \
-             patch.object(self.srv, "_load_upgrade_lib", return_value=upgrade_lib):
+             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["status"], "error")
         self.assertNotEqual(result.get("data", {}).get("state"), "awaiting_memory_validation")
@@ -7588,8 +7587,7 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._checkpoint(root)
-            with patch.object(
-                self.srv, "_reap_background_build_pids",
+            with patch("index_handlers._reap_background_build_pids",
                 side_effect=AssertionError("checkpoint must precede native work"),
             ), patch("subprocess.Popen") as popen:
                 self.assertFalse(
@@ -7626,8 +7624,8 @@ class WaveDashboardLifecycleHonestyTests(unittest.TestCase):
         for stop_data, stop_status, permit in stop_cases:
             for start_data, start_status, restarted in start_cases:
                 with self.subTest(stop=stop_data, start=start_data), \
-                     patch.object(self.impl, 'wf_stop_dashboard_response', return_value={'status': stop_status, 'data': stop_data, 'diagnostics': [{'code': 'stop_evidence'}]}), \
-                     patch.object(self.impl, 'wf_start_dashboard_response', return_value={'status': start_status, 'data': start_data, 'diagnostics': [{'code': 'start_evidence'}]}) as start:
+                     patch('dashboard_handlers.wf_stop_dashboard_response', return_value={'status': stop_status, 'data': stop_data, 'diagnostics': [{'code': 'stop_evidence'}]}), \
+                     patch('dashboard_handlers.wf_start_dashboard_response', return_value={'status': start_status, 'data': start_data, 'diagnostics': [{'code': 'start_evidence'}]}) as start:
                     result = self.impl.wf_restart_dashboard_response(self.root)
                     self.assertEqual(start.call_count, int(permit))
                     self.assertEqual(result['data']['restarted'], permit and restarted)
@@ -7635,9 +7633,9 @@ class WaveDashboardLifecycleHonestyTests(unittest.TestCase):
 
     def _start_with_child(self, child, serving=None, wait=0):
         with patch('subprocess.Popen', return_value=child) as spawn, \
-             patch.object(self.impl, '_dashboard_cmdline_pids', return_value=[]), \
-             patch.object(self.impl, '_dashboard_already_serving', side_effect=[None, None, serving]), \
-             patch.object(self.impl, '_dashboard_url_reachable', return_value=bool(serving)), \
+             patch('dashboard_handlers._dashboard_cmdline_pids', return_value=[]), \
+             patch('dashboard_handlers._dashboard_already_serving', side_effect=[None, None, serving]), \
+             patch('dashboard_handlers._dashboard_url_reachable', return_value=bool(serving)), \
              patch.object(self.impl, 'DASHBOARD_START_WAIT_SECONDS', wait):
             result = self.impl.wf_start_dashboard_response(self.root, port=43127)
             self.assertEqual(spawn.call_args.args[0][-2:], ['--root', str(self.root.resolve())])

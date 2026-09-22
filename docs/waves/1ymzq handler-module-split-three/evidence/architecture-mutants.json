@@ -1,0 +1,107 @@
+[
+  {
+    "module": "context_efficiency_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "context_efficiency_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "docs_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "docs_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "dashboard_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "dashboard_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "edit_gate_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "edit_gate_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "upgrade_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "upgrade_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "index_handlers",
+    "mutation": "local sibling import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "module": "index_handlers",
+    "mutation": "eager root import",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "object": "_BACKGROUND_BUILD_PIDS",
+    "mutation": "copy instead of shared alias",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "object": "_FRESHNESS_CACHE",
+    "mutation": "copy instead of shared alias",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "object": "_DASHBOARD_CHILD_PIDS",
+    "mutation": "copy instead of shared alias",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  }
+]

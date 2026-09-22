@@ -24,6 +24,7 @@ import context_efficiency as ce
 import index_state_store
 import review_evidence
 import server_impl as srv
+import context_efficiency_handlers as ce_handlers
 import score_context_efficiency_pairs as pair_scorer
 
 
@@ -495,7 +496,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 (telemetry.focus.wave_id, telemetry.focus.stage, telemetry.focus.phase_id),
                 focus_before,
             )
-            source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+            source = (SCRIPTS_ROOT / "context_efficiency_handlers.py").read_text(encoding="utf-8")
             tree = ast.parse(source)
             projector = next(
                 node
@@ -687,7 +688,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 "pending_wave_ids",
                 return_value={"ok": True, "pending": pending},
             ), patch.object(
-                srv,
+                ce_handlers,
                 "_project_context_efficiency_wave",
                 side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
             ) as project:
@@ -704,7 +705,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 "pending_wave_ids",
                 return_value={"ok": True, "pending": pending},
             ), patch.object(
-                srv,
+                ce_handlers,
                 "_project_context_efficiency_wave",
                 side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
             ) as project:
@@ -3190,7 +3191,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 srv.wf_garden_docs_response(root, mode="run")
                 completed.set()
 
-            with patch.object(srv, "run_garden", side_effect=fake_garden):
+            with patch("docs_handlers.run_garden", side_effect=fake_garden):
                 with review_evidence.project_state_publication_lock(root):
                     thread = threading.Thread(target=invoke)
                     thread.start()
@@ -4155,10 +4156,13 @@ class LifecycleFocusReportingTests(unittest.TestCase):
     # ---- AC-3: structural census -------------------------------------------
 
     def test_focus_mutation_census_pins_every_consumer_to_the_primitive(self) -> None:
-        """Every focus mutation in server_impl.py goes through the single
+        """Every focus mutation in the server and CE handler module goes through the single
         shared primitive; a new consumer that bypasses it fails here."""
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
+        source_map = {
+            name: (SCRIPTS_ROOT / name).read_text(encoding="utf-8")
+            for name in ("server_impl.py", "context_efficiency_handlers.py")
+        }
+        trees = {name: ast.parse(source) for name, source in source_map.items()}
         mutators = {"set_focus", "clear_focus", "pause_focus", "reopen_focus"}
         offenders: set[str] = set()
 
@@ -4179,7 +4183,8 @@ class LifecycleFocusReportingTests(unittest.TestCase):
                     offenders.add(self.stack[-1] if self.stack else "<module>")
                 self.generic_visit(node)
 
-        Visitor().visit(tree)
+        for tree in trees.values():
+            Visitor().visit(tree)
         self.assertEqual(
             offenders,
             {"_attempt_focus_state"},
@@ -4204,15 +4209,21 @@ class LifecycleFocusReportingTests(unittest.TestCase):
 
             def visit_Call(self, node):
                 func = node.func
+                name = self.stack[-1] if self.stack else "<module>"
                 if isinstance(func, ast.Name):
-                    name = self.stack[-1] if self.stack else "<module>"
                     if func.id == "_attempt_focus_state":
                         callers.add(name)
                     if func.id == "_classify_lifecycle_outcome":
                         classifier_callers.add(name)
+                elif (isinstance(func, ast.Attribute)
+                      and isinstance(func.value, ast.Name)
+                      and func.value.id == "server_impl"
+                      and func.attr == "_attempt_focus_state"):
+                    callers.add(name)
                 self.generic_visit(node)
 
-        Callers().visit(tree)
+        for tree in trees.values():
+            Callers().visit(tree)
         self.assertEqual(
             callers,
             {

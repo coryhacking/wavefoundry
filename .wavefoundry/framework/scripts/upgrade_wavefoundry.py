@@ -3157,12 +3157,12 @@ def phase_cleanup(
 
     if restart_pending:
         try:
-            import server_impl
+            import dashboard_handlers
 
             previous = os.environ.get("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER")
             os.environ["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
             try:
-                restart = server_impl.wf_start_dashboard_response(
+                restart = dashboard_handlers.wf_start_dashboard_response(
                     root,
                     port=restart_port if isinstance(restart_port, int) else None,
                 )

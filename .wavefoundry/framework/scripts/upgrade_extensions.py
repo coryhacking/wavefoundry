@@ -335,19 +335,22 @@ def _stop_dashboard_for_lock_cutover(root: Path) -> tuple[bool, int | None]:
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
     try:
-        import server_impl
+        try:
+            import dashboard_handlers
+        except ImportError:
+            # The new archive hook runs before extraction against an old tree.
+            import server_impl
 
-        # This hook runs from the NEW archive before extraction, so the
-        # installed server_impl may predate the wf_ tool rename and expose
-        # only the retired symbol.
-        stop_dashboard = getattr(
-            server_impl, "wf_stop_dashboard_response", None
-        ) or getattr(server_impl, "wave_dashboard_stop_response", None)
-        if stop_dashboard is None:
-            raise RuntimeError(
-                "installed server implementation exposes neither "
-                "wf_stop_dashboard_response nor wave_dashboard_stop_response"
-            )
+            stop_dashboard = getattr(
+                server_impl, "wf_stop_dashboard_response", None
+            ) or getattr(server_impl, "wave_dashboard_stop_response", None)
+            if stop_dashboard is None:
+                raise RuntimeError(
+                    "installed server implementation exposes neither "
+                    "wf_stop_dashboard_response nor wave_dashboard_stop_response"
+                )
+        else:
+            stop_dashboard = dashboard_handlers.wf_stop_dashboard_response
         response = stop_dashboard(root)
     except Exception as exc:
         raise RuntimeError(f"unable to stop dashboard before lock cutover: {exc}") from exc

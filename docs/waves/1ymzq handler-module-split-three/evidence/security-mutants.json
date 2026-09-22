@@ -1,0 +1,30 @@
+[
+  {
+    "mutation": "accept escaped candidate",
+    "test": "ContainedPathTests.test_directory_link_escape_with_missing_tail",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "extra resolve in pure comparator",
+    "test": "WrapperContractTests.test_renderer_and_techdocs_resolution_matrix",
+    "detected": true,
+    "failures": 0,
+    "errors": 4
+  },
+  {
+    "mutation": "swallow renderer root OSError",
+    "test": "WrapperContractTests.test_renderer_and_techdocs_resolution_matrix",
+    "detected": true,
+    "failures": 2,
+    "errors": 0
+  },
+  {
+    "mutation": "swallow indirect TechDocs root OSError",
+    "test": "WrapperContractTests.test_renderer_and_techdocs_resolution_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  }
+]

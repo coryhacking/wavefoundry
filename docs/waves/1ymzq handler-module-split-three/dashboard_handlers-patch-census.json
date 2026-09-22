@@ -1,0 +1,401 @@
+[
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2186,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2191,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2198,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2200,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2208,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2210,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2306,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2307,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2308,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2326,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2328,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2356,
+    "symbol": "wf_stop_dashboard_response",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2356,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2484,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2486,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2501,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2503,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2517,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2519,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2529,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2531,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2547,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2549,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2550,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2563,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2565,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2585,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2586,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 2587,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.server",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4064,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4080,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4095,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4210,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4211,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4229,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4230,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4291,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4308,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4357,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4358,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4386,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4387,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4401,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4402,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4485,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4186,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4187,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "server_impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 4926,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 4928,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_dashboard_server.py",
+    "line": 4899,
+    "symbol": "_terminate_dashboard_pid",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4681,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.srv",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 4695,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.srv",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 7637,
+    "symbol": "_dashboard_cmdline_pids",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 7638,
+    "symbol": "_dashboard_already_serving",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 7639,
+    "symbol": "_dashboard_url_reachable",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 7628,
+    "symbol": "wf_stop_dashboard_response",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  },
+  {
+    "file": "test_server_tools.py",
+    "line": 7629,
+    "symbol": "wf_start_dashboard_response",
+    "old_target": "self.impl",
+    "new_owner": "dashboard_handlers"
+  }
+]

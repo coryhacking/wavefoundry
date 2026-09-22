@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-22
 
 ## Retained evidence
 
@@ -102,3 +102,7 @@ For a compressed JSON bundle, redirect that output to a scratch `.json.gz` file 
 | `operational-guidance-retrieval-followup-2026-09-17.json` | exploratory |
 | `1p5px-validation-test-plan.md` | obsolete package-specific test plan |
 | `downstream-test-1.7.1.md` | obsolete package-specific test plan |
+
+## Wave 1ymzq evidence
+
+Retain `retrieval-quality-1ymzq-before.json` (R0 baseline) and `retrieval-quality-1ymzq-mid-comparison.json` (R1 passing signed comparison), together with invalid `retrieval-quality-1ymzq-mid.json` and `retrieval-quality-1ymzq-mid-r1.json` (`stale_index` preflight refusals). The measured invocation rejected because its report destination already existed is retained as the exact failure envelope at `docs/waves/1ymzq handler-module-split-three/r1-report-destination-collision.json`. These failed attempts are not successful comparisons. Exact run identities, dates and caveats are in the wave's `retrieval-evidence.md`. Retain `retrieval-quality-1ymzq-after.json`: R2 completed as a new baseline on stable generation 1914 after evaluator membership and the two moved anchors changed. It is not a comparison to R0/R1.

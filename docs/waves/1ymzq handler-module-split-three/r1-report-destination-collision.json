@@ -1,0 +1,10 @@
+{
+  "invalidation_reasons": [
+    {
+      "code": "report_destination_exists",
+      "message": "report destination already exists and is never overwritten: /Users/coryhacking/Developer/wavefoundry/docs/reports/retrieval-quality-1ymzq-mid.json"
+    }
+  ],
+  "schema": "wavefoundry.retrieval-eval/v1",
+  "verdict": "invalid"
+}

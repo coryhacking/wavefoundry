@@ -2799,8 +2799,8 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
             with self.subTest(content=content), \
                  patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
                  patch.object(self.bi, "_get_embedder") as embed, \
-                 patch.object(server, "_index_is_up_to_date", return_value=False), \
-                 patch.object(server, "_index_build_active", return_value=False), \
+                 patch("index_handlers._index_is_up_to_date", return_value=False), \
+                 patch("index_handlers._index_build_active", return_value=False), \
                  patch.object(server, "_INDEX_BUILD_VERIFY_TIMEOUT_SECONDS", 0.5), \
                  patch("subprocess.Popen", side_effect=spawn):
                 result = server.index_build_response(self.root, content=content, mode="update")

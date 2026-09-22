@@ -1053,9 +1053,10 @@ class GraphFailureRecoveryTests(_RootCase):
                 }):
                     self.assertTrue(self.gq.get_query_index(self.root).present)
                     with patch.object(module, seam, side_effect=error), patch.object(
-                            self.srv, "index_build_response") as rebuild:
+                            self.srv, "index_build_response") as rebuild, patch('index_handlers.index_build_response') as index_rebuild:
                         self._assert_public_failure(code)
                         rebuild.assert_not_called()
+                        index_rebuild.assert_not_called()
                     self.assertTrue(self.gq.get_query_index(self.root).present)
                     self.assertTrue(self.dash.read_graph_payload(self.root, "project")["present"])
 
