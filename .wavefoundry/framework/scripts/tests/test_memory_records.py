@@ -54,12 +54,12 @@ def load_server():
 
 
 def load_independent_server():
-    """Load a SEPARATE ``server_impl`` module instance with its OWN module
-    globals — crucially its own ``_MEMORY_RECORDS_CACHE`` and ``_script_cache``
-    (hence its own ``index_state_store`` instance). This models a SECOND MCP
-    process that shares only the on-disk ``memory-state.sqlite`` with the first,
-    so a genuine cross-process cache-coherence claim can be made (not the same
-    module's cache cleared to fake a second process)."""
+    """Load a second server instance with separate handler caches.
+
+    The loader cache is separate, but moved handlers resolve the canonical
+    server_impl per call. This is a two-cache, same-interpreter fixture;
+    RealChildProcessCoherenceTests supplies actual process isolation.
+    """
     spec = importlib.util.spec_from_file_location(
         "server_impl_proc2", SCRIPTS_ROOT / "server_impl.py"
     )
@@ -1357,7 +1357,8 @@ class MemoryToolTests(_MemoryCase):
             self.root, "mem-purge-safe-error", reason="No longer needed."
         )
         archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-purge-safe-error.md"
-        with patch.object(self.srv, "_memory_mod", return_value=self.mem), patch.object(
+        import memory_handlers
+        with patch.object(memory_handlers, "_memory_mod", return_value=self.mem) as memory_module, patch.object(
             self.mem, "rebuild_archive_manifest", side_effect=OSError("publish failed")
         ):
             response = self.srv.memory_purge_response(
@@ -1365,6 +1366,7 @@ class MemoryToolTests(_MemoryCase):
             )
 
         self.assertEqual(response["status"], "error", response)
+        memory_module.assert_called()
         self.assertFalse(response["data"]["purged"])
         self.assertTrue(archive.is_file())
         self.assertIn("memory_purge", json.dumps(response["diagnostics"]))
@@ -2487,17 +2489,18 @@ class SeqlockCoherenceTests(_MemoryCase):
 
 
 class TwoProcessCacheCoherenceTests(_MemoryCase):
-    """Round-4 re-review evidence: two independently LOADED server module
-    instances (distinct ``_MEMORY_RECORDS_CACHE`` + distinct
-    ``index_state_store``) in ONE interpreter, sharing only the on-disk seqlock
-    — stronger than clearing one module's cache to fake a second process, but
-    still same-interpreter. ``RealChildProcessCoherenceTests`` adds the true
-    separate-OS-process probe for the core reader-bypass property."""
+    """Two server executions keep distinct handler caches over on-disk state.
+
+    Moved handlers resolve the canonical server_impl and its store per call,
+    so they do not model two independent store instances. The separate
+    RealChildProcessCoherenceTests supplies the cross-process proof.
+    """
 
     def setUp(self):
         super().setUp()
         self.p1 = load_server()
         self.p2 = load_independent_server()
+        self.assertIsNot(self.p1._MEMORY_RECORDS_CACHE, self.p2._MEMORY_RECORDS_CACHE)
         self.p1._MEMORY_RECORDS_CACHE.clear()
         self.p2._MEMORY_RECORDS_CACHE.clear()
         self.addCleanup(self.p1._MEMORY_RECORDS_CACHE.clear)
@@ -2532,7 +2535,7 @@ class TwoProcessCacheCoherenceTests(_MemoryCase):
             self.iss1.memory_finalize = real_fin
         self.assertEqual(self.iss2.read_memory_state(self.idx)["dirty"], 1)
         # p2 NEVER cleared its cache; it must still bypass (dirty) and reload,
-        # excluding the now-stale record. This is the genuine cross-process proof.
+        # excluding the now-stale record without explicitly clearing either cache.
         after = self.p2._memory_advisories_for_path(self.root, "src/core.py")
         self.assertEqual(after, [], "warm second process must not serve the pre-write advisory")
 

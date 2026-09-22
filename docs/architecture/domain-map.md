@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-21
 
 ## Domains
 
@@ -31,7 +31,7 @@ Last verified: 2026-09-20
 
 ## Handler ownership
 
-`codenav_handlers.py` and `graph_handlers.py` own response computation for code navigation and graph tools. `server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Both siblings participate in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
+`codenav_handlers.py`, `graph_handlers.py`, `techdocs_handlers.py` and `memory_handlers.py` own response computation for code navigation, graph, TechDocs and memory tools. Memory services and their caps/caches move together, while lifecycle close-gate compositions and crediting extractors stay in the composition root. `memory_cli.py` imports the memory handlers directly, with composition-root loading deferred to the first call; `memory_eval.py` retains its shared server handle. `server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Every handler sibling participates in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
 
 ## Local setup assessment
 

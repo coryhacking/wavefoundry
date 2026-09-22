@@ -6,7 +6,7 @@ import argparse
 import json
 
 import repo_root
-import server_impl
+import memory_handlers
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,14 +34,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = repo_root.discover_root(args.root)
     if args.action == "backfill":
-        response = server_impl.memory_backfill_response(
+        response = memory_handlers.memory_backfill_response(
             root,
             mode=args.mode,
             limit=args.limit,
             entry_path=args.entry_path,
         )
     else:
-        response = server_impl.memory_validate_response(
+        response = memory_handlers.memory_validate_response(
             root,
             args.memory_id,
             args.verdict,

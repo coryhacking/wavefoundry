@@ -7171,6 +7171,8 @@ class TechdocsBaselineToolTests(unittest.TestCase):
     def test_dry_run_default_writes_nothing_and_reports_absent_paths(self):
         self._targets()
         before = self._digest()
+        before_bytes = {str(path.relative_to(self.root)): path.read_bytes()
+                        for path in self.root.rglob('*') if path.is_file()}
         resp = self._call()
         self.assertEqual(resp["status"], "dry_run", resp)
         data = resp["data"]
@@ -7185,6 +7187,9 @@ class TechdocsBaselineToolTests(unittest.TestCase):
         self.assertIn("mode='run'", resp["diagnostics"][0]["message"])
         self.assertNotIn("lint", data)  # nothing written, nothing linted
         self.assertEqual(self._digest(), before)
+        self.assertEqual(
+            {str(path.relative_to(self.root)): path.read_bytes()
+             for path in self.root.rglob('*') if path.is_file()}, before_bytes)
 
     def test_run_writes_exactly_the_absent_members_then_rerun_is_silent(self):
         self._targets()

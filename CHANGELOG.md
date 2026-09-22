@@ -12,7 +12,25 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Dashboard tier labels.** The dashboard consumes `dashboard.terminology` using Wavefoundry tier keys and shows ignored keys in an advisory. Keys must be the framework tier names `wave`, `change` and `task`; a fork with its own tier vocabulary remaps its keys once when it adopts this release. Wave `1ym4h`.
 
+- **Relocate wave and plan records in a fork.** Record roots and nesting depth are module constants a downstream fork edits at merge time; the shipped constants reproduce today's `docs/waves` and `docs/plans` layout byte for byte, and nested wave records resolve by lookup. Wave `1y0gz`.
+
+- **Require additional review sensors per phase.** Prepare, review and close checks are named gate units in ordered per-phase lists, and a target repository can require extra named sensors through a typed `phase_gates` configuration block, with no repository code loaded by the server and nothing executed in dry-run. Wave `1y0h0`.
+
+- **A pinned public tool surface.** Every registered MCP tool's name, roster tier, input schema and annotations are checked against a committed golden fixture by the ordinary test suite, so an unintended change to the tool surface fails a test instead of reaching a host. Wave `1y0do`.
+
 ### Changed
+
+- **TechDocs and memory handlers in their own modules.** Responses move to `techdocs_handlers.py` and `memory_handlers.py`, with public tool registration, behavior and reload compatibility preserved. The memory CLI imports its handler module directly; lifecycle close-gate compositions stay in the server. Wave `1ymzk`.
+
+- **Readiness converges in one bounded round.** Prepare uses one full review, one bounded repair pass and one focused verification, then escalates any remaining blocker to the operator instead of looping; focused packets carry the repair diff and the directly affected contracts. Wave `1yfzu`.
+
+- **Declared sensors bind approvals on close as well as prepare.** The readiness digest that ties declared sensors to approvals now controls both mutating phases, and two guards left defeatable by the phase-gate work are closed. Wave `1yd97`.
+
+- **Test fixtures come from the real producers.** Building a valid declared wave in a test is one shared helper call that drives the canonical producers, and the harness seeds carry the rule to every project, so a hand-written fixture can no longer hide a contract change. Wave `1yd24`.
+
+- **An enumerable tool registry and one middleware chain.** The MCP server builds a runtime registry of tool specifications by introspection and applies one explicit, ordered wrapper chain, with no handler moved and the public tool surface unchanged. Wave `1y0h1`.
+
+- **Code-navigation and graph handlers in their own modules.** The two handler families live in `codenav_handlers.py` and `graph_handlers.py`, are unit-tested without the transport, stay fresh across `wf_reload_mcp`, and the public tool surface is unchanged. Wave `1y0h2`.
 
 - **Tidy wave folders during close.** Closure guidance distinguishes disposable scratch from durable evidence, preserves ledger references, and organizes supporting artifacts before final validation. Wave `1ykqj`.
 
@@ -20,7 +38,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Provider fallback no longer silently rebuilds the corpus.** Ordinary index updates refuse a change between recorded `full` and `int8` embedding precision before embedding or changing the published epoch. The refusal identifies affected layers and directs operators to restore a compatible provider environment or explicitly request `wf setup --full`. Compatible incremental updates and fresh CPU-only builds remain supported. Wave `1yljp`.
+
 - **Shared marker recognition.** Chunking, code navigation and legacy-section stripping share namespaces including `waveforge`, with named ends and annotated begins recognized. No chunker version bump ships with this change; existing indexes may retain old chunk output for affected files until they are edited or a full rebuild runs. Wave `1ym4h`.
+
+- **The index survives a reboot.** Persisted storage identities no longer refuse the index, `wf setup --check` and an interrupted upgrade after the operating system renumbers a filesystem device; identity still refuses a genuinely different path or inode. Wave `1yja8`.
+
+- **The server no longer races its own index builds.** Automatic document writes wait for an in-progress build instead of invalidating it, a build recovers once from transient source drift, and a refused publication rolls back to the last intact snapshot so search degrades to stale rather than failing closed. Wave `1yj14`.
 
 ## [1.25.0] - 2026-09-17
 

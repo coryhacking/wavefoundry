@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-21
 
 ## Allowed Dependencies
 
@@ -19,6 +19,7 @@ Last verified: 2026-09-20
 |------|-----------|----------------------|
 | `lifecycle_gates.py`, `lifecycle_gate_support.py`, `sensor_runner.py` → `server_impl.py` | Extracted gates and support never import the orchestrator. Evidence is consumed through the `review_evidence` facade; configuration comes through unit inputs or support readers. Gates call support helpers through module attributes, and support imports neither gates nor orchestrator. Context contains only the six shared data fields. | Mechanical import-direction, facade-only, context-reader and reload tests in `test_lifecycle_gates_structure.py` (wave `1y044`); behavioral polarity coverage in `test_lifecycle_gates.py`. The same scans cover `sensor_runner.py`. |
 | `mcp_tool_registry.py` → `server_impl.py` | The registry module never imports the orchestrator at any scope and holds no state; everything it needs arrives as arguments. `MIDDLEWARE` in `server_impl.py` is the only place registration-time call wrapping is applied, and the three `_wrap_*` functions remain the only place a tool's callable is rebound. | `1y0be` AC-3 and AC-5; `test_mcp_tool_registry` module-boundary tests (`test_module_never_imports_server_impl_at_any_scope`, `test_module_never_rebinds_a_tool_callable`). |
+| Handler siblings → `server_impl.py` | No module-top import of the composition root or another handler sibling. Shared helpers resolve through function-local public imports; every handler sibling participates in purge-and-reimport reload. Registration remains in the composition root. | `test_handler_modules.py` checks import boundaries, re-export identity, name resolution, packaging and actual scratch reload; import-derived purge coverage is checked by `test_lifecycle_gates_structure.py`. |
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
 | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |

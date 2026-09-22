@@ -145,7 +145,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("server_impl.py", "valid from ``docs/plans/`` but become invalid"): "docstring",
     ("server_impl.py", "already *inside* ``docs/waves/``)"): "docstring",
     ("server_impl.py", "# relocate the file out of `docs/plans/`"): "comment",
-    ("server_impl.py", "recovery_usage=\"repair the local docs/waves path, then retry\""): "message",
+    ("memory_handlers.py", "recovery_usage=\"repair the local docs/waves path, then retry\""): "message",
     ("server_impl.py", "# historical (docs/waves/) rows excluded by construction"): "comment",
     ("server_impl.py", "# the full-corpus lint, which includes docs/waves"): "comment",
     ("server_impl.py", "every ``docs/waves/`` record"): "docstring",

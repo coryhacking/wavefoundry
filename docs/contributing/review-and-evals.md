@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-21
 
 ## Review Lane Summary
 
@@ -321,13 +321,16 @@ pair (`docs/reports/retrieval-quality-post-1wur7-run1.json` and
 that wave shipped and is likewise incomparable after `1wuju`. The `1wuju`
 receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
 `1wuju` close) served as the before-receipt for wave `1wybs`. The current
-reference receipt is `docs/reports/retrieval-quality-post-1wybs.json`: it
-binds the current evaluator and the delivered production bytes at generation
-211, its verdict is `fail` under the drift disposition recorded in the `1wybs`
-wave record (five zero-tolerance `code_ask` holdout regressions with a
-production diff that reaches no retrieval tool; the operator decision on that
-disposition is recorded there), and it is valid as `--baseline` because the
-compatibility rule checks identities, not verdicts; pass it as `--baseline`
+reference receipt is `docs/reports/retrieval-quality-1ymzk-after.json`:
+it records the delivered handler extraction and compares against
+`docs/reports/retrieval-quality-1y0bf-final.json`, the preceding standing
+reference. The fresh before receipt is
+`docs/reports/retrieval-quality-1ymzk-before-retry1.json`; it records pre-existing
+quality differences from the older reference before handler source edits.
+Read the exact verdict, comparison and limitations in the receipts and the
+`1ymzk` delivery evidence; the reference is not a claim that all historical
+quality comparisons passed. A receipt is valid as `--baseline` when its
+identities are compatible, independently of its verdict; pass this reference
 while the evaluator is unchanged. After the next evaluator edit there is no
 reference receipt until the next ranking wave records its before-receipt, and
 an `invalid_baseline` refusal in that window, typically "baseline evaluator

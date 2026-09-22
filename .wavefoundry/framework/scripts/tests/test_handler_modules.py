@@ -1,4 +1,4 @@
-"""Compatibility contracts for the nineteen extracted handler responses (1y0h2).
+"""Compatibility contracts for extracted handler responses (1y0h2, 1ymzk).
 
 The roster below is the admitted public contract, not discovered from the
 implementation. Existing golden/registry suites remain the surface authority.
@@ -26,6 +26,10 @@ from server_tools_support import load_server
 SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[2]
 FAMILIES = {
+    'memory_handlers': ('memory_add', 'memory_propose', 'memory_backfill',
+        'memory_validate', 'memory_search', 'memory_brief', 'memory_reconcile',
+        'memory_purge', 'memory_consolidate', 'wf_memory_eval'),
+    'techdocs_handlers': ('wf_techdocs_audit', 'wf_techdocs_baseline'),
     'codenav_handlers': ('code_list_files', 'code_read', 'code_keyword', 'code_lexical',
         'code_constants', 'code_pattern', 'code_outline', 'code_definition',
         'code_references', 'code_dependencies', 'code_hover', 'code_commit_provenance'),
@@ -80,6 +84,30 @@ class HandlerStructureTests(unittest.TestCase):
                 self.assertIn('server_impl.never_defined_helper', _unresolved(
                     source + '\ndef _contract_mutant():\n    import server_impl\n    return server_impl.never_defined_helper()\n', module, server))
 
+
+    def test_memory_partition_and_reexport_identities(self):
+        server = load_server()
+        memory = importlib.import_module('memory_handlers')
+        server_tree = ast.parse((SCRIPTS / 'server_impl.py').read_text())
+        memory_tree = ast.parse((SCRIPTS / 'memory_handlers.py').read_text())
+        staying = {'_auto_populate_memory_for_wave', '_memory_validation_diagnostics',
+                   '_state_sources_memory_validate', '_state_sources_memory_propose',
+                   '_state_sources_memory_views'}
+        def definitions(tree):
+            return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+        self.assertTrue(staying <= definitions(server_tree))
+        self.assertFalse(staying & definitions(memory_tree))
+        # Literal roster comes from the independently approved inventory.
+        moved = ('MEMORY_BRIEF_CAP', 'MEMORY_SEARCH_CAP', 'MEMORY_QUERY_CHECK_CAP', 'MEMORY_QUERY_MIN_LOGIT', 'MEMORY_PROPOSE_CAP', 'MEMORY_CONSOLIDATE_GROUP_CAP', 'MEMORY_CONSOLIDATE_MEMBER_CAP', 'MEMORY_SUMMARY_EXCERPT_CHARS', 'MEMORY_BRIEF_CONTEXTS', '_memory_mod', '_memory_fence', '_memory_finalize', '_LIFECYCLE_ID_TOKEN_RE', '_lifecycle_id_tokens', '_MEMORY_RECORDS_CACHE', '_MEMORY_BETWEENNESS_CACHE', '_MEMORY_KEY_BYPASS', '_memory_cache_key', '_memory_records_cached', '_memory_betweenness_by_file', '_memory_view', '_memory_ranked', 'MEMORY_ADVISORY_CAP', '_memory_advisories_for_path', '_memory_advisories_for_wave', '_credit_exploration_avoided_surface', 'memory_add_response', '_memory_add_response_locked', '_draft_view', 'memory_propose_response', '_memory_propose_response_locked', 'memory_backfill_response', '_memory_backfill_batch_locked', '_memory_file_target_exists', 'memory_validate_response', '_memory_query_records', 'memory_search_response', 'memory_brief_response', 'memory_reconcile_response', '_memory_reconcile_response_locked', 'memory_purge_response', 'memory_consolidate_response', 'wf_memory_eval_response')
+        for name in moved:
+            with self.subTest(name=name):
+                self.assertIs(getattr(server, name), getattr(memory, name))
+                self.assertNotIn(name, definitions(server_tree))
+        assignments = {target.id for node in server_tree.body
+                       if isinstance(node, (ast.Assign, ast.AnnAssign))
+                       for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+                       if isinstance(target, ast.Name)}
+        self.assertFalse(set(moved) & assignments)
 
 class HandlerResponseTests(unittest.TestCase):
     def setUp(self):
@@ -166,7 +194,7 @@ class HandlerResponseTests(unittest.TestCase):
 
 
 class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
-    def test_generated_manifest_contains_both_modules(self):
+    def test_generated_manifest_contains_all_handler_modules(self):
         import build_pack
         with tempfile.TemporaryDirectory() as temp:
             framework = Path(temp)
@@ -194,6 +222,58 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
                 self.assertIn(name, missing())
             finally:
                 setattr(server, name, value)
+
+    def test_memory_is_outside_measured_retrieval_closure(self):
+        import retrieval_eval as evaluator
+        self.assertNotIn('memory_handlers.py', evaluator.PRODUCTION_RETRIEVAL_MODULES)
+        self.assertNotIn('techdocs_handlers.py', evaluator.PRODUCTION_RETRIEVAL_MODULES)
+        functions = {}
+        for module in ('server_impl', *FAMILIES):
+            tree = ast.parse((SCRIPTS / (module + '.py')).read_text())
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    functions[node.name] = node
+                elif isinstance(node, ast.ClassDef) and node.name == 'WaveIndex':
+                    functions.update({'WaveIndex.' + child.name: child for child in node.body
+                                      if isinstance(child, ast.FunctionDef)})
+        roots = {'code_ask_response', 'code_search_response', 'docs_search_response',
+                 'code_lexical_response'}
+        self.assertTrue(roots <= functions.keys())
+        reached, pending = set(), list(roots)
+        while pending:
+            name = pending.pop()
+            if name in reached:
+                continue
+            reached.add(name)
+            for call in ast.walk(functions[name]):
+                if not isinstance(call, ast.Call):
+                    continue
+                target = call.func
+                edge = None
+                if isinstance(target, ast.Name):
+                    edge = target.id
+                elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                    if target.value.id == 'server_impl':
+                        edge = target.attr
+                    elif target.value.id in {'self', 'index'}:
+                        edge = 'WaveIndex.' + target.attr
+                if edge in functions and edge not in reached:
+                    pending.append(edge)
+        memory_tree = ast.parse((SCRIPTS / 'memory_handlers.py').read_text())
+        memory_names = {node.name for node in memory_tree.body if isinstance(node, ast.FunctionDef)}
+        self.assertTrue({'WaveIndex.search_docs', 'WaveIndex.search_code', '_response'} <= reached)
+        self.assertFalse(memory_names & reached)
+        evaluator_reads = {node.attr for node in ast.walk(ast.parse(inspect.getsource(evaluator)))
+                           if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                           and node.value.id == 'server'}
+        self.assertTrue({'WaveIndex', 'code_ask_response'} <= evaluator_reads)
+        self.assertFalse(memory_names & evaluator_reads)
+        corpus = json.loads((ROOT / 'docs/evals/retrieval-quality-golden.json').read_text())
+        anchors = [entry['anchor'] for fixture in corpus['fixtures']
+                   for entry in fixture['relevance'] if entry.get('anchor')]
+        self.assertTrue(anchors)
+        self.assertFalse([anchor for anchor in anchors
+                          if any(name in anchor.get('value', '') for name in memory_names)])
 
     def test_codenav_edit_moves_production_identity(self):
         import retrieval_eval as evaluator
@@ -243,6 +323,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
 _RELOAD = r'''
 import inspect,json,sys
 from pathlib import Path
+module_name, response_name, tool_name = sys.argv[1:]
 sys.path.insert(0, str(Path.cwd()/'tests'))
 from server_tools_support import _make_repo,load_server,load_thin_runner
 import tempfile
@@ -252,15 +333,15 @@ with tempfile.TemporaryDirectory() as tmp:
     runner=load_thin_runner()
     runner.build_server(root)
     try:
-        old=runner.server_impl.wf_graph_report_response
-        source=Path('graph_handlers.py')
-        source.write_text(source.read_text()+'\ndef wf_graph_report_response(root, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
+        old=getattr(runner.server_impl, response_name)
+        source=Path(module_name+'.py')
+        source.write_text(source.read_text()+'\ndef '+response_name+'(root, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
         result=runner.perform_mcp_reload()
         assert result['status']=='ok',result
-        fresh=runner.server_impl.wf_graph_report_response
+        fresh=getattr(runner.server_impl, response_name)
         assert fresh is not old
         assert fresh(root)['data']['handler_reload_probe'] is True
-        served=runner.server_impl._TOOL_REGISTRY.get('wf_graph_report').callable()
+        served=runner.server_impl._TOOL_REGISTRY.get(tool_name).callable()
         assert served['data']['handler_reload_probe'] is True,served
         print(json.dumps({'fresh':True,'served_modified_handler':True}))
     finally:
@@ -269,16 +350,22 @@ with tempfile.TemporaryDirectory() as tmp:
 
 
 class HandlerReloadTests(unittest.TestCase):
-    def test_actual_reload_serves_modified_scratch_graph_handler(self):
-        with tempfile.TemporaryDirectory() as temp:
-            scratch = Path(temp) / 'scripts'
-            shutil.copytree(SCRIPTS, scratch, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            result = subprocess.run([sys.executable, '-B', '-c', _RELOAD], cwd=scratch,
-                env=dict(os.environ, PYTHONPATH=str(scratch), PYTHONDONTWRITEBYTECODE='1'),
-                capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stderr[-4000:])
-        self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]),
-                         {'fresh': True, 'served_modified_handler': True})
+    def test_actual_reload_serves_modified_scratch_handlers(self):
+        cases = (
+            ('graph_handlers', 'wf_graph_report_response', 'wf_graph_report'),
+            ('memory_handlers', 'memory_brief_response', 'memory_brief'),
+            ('techdocs_handlers', 'wf_techdocs_audit_response', 'wf_techdocs_audit'),
+        )
+        for module, response, tool in cases:
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as temp:
+                scratch = Path(temp) / 'scripts'
+                shutil.copytree(SCRIPTS, scratch, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                result = subprocess.run([sys.executable, '-B', '-c', _RELOAD, module, response, tool], cwd=scratch,
+                    env=dict(os.environ, PYTHONPATH=str(scratch), PYTHONDONTWRITEBYTECODE='1'),
+                    capture_output=True, text=True, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+                self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]),
+                                 {'fresh': True, 'served_modified_handler': True})
 
 
 if __name__ == '__main__':

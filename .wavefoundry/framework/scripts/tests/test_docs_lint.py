@@ -5232,7 +5232,7 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         # Delivery review (ARCH-DEL-1's receipt): the drift attribution is disclosed.
         self.assertIn("**A `cross_generation` comparison attributes corpus drift to the change.**", text)
         # Delivery review ARCH-RV1-2: the pointer names the receipt binding the current identities.
-        self.assertIn("The current\nreference receipt is `docs/reports/retrieval-quality-post-1wybs.json`", text)
+        self.assertIn("The current\nreference receipt is `docs/reports/retrieval-quality-1ymzk-after.json`", text)
         self.assertNotIn("reference receipt is `docs/reports/retrieval-quality-post-1wuju.json`", text)
         self.assertIn("when the diff\nreaches no retrieval tool, the receipt records drift, not a regression", text)
         self.assertNotIn("record a fresh baseline before the gate judges anything", text)
@@ -5242,8 +5242,8 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         text = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
         self.assertIn("An evaluator-only edit records no close-time baseline (wave `1wybq`)", text)
         self.assertIn("the reference only until the next evaluator edit", text)
-        self.assertIn("standing baseline `docs/reports/retrieval-quality-post-1wybs.json`", text)
-        self.assertIn("--baseline docs/reports/retrieval-quality-post-1wybs.json", text)
+        self.assertIn("standing baseline `docs/reports/retrieval-quality-1ymzk-after.json`", text)
+        self.assertIn("--baseline docs/reports/retrieval-quality-1ymzk-after.json", text)
         self.assertIn("attributes corpus drift to the change under the\nzero-tolerance regression rule", text)
 
     def test_the_1_22_0_changelog_states_one_policy(self) -> None:

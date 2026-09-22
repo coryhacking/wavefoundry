@@ -513,7 +513,7 @@ print(json.dumps({
     def test_cli_rewrite_forwards_complete_correction_contract(self):
         response = {"status": "ok", "data": {"state": "awaiting_validation"}}
         with mock.patch.object(
-            memory_cli.server_impl,
+            memory_cli.memory_handlers,
             "memory_validate_response",
             return_value=response,
         ) as validate, mock.patch("builtins.print"):
@@ -732,14 +732,16 @@ os._exit(23)
             "data": {},
             "diagnostics": [{"code": "query_failed", "message": huge}],
         }
+        import memory_handlers
         with mock.patch.object(
-            server_impl,
+            memory_handlers,
             "_memory_propose_response_locked",
             return_value=failed,
-        ):
+        ) as propose:
             response = server_impl.memory_backfill_response(
                 self.root, mode="create", entry_path="manual"
             )
+        propose.assert_called()
         encoded = json.dumps(response["data"], ensure_ascii=False).encode("utf-8")
         self.assertLessEqual(len(encoded), memory_backfill.MAX_RESPONSE_BYTES)
         self.assertTrue(response["data"]["response_truncated"])
@@ -1399,11 +1401,12 @@ class RootDefaultDiscoveryTests(unittest.TestCase):
         os.chdir(SCRIPTS)
         try:
             with mock.patch.object(
-                server_impl,
+                memory_cli.memory_handlers,
                 "memory_backfill_response",
                 return_value={"status": "ok", "data": {}},
             ) as resp, mock.patch("sys.stdout", new_callable=io.StringIO):
                 memory_cli.main(["backfill"])
+            resp.assert_called_once()
             self.assertEqual(resp.call_args[0][0], repo)
         finally:
             os.chdir(original)

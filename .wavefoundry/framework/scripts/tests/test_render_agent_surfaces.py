@@ -3275,14 +3275,14 @@ class TechdocsBaselinePreconditionAndPathTests(unittest.TestCase):
         # Static guard for the negative test: no other framework script (setup,
         # upgrade, render_platform_surfaces) calls render_techdocs_baseline. The
         # allowlist is exactly the two entry points that share the one function:
-        # the CLI thin entry and the MCP tool in server_impl (1vj4d Requirement 10,
+        # the CLI thin entry and the MCP tool in techdocs_handlers (1vj4d Requirement 10,
         # widened deliberately when the MCP tool was added).
         # rglob, not glob: a call site added under a subpackage (wave_lint_lib/,
         # for example) must not slip past this guard. Tests are excluded because
         # they exercise the function on purpose.
         callers = []
         for path in sorted(SCRIPTS_ROOT.rglob("*.py")):
-            if path.name in {"render_agent_surfaces.py", "techdocs_baseline.py", "server_impl.py"}:
+            if path.name in {"render_agent_surfaces.py", "techdocs_baseline.py", "techdocs_handlers.py"}:
                 continue
             if "tests" in path.relative_to(SCRIPTS_ROOT).parts:
                 continue
@@ -3290,7 +3290,7 @@ class TechdocsBaselinePreconditionAndPathTests(unittest.TestCase):
                 callers.append(path.name)
         self.assertEqual(callers, [])
         self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "techdocs_baseline.py").read_text(encoding="utf-8"))
-        self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8"))
+        self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "techdocs_handlers.py").read_text(encoding="utf-8"))
         # And the render pass itself has no call site.
         import inspect
 

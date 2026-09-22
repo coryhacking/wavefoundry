@@ -9702,11 +9702,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         import codenav_handlers
         import graph_handlers
+        import techdocs_handlers
 
         module = ast.Module(body=[
             node
             for owner in (self.srv, self.srv.lifecycle_gates, self.srv.lifecycle_gate_support,
-                          codenav_handlers, graph_handlers)
+                          codenav_handlers, graph_handlers, techdocs_handlers)
             for node in ast.parse(Path(owner.__file__).read_text(encoding="utf-8")).body
         ], type_ignores=[])
         owner: dict[int, str] = {}
@@ -14961,7 +14962,21 @@ class PublicTypedEventProcessRaceTests(unittest.TestCase):
         # INSIDE a held publication lock.
         source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
         self.assertIn("_wrap_lifecycle_mutation_lock(mcp, get_handler)", source)
-        tree = ast.parse(source)
+        tree = ast.Module(body=[
+            node
+            for owner in ("server_impl.py", "memory_handlers.py")
+            for node in ast.parse((SCRIPTS_ROOT / owner).read_text(encoding="utf-8")).body
+        ], type_ignores=[])
+
+        def calls_lock(call, name):
+            if not isinstance(call, ast.Call):
+                return False
+            target = call.func
+            return (isinstance(target, ast.Name) and target.id == name) or (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "server_impl" and target.attr == name
+            )
         publication_blocks = 0
         violations = []
 
@@ -14969,25 +14984,30 @@ class PublicTypedEventProcessRaceTests(unittest.TestCase):
             def visit_With(self, node):
                 nonlocal publication_blocks
                 takes_publication = any(
-                    isinstance(item.context_expr, ast.Call)
-                    and isinstance(item.context_expr.func, ast.Name)
-                    and item.context_expr.func.id == "project_state_publication_lock"
+                    calls_lock(item.context_expr, "project_state_publication_lock")
                     for item in node.items
                 )
                 if takes_publication:
                     publication_blocks += 1
                     for inner in ast.walk(node):
-                        if (
-                            isinstance(inner, ast.Call)
-                            and isinstance(inner.func, ast.Name)
-                            and inner.func.id == "_lifecycle_mutation_lock"
-                        ):
+                        if calls_lock(inner, "_lifecycle_mutation_lock"):
                             violations.append(ast.unparse(inner))
                 self.generic_visit(node)
 
         _Visitor().visit(tree)
         self.assertGreaterEqual(publication_blocks, 8)
         self.assertEqual(violations, [])
+        # The moved owner qualifies both calls. An inverted qualified lock
+        # order must remain visible to the same visitor used above.
+        for prefix in ("", "server_impl."):
+            with self.subTest(lifecycle_prefix=prefix):
+                violations.clear()
+                _Visitor().visit(ast.parse(
+                    "with server_impl.project_state_publication_lock(root):\n"
+                    f"    with {prefix}_lifecycle_mutation_lock(root):\n"
+                    "        pass\n"
+                ))
+                self.assertEqual(violations, [f"{prefix}_lifecycle_mutation_lock(root)"])
         # The publication lock's own module never reaches back out to the
         # advisory lifecycle lock.
         review_source = (SCRIPTS_ROOT / "review_evidence.py").read_text(
