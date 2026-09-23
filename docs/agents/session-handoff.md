@@ -8,11 +8,11 @@ Last verified: 2026-09-22
 
 **Active wave:** *(none)*
 
-**Last closed wave:** `1yp0y pre-release-install-reliability` — closed on operator instruction; delivered strict python3 diagnosis, standalone Windows diagnostic, source-only constants opt-in and reliable install/resume guidance.
+**Last closed wave:** `1ysym legacy-agent-pin-cleanup` — closed on operator instruction. Upgrade guidance prefers removing verified inherited defaults, names the pre-1.26 Guru sonnet baseline, preserves deliberate pins and asks about uncertain provenance.
 
 ## Last-closed verification
 
-All ACs/tasks reconciled as completed or explicitly deferred. Independent code, QA, architecture, security, docs and council approvals current. Close passed with the current 9,550-test framework receipt (123 files, 13 intentional skips), clean lint and garden. Memory checkpoint yielded no candidates. All eleven wave files retained as authoritative or unique evidence. Commit authorized; no push or release requested.
+Fresh QA/docs approvals and readiness are current; renderer probe and six focused tests pass. Canonical receipt proves 9,550 tests across 123 files, with 13 intentional skips. Close checks passed. Memory checkpoint yielded zero candidates. All wave records and unique evidence retained. Operator authorized commit then new local 1.26.0 package; no publication or push requested.
 
 ## Post-release qualification
 

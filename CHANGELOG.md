@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.26.0]
+
 ### Added
 
 - **Dashboard tier labels.** The dashboard consumes `dashboard.terminology` using Wavefoundry tier keys and shows ignored keys in an advisory. Keys must be the framework tier names `wave`, `change` and `task`; a fork with its own tier vocabulary remaps its keys once when it adopts this release. Wave `1ym4h`.
@@ -20,6 +22,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Prefer clearing inherited agent model pins during upgrade.** Upgrade guidance recommends removing verified framework defaults while retaining deliberate operator choices and asking about unclear provenance. The renderer continues to preserve existing headers. Wave `1ysym`.
+
 - **Clearer review guidance and diagnostics.** Receipt rotation identifies changed policy inputs when available and reminds only lanes still carrying old readiness approvals; delivery approvals remain finding-scoped. Temporary-only evidence paths receive an advisory. Review prompts point to the shared protocol, distinguish delivery context from readiness, and require controlled comparisons for causal measurement claims. The Review wave prompt states the delivery-council gate correctly (the current receipt's delivery-council requirement, not a config flag), and the fresh-install review template now carries the phase and provenance sentences, the Truth Hierarchy and a project-specifics section. Wave `1ypxw`.
 
 - **Implement-wave guidance and review integrity.** Dependency planning reads declared wave edges instead of prose mentions. Fresh review claims cannot reuse a prior repair context; current-authority audits preserve valid supersession and expose context history. The implementation entry prompt is shorter, retired role journals move verbatim to history, and seed guidance clarifies string-reference checks, measurement attribution and readiness. Wave `1ypy6`.
@@ -30,11 +34,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **TechDocs and memory handlers in their own modules.** Responses move to `techdocs_handlers.py` and `memory_handlers.py`, with public tool registration, behavior and reload compatibility preserved. The memory CLI imports its handler module directly; lifecycle close-gate compositions stay in the server. Wave `1ymzk`.
 
-- **Readiness converges in one bounded round.** Prepare uses one full review, one bounded repair pass and one focused verification, then escalates any remaining blocker to the operator instead of looping; focused packets carry the repair diff and the directly affected contracts. Wave `1yfzu`.
+- **Bounded readiness review and clearer Prepare diagnostics.** Readiness guidance calls for one full review, one bounded repair pass and one focused verification, then operator escalation for remaining blockers. Focused packets carry the repair diff and directly affected contracts. Prepare reports receipt-publication counts, warns about unusual churn and identifies lanes missing current readiness approvals; these diagnostics do not add a runtime round limit. Wave `1yfzu`.
 
 - **Declared sensors bind approvals on close as well as prepare.** The readiness digest that ties declared sensors to approvals now controls both mutating phases, and two guards left defeatable by the phase-gate work are closed. Wave `1yd97`.
 
-- **Test fixtures come from the real producers.** Building a valid declared wave in a test is one shared helper call that drives the canonical producers, and the harness seeds carry the rule to every project, so a hand-written fixture can no longer hide a contract change. Wave `1yd24`.
+- **More faithful lifecycle test fixtures.** A shared helper builds declared waves through the real lifecycle producers; a census requires classification of remaining hand-built fixtures. Shared reviewer guidance requires tests to reach the claimed path and derive expectations from an independent reference. The census makes exceptions visible rather than proving their correctness. Wave `1yd24`.
 
 - **An enumerable tool registry and one middleware chain.** The MCP server builds a runtime registry of tool specifications by introspection and applies one explicit, ordered wrapper chain, with no handler moved and the public tool surface unchanged. Wave `1y0h1`.
 
@@ -42,19 +46,21 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Tidy wave folders during close.** Closure guidance distinguishes disposable scratch from durable evidence, preserves ledger references, and organizes supporting artifacts before final validation. Wave `1ykqj`.
 
-- **Choose agent models for the assignment.** Fresh Claude wrappers omit fixed model/effort defaults; rendering preserves existing operator choices and skips malformed frontmatter unchanged. Shared guidance makes delegation-time selection explicit without provider rankings or new gates. Wave `1ycrj`.
+- **Choose agent models for the assignment.** Fresh Claude wrappers omit fixed model/effort defaults; rendering preserves existing frontmatter, including operator model/effort choices and BOM-prefixed headers, and skips malformed frontmatter unchanged. Upgrade guidance calls out stale preserved tool allowlists for explicit reconciliation. Shared guidance makes delegation-time selection explicit without provider rankings or new gates. Wave `1ycrj`.
 
 ### Fixed
 
-- **Install prerequisite diagnosis and consumer validation.** Setup checks the required `python3` before mutation and preserves failure evidence; Windows users can diagnose an existing seeded checkout before MCP starts, with policy-respecting guidance. Internal documentation constants now require an explicit source-repository opt-in. Install guidance uses the existing MCP surface renderer and inventories partial prompt setup before completion. Native Windows qualification remains pending. Wave `1yp0y`.
+- **Consistent memory heading spacing.** Metadata updates preserve exactly one blank line before `## Summary`, including repeated updates, without rewriting section bodies or bulk-migrating historical records. Wave `1yq6a`.
+
+- **Install prerequisite diagnosis and consumer validation.** Setup checks the required `python3` before mutation and preserves failure evidence; Windows users can diagnose an existing seeded checkout before MCP starts, with policy-respecting guidance. Internal documentation constants now require an explicit source-repository opt-in. Install guidance uses the existing MCP surface renderer and inventories partial prompt setup before completion. The standalone PowerShell diagnostic does not require Python or MCP, never substitutes `python.exe` for `python3`, and provides non-admin and policy-blocked IT guidance. Native Windows execution and fresh-host repair qualification are explicitly deferred to external testing after the next release. Wave `1yp0y`.
 
 - **Provider fallback no longer silently rebuilds the corpus.** Ordinary index updates refuse a change between recorded `full` and `int8` embedding precision before embedding or changing the published epoch. The refusal identifies affected layers and directs operators to restore a compatible provider environment or explicitly request `wf setup --full`. Compatible incremental updates and fresh CPU-only builds remain supported. Wave `1yljp`.
 
 - **Shared marker recognition.** Chunking, code navigation and legacy-section stripping share namespaces including `waveforge`, with named ends and annotated begins recognized. No chunker version bump ships with this change; existing indexes may retain old chunk output for affected files until they are edited or a full rebuild runs. Wave `1ym4h`.
 
-- **The index survives a reboot.** Persisted storage identities no longer refuse the index, `wf setup --check` and an interrupted upgrade after the operating system renumbers a filesystem device; identity still refuses a genuinely different path or inode. Wave `1yja8`.
+- **The index survives a reboot.** Persisted storage identities no longer refuse the index, `wf setup --check` and an interrupted upgrade after the operating system renumbers a filesystem device; comparison uses the path and available inode, preserves existing recovery records and retains device values as historical evidence. Different paths or available inodes still refuse; a replacement volume reusing the same path and inode remains indistinguishable. Wave `1yja8`.
 
-- **The server no longer races its own index builds.** Automatic document writes wait for an in-progress build instead of invalidating it, a build recovers once from transient source drift, and a refused publication rolls back to the last intact snapshot so search degrades to stale rather than failing closed. Wave `1yj14`.
+- **The server no longer races its own index builds.** Automatic document writes coordinate with active builds, and source drift triggers at most one complete re-preparation and retry. A verified precommit rollback can restore the previous complete snapshot with truthful stale-state diagnostics. Crashes, uncertain commits and postcommit failures remain fail-closed. Wave `1yj14`.
 
 ## [1.25.0] - 2026-09-17
 

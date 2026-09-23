@@ -1,0 +1,6 @@
+{
+  ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "055404c238bed6c90a18bc52ad3549553b85b10b",
+  "docs/prompts/upgrade-wavefoundry.prompt.md": "f98f9d3aac2dc164a635f58044e3c19f72ce4145",
+  "CHANGELOG.md": "41478bc0b8bcacc2d2669a24ad0f2e7e443fd73a",
+  "docs/waves/1ysym legacy-agent-pin-cleanup/evidence/check_existing_header.py": "d8e1be43e67d2f3dd2562a5b05857c540e5701ed"
+}
