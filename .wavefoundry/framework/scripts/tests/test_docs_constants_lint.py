@@ -1,7 +1,10 @@
 """Wave 1seax (1seau): docs-vs-code constants lint + scaffolding integrity."""
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,6 +16,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from wave_lint_lib.docs_constants_validators import (  # noqa: E402
+    _claims,
     _module_constant,
     check_docs_constants,
     check_wave_scaffolding_integrity,
@@ -113,7 +117,15 @@ class PublicContractTests(unittest.TestCase):
 
 
 class DocsConstantsLintTests(unittest.TestCase):
-    """AC-3: seeded drift fails; the refreshed docs pass."""
+    """Source opt-in catches drift; consumer repositories omit internal facts."""
+
+    def _config(self, root: Path, docs_lint: object) -> None:
+        path = root / "docs" / "workflow-config.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"docs_lint": docs_lint}), encoding="utf-8")
+
+    def _source(self, root: Path) -> None:
+        self._config(root, {"framework_internal_constants": True})
 
     def _seed(self, root: Path, perf: str, rel: str) -> None:
         target = root / "docs" / "architecture" / "performance-budget.md"
@@ -137,6 +149,7 @@ class DocsConstantsLintTests(unittest.TestCase):
             )
             self.assertNotEqual(drifted, live_perf, "seed must actually drift")
             self._seed(root, drifted, live_rel)
+            self._source(root)
             failures = check_docs_constants(root)
             self.assertTrue(any("docs embedding model" in f and "does not match" in f
                                for f in failures), failures)
@@ -148,6 +161,7 @@ class DocsConstantsLintTests(unittest.TestCase):
             live_rel = (REPO_ROOT / "docs" / "RELIABILITY.md").read_text(encoding="utf-8")
             dropped = live_rel.replace("index_freshness states: `current/stale/unknown`", "")
             self._seed(root, live_perf, dropped)
+            self._source(root)
             failures = check_docs_constants(root)
             self.assertTrue(any("index_freshness states" in f and "missing" in f
                                for f in failures), failures)
@@ -179,6 +193,7 @@ class DocsConstantsLintTests(unittest.TestCase):
             with self.subTest(shape=shape), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 self._seed(root, live_perf, seeded)
+                self._source(root)
                 failures = [
                     f for f in check_docs_constants(root)
                     if "graph builder version" in f
@@ -223,6 +238,7 @@ class DocsConstantsLintTests(unittest.TestCase):
             ) + "\n"
             self.assertNotEqual(dropped, live_rel, "seed must actually drop the claim")
             self._seed(root, live_perf, dropped)
+            self._source(root)
             failures = [
                 f for f in check_docs_constants(root)
                 if "graph builder version" in f
@@ -249,6 +265,121 @@ class DocsConstantsLintTests(unittest.TestCase):
     def test_absent_docs_are_out_of_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(check_docs_constants(Path(tmp)), [])
+
+    def test_all_nine_claims_are_source_only(self):
+        claims = _claims()
+        self.assertEqual(len(claims), 9)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, _, _, _ in claims:
+                doc = root / rel
+                doc.parent.mkdir(parents=True, exist_ok=True)
+                doc.write_text("# Project-owned facts\n", encoding="utf-8")
+            self.assertEqual(check_docs_constants(root), [])
+            self._source(root)
+            failures = check_docs_constants(root)
+            self.assertEqual(len(failures), len(claims), failures)
+            for _, label, _, _ in claims:
+                self.assertTrue(any(label in failure for failure in failures), label)
+
+    def test_all_nine_mismatched_claims_fail_in_source(self):
+        claims = _claims()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._source(root)
+            by_doc: dict[str, list[str]] = {}
+            for rel, _, pattern, _ in claims:
+                by_doc.setdefault(rel, []).append(
+                    pattern.pattern.replace("([^`]+)", "stale-value")
+                )
+            for rel, lines in by_doc.items():
+                doc = root / rel
+                doc.parent.mkdir(parents=True, exist_ok=True)
+                doc.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            failures = check_docs_constants(root)
+            self.assertEqual(len(failures), len(claims), failures)
+            self.assertTrue(all("does not match" in failure for failure in failures))
+
+    def test_consumer_with_packaged_scripts_and_own_docs_is_exempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed(
+                root,
+                "# Product performance budget\nOur docs embedding model `product-model`.\n",
+                "# Product reliability\nindex_freshness states: `product-state`.\n",
+            )
+            spec = root / "docs/specs/mcp-tool-surface.md"
+            spec.parent.mkdir(parents=True)
+            spec.write_text("# Product MCP surface\n", encoding="utf-8")
+            shipped = root / ".wavefoundry/framework/scripts/indexer.py"
+            shipped.parent.mkdir(parents=True)
+            shipped.write_text("DOCS_MODEL = 'packaged-model'\n", encoding="utf-8")
+            self.assertEqual(check_docs_constants(root), [])
+            self._config(root, {"framework_internal_constants": False})
+            self.assertEqual(check_docs_constants(root), [])
+            self._source(root)
+            self.assertEqual(len(check_docs_constants(root)), len(_claims()))
+
+    def test_real_docs_lint_cli_respects_source_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed(root, "# Product performance\n", "# Product reliability\n")
+            spec = root / "docs/specs/mcp-tool-surface.md"
+            spec.parent.mkdir(parents=True)
+            spec.write_text("# Product MCP\n", encoding="utf-8")
+            shipped = root / ".wavefoundry/framework/scripts/indexer.py"
+            shipped.parent.mkdir(parents=True)
+            shipped.write_text("DOCS_MODEL = 'packaged-model'\n", encoding="utf-8")
+            command = [sys.executable, "-B", str(SCRIPTS_ROOT / "docs_lint.py")]
+            env = {**os.environ, "PROJECT_ROOT": str(root)}
+            consumer = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertNotIn("docs embedding model", consumer.stderr)
+            self.assertNotIn("configured_gates outcomes", consumer.stderr)
+            self._source(root)
+            source = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertNotEqual(source.returncode, 0)
+            self.assertIn("docs embedding model", source.stderr)
+            self.assertIn("configured_gates outcomes", source.stderr)
+
+    def test_invalid_config_fails_instead_of_disabling_source_check(self):
+        cases = (
+            ("string", '{"docs_lint": {"framework_internal_constants": "true"}}'),
+            ("number", '{"docs_lint": {"framework_internal_constants": 1}}'),
+            ("null", '{"docs_lint": {"framework_internal_constants": null}}'),
+            ("section", '{"docs_lint": true}'),
+            ("root", '[]'),
+            ("malformed", '{'),
+        )
+        for name, raw in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / "docs/workflow-config.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(raw, encoding="utf-8")
+                failures = check_docs_constants(root)
+                self.assertEqual(len(failures), 1, failures)
+                self.assertIn("docs/workflow-config.json", failures[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs/workflow-config.json").mkdir(parents=True)
+            self.assertIn("unreadable", check_docs_constants(root)[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "docs/workflow-config.json"
+            path.parent.mkdir(parents=True)
+            path.symlink_to(root / "missing-config.json")
+            self.assertIn("unreadable", check_docs_constants(root)[0])
+
+    def test_optional_changelog_claim_still_runs_for_consumer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## [Unreleased]\n\n- `CHUNKER_VERSION` to 1\n",
+                encoding="utf-8",
+            )
+            failures = check_docs_constants(root)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("CHUNKER_VERSION", failures[0])
 
 
 class ChangelogConstantsTests(unittest.TestCase):

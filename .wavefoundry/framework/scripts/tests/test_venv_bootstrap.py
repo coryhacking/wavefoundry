@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import importlib.util
 import io
+import json
+import subprocess
 import os
 import sys
 import tempfile
@@ -331,7 +333,7 @@ class ActivateInProcessDeRiskTests(unittest.TestCase):
 class StdlibOnlyTests(unittest.TestCase):
     def test_imports_are_stdlib_only(self):
         # `site` is imported inside activate_tool_venv (lazy) — stdlib, allowed.
-        allowed = {"__future__", "os", "shutil", "subprocess", "sys", "pathlib", "site"}
+        allowed = {"__future__", "os", "shutil", "subprocess", "sys", "pathlib", "site", "json"}
         tree = ast.parse(VENV_BOOTSTRAP_PATH.read_text(encoding="utf-8"))
         mods: set[str] = set()
         for node in ast.walk(tree):
@@ -504,13 +506,13 @@ class EnsurePythonResolvesTests(unittest.TestCase):
         with patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}), patch.object(
             vb.shutil, "which"
         ) as which_mock:
-            self.assertEqual(vb.ensure_python_resolves(strict=True), "skipped")
+            self.assertEqual(vb.ensure_python_resolves(strict=False), "skipped")
         which_mock.assert_not_called()  # short-circuits before any resolution work
         self._assert_nothing_created()
 
     def test_ok_when_python3_already_ge_311(self):
         with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
-            vb, "_interpreter_version", return_value=(3, 11)
+            vb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"version": [3, 11], "executable": "/usr/bin/python3"}), "")
         ):
             self.assertEqual(vb.ensure_python_resolves(strict=True), "ok")
         self._assert_nothing_created()
@@ -521,7 +523,7 @@ class EnsurePythonResolvesTests(unittest.TestCase):
 
         buf = io.StringIO()
         with patch.object(vb.shutil, "which", side_effect=self._which({"python3": "/usr/bin/python3"})), patch.object(
-            vb, "_interpreter_version", return_value=(2, 7)
+            vb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"version": [3, 10], "executable": "/usr/bin/python3"}), "")
         ), redirect_stderr(buf):
             self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_existing_unusable")
             with self.assertRaises(SystemExit):
@@ -556,7 +558,7 @@ class EnsurePythonResolvesTests(unittest.TestCase):
     def test_python3_absent_with_python_present_does_NOT_create_anything_windows(self):
         with patch.object(vb.os, "name", "nt"), patch.object(
             vb.shutil, "which", side_effect=self._which({"python": r"C:\Python312\python.exe"})
-        ):
+        ), patch.object(vb.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"version": [3, 12], "executable": r"C:\Python312\python.exe"}), "")):
             self.assertEqual(vb.ensure_python_resolves(strict=False), "warn_unresolved")
             with self.assertRaises(SystemExit):
                 vb.ensure_python_resolves(strict=True)
@@ -573,7 +575,7 @@ class EnsurePythonResolvesTests(unittest.TestCase):
         import io
         from contextlib import redirect_stderr
 
-        for osname, needle in (("posix", "symlink"), ("nt", "Scoop")):
+        for osname, needle in (("posix", "symlink"), ("nt", "ask IT")):
             buf = io.StringIO()
             with patch.object(vb.os, "name", osname), patch.object(
                 vb.shutil, "which", return_value=None
@@ -584,6 +586,74 @@ class EnsurePythonResolvesTests(unittest.TestCase):
             self.assertIn("python3 --version", text)
             self.assertIn("does not modify your Python", text)
             self.assertNotIn("Alternative:", text)
+
+    def test_timeout_retains_bounded_output_even_when_subprocess_returns_bytes(self):
+        failure = subprocess.TimeoutExpired('python3', 15, output=b'opening alias\xff\n',
+                                            stderr=b'Application control denied\n' + b'x' * 3000)
+        with patch.object(vb.shutil, 'which', return_value='/approved/python3'), \
+             patch.object(vb.subprocess, 'run', side_effect=failure):
+            result = vb._probe_interpreter('python3')
+        self.assertEqual(result['state'], 'timeout')
+        self.assertIn('opening alias\ufffd', result['stdout'])
+        self.assertTrue(result['stderr'].startswith('Application control denied'))
+        self.assertEqual(len(result['stderr']), 2000)
+
+    def test_strict_check_cannot_be_skipped(self):
+        with patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}), patch.object(
+            vb.shutil, "which", return_value=None
+        ), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                vb.ensure_python_resolves(strict=True)
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_probe_failures_preserve_observation_without_claiming_old_version(self):
+        cases = [
+            (subprocess.TimeoutExpired("python3", 15), "timeout"),
+            (PermissionError("execution denied"), "launch_error"),
+            (subprocess.CompletedProcess([], 9009, "", "Python was not found; Microsoft Store"), "failed_exit"),
+            (subprocess.CompletedProcess([], 0, "not an identity", ""), "invalid_output"),
+            (subprocess.CompletedProcess([], 0, '[3, 11]', ""), "invalid_output"),
+            (subprocess.CompletedProcess([], 0, '{"version":[true,11],"executable":"x"}', ""), "invalid_output"),
+        ]
+        for outcome, state in cases:
+            with self.subTest(state=state, outcome=str(outcome)), patch.object(vb.os, "name", "posix"), patch.object(
+                vb.shutil, "which", return_value="/approved/python3"
+            ), patch.object(vb.subprocess, "run") as run, redirect_stderr(io.StringIO()) as err:
+                if isinstance(outcome, Exception):
+                    run.side_effect = outcome
+                else:
+                    run.return_value = outcome
+                with self.assertRaises(SystemExit):
+                    vb.ensure_python_resolves(strict=True)
+                report = err.getvalue()
+                self.assertIn("result=" + state, report)
+                self.assertIn("resolved=/approved/python3", report)
+                self.assertNotIn("below", report)
+                self.assertNotIn("version=None", report)
+                self.assertEqual(run.call_args.kwargs["timeout"], 15)
+                self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+                self.assertEqual(run.call_args.args[0][0], "python3")
+                self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_windows_usable_python_is_discovery_not_success(self):
+        with patch.object(vb.os, "name", "nt"), patch.object(
+            vb.shutil, "which", side_effect=self._which({"python": r"C:\Approved Python\python.exe"})
+        ), patch.object(vb.subprocess, "run", return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps({"version": [3, 13], "executable": r"C:\Approved Python\python.exe"}), ""
+        )), redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                vb.ensure_python_resolves(strict=True)
+        self.assertIn("command=python3; resolved=not found", err.getvalue())
+        self.assertIn("discovery only", err.getvalue())
+        self.assertIn("result=ok", err.getvalue())
+        self.assertIn("ask IT", err.getvalue())
+        self._assert_nothing_created()
+
+    def test_real_raw_spawn_probe_reports_interpreter_identity(self):
+        probe = vb._probe_interpreter(sys.executable)
+        self.assertEqual(probe["state"], "ok", probe)
+        self.assertEqual(probe["version"], sys.version_info[:2])
+        self.assertEqual(Path(probe["executable"]).resolve(), Path(sys.executable).resolve())
 
 
 if __name__ == "__main__":

@@ -299,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     if "-h" in args or "--help" in args:
         _print_help()
         return 0
+    # Diagnose the machine before activation, reconciliation, or setup writes.
+    if "--check-gpu" not in args:
+        venv_bootstrap.ensure_python_resolves(strict=True)
     venv_bootstrap.activate_tool_venv(allow_version_mismatch=True)
     if "--check-gpu" in args:
         return _run_gpu_check()
@@ -378,13 +381,6 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
         return rc
 
     reconciliation.prepare()
-
-    # Step 2b: verify the committed `command: "python3"` launchers resolve (DETECT + GUIDE; setup
-    # does NOT create a shim/symlink or edit PATH — operator decision, wave 1p88t). strict=True: a box
-    # where `python3 --version` does not work or does not report Python 3.11+ fails loud before
-    # rendering surfaces or smoke-testing MCP. The agent/operator must fix the prerequisite before
-    # proceeding.
-    venv_bootstrap.ensure_python_resolves(strict=True)
 
     # Step 3: MCP server dry-run smoke test.
     _print_step("Step 3/4: verify MCP server can start (server.py --dry-run)")

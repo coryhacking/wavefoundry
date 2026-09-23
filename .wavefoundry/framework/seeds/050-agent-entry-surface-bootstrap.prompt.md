@@ -60,6 +60,8 @@ The MCP startup check and background monitor cover changes made outside the agen
 they do not replace the explicit post-operation check or guarantee that the agent
 sees stderr notices. No Git hooks are installed by this guidance.
 
+Also put a short native-Windows pre-MCP prerequisite instruction in root `AGENTS.md`: for a fresh install or an already-seeded checkout on a new workstation, run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before treating `wf.cmd`, MCP or completed install rows as proof of local readiness. A failed or policy-blocked diagnostic must route to `.wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md` **Python prerequisite**; the required host command remains `python3` 3.11 or newer. Do not rerender, reseed or rebuild merely to diagnose missing local Python.
+
 Tasks:
 
 1. Create or update `AGENTS.md` as the canonical entry map. Prefer concise, **non-obvious** routing and guardrails agents would otherwise get wrong; omit trivia they can re-derive from `docs/repo-index.md` or the tree.

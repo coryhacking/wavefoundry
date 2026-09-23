@@ -21,7 +21,7 @@ import ast
 import re
 from pathlib import Path
 
-from .helpers import resolve_record_roots
+from .helpers import load_json, resolve_record_roots
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 
@@ -50,7 +50,7 @@ def _public_contract():
     return public_contract
 
 
-# Declarative claim table: (doc rel path, human label, capture regex,
+# Framework-source-only claim table: (doc rel path, human label, capture regex,
 # expected-value callable). The regex's group(1) must equal the expected value.
 # A missing claim is itself a failure: the refreshed docs carry these facts in
 # a stable, checkable form, and silently dropping one is drift too.
@@ -114,10 +114,32 @@ def _claims():
     )
 
 
+def _framework_internal_constants_enabled(root: Path) -> tuple[bool, list[str]]:
+    """Read the source repository's explicit docs-lint opt-in."""
+    rel = "docs/workflow-config.json"
+    path = root / rel
+    if not path.exists() and not path.is_symlink():
+        return False, []
+    data, error = load_json(path)
+    if error:
+        return False, [f"ERROR: {rel}: unreadable or invalid JSON ({error})"]
+    if not isinstance(data, dict):
+        return False, [f"ERROR: {rel}: configuration must be an object"]
+    docs_lint = data.get("docs_lint", {})
+    if not isinstance(docs_lint, dict):
+        return False, [f"ERROR: {rel}: docs_lint must be an object"]
+    enabled = docs_lint.get("framework_internal_constants", False)
+    if not isinstance(enabled, bool):
+        return False, [
+            f"ERROR: {rel}: docs_lint.framework_internal_constants must be a boolean"
+        ]
+    return enabled, []
+
+
 def check_docs_constants(root: Path) -> list[str]:
     """Assert documented facts match their owning code constants."""
-    failures: list[str] = []
-    for rel, label, pattern, expected_fn in _claims():
+    enabled, failures = _framework_internal_constants_enabled(root)
+    for rel, label, pattern, expected_fn in (_claims() if enabled else ()):
         doc = root / rel
         if not doc.is_file():
             continue  # target repos without the doc are out of scope

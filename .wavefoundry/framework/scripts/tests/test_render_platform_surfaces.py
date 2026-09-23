@@ -586,7 +586,10 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertIn("@echo off", wf_cmd_src)
         self.assertIn("wf_cli.py", wf_cmd_src)
         self.assertIn("python3 ", wf_cmd_src)
-        self.assertNotIn("python ", wf_cmd_src)
+        self.assertNotIn('\npython ', wf_cmd_src)
+        self.assertIn('where.exe python3', wf_cmd_src)
+        self.assertIn('diagnose_python.ps1', wf_cmd_src)
+        self.assertIn('exit /b %WF_EXIT%', wf_cmd_src)
         # Wave 1p7tz (newline fix): the line terminators are written VERBATIM regardless of the
         # rendering host's os.linesep. `wf.cmd` is CRLF (cmd.exe) with NO doubled CR; the `wf` bash
         # shim is pure LF (no CR — a CRLF shebang breaks git-bash/WSL2).

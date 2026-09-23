@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-22
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -89,6 +89,12 @@ Root-only means exactly that: the host must launch from the configured project r
 not search upward from an arbitrary cwd, because a descendant containing another installation could
 silently change project identity. Missing host authority is surfaced as a support limitation, not
 papered over with a generic locator.
+
+## Native-Windows prerequisite and surface recovery
+
+A fresh install and an already-seeded checkout on a new workstation both require local `python3` diagnosis before MCP attachment. Run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root; `wf.cmd` may be unable to start Python, so this independent read-only path reports the command failure first. See `docs/references/native-windows-support.md` for manual probes when policy blocks the script, permitted user repair, the IT handoff and fresh-host verification. Generated MCP and hook commands keep `python3`; completed install rows do not establish another machine's interpreter readiness.
+
+After prompt and role sources exist, `wf_sync_surfaces(mode='run')` over MCP or `wf render-surfaces` from CLI fills renderer-owned upgrade-policy regions as well as platform/agent surfaces. Empty marker pairs alone are not complete. This sync path does not pass the permissions-rendering switch; project-authored prose outside owned regions stays under project ownership.
 
 ## Rendered MCP Permission Surface (wave 1u2b0)
 

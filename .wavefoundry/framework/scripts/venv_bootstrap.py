@@ -34,6 +34,7 @@ JSON-RPC handshake corrupts it.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess  # used by ensure_python_resolves' interpreter-version probe (NOT for any re-exec).
@@ -197,94 +198,108 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
-# `python` resolution + heal (wave 1p7pm; lives here so it's the single home).
+# Canonical `python3` resolution and diagnosis (no environment healing).
 # Called explicitly at setup / render / upgrade (NOT from activate_tool_venv).
 # ---------------------------------------------------------------------------
 
-_VER_PROBE = "import sys;print(sys.version_info[0], sys.version_info[1])"
+_VER_PROBE = "import sys,json;print(json.dumps({'version':list(sys.version_info[:2]),'executable':sys.executable}))"
 
 
-def _interpreter_version(executable: str) -> tuple[int, int] | None:
-    """``(major, minor)`` of the interpreter resolved from ``executable``, or None if unqueryable.
-
-    ``executable`` may be a bare token (``"python3"``) — the child spawn does its own fresh PATH
-    resolution, so this is a genuine "does ``python3`` resolve to a usable interpreter" check.
-    """
+def _probe_interpreter(executable: str) -> dict:
+    """Observe one raw-spawn interpreter command; preserve failures without guessing causes."""
+    resolved = shutil.which(executable)
+    evidence = {"command": executable, "resolved": resolved, "state": "missing"}
+    if not resolved:
+        return evidence
     try:
-        # Wave 1p8gu: isolate stdin (never inherit a blocking stdin) + suppress the console window on
-        # Windows. venv_bootstrap is the foundational STDLIB-ONLY module imported first-line by every
-        # entry point (a standing scan test enforces no non-stdlib imports), so it CANNOT import the
-        # shared subprocess_util helper — it inlines the same two guarantees instead.
         result = subprocess.run(
-            [executable, "-c", _VER_PROBE], capture_output=True, text=True, timeout=15,
-            check=False, stdin=subprocess.DEVNULL,
-            # 1p8gu: inline CREATE_NO_WINDOW (no console flash on Windows; 0 on POSIX). Inlined — not via
-            # a local — so the isolation guard's AST kwarg scan sees the no-window token directly.
+            [executable, "-I", "-S", "-B", "-c", _VER_PROBE],
+            capture_output=True, text=True, timeout=15, check=False,
+            stdin=subprocess.DEVNULL,
             creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
-            encoding="utf-8", errors="replace",  # 1p8gv (review F2): deterministic capture decoding
+            encoding="utf-8", errors="replace",
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired can expose bytes even with text=True. Preserve the
+        # child's observations without treating its timeout as an old version.
+        for key, output in (("stdout", exc.stdout), ("stderr", exc.stderr)):
+            if output is not None:
+                evidence[key] = (output.decode("utf-8", errors="replace")
+                                 if isinstance(output, bytes) else output)[:2000]
+        return {**evidence, "state": "timeout", "detail": "interpreter probe timed out after 15 seconds"}
+    except OSError as exc:
+        return {**evidence, "state": "launch_error", "detail": str(exc)[:2000]}
+    except subprocess.SubprocessError as exc:
+        return {**evidence, "state": "probe_error", "detail": str(exc)[:2000]}
+    evidence.update(exit_code=result.returncode, stdout=result.stdout[:2000], stderr=result.stderr[:2000])
     if result.returncode != 0:
-        return None
+        return {**evidence, "state": "failed_exit"}
     try:
-        major, minor = result.stdout.split()[:2]
-        return (int(major), int(minor))
-    except (ValueError, IndexError):
-        return None
+        data = json.loads(result.stdout)
+        version = data["version"]
+        identity = data["executable"]
+        if (not isinstance(version, list) or len(version) != 2
+                or any(type(part) is not int or part < 0 for part in version)
+                or not isinstance(identity, str) or not identity):
+            raise ValueError("invalid interpreter identity")
+    except (ValueError, TypeError, KeyError):
+        return {**evidence, "state": "invalid_output"}
+    return {**evidence, "version": tuple(version), "executable": identity,
+            "state": "ok" if tuple(version) >= MIN_PYTHON_VERSION else "too_old"}
+
+
+def _format_interpreter_probe(probe: dict) -> str:
+    """Bounded observed facts, kept separate from remediation hypotheses."""
+    facts = [f"command={probe['command']}", f"resolved={probe['resolved'] or 'not found on PATH'}",
+             f"stage={'command resolution' if probe['state'] == 'missing' else 'interpreter execution/version'}",
+             f"result={probe['state']}"]
+    for key in ("executable", "version", "exit_code", "detail", "stdout", "stderr"):
+        if key in probe and probe[key] != "":
+            facts.append(f"{key}={probe[key]!r}")
+    return "; ".join(facts)
 
 
 def ensure_python_resolves(strict: bool = False) -> str:
-    """Verify the committed ``command: "python3"`` resolves to Python >= 3.11. DETECT + GUIDE only.
+    """DETECT + GUIDE only: canonical python3 must execute and meet the minimum.
 
-    Wavefoundry does **not** mutate the environment to make ``python3`` resolve — no shim, no
-    symlink, no PATH edit, no copy into a Python install (operator decision, wave 1p88t; amends ADR
-    1p7pb). Cross-platform auto-healing was invasive and fragile (a Windows ``.cmd`` is not
-    raw-spawnable; a POSIX symlink still needs PATH cooperation), so setup/render/upgrade only CHECK
-    that ``python3`` already resolves and, when it does not, fail closed (strict) or warn (non-strict)
-    with concrete, platform-aware guidance. Making ``python3`` resolvable is the operator's step.
-
-    ``strict=True`` (setup) raises ``SystemExit`` when ``python3`` does not resolve to >= 3.11;
-    ``strict=False`` (render/upgrade) warns non-fatally. Diagnostics go to stderr. Returns a short
-    status string (``ok`` / ``warn_unresolved`` / ``warn_existing_unusable`` / ``skipped``).
-
-    Setting ``WAVEFOUNDRY_SKIP_PYTHON_HEAL=1`` makes this a complete no-op (returns ``"skipped"``).
+    No shim, symlink, PATH write or installation. Setup's strict check cannot
+    be bypassed. The legacy WAVEFOUNDRY_SKIP_PYTHON_HEAL opt-out remains only
+    for non-strict render/upgrade compatibility; skipped never means ready.
+    All diagnostics go to stderr to preserve MCP stdout.
     """
-    if os.environ.get("WAVEFOUNDRY_SKIP_PYTHON_HEAL") == "1":
+    if not strict and os.environ.get("WAVEFOUNDRY_SKIP_PYTHON_HEAL") == "1":
         return "skipped"
-
-    existing = shutil.which(MCP_PYTHON_COMMAND)
-    version = _interpreter_version(MCP_PYTHON_COMMAND) if existing else None
-    if existing and version is not None and version >= MIN_PYTHON_VERSION:
+    probe = _probe_interpreter(MCP_PYTHON_COMMAND)
+    if probe["state"] == "ok":
         return "ok"
-
-    if existing:
-        reason = (
-            f"`{MCP_PYTHON_COMMAND}` resolves to {existing} (version {version}), below "
-            f"{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}"
-        )
-        status = "warn_existing_unusable"
-    else:
-        reason = f"`{MCP_PYTHON_COMMAND}` does not resolve on PATH"
-        status = "warn_unresolved"
+    print("wavefoundry: Python prerequisite failed: " + _format_interpreter_probe(probe), file=sys.stderr)
     if os.name == "nt":
-        how = (
-            "install or repair Python so `python3 --version` works from the command line and reports "
-            "Python 3.11 or newer. On Windows, install via Scoop or the Microsoft Store (both provide "
-            "a `python3` command), or add your own `python3` command to a PATH directory"
+        alternative = _probe_interpreter("python")
+        print("wavefoundry: discovery only (not an MCP fallback): "
+              + _format_interpreter_probe(alternative), file=sys.stderr)
+        print(
+            "wavefoundry: On this workstation, inspect PATH and Manage app execution aliases. "
+            "A Store redirect or policy denial must be confirmed from the error above; "
+            "the underlying cause is otherwise undetermined. Prefer an existing approved "
+            "python3 executable/alias and a permitted user PATH repair. If only python.exe "
+            "works, ask IT to expose that approved Python as python3; do not assume admin "
+            "rights, Store access or Developer Mode. For diagnosis without Python/MCP run "
+            'powershell -NoProfile -File ".wavefoundry/framework/scripts/diagnose_python.ps1". '
+            "If policy blocks that script, share the observed command/path/error with IT; "
+            "do not bypass execution policy.", file=sys.stderr,
         )
     else:
-        how = (
-            "install or repair Python so `python3 --version` works from the command line and reports "
-            "Python 3.11 or newer. Use your package manager (for example Homebrew or apt), or symlink "
-            "`python3` to a Python 3.11+ interpreter in a PATH directory"
-        )
+        print("wavefoundry: Inspect PATH and the resolved interpreter; use your approved "
+              "package manager or an operator-managed symlink if appropriate. "
+              "An execution failure is not proof of an old or absent installation.", file=sys.stderr)
     print(
-        f"wavefoundry: {reason} — the committed `command: \"{MCP_PYTHON_COMMAND}\"` MCP launchers "
-        f"need it. Stop here and {how}, then rerun setup. Wavefoundry does not modify your Python "
-        "installation or PATH.",
-        file=sys.stderr,
+        'wavefoundry: MCP requires command: "python3". Verify python3 --version reports '
+        "Python 3.11 or newer, then verify server.py --dry-run and fully restart the agent host. "
+        "Python 3.13+ is recommended. Shell-only aliases and .cmd shims do not establish "
+        "raw-spawn readiness. A seeded checkout does not prove workstation readiness; "
+        "do not reseed or rebuild indexes to fix command resolution. "
+        "Wavefoundry does not modify your Python installation or PATH.", file=sys.stderr,
     )
     if strict:
         raise SystemExit(2)
-    return status
+    return "warn_unresolved" if probe["state"] == "missing" else "warn_existing_unusable"

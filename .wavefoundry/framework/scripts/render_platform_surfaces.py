@@ -1853,8 +1853,23 @@ def render_bin_launchers(repo_root: Path) -> None:
         "setlocal\r\n"
         'set "REPO_ROOT=%~dp0..\\.."\r\n'
         'cd /d "%REPO_ROOT%"\r\n'
+        'where.exe python3 >nul 2>nul\r\n'
+        'if errorlevel 1 goto python_missing\r\n'
         'python3 "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*\r\n'
-        "exit /b %ERRORLEVEL%\r\n"
+        'set "WF_EXIT=%ERRORLEVEL%"\r\n'
+        'if not "%WF_EXIT%"=="0" (\r\n'
+        '  echo Wavefoundry command failed. If Python could not start, diagnose this workstation: 1>&2\r\n'
+        '  echo powershell -NoProfile -File "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\diagnose_python.ps1" 1>&2\r\n'
+        ')\r\n'
+        'exit /b %WF_EXIT%\r\n'
+        ':python_missing\r\n'
+        'echo Wavefoundry: required python3 command was not found on PATH. Setup was not started. 1>&2\r\n'
+        'echo Candidate python command paths below are discovery only, not verified interpreters: 1>&2\r\n'
+        'where.exe python 1>&2 2>nul\r\n'
+        'echo Run bounded diagnosis without Python or MCP: 1>&2\r\n'
+        'echo powershell -NoProfile -File "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\diagnose_python.ps1" 1>&2\r\n'
+        'echo If policy blocks diagnosis, give IT the command/path/error; do not bypass policy or reseed this checkout. 1>&2\r\n'
+        'exit /b 2\r\n'
     )
 
     write_text(bin_dir / "wf", wf_src, executable=True)

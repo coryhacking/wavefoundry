@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-09-16
+Last verified: 2026-09-22
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -53,7 +53,27 @@ On native Windows a Python process spawned without a no-window flag can flash a 
 | ~~C-2~~ | ~~All 9 `.wavefoundry/bin/` launchers are bash-only~~ — **RESOLVED (wave 1p7tz):** the nine POSIX-only wrappers were replaced by one cross-OS `wf` dispatcher (`wf_cli.py`) behind a `wf` (bash) + `wf.cmd` (Windows) shim pair; `wf docs-lint`, `wf docs-gardener`, `wf gate`, `wf setup`, `wf upgrade`, `wf update-indexes`, `wf dashboard`, `wf lifecycle-id` run on every OS. | `render_platform_surfaces.render_bin_launchers`; `wf_cli.py` | No action — operator CLI is cross-OS. |
 | ~~C-3~~ | ~~Committed hook config reflects whichever OS last rendered it~~ — **RESOLVED:** committed commands are platform-independent; Claude performs owner-root resolution inside Python and Copilot carries its native `bash` and `powershell` fields. | platform renderer; host hook configs | Native-Windows runtime smoke remains an operator validation item. |
 
-Native Windows MCP configs should use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Before proceeding, `python3 --version` must work from the command line and report Python 3.11 or newer; if Windows has `python` but not `python3`, stop and fix PATH or install a Python distribution that provides `python3`. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. After fixing Python on PATH or changing MCP config, start a fresh host session because an already-open conversation may keep the toolset from the earlier failed startup.
+Native Windows MCP configs use `command: "python3"` with `args: [".wavefoundry/framework/scripts/server.py"]` for generated repo-local configs, or `args: ["<repo>/.wavefoundry/framework/scripts/server.py", "--root", "<repo>"]` for manual host entries. Do not configure MCP to run `.wavefoundry\venv\Scripts\python.exe` directly as a workaround; `server.py` owns shared tool-venv activation. Python 3.13 or newer is recommended, but 3.11 is the current minimum.
+
+### Diagnose a new native-Windows workstation before MCP
+
+This applies both to first installation and an already-seeded checkout on another machine. Committed host config and completed install-log rows do not prove the local interpreter works. From the repository root, before `wf.cmd`, setup or MCP attachment, run the read-only script that needs neither Python nor MCP:
+
+```powershell
+powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"
+```
+
+On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.
+
+Record the failed stage and attempted command, the resolved path and interpreter identity when available, and the observed error, exit status or timeout. The script checks `python3` and, for diagnosis, an available `python` entry with finite version probes. A discovered `python.exe` does not satisfy MCP's `python3` contract. Distinguish a missing command, old interpreter, failed execution, timeout and a later `server.py --dry-run` failure. A Store-placeholder explanation is supported only when the observed path or error identifies it; a generic failed exit is not proof. Do not infer PATH, alias or enterprise-policy causation from executable presence alone. A cause without supporting evidence remains undetermined, with the next probe named.
+
+If PowerShell execution policy blocks the script, do not bypass the policy. In PowerShell run `Get-Command python3,python -All -ErrorAction SilentlyContinue`, `where.exe python3`, `where.exe python`, `python3 --version`, and, when present, `python --version`; report their exact outcomes. Ask IT for the approved diagnostic route if those probes are also restricted.
+
+For a compatible existing interpreter, prefer an already approved `python3` executable or alias and a permitted user-level PATH correction. Check command resolution again in a **new terminal and restarted agent host**; a session-local PowerShell alias or `.cmd` shim is insufficient for a host that directly spawns `python3`. Do not assume administrator rights, Microsoft Store access, Developer Mode, machine-wide PATH changes, or that a particular installer creates `python3`. A new user-local executable launcher remains unqualified and is not a supported repair in this release. Do not reseed, run a rebuild, delete index data, or edit committed MCP config to address this machine-local prerequisite.
+
+If no permitted local repair exists, keep setup unready and send IT this handoff: “Wavefoundry requires a host-visible `python3` command resolving to Python 3.11 or newer. `python3` failed at [stage] with [exact output/status/timeout]; resolution was [path or absent]. The approved existing interpreter is [path/version, if found]. Please provide or authorize a `python3` entry visible to directly spawned processes for this standard user, without replacing the committed MCP launch command. I will restart the agent host and verify `python3 --version`, `python3 .wavefoundry/framework/scripts/server.py --dry-run`, and MCP startup.”
+
+After any repair, use those verification commands from the repository root, reconnect/restart the agent host, then confirm MCP initialization and a representative generated hook in a path with spaces. A passing `python.exe` probe or terminal-only alias does not prove a fresh host can spawn `python3`. Native-Windows diagnostic branches, standard-user repair and fresh-host evidence remain unverified. For wave 1yp0y, the operator deferred this qualification to external testers after the next release on 2026-09-22; see docs/waves/1yp0y pre-release-install-reliability/post-release-windows-validation.md.
 
 ### Moderate — degrades behavior; MCP server itself survives
 

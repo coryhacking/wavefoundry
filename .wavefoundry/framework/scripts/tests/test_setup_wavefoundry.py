@@ -397,9 +397,8 @@ class SetupWavefoundryTests(unittest.TestCase):
 
     # --- Step 2b: `python` resolution heal (wave 1p7pm) ------------------
 
-    def test_step_1b_calls_ensure_python_resolves_strict_after_venv(self):
-        """Setup heals `python` resolution after Step 1 (the venv exists), strictly. The heal mock is
-        installed in setUp; this asserts the WIRING stays in place (without mutating the real machine)."""
+    def test_setup_calls_strict_python_preflight(self):
+        """Strict canonical prerequisite validation is wired into ordinary setup."""
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
@@ -413,8 +412,8 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
 
-    def test_step_1b_skipped_when_step_1_fails(self):
-        """If Step 1 (venv build) fails, the heal must NOT run — there's no venv to heal against."""
+    def test_preflight_runs_even_when_later_dependency_step_fails(self):
+        """Prerequisite validation precedes dependency provisioning."""
         class FakeSetupIndex:
             @staticmethod
             def main(argv=None):
@@ -426,7 +425,7 @@ class SetupWavefoundryTests(unittest.TestCase):
             result = self.mod.main([])
 
         self.assertEqual(result, 9)
-        self.ensure_python_resolves_mock.assert_not_called()
+        self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
 
     def test_step_1b_failure_aborts_before_step_2_and_3(self):
         """A missing or too-old command-line `python3` is a hard setup prerequisite failure."""
@@ -443,8 +442,28 @@ class SetupWavefoundryTests(unittest.TestCase):
                 self.mod.main([])
 
         self.ensure_python_resolves_mock.assert_called_once_with(strict=True)
-        render_mock.assert_called_once_with(Path.cwd().resolve())
+        render_mock.assert_not_called()
         dry_run_mock.assert_not_called()
+
+    def test_failed_preflight_never_enters_reconciliation_or_mutates_seeded_checkout(self):
+        import setup_reconciliation
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".wavefoundry").mkdir()
+            (root / ".wavefoundry/install-log.md").write_text("- [x] 2.9 complete\n")
+            (root / ".mcp.json").write_text('{"command":"python3"}')
+            (root / ".wavefoundry/index").mkdir()
+            (root / ".wavefoundry/index/existing").write_bytes(b"keep index")
+            before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            with patch.object(setup_reconciliation, "session") as session, patch.object(
+                self.mod.venv_bootstrap, "activate_tool_venv"
+            ) as activate:
+                self.ensure_python_resolves_mock.side_effect = SystemExit(2)
+                with self.assertRaises(SystemExit):
+                    self.mod.main(["--root", str(root)])
+            session.assert_not_called()
+            activate.assert_not_called()
+            self.assertEqual(before, {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     def test_setup_does_not_print_gui_fallback_guidance(self):
         """Setup must stop on the `python3 --version` prerequisite, not advertise a bypass stanza."""

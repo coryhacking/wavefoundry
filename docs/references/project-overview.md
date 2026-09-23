@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-22
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -30,7 +30,7 @@ Wavefoundry is local-only and runs wherever a supported Python and AI host run. 
 | **macOS** (Apple Silicon + Intel) | **Supported** | Primary dev platform. Apple Silicon gets CoreML/GPU embedding acceleration; Intel runs CPU. |
 | **Linux** (x86_64 / arm64) | **Supported** | Continuously exercised (dev/CI). CPU embedding by default; NVIDIA CUDA used when present. |
 | **Windows via WSL2** | **Supported** | WSL2 **is** Linux — it runs the identical POSIX code path (`os.name == 'posix'`, `bin/python`, `fcntl`, `os.kill`, shebang launchers) with no separate install and no special flags. CUDA works via WSL2 GPU passthrough; CoreML/DirectML do not apply (CPU otherwise). See the WSL2 gotchas below. |
-| **Native Windows** (Terminal / PowerShell / cmd) | **Supported** | Requires `python3` 3.11 or higher on PATH — verify with `python3 --version` before install. Windows may ship `python` but not `python3`; if so, install a distribution that provides `python3` (e.g. from python.org) and ensure it is on PATH. See `docs/references/native-windows-support.md` for setup notes. |
+| **Native Windows** (Terminal / PowerShell / cmd) | **Supported; current release qualification pending** | Requires host-visible `python3` 3.11 or higher. On a fresh install or already-seeded checkout on a new workstation, run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before MCP/setup. A discovered `python.exe` diagnoses the command gap but is not a substitute. See [native Windows support](native-windows-support.md) for repair and IT handoff. |
 
 **Semantic index dependency limits (1xjmm):** the pinned sqlite-vec 0.1.9 install path covers macOS ARM/Intel, Linux glibc x64/ARM and Windows x64; it has no musl, Windows ARM64 or Windows 32-bit wheel and no sdist. APSW requires Linux glibc 2.28 or newer. This binary inventory is separate from native execution: this conversion has run on macOS Apple Silicon; Windows, Linux and Intel macOS package qualification is pending. The index requires local WAL-capable storage; see [packaged compatibility guidance](../../.wavefoundry/framework/README.md#local-index-compatibility).
 

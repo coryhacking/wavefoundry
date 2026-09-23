@@ -46,6 +46,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Install prerequisite diagnosis and consumer validation.** Setup checks the required `python3` before mutation and preserves failure evidence; Windows users can diagnose an existing seeded checkout before MCP starts, with policy-respecting guidance. Internal documentation constants now require an explicit source-repository opt-in. Install guidance uses the existing MCP surface renderer and inventories partial prompt setup before completion. Native Windows qualification remains pending. Wave `1yp0y`.
+
 - **Provider fallback no longer silently rebuilds the corpus.** Ordinary index updates refuse a change between recorded `full` and `int8` embedding precision before embedding or changing the published epoch. The refusal identifies affected layers and directs operators to restore a compatible provider environment or explicitly request `wf setup --full`. Compatible incremental updates and fresh CPU-only builds remain supported. Wave `1yljp`.
 
 - **Shared marker recognition.** Chunking, code navigation and legacy-section stripping share namespaces including `waveforge`, with named ends and annotated begins recognized. No chunker version bump ships with this change; existing indexes may retain old chunk output for affected files until they are edited or a full rebuild runs. Wave `1ym4h`.

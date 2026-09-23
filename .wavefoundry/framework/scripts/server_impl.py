@@ -19547,10 +19547,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_sync_surfaces(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Run render_platform_surfaces to regenerate .claude/, .cursor/ hook configs.
+        """Render generated agent and platform surfaces, including owned upgrade-policy regions.
+
+        Run after required prompt and role sources exist; empty owned markers are
+        not complete rendered content. This path does not render MCP permissions.
 
         Args:
-            mode: Either "dry_run" (preview, no writes) or "run" (execute renderer).
+            mode: Either "dry_run" (skip without preview or writes) or "run" (execute renderer).
         """
         bad = _ensure_no_extra_args("wf_sync_surfaces", kwargs)
         if bad is not None:

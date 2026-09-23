@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-22
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -25,6 +25,8 @@ Initialize a target repository with the Wave Framework operating surface. Detect
 
 See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the complete required output list.
 
+Phase 2 may pause after verified row 2.8 when session context is low. Leave row 2.9 unchecked and save a handoff. On return, inventory actual prompt files and `docs/prompts/prompt-surface-manifest.json` against seed-100's current public catalog and conditional rules, preserving project-authored content while reconciling missing or stale required outputs. Do not rely on a fixed prompt count. Once required prompt and role sources exist, call `wf_sync_surfaces(mode='run')` over MCP; use `wf render-surfaces` from CLI when MCP is unavailable. Check that owned upgrade-policy marker regions contain rendered content; empty marker pairs do not satisfy row 2.9, and hand-copying `UPGRADE_POLICY_BLOCK` is not the repair. Only mark 2.9 complete after the real `wf_audit_install` accepts the files, manifest and rendered regions. Keep validation errors visible.
+
 ## Git Commits
 
 **Operator-owned.** Agent hands off diff + suggested message. Operator commits.
@@ -33,11 +35,11 @@ See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the com
 
 After installing Wave Framework, enable the local MCP server in your agent host so tools like `wf_help`, `docs_search`, `code_ask`, `wf_audit`, and `index_health` are available.
 
-**Supported operator environments:** macOS and Linux are supported natively. Windows is currently supported through **WSL2** for install and operator workflows because some bootstrap and launcher surfaces still assume a POSIX shell.
+**Supported operator environments:** macOS, Linux, Windows via WSL2 and native Windows. Native-Windows standard-user diagnosis/repair and fresh-host launch remain pending real-host qualification for this change; see `docs/references/native-windows-support.md`.
 
 **Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release. Follow `.wavefoundry/framework/README.md` **Python runtime advisory and transition** when deliberately changing interpreters: select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated `WAVEFOUNDRY_TOOL_VENV`, and retain existing recovery ownership. The advisory never performs that transition automatically.
 
-**Python requirement:** Python 3.11 or later must be resolvable as `python3` on your PATH — Wavefoundry does not modify your Python installation or PATH. Before proceeding, `python3 --version` must work from the command line and report Python 3.11 or newer. If `python3` is missing or reports an older version, stop and fix Python/PATH first (for example, install via Scoop/Microsoft Store on Windows, use your package manager on macOS/Linux, or add a `python3` shim/symlink to a Python 3.11+ interpreter). `wf setup` creates a shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV` to override), installs all framework dependencies into it, verifies the same `python3` prerequisite, and runs the index setup flow. No system-level or project-level Python environment is modified.
+**Python requirement:** Python 3.11 or later must be resolvable as `python3` on PATH for a directly spawned agent host. Wavefoundry does not modify Python or PATH. On native Windows, run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root before setup, including an already-seeded checkout newly opened on this machine. The script needs neither Python nor MCP and reports the failed stage, observed command/path/version/error or timeout, and next action. If policy blocks it, use the manual probes and IT handoff in `docs/references/native-windows-support.md`; do not bypass policy. A working `python.exe` is diagnostic evidence, not an MCP alternative. Prefer an approved existing `python3` entry or permitted user PATH repair; do not assume elevation, Store access, Developer Mode or that an installer creates `python3`. A shell alias or cmd shim does not establish raw-spawn host readiness. A successful `python3 --version` at the supported version permits initial setup. `wf setup` creates the shared tool environment at `~/.wavefoundry/venv` (or `$WAVEFOUNDRY_TOOL_VENV`), installs dependencies, then verifies `server.py --dry-run` before index setup. After setup, restart the agent host and verify MCP initialization. For an existing checkout with a provisioned environment, verify `python3 .wavefoundry/framework/scripts/server.py --dry-run` after the interpreter repair; if the environment is missing, follow setup-readiness guidance. Do not reseed or rebuild solely to diagnose a local interpreter gap.
 
 **Versioning:** Wavefoundry uses `MAJOR.MINOR.PATCH` semver internally. Distribution zips use `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` and land in `~/.wavefoundry/dist/` after packaging.
 
