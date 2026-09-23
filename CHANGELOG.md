@@ -8,10 +8,6 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- **Guidance for older upgrade readers after device-number drift.** Diagnose the installed-reader failure before attempting a reviewed, operator-approved repair; preserve recovery records and stop on uncertain identity or pending recovery. No automatic repair is added. Wave `1ysyo`.
-
 ## [1.26.0]
 
 ### Added
@@ -25,6 +21,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A pinned public tool surface.** Every registered MCP tool's name, roster tier, input schema and annotations are checked against a committed golden fixture by the ordinary test suite, so an unintended change to the tool surface fails a test instead of reaching a host. Wave `1y0do`.
 
 ### Changed
+
+- **Guidance for older upgrade readers after device-number drift.** Diagnose the installed-reader failure before attempting a reviewed, operator-approved repair; preserve recovery records and stop on uncertain identity or pending recovery. No automatic repair is added. Wave `1ysyo`.
 
 - **Prefer clearing inherited agent model pins during upgrade.** Upgrade guidance recommends removing verified framework defaults while retaining deliberate operator choices and asking about unclear provenance. The renderer continues to preserve existing headers. Wave `1ysym`.
 
