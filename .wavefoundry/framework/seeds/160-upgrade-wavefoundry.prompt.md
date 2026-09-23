@@ -149,6 +149,54 @@ Schema/runtime, source identity, disk-space or integrity refusals require the
 reported correction before standard upgrade can continue. Never treat a copied
 file or successful extraction as completed publication.
 
+**Older reader refuses a receipt after device-number drift.**
+
+An affected older installation (including the 1.25.0 release) may report
+`storage_receipt_identity_mismatch` after a reboot or remount changes the
+filesystem device number. Its installed upgrade runner reads the migration
+receipt before loading incoming package hooks, so the package containing the
+fix may not get a chance to run. The 1.26 reader compares paths and available
+inodes; it retains recorded device numbers as historical evidence. Matching
+path and inode cannot distinguish a replacement volume that reuses the inode.
+
+This error alone does **not** establish harmless device drift. Use the following
+operator-assisted procedure; there is no automatic repair or special recovery
+flag:
+
+1. Preserve `sqlite-migration.json`, the upgrade checkpoint, index databases
+   and named staging/rollback artifacts. Record the exact error, installed
+   version and failing reader's source/hash, selected archive version/hash,
+   and recorded versus live resolved paths, device numbers and available
+   inodes. Inspect files read-only when the old MCP reader cannot start.
+2. Verify that the installed reader actually rejects the device-only
+   difference and that the intended incoming reader accepts the existing
+   record under its normal contract. A changed path/inode, malformed identity,
+   missing inode evidence, uncertain ownership, incomplete migration, or
+   retained upgrade/setup checkpoint stops this procedure: preserve state and
+   follow the existing continuation or seek maintainer assistance. Do not
+   treat a matching version label as proof of the loaded code.
+3. For a confirmed older-reader defect, obtain a reviewed repair qualified
+   for the exact installed source and selected target. Before any installed-code
+   mutation, present its precise files/diff, backups and recovery steps for
+   scoped operator approval, then stop the repository's dashboard and all
+   attached MCP/agent hosts. Apply only that approved repair. Prior success
+   copying two modules is not a universal recipe: do not copy arbitrary
+   incoming modules into an older framework. If no verified repair is available,
+   stop and provide the collected evidence for maintainer help.
+4. Retain the exact selected archive and retry the original ordinary upgrade
+   CLI command in a fresh process. Follow its normal host, lock, docs, memory,
+   index and cleanup gates; fully restart attached hosts when instructed.
+   A successful file copy, version label or reload alone does not prove the
+   upgrade or startup-code replacement is complete.
+
+Never edit stored device values, delete or restamp recovery records, clear a
+checkpoint, substitute a different package, or rebuild the index to force this
+check to pass. Do not restore a historical receipt backup over later recovery
+state. If the installed upgrade prompt lacks this guidance, inspect the selected
+package's `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md`
+directly without applying it; reconcile the authored local guidance during the
+upgrade editing pass. Rendering alone does not add this section.
+
 Known shipped shared-store schemas 4, 5 and 6 convert only on the unpublished
 staging copy; existing auxiliary rows remain intact while missing tables are
 added. Unknown formats remain refused. The legacy migration warning floor is
@@ -403,7 +451,7 @@ The migrations:
  - `AGENTS.md`, `docs/contributing/build-and-verification.md`, implementation prompts, and canonical implementer guidance so the docs-feedback cadence matches seeds `050` / `080` / `090` / `100`: automatic incremental changed-set lint during routine edits; full docs validation at explicit handoff/validation and lifecycle, install, or upgrade boundaries; explicit gardener paths for untracked docs that need stamping
  - `AGENTS.md`, `docs/prompts/index.md`, and `docs/prompts/prompt-surface-manifest.json` so **`Review memories`** is discoverable after upgrade (retain **`Memory review`** only as a human-readable alias; keep only the canonical phrase in the manifest). Merge the exact entry into each surface without replacing repo-grown additions.
  - **Backstage/TechDocs baseline (wave 1vj4e).** The upgrade does **not** generate `catalog-info.yaml`, `mkdocs.yml`, or `docs/index.md` and never rewrites them: nothing about them runs in the pipeline, in `wf render-surfaces`, or in setup. Point operators at **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`; alias **Author TechDocs**; the doc-gated `wf-techdocs` skill), which runs the baseline (`wf_techdocs_baseline` over MCP, the CLI dispatcher `./.wavefoundry/bin/wf techdocs-baseline` as the fallback) missing-only and is safe to rerun: existing files are preserved byte-for-byte, each generated file carries a one-line generated-by stamp (not a review-protocol marker; nothing to repair or re-render), the command runs only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist, and when the trio is mixed (some files generated, some project-owned) it prints one `techdocs-baseline: WARNING` naming the project-owned files (the `--json` envelope carries the same `partial` record) without claiming the mixed result is a validated site. Make **Refresh TechDocs** discoverable in `AGENTS.md`, `docs/prompts/index.md`, and the manifest like **Review memories** above. On the upgrade that first ships seed `178`, backfill `docs/prompts/refresh-techdocs.prompt.md` per `seed-100` and then run `wf render-surfaces` **again**, because the render passes at steps 2 and 4 of the agent procedure below ran before that prompt existed and the doc-gated `wf-techdocs` skill renders only once it does. After an upgrade, `wf_techdocs_audit` (CLI dispatcher `./.wavefoundry/bin/wf techdocs-audit`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-audit`) is the safe read-only check: it reports the publication boundary, the nav targets, links that escape that boundary and the audience invariant, and writes nothing. A new MCP tool appears to a host only after a reconnect, so use the CLI until then (wave 1vqqi).
- - **Storage recovery guidance in existing upgrade prompts (seed 160).** On every upgrade, including same-version retries, compare the existing `docs/prompts/upgrade-wavefoundry.prompt.md` with freshly extracted `160-upgrade-wavefoundry.prompt.md` § Local semantic storage conversion, even when the pre-apply diff reports no seed change. Retain the read-only pre-apply seed diff as context, but check the destination itself for previously missed guidance. During the agent editing pass, reconcile during the same installing run: restart checkpoint and retained CLI continuation; `--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary; package identity and receipt prohibitions; publication/verification gate before cleanup; and the unified index database contract (one `index.sqlite`, the versioned receipt and its protocol floor, the source graph rebuild, inventory-gated cleanup and forward-only recovery). Preserve project-only additions, metadata and all renderer-owned marker regions; merge only missing or stale storage guidance outside those regions, and never replace the project-owned prompt as a whole. If no prior storage section exists, add a single section at an unambiguous location; already-current guidance remains unchanged. If the old clause or insertion location cannot be identified uniquely, or local wording conflicts with the new contract, stop and present the conflict to the operator rather than guessing or overwriting it. Re-run `wf render-surfaces` and the docs gate after the merge; rendering alone does not reconcile project-authored prose.
+ - **Storage recovery guidance in existing upgrade prompts (seed 160).** On every upgrade, including same-version retries, compare the existing `docs/prompts/upgrade-wavefoundry.prompt.md` with freshly extracted `160-upgrade-wavefoundry.prompt.md` § Local semantic storage conversion, even when the pre-apply diff reports no seed change. Retain the read-only pre-apply seed diff as context, but check the destination itself for previously missed guidance. During the agent editing pass, reconcile during the same installing run: restart checkpoint and retained CLI continuation; `--rebuild-storage` and its MCP-before-pause/CLI-after-pause boundary; package identity and receipt prohibitions; older-reader device-drift diagnosis and reviewed operator-assisted repair (including stop conditions and preservation); publication/verification gate before cleanup; and the unified index database contract (one `index.sqlite`, the versioned receipt and its protocol floor, the source graph rebuild, inventory-gated cleanup and forward-only recovery). Preserve project-only additions, metadata and all renderer-owned marker regions; merge only missing or stale storage guidance outside those regions, and never replace the project-owned prompt as a whole. If no prior storage section exists, add a single section at an unambiguous location; already-current guidance remains unchanged. If the old clause or insertion location cannot be identified uniquely, or local wording conflicts with the new contract, stop and present the conflict to the operator rather than guessing or overwriting it. Re-run `wf render-surfaces` and the docs gate after the merge; rendering alone does not reconcile project-authored prose.
  - **Install reliability guidance.** Merge the current seed-011 pre-Python diagnostic and seed-012/100 partial-install resume instructions into existing install/upgrade prompts and root `AGENTS.md`, preserving project-authored prose. For renderer-owned upgrade-policy regions, invoke `wf_sync_surfaces(mode='run')` when MCP is available, or `wf render-surfaces` from CLI, after required sources exist; empty markers are not completion. Do not hand-copy the renderer's block, alter permission allowlists through sync, or treat a failed docs gate as a completed install. The source repository alone opts into `docs_lint.framework_internal_constants`; never seed that key into consumers or make project posture docs copy framework model/chunker facts.
  - **Changed Refresh TechDocs instructions (seed 178).** Keep the read-only pre-apply seed diff through the installing run. If it reports `178-refresh-techdocs.prompt.md` changed, merge the changed canonical clauses into the existing `docs/prompts/refresh-techdocs.prompt.md` during the same installing run, after extraction makes the new seed available. Preserve project-only additions and metadata; never replace the project-owned prompt as a whole. If the prior canonical clause cannot be identified uniquely, or local wording conflicts with the new invariant, stop and present the conflict to the operator instead of guessing or overwriting it. After the merge, run `wf render-surfaces` again so doc-gated skills and other generated agent surfaces see the reconciled prompt.
  - **Changed briefing-loop carriers.** Retain the read-only pre-apply change evidence for the seeds and install baseline through the installing run. After extraction, reconcile each changed source into its destination during the same installing run:

@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Guidance for older upgrade readers after device-number drift.** Diagnose the installed-reader failure before attempting a reviewed, operator-approved repair; preserve recovery records and stop on uncertain identity or pending recovery. No automatic repair is added. Wave `1ysyo`.
+
 ## [1.26.0]
 
 ### Added
