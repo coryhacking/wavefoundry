@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-20
+Last verified: 2026-09-24
 
 ## Context
 
@@ -48,3 +48,12 @@ The registry and a generic chain applier live in a flat sibling module, `mcp_too
 ## First handler exemplar (wave 1y0h2)
 
 Code navigation and graph response computation move into flat reloadable siblings while decorated closures remain in `server_impl.py`. The registry remains observational and reports those closure source modules unchanged. The response modules import the composition root only inside functions to resolve retained dependencies at invocation time; the root rebinds public response names for existing callers. Independent import-derived reload tests cover the siblings in addition to runtime registry parity.
+
+## Distribution extension tools (wave 1yv9l)
+
+A downstream distribution adds or explicitly overrides tools on the one server through a stdlib-only flat sibling, `mcp_tool_extensions.py`, whose declarations it edits at merge time; the contract is in `docs/specs/mcp-tool-surface.md` (**Distribution Extension Tools**). This section records how that hook relates to the constraints above.
+
+- **Import-rule exception.** Purge-list siblings are imported by public name at module top. `mcp_tool_extensions` follows that rule and is on the purge list. The modules it declares are the exception: `server_impl` executes each one during registration, under its declared public name, from the exact bytes it hashes, and re-executes it on every reload. They are not imported at module top because the server does not know them until the declaration is read.
+- **First sibling import dependency.** `mcp_tool_roster` imports `mcp_tool_extensions` so the renderer and upgrade validate and include declared tiers without starting the server. This is the first import dependency between flat siblings, one of this ADR's revisit triggers. It is a one-way, stdlib-only data dependency and does not by itself justify a package.
+- **Package question.** Declined for this hook. Extension modules sit beside the other flat modules and count toward the 15 to 20 module revisit trigger, which stays in force. `_load_script` resolves siblings by flat filename and the upgrade path reads framework scripts by flat path from the archive, so a package would rewrite both for an organizational gain.
+- **Aliases and namespace transforms.** Still declined, for a new reason: a fork is now a consumer, but declared overrides keep canonical names, so prompts, seeds, allowlists and server guidance keep working without an alias surface. Tool names are also embedded in many server responses (`next_tools`, recovery guidance), which a rename would leave pointing at names that no longer exist.

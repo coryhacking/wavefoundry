@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Distribution extension tools on the one MCP server.** A downstream distribution declares its own tool modules in `mcp_tool_extensions.py` to add tools, or explicitly override existing tools under their original names, without editing core registration. Declared modules are staged and validated before anything is served, receive the same permission tiers and wrappers as core tools, reload with `wf_reload_mcp`, and appear with content hashes in `wf_server_info`; any invalid declaration refuses to serve rather than serving a partial surface. The shipped declaration is empty. Wave `1yv9l`.
+
 ## [1.26.0] - 2026-09-23
 
 ### Added

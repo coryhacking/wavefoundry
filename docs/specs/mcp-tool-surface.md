@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-24
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -65,19 +65,114 @@ This check does not validate model execution, full index integrity or query qual
 
 ## Naming Contract
 
-Tool names use prefixes by surface:
+Tool names use prefixes by surface. The source of the rule is the `MCP_TOOL_PREFIXES` constant in
+`server_impl.py` (defined as `CORE_TOOL_PREFIXES` in `mcp_tool_extensions.py`); registration refuses
+any first-party tool whose name starts with none of them.
 
-
-| Prefix  | Surface                                                           | Examples                        |
-| ------- | ----------------------------------------------------------------- | ------------------------------- |
-| `wave_` | Wave lifecycle, change planning, validation, framework operations | `wf_current_wave`, `wf_validate_docs` |
-| `docs_` | Semantic document search and document-oriented retrieval          | `docs_search`                   |
-| `code_` | Code search and future code navigation                            | `code_search`                   |
-| `seed_` | Canonical framework seed retrieval                                | `seed_get`                      |
-
+| Prefix    | Surface                                                           | Examples                              |
+| --------- | ----------------------------------------------------------------- | ------------------------------------- |
+| `wf_`     | Wave lifecycle, change planning, validation, framework operations | `wf_current_wave`, `wf_validate_docs` |
+| `memory_` | Agent memory records and memory lifecycle                         | `memory_search`, `memory_add`         |
+| `index_`  | Index health, build status and builds                             | `index_health`, `index_build`         |
+| `docs_`   | Semantic document search and document-oriented retrieval          | `docs_search`                         |
+| `code_`   | Code search and code navigation                                   | `code_search`, `code_read`            |
+| `seed_`   | Canonical framework seed retrieval                                | `seed_get`                            |
 
 New first-party tools must use one of these prefixes unless the change document
-records an explicit rationale and factor-13 review accepts it.
+records an explicit rationale and factor-13 review accepts it. Distribution extension tools use
+their own declared prefixes (next section).
+
+## Distribution Extension Tools
+
+A downstream distribution that ships its own framework pack can add tools to, or explicitly
+override tools on, the one Wavefoundry MCP server (wave `1yv9l`). Operators then approve a single
+server entry point. The distribution edits one stdlib-only module, `mcp_tool_extensions.py`, at
+merge time; the shipped declarations are empty and change nothing.
+
+| Declaration | Meaning |
+| --- | --- |
+| `EXTENSION_MODULES` | Flat module names, in registration order. Each is a single `.py` file directly in the framework scripts directory that defines `register(mcp, get_handler)`. |
+| `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A prefix is invalid when it and any `MCP_TOOL_PREFIXES` entry are equal or either begins with the other. |
+| `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
+| `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
+
+**Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
+and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
+functions, because the `MIDDLEWARE` wrappers are synchronous. Extensions register tools only; the
+staging surface does not serve resources or prompts. `get_handler()` returns the
+server's handler object for the attached repository (its `.root` is the repository root). An
+extension may import `server_impl` by module name and use its helpers; underscore-prefixed
+helpers such as `server_impl._ensure_no_extra_args` are reachable but are not a stable public API.
+Only after every module has staged and every check passes are the tools installed into the served
+table. Installation happens before the prefix contract, argument-model normalization and the
+`MIDDLEWARE` chain, so extension tools receive the same wrappers as core tools. Nothing is
+discovered: a module that is not declared is never loaded.
+
+**Overrides.** A module may replace a core tool only when `EXTENSION_OVERRIDES` names it for that
+module. The replacement is served under the core name, so prompts, seeds, allowlists and server
+guidance that name the tool reach it, and it keeps the core tool's permission tier and exactly the
+wrappers the core tool had (cost recording, the lifecycle mutation lock for lifecycle tools, the
+upgrade publication guard for registered publishers). Runner tools (`mcp_tool_roster.RUNNER_TOOLS`,
+currently `wf_reload_mcp`) can never be overridden. An override must be structurally
+call-compatible on its normalized published schema: its handler accepts `**kwargs` (so the schema
+rejects undeclared arguments), it accepts every parameter of the tool it replaces with the same
+value schema (type, format, enum, items and nested definitions; titles, descriptions, defaults and
+examples may differ), and it requires no parameter the replaced tool left optional. An override may
+add optional parameters; an added required parameter is refused. Value schemas must match exactly,
+so widening a type (for example `str` to `str | None`) is refused too. Returning the typed `unknown_arguments` diagnostic
+for undeclared arguments is the extension's obligation: pass `kwargs` to
+`server_impl._ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
+`None`. Replacing the MCP tool does not change the server's internal callers of core response
+functions.
+
+**New tools.** Every new tool name starts with a declared extension prefix, matches no core
+prefix, and has a declared tier. Tiers join `mcp_tool_roster.tools_for_tiers` / `allow_rules`, so
+the rendered host allowlist and upgrade allowlist reconciliation cover them. New tools are costed
+like first-party tools, and write-tier tools fail fast with `upgrade_in_progress` while Upgrade
+owns project state.
+
+**Failure.** Registration refuses, naming the module and cause, when:
+
+- the declaration is invalid: a module name that is not a flat identifier or is declared twice, a
+  reserved framework or standard-library module name, an overlapping prefix, a tier other than
+  `read`/`write`, a tier declared for an existing tool, an override target, a core-prefixed name or
+  a name without a declared extension prefix, overrides for an undeclared module, an override of a runner tool or of a tool
+  core does not register, or the same override declared twice or by two modules;
+- a declared module is a module the server already imported by that public name before
+  registration, has no `.py` source whose resolved parent is the resolved scripts directory, lacks
+  `register`, or raises during it. A framework script added in a later release under the same file
+  name replaces the extension file on upgrade, so give extension modules distribution-specific
+  names;
+- a module registers an existing tool it did not declare as an override, a name another module
+  already staged, a new tool without a declared prefix or tier, or does not register a declared
+  override;
+- a module places a tool on the staging surface without `FastMCP.add_tool` (for example through
+  `_tool_manager`), replaces or removes a tool another module staged, removes a tool it registered,
+  changes the served tool table directly (for example through `server_impl._MCP_INSTANCE`), or
+  registers a resource or prompt;
+- a staged handler is asynchronous;
+- a declared tier has no registered tool, or an override breaks call-compatibility.
+
+Any failure between core registration and the completed `MIDDLEWARE` chain, including the core
+prefix contract, leaves only the runner tools served, and no tool at all when the roster cannot
+load (which also removes `wf_reload_mcp`, so recovery needs a restart). The server refuses to
+start, and `wf_reload_mcp` reports `register_surface_failed`. An invalid tier declaration also makes `mcp_tool_roster.allow_rules`
+raise, which stops the allowlist renderer and upgrade allowlist reconciliation.
+
+**Reload.** `mcp_tool_extensions` is purged and re-imported on `wf_reload_mcp`, and each declared
+module is re-executed, so edited declarations and extension modules are served after reload.
+Undeclared helper modules an extension imports are not purged.
+
+**Provenance.** `wf_server_info` reports an `extensions` object: `declaration` (repository-relative
+path, SHA-256, declared prefixes and tiers) and `modules` (for each loaded module its path, the
+SHA-256 of the exact bytes executed, its new tools with tiers, and the core tools it overrides).
+With no declarations, `modules` is empty.
+
+**Trust boundary.** Extension modules are distribution code and run with the server's authority.
+Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper
+names in place (the `MIDDLEWARE` entries bind late), or that mutates the server after registration,
+is outside what staging detects, and new extension tools
+must not write wave lifecycle records directly. Imports made by an extension module are not hashed.
 
 ## Core Verbs
 
@@ -1103,7 +1198,8 @@ All tools: on apply/create, request a background docs-index refresh for the new 
 `wf_server_info()`
 
 - Returns the server's identity for the attached repository: `repo_root`, `repo_name`,
-  `project_slug`, plus the version block: `framework_version` (the `VERSION` file on disk at the
+  `project_slug`, `extensions` (distribution extension provenance; see **Distribution Extension
+  Tools**), plus the version block: `framework_version` (the `VERSION` file on disk at the
   root), `server_impl_version` (the implementation version loaded in memory),
   `impl_matches_disk`, and the runner identity fields below.
 - **Runner staleness (wave 1u2b0):** `server_runner_version` carries the capture-at-launch

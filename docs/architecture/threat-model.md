@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-24
 
 ## Trust Boundaries
 
@@ -13,6 +13,7 @@ Last verified: 2026-09-11
 | MCP client connection (future) | Localhost only; no authentication required for MVP | Loopback-only binding expected |
 | Dashboard browser connection | Loopback only; no authentication by default | `dashboard_server.py` must bind only to configured local host (default `127.0.0.1`) |
 | Distribution zip archives | Trusted (produced by Wavefoundry scripts) | Operators verify before unpacking into target repos |
+| Declared extension tool modules (`mcp_tool_extensions`, wave `1yv9l`) | Trusted as distribution code | Loaded only when declared, only as flat `.py` files directly in the framework scripts directory, never from a target repository; run with the server's authority. Anything able to write the scripts directory already holds that authority. `wf_server_info` reports the declaration and each module's executed-bytes SHA-256. |
 
 ## Threat Actors and Trust Classification
 

@@ -35,10 +35,17 @@ tool. They are additionally listed in ``RUNNER_TOOLS`` so the
 ``register_mcp_surface`` parity check can exclude them from the
 implementation-side comparison.
 
+Declared extension tools (wave 1yv9l, ``mcp_tool_extensions``) join the
+rule-producing functions through ``all_tool_tiers``; ``TOOL_TIERS`` stays
+core-only. An invalid extension declaration raises before any rule is
+produced, so the renderer and upgrade reconciliation fail closed with it.
+
 This module must stay stdlib-only and import-light: the renderer runs in
 hosts without the MCP runtime installed.
 """
 from __future__ import annotations
+
+import mcp_tool_extensions
 
 TIER_READ = "read"
 TIER_WRITE = "write"
@@ -158,10 +165,27 @@ TOOL_TIERS: dict[str, str] = {
 }
 
 
+def all_tool_tiers() -> dict[str, str]:
+    """Core tiers plus validated declared extension tiers.
+
+    Raises ``mcp_tool_extensions.ExtensionDeclarationError`` when the
+    declaration is invalid, so no caller derives rules from it.
+    """
+    tiers = dict(TOOL_TIERS)
+    if not mcp_tool_extensions.declared():
+        return tiers
+    mcp_tool_extensions.validate_declaration(
+        core_tools=set(TOOL_TIERS) - RUNNER_TOOLS,
+        runner_tools=RUNNER_TOOLS,
+    )
+    tiers.update(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
+    return tiers
+
+
 def tools_for_tiers(include_write: bool = False) -> tuple[str, ...]:
     """Sorted tool names for the selected tiers (read always; write opt-in)."""
     tiers = {TIER_READ} | ({TIER_WRITE} if include_write else set())
-    return tuple(sorted(name for name, tier in TOOL_TIERS.items() if tier in tiers))
+    return tuple(sorted(name for name, tier in all_tool_tiers().items() if tier in tiers))
 
 
 def allow_rules(include_write: bool = False) -> tuple[str, ...]:

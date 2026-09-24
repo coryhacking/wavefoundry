@@ -105,6 +105,10 @@ def build_registry(mcp: Any, roster: Any) -> ToolRegistry:
     """
     registry = ToolRegistry()
     tier_table = getattr(roster, "TOOL_TIERS", None) if roster is not None else None
+    all_tiers = getattr(roster, "all_tool_tiers", None) if roster is not None else None
+    if isinstance(tier_table, Mapping) and callable(all_tiers):
+        # Declared extension tools are rostered too (wave 1yv9l).
+        tier_table = all_tiers()
     if not isinstance(tier_table, Mapping):
         return registry
     tiers = dict(tier_table)

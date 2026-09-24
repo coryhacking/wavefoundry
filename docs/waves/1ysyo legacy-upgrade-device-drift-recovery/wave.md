@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: implementing
-Last verified: 2026-09-22
+Status: closed
+Last verified: 2026-09-24
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -25,10 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: qa-reviewer, docs-contract-reviewer
 - Required review lanes: qa-reviewer, docs-contract-reviewer
 
+Completed At: 2026-09-23
+
 ## Wave Summary
 
-Guidance-only follow-up for an older reader rejecting a receipt before the incoming fix can run. Seed 160 and its local carrier gain diagnosis, preservation and reviewed repair instructions.
+Wave `1ysyo` (Legacy Upgrade Device Drift Recovery) delivered one change: Guide recovery from an older upgrade reader after device drift. Notable adjustments during implementation: Guide recovery from an older upgrade reader after device drift: Operator narrowed the follow-up to guidance because few users are affected. Removed all proposed package mode, staging, transaction-entry and runtime changes before readiness or source edits.; Guide recovery from an older upgrade reader after device drift: Readback: add diagnosis and reviewed operator-assisted repair guidance only (AC-1–3). Before: mismatch may prompt receipt edits; after: collect identity/source evidence, stop uncertain cases, obtain exact reviewed repair and scoped approval. Only seed 160, local upgrade prompt and changelog change.
 
+**Changes delivered:**
+
+- **Guide recovery from an older upgrade reader after device drift** (`1ysyn-bug legacy-upgrade-device-drift-recovery`) — 3 ACs completed. Key decisions: Ship diagnosis and reviewed operator-assisted repair guidance only
 ## Watchpoints
 
 - No automated recovery, runtime patch, index rebuild or recovery-record edit.
@@ -53,7 +58,7 @@ Guidance-only follow-up for an older reader rejecting a receipt before the incom
 | wave-council-readiness | approved | current executed approval by coryhacking follows every affected repair | none |
 | qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -72,10 +77,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 34 | 178,879 |
 | implement | 35 | 243,749 |
-| review | 26 | 69,003 |
-| **Total** | **95** | **491,631** |
+| review | 29 | 76,550 |
+| **Total** | **98** | **499,178** |
 
-<!-- wave:context-efficiency-state {"generation":74,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":35,"content_source_credit":264352,"derived_artifact_credit":0,"direct_net":243749,"estimated_tokens_saved":243749,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1086,"response_debit":21293,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1776},"plan":{"calls":34,"content_source_credit":231182,"derived_artifact_credit":1991,"direct_net":178879,"estimated_tokens_saved":178879,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2666,"response_debit":58139,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6511},"review":{"calls":26,"content_source_credit":111035,"derived_artifact_credit":1081,"direct_net":69003,"estimated_tokens_saved":69003,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":6039,"response_debit":37074,"source_credit_count":15,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":95,"content_source_credit":606569,"derived_artifact_credit":3072,"direct_net":491631,"estimated_tokens_saved":491631,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9791,"response_debit":116506,"source_credit_count":54,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":8287},"wave_id":"1ysyo legacy-upgrade-device-drift-recovery"} -->
+<!-- wave:context-efficiency-state {"generation":77,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":35,"content_source_credit":264352,"derived_artifact_credit":0,"direct_net":243749,"estimated_tokens_saved":243749,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1086,"response_debit":21293,"source_credit_count":10,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1776},"plan":{"calls":34,"content_source_credit":231182,"derived_artifact_credit":1991,"direct_net":178879,"estimated_tokens_saved":178879,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2666,"response_debit":58139,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6511},"review":{"calls":29,"content_source_credit":119775,"derived_artifact_credit":1308,"direct_net":76550,"estimated_tokens_saved":76550,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":6354,"response_debit":40495,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2316}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":98,"content_source_credit":615309,"derived_artifact_credit":3299,"direct_net":499178,"estimated_tokens_saved":499178,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10106,"response_debit":119927,"source_credit_count":56,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10603},"wave_id":"1ysyo legacy-upgrade-device-drift-recovery"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

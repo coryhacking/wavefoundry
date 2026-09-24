@@ -1,0 +1,35 @@
+# Repaired defect DEL-CALL-PATH-TESTS
+
+Owner: Engineering
+Status: superseded
+Last verified: 2026-09-24
+
+Memory ID: `1ytib-mem repaired-defect-del-call-path-tests`
+Kind: `failed_attempt`
+Confidence: 0.6
+Created: 2026-09-24
+Updated: 2026-09-24
+Source exploration cost: 135009
+Source event: `finding:1yv9l:DEL-CALL-PATH-TESTS`
+Validation: rewrite
+Validated by: agent
+Action delta: Prove MCP tool wrapper behavior (lifecycle lock, upgrade guard, argument validation) through FastMCP call_tool with a probe inside the wrapped resource, never only by calling tool.fn or checking __wf_middleware__ markers; refuse async handlers wherever sync MIDDLEWARE wrappers apply.
+Validation rationale: Wave 1yv9l delivery: tests called table[name].fn and asserted wrapper markers, so an async extension override passed while running outside the lifecycle lock (FastMCP awaits the sync wrapper's return value, so the with-block exits before the coroutine runs). Red-team, code and security lanes reproduced it through build_server plus call_tool; the repair refused async staged tools and moved assertions onto call_tool with a lock probe; QA mutant Q7 confirmed the new assertion discriminates. The drafted target path was incomplete and the summary generic.
+Evidence verified: true
+Current target verified: true
+Canonical overlap: none
+Superseded by: `1yuj1-mem test-mcp-tool-wrappers-through-call-tool-async-handlers-esca`
+
+## Summary
+
+Real defect fixed in wave 1yv9l: Repair verified closed by the QA lane.
+
+## Evidence
+
+- `DEL-CALL-PATH-TESTS`
+- `ev-del-call-path-tests-3`
+- `1yv9l`
+
+## Targets
+
+- `tests/test_extension_tool_modules.py`

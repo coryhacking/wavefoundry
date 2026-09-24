@@ -9,6 +9,7 @@ import contextvars
 import datetime
 import functools
 import importlib.util
+import inspect
 import json
 import math
 import os
@@ -49,6 +50,7 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "mcp_tool_registry",
+            "mcp_tool_extensions",
             "graph_handlers",
             "codenav_handlers",
             "techdocs_handlers",
@@ -85,6 +87,7 @@ import lifecycle_gate_support
 import sensor_runner
 import lifecycle_gates
 import mcp_tool_registry  # tool registry and wrapper chain; stateless (wave 1y0h1)
+import mcp_tool_extensions  # distribution-declared tool extensions, stdlib-only (wave 1yv9l)
 from index_handlers import (
     _index_layer_readiness,
     _index_readiness_overview,
@@ -618,7 +621,12 @@ TRUSTED_FRAMEWORK = "trusted_framework"
 TRUSTED_PROJECT_METADATA = "trusted_project_metadata"
 UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
 VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
-MCP_TOOL_PREFIXES = ("wf_", "memory_", "index_", "docs_", "code_", "seed_")
+MCP_TOOL_PREFIXES = mcp_tool_extensions.CORE_TOOL_PREFIXES
+
+
+def _served_tool_prefixes() -> tuple[str, ...]:
+    """Core prefixes plus the declared extension prefixes (wave 1yv9l)."""
+    return MCP_TOOL_PREFIXES + tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
 # Wave 1tj0k: `wf_reopen_wave` cannot infer why a wave is being reopened, so the
 # caller states it. `purpose` is REQUIRED and has no fallback: a caller census
 # found no runtime caller and no persisted migration depending on an omitted
@@ -3863,8 +3871,9 @@ class McpRepoCache:
 def first_party_tool_names_violating_prefix(tool_names: Iterable[str]) -> list[str]:
     """Return tool names that do not start with an approved MCP surface prefix."""
     violations: list[str] = []
+    prefixes = _served_tool_prefixes()
     for name in sorted(tool_names):
-        if not any(name.startswith(prefix) for prefix in MCP_TOOL_PREFIXES):
+        if not any(name.startswith(prefix) for prefix in prefixes):
             violations.append(name)
     return violations
 
@@ -16357,8 +16366,32 @@ def build_handler(root: Path) -> ImplHandler:
     return ImplHandler(root)
 
 
+def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
+    """Loaded extension provenance with repository-relative paths (wave 1yv9l)."""
+    provenance = _EXTENSION_PROVENANCE or {
+        "declaration": _extension_declaration_provenance(),
+        "modules": [],
+    }
+
+    def _rel(path: str) -> str:
+        try:
+            return Path(path).resolve().relative_to(root.resolve()).as_posix()
+        except (ValueError, OSError):
+            return path
+
+    declaration = dict(provenance["declaration"])
+    declaration["path"] = _rel(declaration["path"])
+    modules = []
+    for entry in provenance["modules"]:
+        entry = dict(entry)
+        entry["path"] = _rel(entry["path"])
+        modules.append(entry)
+    return {"declaration": declaration, "modules": modules}
+
+
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     data = server_identity(root, server_runner_version=server_runner_version)
+    data["extensions"] = _extension_provenance_for_response(root)
     diagnostics: list[dict[str, Any]] = []
     if data.get("runner_stale") is True:
         diagnostics.append(
@@ -16671,6 +16704,14 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
     if not isinstance(registry, dict):
         return
     guarded = set(publication_control.registered_publication_tool_names())
+    # Wave 1yv9l: write-tier extension tools are not registered publishers, so
+    # the registry lookup returns no reason for them; they consult the
+    # publication checkpoint directly.
+    extension_writers = {
+        name for name, tier in mcp_tool_extensions.EXTENSION_TOOL_TIERS.items()
+        if tier == mcp_tool_extensions.TIER_WRITE
+    }
+    guarded |= extension_writers
     for name, tool in registry.items():
         if name not in guarded:
             continue
@@ -16682,9 +16723,14 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
             @functools.wraps(fn)
             def guarded_call(*args: Any, **kwargs: Any) -> Any:
                 root = get_handler().root
-                reason = publication_control.publication_block_reason(
-                    root, tool_name
-                )
+                if tool_name in extension_writers:
+                    reason = publication_control.publication_checkpoint_reason(
+                        root, tool_name
+                    )
+                else:
+                    reason = publication_control.publication_block_reason(
+                        root, tool_name
+                    )
                 if reason is not None:
                     return _response(
                         "error",
@@ -16770,7 +16816,7 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
         for name, tool in tools.items():
             if name in _COST_EXEMPT_TOOLS:
                 continue
-            if not any(name.startswith(prefix) for prefix in MCP_TOOL_PREFIXES):
+            if not any(name.startswith(prefix) for prefix in _served_tool_prefixes()):
                 continue
             original = getattr(tool, "fn", None)
             if original is None or getattr(original, "_wf_cost_wrapped", False):
@@ -16994,12 +17040,302 @@ def render_graph_communities_markdown(payload, index, gq) -> str:
     return "".join(lines)
 
 
+# --- Distribution-declared tool extensions (wave 1yv9l) ----------------------
+# A downstream distribution declares extension modules in
+# ``mcp_tool_extensions``. Each module registers against a staging surface that
+# records every attempt; only a fully valid declaration is installed into the
+# served table, ahead of the prefix contract, argument normalization and the
+# MIDDLEWARE chain, so extension tools get exactly the wrappers core tools get.
+
+
+class ExtensionLoadError(RuntimeError):
+    """A declared extension module cannot be served; nothing is installed."""
+
+
+_EXTENSION_PROVENANCE: Optional[dict[str, Any]] = None
+
+
+def _file_sha256(path: Path) -> Optional[str]:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _extension_declaration_provenance() -> dict[str, Any]:
+    declaration_path = Path(mcp_tool_extensions.__file__).resolve()
+    return {
+        "path": str(declaration_path),
+        "sha256": _file_sha256(declaration_path),
+        "prefixes": list(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES),
+        "tiers": dict(sorted(mcp_tool_extensions.EXTENSION_TOOL_TIERS.items())),
+    }
+
+
+def _extension_staging_surface() -> Any:
+    """A throwaway FastMCP whose ``add_tool`` records every attempted name.
+
+    ``FastMCP.tool()`` routes each decorator through ``add_tool``, so attempts
+    FastMCP would silently ignore (a duplicate name) are still recorded.
+    """
+    from mcp.server.fastmcp import FastMCP
+
+    class _RecordingSurface(FastMCP):
+        def __init__(self) -> None:
+            super().__init__("wavefoundry_extension_staging")
+            self.wf_attempts: list[str] = []
+
+        def add_tool(self, fn: Any, name: Optional[str] = None, *args: Any, **kwargs: Any) -> Any:
+            self.wf_attempts.append(name or getattr(fn, "__name__", repr(fn)))
+            return super().add_tool(fn, name, *args, **kwargs)
+
+    return _RecordingSurface()
+
+
+def _load_extension_module(module_name: str) -> tuple[Any, Path, str]:
+    """Import a declared module from the framework scripts directory only.
+
+    The source is located without executing it, refused unless it is a
+    ``.py`` file whose resolved parent is the resolved scripts directory, and
+    executed from the exact bytes that are hashed for provenance.
+    """
+    import importlib.machinery
+    import types
+
+    existing = sys.modules.get(module_name)
+    if existing is not None and not getattr(existing, "__wf_extension__", False):
+        raise ExtensionLoadError(
+            f"extension module {module_name!r} collides with a module the server already imported"
+        )
+    scripts_dir = SCRIPTS_DIR.resolve()
+    spec = importlib.machinery.PathFinder.find_spec(module_name, [str(scripts_dir)])
+    origin = getattr(spec, "origin", None) if spec is not None else None
+    if not origin or not str(origin).endswith(".py"):
+        raise ExtensionLoadError(
+            f"extension module {module_name!r} has no .py source directly in {scripts_dir}"
+        )
+    source_path = Path(origin).resolve()
+    if source_path.parent != scripts_dir or source_path.stem != module_name:
+        raise ExtensionLoadError(
+            f"extension module {module_name!r} resolves to {source_path}, outside {scripts_dir}"
+        )
+    try:
+        source = source_path.read_bytes()
+    except OSError as exc:
+        raise ExtensionLoadError(f"extension module {module_name!r} cannot be read: {exc}") from exc
+    module = types.ModuleType(module_name)
+    module.__file__ = str(source_path)
+    module.__spec__ = importlib.machinery.ModuleSpec(module_name, None, origin=str(source_path))
+    module.__wf_extension__ = True
+    sys.modules[module_name] = module
+    try:
+        exec(compile(source, str(source_path), "exec"), module.__dict__)
+    except BaseException as exc:
+        sys.modules.pop(module_name, None)
+        raise ExtensionLoadError(f"extension module {module_name!r} failed to import: {exc!r}") from exc
+    return module, source_path, hashlib.sha256(source).hexdigest()
+
+
+_SCHEMA_ANNOTATION_KEYS = frozenset({"title", "description", "default", "examples"})
+
+
+def _normalized_parameter_schema(schema: Any, root: Mapping[str, Any], depth: int = 0) -> Any:
+    """A parameter's value schema with annotations dropped and local refs resolved."""
+    if depth > 20:
+        return schema
+    if isinstance(schema, list):
+        return [_normalized_parameter_schema(item, root, depth + 1) for item in schema]
+    if not isinstance(schema, Mapping):
+        return schema
+    ref = schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        target = (root.get("$defs") or {}).get(ref[len("#/$defs/"):])
+        if target is not None:
+            return _normalized_parameter_schema(target, root, depth + 1)
+    return {
+        key: _normalized_parameter_schema(value, root, depth + 1)
+        for key, value in schema.items()
+        if key not in _SCHEMA_ANNOTATION_KEYS
+    }
+
+
+def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any) -> Optional[str]:
+    """Structural call-compatibility on normalized published schemas."""
+    core_schema = getattr(core_tool, "parameters", None) or {}
+    staged_schema = getattr(staged_tool, "parameters", None) or {}
+    if staged_schema.get("additionalProperties") is not False:
+        return (
+            f"override {name!r} does not reject undeclared arguments; its handler must "
+            "accept **kwargs and pass them to _ensure_no_extra_args"
+        )
+    missing = set(core_schema.get("properties", {})) - set(staged_schema.get("properties", {}))
+    if missing:
+        return f"override {name!r} drops parameters {sorted(missing)}"
+    newly_required = set(staged_schema.get("required", [])) - set(core_schema.get("required", []))
+    if newly_required:
+        return f"override {name!r} newly requires parameters {sorted(newly_required)}"
+    # Every replaced parameter must accept exactly the values the core tool
+    # accepts; a type change would break callers that follow the core schema.
+    core_props = core_schema.get("properties", {})
+    staged_props = staged_schema.get("properties", {})
+    changed = sorted(
+        param for param in core_props
+        if _normalized_parameter_schema(core_props[param], core_schema)
+        != _normalized_parameter_schema(staged_props.get(param), staged_schema)
+    )
+    if changed:
+        return f"override {name!r} changes the schema of parameters {changed}"
+    return None
+
+
+def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
+    """Stage, validate and install declared extension tools; return provenance.
+
+    Raises before touching the served table when anything is invalid.
+    """
+    provenance: dict[str, Any] = {
+        "declaration": _extension_declaration_provenance(),
+        "modules": [],
+    }
+    if not mcp_tool_extensions.declared():
+        return provenance
+    roster = _load_script("mcp_tool_roster")
+    runner = set(roster.RUNNER_TOOLS)
+    table = mcp._tool_manager._tools
+    core_names = set(table) - runner
+    mcp_tool_extensions.validate_declaration(core_tools=core_names, runner_tools=runner)
+    tiers = dict(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
+    prefixes = tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
+
+    staging = _extension_staging_surface()
+    staged_by: dict[str, str] = {}
+    problems: list[str] = []
+    for module_name in mcp_tool_extensions.EXTENSION_MODULES:
+        module, source_path, digest = _load_extension_module(module_name)
+        register = getattr(module, "register", None)
+        if not callable(register):
+            raise ExtensionLoadError(f"extension module {module_name!r} defines no register(mcp, get_handler)")
+        start = len(staging.wf_attempts)
+        served_before = dict(table)
+        staged_before = dict(staging._tool_manager._tools)
+        resources_before = (
+            len(staging._resource_manager._resources) + len(staging._resource_manager._templates)
+        )
+        prompts_before = len(staging._prompt_manager._prompts)
+        try:
+            register(staging, get_handler)
+        except Exception as exc:
+            raise ExtensionLoadError(f"extension module {module_name!r} raised during register: {exc!r}") from exc
+        attempts = staging.wf_attempts[start:]
+        # The staged table itself is authoritative: anything that reached it
+        # without passing FastMCP.add_tool, or that replaced or removed an
+        # entry another module staged, is refused rather than installed.
+        staged_after = staging._tool_manager._tools
+        unrecorded = sorted(set(staged_after) - set(staged_before) - set(attempts))
+        if unrecorded:
+            problems.append(f"{module_name!r} registers {unrecorded} outside FastMCP.add_tool")
+        tampered = sorted(
+            name for name, tool in staged_before.items()
+            if staged_after.get(name) is not tool
+        )
+        if tampered:
+            problems.append(f"{module_name!r} replaces or removes tools staged by another module: {tampered}")
+        withdrawn = sorted(set(attempts) - set(staged_after))
+        if withdrawn:
+            problems.append(f"{module_name!r} removes tools it registered: {withdrawn}")
+        served_changed = sorted(
+            name for name in set(served_before) | set(table)
+            if served_before.get(name) is not table.get(name)
+        )
+        if served_changed:
+            problems.append(f"{module_name!r} changes the served tool table directly: {served_changed}")
+        if (
+            len(staging._resource_manager._resources) + len(staging._resource_manager._templates)
+            != resources_before
+        ):
+            problems.append(f"{module_name!r} registers MCP resources; extensions may register tools only")
+        if len(staging._prompt_manager._prompts) != prompts_before:
+            problems.append(f"{module_name!r} registers MCP prompts; extensions may register tools only")
+        declared_overrides = set(mcp_tool_extensions.EXTENSION_OVERRIDES.get(module_name, ()))
+        new_tools: list[str] = []
+        overrides: list[str] = []
+        for name in attempts:
+            if name in staged_by:
+                problems.append(f"{module_name!r} registers {name!r}, already staged by {staged_by[name]!r}")
+                continue
+            staged_by[name] = module_name
+            if name in core_names or name in runner:
+                if name not in declared_overrides:
+                    problems.append(f"{module_name!r} registers existing tool {name!r} without declaring an override")
+                else:
+                    overrides.append(name)
+                continue
+            if not any(name.startswith(prefix) for prefix in prefixes):
+                problems.append(f"{module_name!r} registers {name!r} without a declared extension prefix")
+            if name not in tiers:
+                problems.append(f"{module_name!r} registers {name!r} without a declared tier")
+            new_tools.append(name)
+        for name in sorted(declared_overrides - set(attempts)):
+            problems.append(f"{module_name!r} declares override {name!r} but does not register it")
+        provenance["modules"].append({
+            "module": module_name,
+            "path": str(source_path),
+            "sha256": digest,
+            "tools": [{"name": name, "tier": tiers.get(name)} for name in sorted(new_tools)],
+            "overrides": sorted(overrides),
+        })
+    for name in sorted(set(tiers) - set(staged_by)):
+        problems.append(f"declared tier for {name!r} has no registered tool")
+
+    staged_table = staging._tool_manager._tools
+    for name, tool in sorted(staged_table.items()):
+        # The MIDDLEWARE wrappers are synchronous; an async handler would run
+        # after the lock and guard have already returned.
+        if getattr(tool, "is_async", False) or inspect.iscoroutinefunction(getattr(tool, "fn", None)):
+            problems.append(
+                f"{staged_by.get(name, 'an extension module')!r} registers async handler {name!r}; "
+                "extension handlers must be synchronous"
+            )
+    _normalize_first_party_tool_argument_models(staging)
+    _normalize_first_party_tool_argument_models(mcp)
+    for entry in provenance["modules"]:
+        for name in entry["overrides"]:
+            if name not in staged_table or name not in table:
+                continue  # already refused above (withdrawn or served-table change)
+            problem = _override_compatibility_problem(name, table[name], staged_table[name])
+            if problem:
+                problems.append(problem)
+    if problems:
+        raise ExtensionLoadError("MCP tool extensions refused: " + "; ".join(problems))
+
+    for name, tool in staged_table.items():
+        if name in table:
+            mcp.remove_tool(name)
+        table[name] = tool
+    return provenance
+
+
+def _strip_to_runner_tools(mcp: Any) -> None:
+    """Fail closed: leave only runner tools served (all tools without a roster)."""
+    tm = getattr(mcp, "_tool_manager", None)
+    tools = getattr(tm, "_tools", None) if tm is not None else None
+    if not isinstance(tools, dict):
+        return
+    try:
+        keep = set(_load_script("mcp_tool_roster").RUNNER_TOOLS)
+    except Exception:
+        keep = set()
+    for name in list(tools):
+        if name not in keep:
+            tools.pop(name, None)
+
+
 def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     """Register tools and resources; resolve state via get_handler() for hot reload."""
     # Wave 1p2q3 (131hh): stash the FastMCP instance and register the post-rebuild
     # notification callback against graph_query so auto-rebuilds dispatch
     # `notifications/resources/updated` for the wavefoundry://graph/* URIs.
-    global _MCP_INSTANCE, _TOOL_REGISTRY
+    global _MCP_INSTANCE, _TOOL_REGISTRY, _EXTENSION_PROVENANCE
     _MCP_INSTANCE = mcp
     try:
         _load_graph_query().set_post_rebuild_callback(_dispatch_graph_resources_updated)
@@ -21254,19 +21590,29 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             lines.append("\n")
         return "".join(lines)
 
-    _normalize_first_party_tool_argument_models(mcp)
-    tool_names = _registered_mcp_tool_names(mcp)
-    violations = first_party_tool_names_violating_prefix(tool_names)
-    if violations:
-        raise RuntimeError(
-            "MCP tool name prefix contract violated for: " + ", ".join(violations)
-        )
-    # Inner-to-outer order matters: ordinary successful calls are costed under
-    # their lifecycle lock, while the upgrade checkpoint guard is outermost so
-    # it can fail fast without either waiting on Upgrade's lifecycle lock or
-    # writing CE telemetry into the protected transaction. MIDDLEWARE declares
-    # that order.
-    mcp_tool_registry.apply_middleware(mcp, get_handler, MIDDLEWARE)
+    # Wave 1yv9l: from here until the MIDDLEWARE chain completes, any failure
+    # leaves only runner tools served, so no core tool is ever served without
+    # its lock, guard or cost wrappers (startup refuses; reload reports
+    # register_surface_failed).
+    try:
+        _EXTENSION_PROVENANCE = _install_extension_tools(mcp, get_handler)
+        _normalize_first_party_tool_argument_models(mcp)
+        tool_names = _registered_mcp_tool_names(mcp)
+        violations = first_party_tool_names_violating_prefix(tool_names)
+        if violations:
+            raise RuntimeError(
+                "MCP tool name prefix contract violated for: " + ", ".join(violations)
+            )
+        # Inner-to-outer order matters: ordinary successful calls are costed under
+        # their lifecycle lock, while the upgrade checkpoint guard is outermost so
+        # it can fail fast without either waiting on Upgrade's lifecycle lock or
+        # writing CE telemetry into the protected transaction. MIDDLEWARE declares
+        # that order.
+        mcp_tool_registry.apply_middleware(mcp, get_handler, MIDDLEWARE)
+    except BaseException:
+        _EXTENSION_PROVENANCE = None
+        _strip_to_runner_tools(mcp)
+        raise
     # Wave 1y0h1: the registry is built after the chain, so each spec holds the
     # callable FastMCP serves. Runner-registered reload survivors (RUNNER_TOOLS,
     # e.g. wf_reload_mcp) are excluded on both sides, and a stub or partial

@@ -1,0 +1,13 @@
+7cd7c60c18e283bb2896fde56fc4bc04c97e4001  .wavefoundry/framework/scripts/mcp_tool_extensions.py
+90f03f1dd97f2e63cda468b932f20882f93147d6  .wavefoundry/framework/scripts/mcp_tool_roster.py
+58935e4323c0e7d9dfc3c4b44edde4097873e47c  .wavefoundry/framework/scripts/mcp_tool_registry.py
+a924bb43daa7d123d644d03b86fe4e12f806979c  .wavefoundry/framework/scripts/server_impl.py
+1524e6c3e505ca46a7c2c3c6e98fbcf3eb414c0b  .wavefoundry/framework/scripts/tests/test_extension_tool_modules.py
+57b6725226e81189c3012d530bdac4d73cd5264d  docs/specs/mcp-tool-surface.md
+f7a4cd826f12f4e67c58b799a7d175badd72cde0  docs/architecture/decisions/1ye5y-adr flat-sibling-tool-registry.md
+750d6944d68f2e104f5a32eabb1615b7a9ce3f33  docs/architecture/layering-rules.md
+d1e3077048a960a4cc8c16700ef7a3350534b2df  docs/architecture/current-state.md
+89d059d1bdf374b93b2e9687625d985d21354f61  docs/architecture/threat-model.md
+d5a0f96f01ba23cb7dd2d34a21bc2218624fbb12  docs/architecture/testing-architecture.md
+fbcd7888630643320bf89d97e488edc4d4addd14  docs/contributing/build-and-verification.md
+2922134023845f0edc17246c82491983bdac4515  CHANGELOG.md

@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-24
 
 ## Current Session
 
-**Active wave:** `1ysyo legacy-upgrade-device-drift-recovery` — guidance-only follow-up; prepared and independently reviewed before seed edits. Implementation complete; 9,550 tests pass and independent QA/docs delivery review approves. Closure and commit await operator instruction. No automatic recovery or target repair. See the wave review records.
+**Active wave:** *(none)*
 
 **Last closed wave:** `1ysym legacy-agent-pin-cleanup` — closed on operator instruction. Upgrade guidance prefers removing verified inherited defaults, names the pre-1.26 Guru sonnet baseline, preserves deliberate pins and asks about uncertain provenance.
 
