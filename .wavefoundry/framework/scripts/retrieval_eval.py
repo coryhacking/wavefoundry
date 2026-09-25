@@ -724,7 +724,10 @@ def load_fixture_corpus(path: Path, *, root: Path | None = None) -> dict[str, An
         relevance = _validate_relevance(raw.get("relevance"), fixture_id=fixture_id,
                                         abstention=abstention, applicable_tools=applicable)
         if root is not None:
-            missing = [r["path"] for r in relevance if not (root / r["path"]).is_file()]
+            # Wave 1yxyw: a moved module's flat file may be absent, so existence
+            # is checked on the implementing path; the corpus is not rewritten.
+            missing = [r["path"] for r in relevance
+                       if not (root / _implementing_path(root, r["path"])).is_file()]
             _require(not missing, "stale_corpus",
                      f"{fixture_id}: relevance paths do not exist in the current tree: {missing}")
         expected_type = raw.get("expected_question_type")
@@ -1512,18 +1515,26 @@ def implementing_relevance_paths(root: Path, corpus: Mapping[str, Any]) -> dict[
     when the package file exists; every other path resolves to itself and is
     omitted. The corpus, and so its digest, is never rewritten.
     """
-    scripts_dir = root / PRODUCTION_MODULE_PREFIX
     resolved: dict[str, str] = {}
     for fixture in corpus["fixtures"]:
         for target in fixture["relevance"]:
             path = target["path"]
-            if not path.startswith(PRODUCTION_MODULE_PREFIX):
-                continue
-            name = path[len(PRODUCTION_MODULE_PREFIX):]
-            implementing = _implementing_name(scripts_dir, name)
-            if implementing != name:
-                resolved[path] = PRODUCTION_MODULE_PREFIX + implementing
+            implementing = _implementing_path(root, path)
+            if implementing != path:
+                resolved[path] = implementing
     return resolved
+
+
+def _implementing_path(root: Path, path: str) -> str:
+    """Repository-relative implementing path for relevance path ``path``.
+
+    Only a moved module directly under the scripts root resolves elsewhere,
+    and only once the package exists; every other path is returned unchanged.
+    """
+    if not path.startswith(PRODUCTION_MODULE_PREFIX):
+        return path
+    name = path[len(PRODUCTION_MODULE_PREFIX):]
+    return PRODUCTION_MODULE_PREFIX + _implementing_name(root / PRODUCTION_MODULE_PREFIX, name)
 
 
 def _git_binding(root: Path | None, modules: Mapping[str, str],

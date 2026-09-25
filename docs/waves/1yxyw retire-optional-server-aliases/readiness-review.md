@@ -34,3 +34,21 @@ Strongest alternative: keep the twelve-entry refusal and purge while deleting th
 Every lane (code, QA, release, architecture, docs-contract) and both council seats (red-team fixed, architecture rotating) approve; all round-1 findings are resolved against the tree. Non-blocking notes are carried as implementation notes in the change doc Progress Log: explicit unlink of the retired files by the new pack's upgrade hook, the operator-visible remedy when the refusal fires, an unproven-prune upgrade case, and evidence citation for the reload probe.
 
 Strongest challenge (red-team): removal otherwise depends on the MANIFEST-diff prune; the refusal turns every prune gap into a server that will not start. Strongest alternative: have the new pack's upgrade hook unlink the ten files, adopted as implementation note 1.
+
+## Round 3 (receipt `review-policy-33cd8bbbf3a95cb325e4`)
+
+Scope: the operator's revision only. The MANIFEST-diff prune is the only deletion of the ten; a leftover is warned about, not refused.
+
+| Lane | Verdict | Blocking findings |
+| --- | --- | --- |
+| code-reviewer | approve | none (low: the hook must not raise; stderr only) |
+| qa-reviewer | approve | none (low: AC-3 negative case; AC-4 v1.25.0 wording and captured hook output) |
+| release-reviewer | approve | none (low: a leftover is permanent; optional `wf_server_info` surfacing) |
+| architecture-reviewer | block | ARCH-R3-1: the census allowlist omits the `post_pruning` hook's name list, so the red-first census would refuse `upgrade_extensions.py` |
+| docs-contract-reviewer | approve | none (low: ADR clauses, layering-rules alias row, changelog keeps the retained-alias refusal) |
+| red-team (fixed seat) | PASS | none (medium: an unmigrated extension binds to a stale leftover; stderr is invisible to agents) |
+| security-reviewer (rotating seat) | PASS | none (the refusal was a correctness guard, not a privilege boundary) |
+
+Strongest challenge (red-team): a warning does not stop an extension or fork that still imports a retired flat name, and stderr alone reaches nobody. Strongest alternative: keep warn-not-refuse and surface the leftover list in `wf_server_info` diagnostics; adopted in the repair.
+
+Repair reverified at receipt `review-policy-c00425fa6fc6a491f35d`: ARCH-R3-1 resolved (the hook's name list and its pin test are on the census allowlist, with a known-bad control), and every lane and both seats approve. The red-team's alternative (leftovers listed in `wf_server_info` diagnostics) is adopted. One wording note is carried in the Progress Log.

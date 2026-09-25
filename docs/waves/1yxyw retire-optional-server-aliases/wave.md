@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
+Status: implementing
 Last verified: 2026-09-25
 review-evidence-source: events.jsonl
 
@@ -74,12 +74,25 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 18 | 15,885 |
-| **Total** | **18** | **15,885** |
+| plan | 21 | 12,626 |
+| implement | 30 | 154,335 |
+| review | 12 | 114,479 |
+| **Total** | **63** | **281,440** |
 
-<!-- wave:context-efficiency-state {"generation":18,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":18,"content_source_credit":35980,"derived_artifact_credit":1859,"direct_net":15885,"estimated_tokens_saved":15885,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2841,"response_debit":22922,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":18,"content_source_credit":35980,"derived_artifact_credit":1859,"direct_net":15885,"estimated_tokens_saved":15885,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2841,"response_debit":22922,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809},"wave_id":"1yxyw retire-optional-server-aliases"} -->
+<!-- wave:context-efficiency-state {"generation":66,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":30,"content_source_credit":202723,"derived_artifact_credit":1583,"direct_net":154335,"estimated_tokens_saved":154335,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3797,"response_debit":47348,"source_credit_count":20,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1174},"plan":{"calls":21,"content_source_credit":35980,"derived_artifact_credit":1859,"direct_net":12626,"estimated_tokens_saved":12626,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2868,"response_debit":28856,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6511},"review":{"calls":12,"content_source_credit":142445,"derived_artifact_credit":0,"direct_net":114479,"estimated_tokens_saved":114479,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":295,"response_debit":27671,"source_credit_count":5,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":63,"content_source_credit":381148,"derived_artifact_credit":3442,"direct_net":281440,"estimated_tokens_saved":281440,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":6960,"response_debit":103875,"source_credit_count":41,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7685},"wave_id":"1yxyw retire-optional-server-aliases"} -->
 <!-- wave:context-efficiency end -->
 
+## Estimated Exploration Avoided
+
 <!-- wave:exploration-avoided begin -->
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 4 | 0 | 4 | 2,252,748 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":4,"estimated_exploration_avoided":2252748,"surfaced_events":4} -->
 <!-- wave:exploration-avoided end -->

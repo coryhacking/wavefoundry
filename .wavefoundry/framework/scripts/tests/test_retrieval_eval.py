@@ -2792,6 +2792,63 @@ class ServerPackageLayoutTests(unittest.TestCase):
                           self.PREFIX + "codenav_handlers.py": package + "codenav_handlers.py"}, resolved)
         self.assertEqual(digest, subject._fixture_digest(corpus), "the corpus is never rewritten")
 
+    def _golden_tree(self, root: Path, *, flat_aliases: bool) -> tuple[Path, set[str], int]:
+        """Materialize the standing corpus's relevance paths under ``root``.
+
+        Moved modules exist only in the package; their flat files exist only
+        when ``flat_aliases`` is set. Returns the corpus path, the moved
+        relevance paths and the corpus's fixture count.
+        """
+        corpus_path = Path(__file__).resolve().parents[3].parent / "docs" / "evals" / "retrieval-quality-golden.json"
+        if not corpus_path.is_file():  # packaged distributions ship no corpus
+            self.skipTest("standing corpus is not present in this tree")
+        payload = json.loads(corpus_path.read_text(encoding="utf-8"))
+        moved: set[str] = set()
+        self._write(root, self.PREFIX + "wf_server/__init__.py", "")
+        for fixture in payload["fixtures"]:
+            for target in fixture["relevance"]:
+                path = target["path"]
+                name = path[len(self.PREFIX):] if path.startswith(self.PREFIX) else None
+                if name in subject.SERVER_PACKAGE_MODULES:
+                    moved.add(path)
+                    self._write(root, self.PREFIX + "wf_server/" + name, "# implementation\n")
+                    if flat_aliases:
+                        self._write(root, path, "# alias\n")
+                else:
+                    self._write(root, path, "# x\n")
+        return corpus_path, moved, len(payload["fixtures"])
+
+    def test_golden_corpus_loads_with_the_package_present_and_flat_files_absent(self):
+        """Wave 1yxyw Requirement 5: existence resolves through the implementing
+        path, so retiring a moved module's flat alias keeps the corpus loadable
+        without rewriting its relevance paths."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            corpus_path, moved, count = self._golden_tree(root, flat_aliases=False)
+            self.assertTrue(moved, "the standing corpus names at least one moved module")
+            for path in moved:
+                self.assertFalse((root / path).exists(), path)
+            try:
+                loaded = subject.load_fixture_corpus(corpus_path, root=root)
+            except subject.EvaluationInvalid as exc:
+                self.fail(f"existence was checked on the flat path, not the implementing path: {exc}")
+            self.assertEqual(count, len(loaded["fixtures"]))
+            # The loaded corpus keeps the flat logical names; only existence resolves.
+            loaded_paths = {r["path"] for f in loaded["fixtures"] for r in f["relevance"]}
+            self.assertLessEqual(moved, loaded_paths)
+            # Known-bad control: the implementing file itself missing is still stale.
+            victim = sorted(moved)[0]
+            (root / self.PREFIX / "wf_server" / victim[len(self.PREFIX):]).unlink()
+            with self.assertRaises(subject.EvaluationInvalid) as caught:
+                subject.load_fixture_corpus(corpus_path, root=root)
+            self.assertEqual("incomplete_server_package", caught.exception.code)
+
+    def test_golden_corpus_loads_with_flat_aliases_present(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            corpus_path, _, count = self._golden_tree(root, flat_aliases=True)
+            self.assertEqual(count, len(subject.load_fixture_corpus(corpus_path, root=root)["fixtures"]))
+
     def test_a_package_missing_a_moved_module_is_refused_not_read_through_the_alias(self):
         with tempfile.TemporaryDirectory() as temp:
             scripts = Path(temp)

@@ -1,0 +1,6 @@
+Mutant: load_fixture_corpus existence check reverted to 'root / r["path"]' (pre-1yxyw) in a scratch copy at a path containing a space.
+
+FAIL: test_golden_corpus_loads_with_the_package_present_and_flat_files_absent (test_retrieval_eval.ServerPackageLayoutTests.test_golden_corpus_loads_with_the_package_present_and_flat_files_absent)
+AssertionError: existence was checked on the flat path, not the implementing path: architecture-review-calibration-gaps: relevance paths do not exist in the current tree: ['.wavefoundry/framework/scripts/server_impl.py']
+Ran 10 tests in 0.575s
+FAILED (failures=1)
