@@ -17072,6 +17072,36 @@ def _extension_declaration_provenance() -> dict[str, Any]:
     }
 
 
+def _reserved_tool_name_collections() -> dict[str, frozenset[str]]:
+    """Core collections that change behavior for a tool by its name (wave 1yyoj).
+
+    A new extension tool may not take one of these names: it would silently
+    inherit core wrapping, accounting, dispatch or upgrade reconciliation. The
+    census test in test_extension_tool_modules classifies module-level
+    assignments in scripts/ and wave_lint_lib/ whose literals include a served
+    or retired tool name, or that are derived from a classified collection. A
+    collection naming only unserved tools, or one inside a function, is outside
+    the census; a membership test keeps these collections to served core or
+    retired names.
+    """
+    reserved = {
+        "_LIFECYCLE_MUTATION_LOCK_TOOLS": frozenset(_LIFECYCLE_MUTATION_LOCK_TOOLS),
+        "_COST_EXEMPT_TOOLS": frozenset(_COST_EXEMPT_TOOLS),
+        "_ARTIFACT_EXTRACTORS": frozenset(_ARTIFACT_EXTRACTORS),
+        "_COST_FOCUS_EXTRACTORS": frozenset(_COST_FOCUS_EXTRACTORS),
+        "_STATE_SOURCE_EXTRACTORS": frozenset(_STATE_SOURCE_EXTRACTORS),
+        "publication_control.PUBLICATION_WRITER_REGISTRY": frozenset(
+            publication_control.registered_publication_tool_names()
+        ),
+    }
+    try:
+        retired = _load_script("render_platform_surfaces")._RENAMED_MCP_TOOLS
+    except Exception as exc:
+        raise ExtensionLoadError(f"cannot load retired MCP tool names: {exc!r}") from exc
+    reserved["_RENAMED_MCP_TOOLS"] = frozenset(retired)
+    return reserved
+
+
 def _extension_staging_surface() -> Any:
     """A throwaway FastMCP whose ``add_tool`` records every attempted name.
 
@@ -17206,6 +17236,7 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     mcp_tool_extensions.validate_declaration(core_tools=core_names, runner_tools=runner)
     tiers = dict(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
     prefixes = tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
+    reserved = _reserved_tool_name_collections()
 
     staging = _extension_staging_surface()
     staged_by: dict[str, str] = {}
@@ -17274,6 +17305,9 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
                 problems.append(f"{module_name!r} registers {name!r} without a declared extension prefix")
             if name not in tiers:
                 problems.append(f"{module_name!r} registers {name!r} without a declared tier")
+            for label, reserved_names in reserved.items():
+                if name in reserved_names:
+                    problems.append(f"{module_name!r} registers {name!r}, a name reserved by core {label}")
             new_tools.append(name)
         for name in sorted(declared_overrides - set(attempts)):
             problems.append(f"{module_name!r} declares override {name!r} but does not register it")

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-17
+Last verified: 2026-09-24
 
 ## Context
 
@@ -54,3 +54,7 @@ Validation is still fail-closed, applied to the constants against the repository
 - Change `1y042-enh record-roots-config-and-resolver` and companion `1y043-enh nested-record-lookup` (wave `1y0gz`)
 - `docs/reports/wavefoundry-modularity-rfc.md` (RFC-2), `docs/reports/waveforge-fork-audit.md`
 - `docs/architecture/layering-rules.md`, "Shared path resolution"
+
+## Amendment: advisory warning for inert keys (wave 1yyoj)
+
+The keys stay inert: nothing reads a `record_layout` block, `wave_implement.wave_root` or the legacy `wave_execution.wave_root` from `docs/workflow-config.json`, there is no fallback, and nothing rewrites a target's config. The one change to "no migration hint" is that docs-lint now emits an advisory `WARNING:` for each such key (sensor `inert_record_layout_config`) naming `record_paths.py` as the live surface, so an operator who edits them learns they have no effect. The warning never fails lint. It runs on a full lint and on an incremental lint that escalates to full because the config changed; it is not emitted when the record layout is invalid, because lint then reports only the `record_layout_invalid:` failures and stops before the other checks.

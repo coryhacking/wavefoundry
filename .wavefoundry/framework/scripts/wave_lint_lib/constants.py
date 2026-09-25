@@ -343,4 +343,5 @@ def allowed_values_suffix(values, *, origin=None):
 SENSOR_POLARITIES = ("advisory", "blocking")
 SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
     "ac_asserts_repository_state": {"polarity": "advisory", "introduced_wave": "1wur7"},
+    "inert_record_layout_config": {"polarity": "advisory", "introduced_wave": "1yyoj"},
 }

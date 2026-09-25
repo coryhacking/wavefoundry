@@ -10,6 +10,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Extension tools may use core prefixes.** A distribution can name its own tools with `wf_` or another core prefix; a distribution-specific prefix remains the recommendation. Reuse of an existing tool name still requires a declared override, and names that core treats specially, such as lifecycle-locked, cost-accounted, publication-guarded and retired tool names, stay reserved. Wave `1yyoj`.
+
+- **Warning for inert record-layout config keys.** Docs-lint now warns, without failing, when `docs/workflow-config.json` contains `record_layout` or `wave_root`; record roots are the `record_paths` constants. Wave `1yyoj`.
+
 - **Distribution extension tools on the one MCP server.** A downstream distribution declares its own tool modules in `mcp_tool_extensions.py` to add tools, or explicitly override existing tools under their original names, without editing core registration. Declared modules are staged and validated before anything is served, receive the same permission tiers and wrappers as core tools, reload with `wf_reload_mcp`, and appear with content hashes in `wf_server_info`; any invalid declaration refuses to serve rather than serving a partial surface. The shipped declaration is empty. Wave `1yv9l`.
 
 ## [1.26.0] - 2026-09-23

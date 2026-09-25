@@ -30,8 +30,10 @@ TIER_WRITE = "write"
 # Flat module names, in registration order.
 EXTENSION_MODULES: tuple[str, ...] = ()
 
-# Prefixes every NEW extension tool name must start with. None may equal,
-# start with, or be a prefix of a core prefix.
+# Prefixes every NEW extension tool name must start with. A core prefix such
+# as "wf_" is allowed; a distribution-specific prefix is recommended, because a
+# later core release that adds the same tool name makes the server refuse to
+# start until the extension tool is renamed or declared as an override.
 EXTENSION_TOOL_PREFIXES: tuple[str, ...] = ()
 
 # Permission tier ("read" or "write") for every NEW extension tool.
@@ -64,10 +66,6 @@ def declared() -> bool:
     return bool(
         EXTENSION_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS or EXTENSION_OVERRIDES
     )
-
-
-def _prefixes_overlap(a: str, b: str) -> bool:
-    return a.startswith(b) or b.startswith(a)
 
 
 def override_targets() -> dict[str, str]:
@@ -107,18 +105,12 @@ def declaration_problems(
     for prefix in EXTENSION_TOOL_PREFIXES:
         if not isinstance(prefix, str) or not prefix:
             problems.append(f"extension prefix {prefix!r} must be a non-empty string")
-            continue
-        for core_prefix in CORE_TOOL_PREFIXES:
-            if _prefixes_overlap(prefix, core_prefix):
-                problems.append(f"extension prefix {prefix!r} overlaps core prefix {core_prefix!r}")
 
     for name, tier in EXTENSION_TOOL_TIERS.items():
         if tier not in (TIER_READ, TIER_WRITE):
             problems.append(f"tool {name!r} declares tier {tier!r}; use 'read' or 'write'")
         if name in core or name in runner:
             problems.append(f"tool {name!r} is an existing tool; declare it as an override, not a tier")
-        if any(name.startswith(p) for p in CORE_TOOL_PREFIXES):
-            problems.append(f"tool {name!r} uses a core prefix")
         if not any(isinstance(p, str) and p and name.startswith(p) for p in EXTENSION_TOOL_PREFIXES):
             problems.append(f"tool {name!r} does not start with a declared extension prefix")
 

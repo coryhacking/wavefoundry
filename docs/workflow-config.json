@@ -12,7 +12,6 @@
   },
   "wave_implement": {
     "waves_required_for_non_trivial_work": true,
-    "wave_root": "docs/waves/",
     "readiness_required_before_implementation": true,
     "rerun_prepare_before_closure": true,
     "contract_freeze_before_parallelism": true,

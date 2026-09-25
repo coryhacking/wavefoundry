@@ -9,7 +9,7 @@ from pathlib import Path
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
 from .docs_constants_validators import check_docs_constants, check_wave_scaffolding_integrity
-from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carrier_parity, check_review_policy_carriers, check_review_protocol_carrier_parity, check_scaffold_declares_nothing, check_seed_prefix_uniqueness, check_workflow_config
+from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carrier_parity, check_review_policy_carriers, check_review_protocol_carrier_parity, check_scaffold_declares_nothing, check_seed_prefix_uniqueness, check_workflow_config, inert_record_layout_findings
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
@@ -43,6 +43,7 @@ from .wave_validators import (
     check_plan_filenames,
     check_wave_docs,
     check_wave_roots,
+    _route_sensor_findings,
 )
 
 
@@ -292,6 +293,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_seed_prefix_uniqueness(root))
         failures.extend(check_wave_roots(root))
         failures.extend(check_workflow_config(root))
+        _route_sensor_findings("inert_record_layout_config", inert_record_layout_findings(root),
+                               failures, warnings)
         failures.extend(check_review_policy_carriers(root))
         failures.extend(check_review_policy_carrier_parity(root))
         failures.extend(check_review_protocol_carrier_parity(root))

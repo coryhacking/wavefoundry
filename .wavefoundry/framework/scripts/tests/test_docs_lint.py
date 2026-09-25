@@ -3082,6 +3082,80 @@ AC_RULE_MATRIX = (
 )
 
 
+class InertRecordLayoutConfigTests(unittest.TestCase):
+    """Wave 1yyoj: inert record-layout config keys warn through the advisory channel.
+
+    Standalone so the fixture suite is not re-run under this class; the fixture
+    helpers are borrowed by composition.
+    """
+
+    def setUp(self) -> None:
+        self.helper = DocsLintFixtureTests()
+
+    def copy_fixture(self) -> Path:
+        return self.helper.copy_fixture()
+
+    def _lint_with_config(self, mutate) -> subprocess.CompletedProcess[str]:
+        root = self.copy_fixture()
+        try:
+            path = root / "docs" / "workflow-config.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mutate(data)
+            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            return self.helper.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+
+    def _assert_warns(self, result, key: str) -> None:
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(
+            result.stderr,
+            rf"(?m)^WARNING: docs/workflow-config.json: `{re.escape(key)}` has no effect; "
+            r"record roots are the constants in .*record_paths.py.*advisory sensor `inert_record_layout_config`",
+        )
+        self.assertNotRegex(result.stderr, rf"(?m)^ERROR: .*{re.escape(key)}")
+
+    def test_clean_config_does_not_warn(self) -> None:
+        result = self._lint_with_config(lambda data: None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("inert_record_layout_config", result.stderr)
+
+    def test_record_layout_block_warns(self) -> None:
+        self._assert_warns(
+            self._lint_with_config(lambda data: data.update(record_layout={"waves_root": "records/waves"})),
+            "record_layout",
+        )
+
+    def test_wave_implement_wave_root_warns(self) -> None:
+        self._assert_warns(
+            self._lint_with_config(lambda data: data["wave_implement"].update(wave_root="docs/waves/")),
+            "wave_implement.wave_root",
+        )
+
+    def test_legacy_wave_execution_wave_root_warns(self) -> None:
+        self._assert_warns(
+            self._lint_with_config(lambda data: data.update(wave_execution={"wave_root": "docs/waves/"})),
+            "wave_execution.wave_root",
+        )
+
+    def test_sensor_is_registered_advisory(self) -> None:
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        self.assertEqual(SENSOR_POLARITY_REGISTRY["inert_record_layout_config"]["polarity"], "advisory")
+
+    def test_workflow_config_check_is_unchanged_for_valid_config(self) -> None:
+        from wave_lint_lib.core_validators import check_workflow_config, inert_record_layout_findings
+        root = self.copy_fixture()
+        try:
+            path = root / "docs" / "workflow-config.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["wave_implement"]["wave_root"] = "docs/waves/"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual(check_workflow_config(root), [])
+            self.assertEqual(len(inert_record_layout_findings(root)), 1)
+        finally:
+            shutil.rmtree(root)
+
+
 class SensorPolarityRegistryTests(unittest.TestCase):
     """Wave 1wuju (1wujs AC-1, AC-2): polarity is decided by the registry alone.
 

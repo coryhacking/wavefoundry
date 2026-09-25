@@ -92,7 +92,7 @@ merge time; the shipped declarations are empty and change nothing.
 | Declaration | Meaning |
 | --- | --- |
 | `EXTENSION_MODULES` | Flat module names, in registration order. Each is a single `.py` file directly in the framework scripts directory that defines `register(mcp, get_handler)`. |
-| `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A prefix is invalid when it and any `MCP_TOOL_PREFIXES` entry are equal or either begins with the other. |
+| `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A core prefix such as `wf_` is allowed; a distribution-specific prefix is recommended (see **New tools**). |
 | `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
 
@@ -125,8 +125,26 @@ for undeclared arguments is the extension's obligation: pass `kwargs` to
 `None`. Replacing the MCP tool does not change the server's internal callers of core response
 functions.
 
-**New tools.** Every new tool name starts with a declared extension prefix, matches no core
-prefix, and has a declared tier. Tiers join `mcp_tool_roster.tools_for_tiers` / `allow_rules`, so
+**New tools.** Every new tool name starts with a declared extension prefix and has a declared
+tier. Since wave `1yyoj`, extension prefixes may equal or overlap core prefixes, so a distribution
+may add tools named `wf_*`; a distribution-specific prefix is still recommended. If a later core
+release adds a tool with the same name, the server refuses to start and names the tool, and the
+tier entry for the now-existing tool also makes `mcp_tool_roster.allow_rules` raise, which stops
+allowlist rendering and upgrade allowlist reconciliation. Resolve it by renaming the extension
+tool, or by declaring it as an override when it is call-compatible with the new core tool and
+removing its tier entry. A new tool may not take a reserved name: one that a core module-level
+collection keys or lists to change how the server wraps, accounts, dispatches or
+upgrade-reconciles a tool by name (`_LIFECYCLE_MUTATION_LOCK_TOOLS`, `_COST_EXEMPT_TOOLS`,
+`_ARTIFACT_EXTRACTORS`, `_COST_FOCUS_EXTRACTORS`, `_STATE_SOURCE_EXTRACTORS`, the publication
+writer registry, and the retired names that are keys of `_RENAMED_MCP_TOOLS`). A census test
+classifies module-level assignments in `scripts/` and `wave_lint_lib/` whose literals include a served or
+retired tool name, or that are derived from a classified collection, and fails on an unclassified
+one; a membership test keeps the reserved collections to served core or retired names. A
+collection that names only tools core does not serve, or one built inside a function, is outside
+the census. The reserved-name check runs at registration only, so the allowlist renderer
+may render a rule for a name the server then refuses; that fails closed. `wf_help` uses a fixed
+catalog: it describes the `wf_` prefix as lifecycle and framework operations and does not list
+extension tools. Tiers join `mcp_tool_roster.tools_for_tiers` / `allow_rules`, so
 the rendered host allowlist and upgrade allowlist reconciliation cover them. New tools are costed
 like first-party tools, and write-tier tools fail fast with `upgrade_in_progress` while Upgrade
 owns project state.
@@ -134,9 +152,9 @@ owns project state.
 **Failure.** Registration refuses, naming the module and cause, when:
 
 - the declaration is invalid: a module name that is not a flat identifier or is declared twice, a
-  reserved framework or standard-library module name, an overlapping prefix, a tier other than
-  `read`/`write`, a tier declared for an existing tool, an override target, a core-prefixed name or
-  a name without a declared extension prefix, overrides for an undeclared module, an override of a runner tool or of a tool
+  reserved framework or standard-library module name, an empty prefix, a tier other than
+  `read`/`write`, a tier declared for an existing tool, an override target or a name without a
+  declared extension prefix, overrides for an undeclared module, an override of a runner tool or of a tool
   core does not register, or the same override declared twice or by two modules;
 - a declared module is a module the server already imported by that public name before
   registration, has no `.py` source whose resolved parent is the resolved scripts directory, lacks
@@ -144,8 +162,8 @@ owns project state.
   name replaces the extension file on upgrade, so give extension modules distribution-specific
   names;
 - a module registers an existing tool it did not declare as an override, a name another module
-  already staged, a new tool without a declared prefix or tier, or does not register a declared
-  override;
+  already staged, a new tool without a declared prefix or tier, a new tool with a reserved name,
+  or does not register a declared override;
 - a module places a tool on the staging surface without `FastMCP.add_tool` (for example through
   `_tool_manager`), replaces or removes a tool another module staged, removes a tool it registered,
   changes the served tool table directly (for example through `server_impl._MCP_INSTANCE`), or

@@ -266,6 +266,18 @@ with tempfile.TemporaryDirectory() as tmp:
             "            return bad\n"
             "        return {'status': 'ok', 'data': {'slug': slug, 'team': team}}\n"
         ))
+        write_module("wf_fork", (
+            "import server_impl\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def wf_fork_tool(**kwargs):\n"
+            "        bad = server_impl._ensure_no_extra_args('wf_fork_tool', kwargs)\n"
+            "        if bad is not None:\n"
+            "            return bad\n"
+            "        return {'status': 'ok', 'data': {'fork': True}}\n"
+        ))
+        write_module("retired_name", "def register(mcp, get_handler):\n    @mcp.tool()\n    def wf_review_evidence(**kwargs):\n        return {}\n")
+        write_module("reserved_name", "def register(mcp, get_handler):\n    @mcp.tool()\n    def wf_fixture_reserved(**kwargs):\n        return {}\n")
         write_module("withdrawer", (
             "import server_impl\n"
             "def register(mcp, get_handler):\n"
@@ -300,10 +312,10 @@ with tempfile.TemporaryDirectory() as tmp:
             "new_name_two_modules": dict(EXTENSION_MODULES=("twin_a", "twin_b"), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}),
             "no_prefix_registered": dict(EXTENSION_MODULES=("unprefixed",), EXTENSION_TOOL_PREFIXES=("acme_",)),
             "no_tier_registered": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",)),
-            "core_prefix_tier": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read", "wf_extra": "read"}),
             "tier_unregistered": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read", "acme_ghost": "read"}),
-            "prefix_shorter_than_core": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("wf",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}),
-            "prefix_longer_than_core": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("wf_x_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}),
+            "core_prefix_new_tool": dict(EXTENSION_MODULES=("wf_fork",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_fork_tool": "read"}),
+            "reserved_retired_name": dict(EXTENSION_MODULES=("retired_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_review_evidence": "read"}),
+            "reserved_collection_name": dict(EXTENSION_MODULES=("reserved_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_fixture_reserved": "read"}),
             "async_handler": dict(EXTENSION_MODULES=("async_tools",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_async": "read"}),
             "unrecorded_manager_add": dict(EXTENSION_MODULES=("bypass_manager",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_hidden": "read"}),
             "unrecorded_table_write": dict(EXTENSION_MODULES=("bypass_table",)),
@@ -324,18 +336,29 @@ with tempfile.TemporaryDirectory() as tmp:
                 setattr(ext, key, value)
             for mod in ("acme_tools", "no_register", "raiser", "undeclared_override", "bad_compat", "twin_a", "twin_b", "unprefixed", "escaped", "not_there",
                         "async_tools", "bypass_manager", "bypass_table", "tamperer", "resource_tools", "prompt_tools",
-                        "withdrawer", "served_writer", "type_change", "default_change", "extended_tools"):
+                        "withdrawer", "served_writer", "type_change", "default_change", "extended_tools",
+                        "wf_fork", "retired_name", "reserved_name"):
                 if getattr(sys.modules.get(mod), "__wf_extension__", False):
                     sys.modules.pop(mod, None)
             mcp = FastMCP("case")
+            if label == "reserved_collection_name":
+                impl._COST_FOCUS_EXTRACTORS["wf_fixture_reserved"] = lambda *a, **k: None
             try:
                 impl.register_mcp_surface(mcp, runner._get_handler)
                 results[label] = {"raised": None, "served": len(table(mcp))}
+                if label == "core_prefix_new_tool":
+                    import mcp_tool_roster
+                    results[label]["call"] = ccall(mcp, "wf_fork_tool")["data"]
+                    results[label]["tier"] = impl._TOOL_REGISTRY.get("wf_fork_tool").tier
+                    results[label]["markers"] = markers(mcp, "wf_fork_tool")
+                    results[label]["parity_defects"] = [d.name for d in impl._TOOL_REGISTRY.parity_defects]
+                    results[label]["read_rule"] = "mcp__wavefoundry__wf_fork_tool" in mcp_tool_roster.allow_rules(False)
                 if label == "extended_override":
                     results[label]["with_team"] = ccall(mcp, "wf_create_wave", {"slug": "probe", "team": "blue"})["data"]
                     results[label]["core_call"] = ccall(mcp, "wf_create_wave", {"slug": "probe"})["data"]
             except BaseException as exc:
                 results[label] = {"raised": type(exc).__name__, "message": str(exc), "served": sorted(table(mcp))}
+            impl._COST_FOCUS_EXTRACTORS.pop("wf_fixture_reserved", None)
         out["cases"] = results
         # The allowlist renderer refuses an invalid tier declaration.
         for key, value in {**empty, "EXTENSION_TOOL_PREFIXES": ("acme_",), "EXTENSION_TOOL_TIERS": {"wf_upgrade": "read"}}.items():
@@ -510,10 +533,9 @@ class ExtensionRefusalTests(unittest.TestCase):
         "new_name_two_modules": "already staged",
         "no_prefix_registered": "without a declared extension prefix",
         "no_tier_registered": "without a declared tier",
-        "core_prefix_tier": "uses a core prefix",
         "tier_unregistered": "has no registered tool",
-        "prefix_shorter_than_core": "overlaps core prefix",
-        "prefix_longer_than_core": "overlaps core prefix",
+        "reserved_retired_name": "a name reserved by core _RENAMED_MCP_TOOLS",
+        "reserved_collection_name": "a name reserved by core _COST_FOCUS_EXTRACTORS",
         "async_handler": "extension handlers must be synchronous",
         "unrecorded_manager_add": "outside FastMCP.add_tool",
         "unrecorded_table_write": "outside FastMCP.add_tool",
@@ -537,6 +559,16 @@ class ExtensionRefusalTests(unittest.TestCase):
                 self.assertIsNotNone(result["raised"], result)
                 self.assertIn(needle, result["message"])
                 self.assertEqual(result["served"], [])
+
+    def test_core_prefixed_new_tool_is_served_tiered_and_wrapped(self):
+        # Wave 1yyoj: extension tools may use core prefixes such as wf_.
+        result = self.out["cases"]["core_prefix_new_tool"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(result["call"], {"fork": True})
+        self.assertEqual(result["tier"], "read")
+        self.assertIn("cost", result["markers"])
+        self.assertEqual(result["parity_defects"], [])
+        self.assertTrue(result["read_rule"])
 
     def test_changed_default_alone_is_call_compatible(self):
         # A different default changes behavior, not the values callers may send.
@@ -562,6 +594,130 @@ class ExtensionRefusalTests(unittest.TestCase):
         self.assertEqual(self.out["roster_raised"], "ExtensionDeclarationError")
         self.assertEqual(self.out["renderer_raised"], "ExtensionDeclarationError")
         self.assertEqual(self.out["settings_after"], "{}\n")
+
+
+# Wave 1yyoj: every module-level assignment in scripts/ and wave_lint_lib/ whose
+# string literals include a registered or retired MCP tool name, or whose value
+# references an already-classified collection, classified by whether it changes
+# how the server wraps, accounts, dispatches or upgrade-reconciles a tool by that
+# name. A collection that names only unserved tools, or that lives inside a
+# function, is outside this census; the membership invariant below keeps the
+# reserved collections to served core or retired names.
+RESERVED_COLLECTIONS = {
+    ("server_impl.py", "_LIFECYCLE_MUTATION_LOCK_TOOLS"),
+    ("server_impl.py", "_COST_EXEMPT_TOOLS"),
+    ("server_impl.py", "_ARTIFACT_EXTRACTORS"),
+    ("server_impl.py", "_COST_FOCUS_EXTRACTORS"),
+    ("context_efficiency_handlers.py", "_STATE_SOURCE_EXTRACTORS"),
+    ("publication_control.py", "PUBLICATION_WRITER_REGISTRY"),
+    ("render_platform_surfaces.py", "_RENAMED_MCP_TOOLS"),
+}
+# Reached only through core code passing its own literal tool name, or data
+# about the roster, evaluation or configuration: no behavior for a foreign name.
+NON_BEHAVIOR_COLLECTIONS = {
+    ("context_efficiency.py", "LIFECYCLE_PROMPT_MAP"),
+    ("graph_quality_eval.py", "RELATION_TOOL_MATRIX"),
+    ("mcp_tool_roster.py", "RUNNER_TOOLS"),
+    ("mcp_tool_roster.py", "TOOL_TIERS"),
+    ("reconcile_scan.py", "_CONFIG_KEY_TOOL_NAMES"),
+    ("retrieval_eval.py", "TOOLS"),
+    ("retrieval_eval.py", "CALL_TIMEOUT_SECONDS"),
+    ("retrieval_eval.py", "OPERATOR_REVIEW_P95_MS"),
+    ("server.py", "_RELOAD_SURVIVOR_TOOLS"),
+    ("server_impl.py", "CODE_SEARCH_SUBSTRATE_SOURCES"),
+    ("server_impl.py", "CODE_ASK_SUBSTRATE_SOURCES"),
+    ("server_impl.py", "_CONTEXT_RETRIEVAL_TOOLS"),
+    ("server_impl.py", "_INDEXED_CONTEXT_TOOLS"),
+    ("server_impl.py", "_REFERENCE_ONLY_GRAPH_TOOLS"),
+    ("server_impl.py", "_LIFECYCLE_CONTEXT_STAGES"),
+    ("server_impl.py", "_TRACKING_CONTEXT_TOOLS"),
+    ("upgrade_extensions.py", "_CONFIG_KEY_RENAMES"),
+    ("wave_lint_lib/constants.py", "WORKFLOW_REQUIRED_KEYS"),
+}
+# Built from a classified collection, so they hold the same names: each maps to
+# its source and is covered by the source's classification.
+DERIVED_COLLECTIONS = {
+    ("graph_quality_eval.py", "SCORED_RELATIONS"): "RELATION_TOOL_MATRIX",
+    ("publication_control.py", "_BY_TOOL"): "PUBLICATION_WRITER_REGISTRY",
+    ("publication_control.py", "_BY_NATIVE_PRODUCER"): "PUBLICATION_WRITER_REGISTRY",
+    ("reconcile_scan.py", "RENAMED_TOOLS"): "_RENAMED_MCP_TOOLS",
+    ("reconcile_scan.py", "_RENAMED_ALT_ALL"): "RENAMED_TOOLS",
+    ("reconcile_scan.py", "_RENAMED_ALT_BARE"): "RENAMED_TOOLS",
+    ("reconcile_scan.py", "_TOOL_BARE_PATTERN"): "_RENAMED_ALT_BARE",
+    ("reconcile_scan.py", "_TOOL_MCP_PATTERN"): "_RENAMED_ALT_ALL",
+}
+
+
+def _tool_name_collections() -> set[tuple[str, str]]:
+    import ast
+    import mcp_tool_roster
+    import render_platform_surfaces
+    names = set(mcp_tool_roster.TOOL_TIERS) | set(render_platform_surfaces._RENAMED_MCP_TOOLS)
+    classified = {
+        name for _file, name in RESERVED_COLLECTIONS | NON_BEHAVIOR_COLLECTIONS | set(DERIVED_COLLECTIONS)
+    }
+    found: set[tuple[str, str]] = set()
+    paths = sorted(SCRIPTS.glob("*.py")) + sorted((SCRIPTS / "wave_lint_lib").glob("*.py"))
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            target_names = [t.id for t in targets if isinstance(t, ast.Name)]
+            if not target_names:
+                continue
+            literals = {
+                n.value for n in ast.walk(node.value)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            }
+            refs = {n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)}
+            refs |= {n.attr for n in ast.walk(node.value) if isinstance(n, ast.Attribute)}
+            if literals & names or (refs & classified) - {target_names[0]}:
+                rel = path.relative_to(SCRIPTS).as_posix()
+                found.add((rel, target_names[0]))
+    return found
+
+
+class ReservedNameCensusTests(unittest.TestCase):
+    """Every tool-name collection is classified; reserved ones are refused."""
+
+    def test_every_tool_name_collection_is_classified(self):
+        found = _tool_name_collections()
+        known = RESERVED_COLLECTIONS | NON_BEHAVIOR_COLLECTIONS | set(DERIVED_COLLECTIONS)
+        unclassified = found - known
+        self.assertEqual(unclassified, set(), "classify new tool-name collections as reserved, non-behavior or derived")
+        stale = known - found
+        self.assertEqual(stale, set(), "remove classifications for collections that no longer exist")
+
+    def test_every_derived_collection_maps_to_a_classified_source(self):
+        classified = {
+            name for _file, name in RESERVED_COLLECTIONS | NON_BEHAVIOR_COLLECTIONS | set(DERIVED_COLLECTIONS)
+        }
+        orphans = {key: src for key, src in DERIVED_COLLECTIONS.items() if src not in classified}
+        self.assertEqual(orphans, {})
+
+    def test_reserved_collections_hold_only_served_or_retired_names(self):
+        from server_tools_support import load_server
+        import mcp_tool_roster
+        impl = load_server()
+        served = set(mcp_tool_roster.TOOL_TIERS)
+        collections = impl._reserved_tool_name_collections()
+        retired = collections.pop("_RENAMED_MCP_TOOLS")
+        self.assertTrue(retired)
+        self.assertEqual(retired & served, set(), "a retired name is served again")
+        for label, members in collections.items():
+            with self.subTest(collection=label):
+                self.assertTrue(members, f"{label} is empty, so this check would pass vacuously")
+                self.assertEqual(members - served, set(), f"{label} names a tool core does not serve")
+
+    def test_registration_reserves_exactly_the_reserved_collections(self):
+        from server_tools_support import load_server
+        impl = load_server()
+        labels = set(impl._reserved_tool_name_collections())
+        expected = {name for _file, name in RESERVED_COLLECTIONS}
+        expected = {"publication_control.PUBLICATION_WRITER_REGISTRY" if n == "PUBLICATION_WRITER_REGISTRY" else n for n in expected}
+        self.assertEqual(labels, expected)
 
 
 class DeclarationValidationTests(unittest.TestCase):

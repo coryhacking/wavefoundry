@@ -1,0 +1,12 @@
+29124de5120b0721dac9ae060a1c86468fd4df7e  .wavefoundry/framework/scripts/mcp_tool_extensions.py
+af8156079d8aaa6ed866bde284390293ce690d5e  .wavefoundry/framework/scripts/server_impl.py
+9ca8536ddea7990dd26b5ab9bd26afea42a6a5c9  .wavefoundry/framework/scripts/tests/test_extension_tool_modules.py
+0cdc14c22c31217c3777164b9f639f5f4c98502f  .wavefoundry/framework/scripts/wave_lint_lib/core_validators.py
+86d0851cadec9d9c55f9356c8edfeb1faab725bd  .wavefoundry/framework/scripts/wave_lint_lib/cli.py
+6adef252a3b1131aafadbe76bf930b780144ab5a  .wavefoundry/framework/scripts/wave_lint_lib/constants.py
+197923154c6b1e1794ddb2dcf23408da56ab4d5e  .wavefoundry/framework/scripts/tests/test_docs_lint.py
+a3e3e19f0a4fe45cb0eb093983c8d857dfa44adb  docs/workflow-config.json
+0562810a2d9bdd03c1a86064eb3156c0e3ecad0b  docs/specs/mcp-tool-surface.md
+423a7cbf862b3986ebc75e3f9ae0afd5029068b7  docs/architecture/decisions/1yb8v-adr record-layout-config-over-resolver-protocol.md
+17134f5f349c8056f360056ff8894bc61f9fdb61  docs/architecture/testing-architecture.md
+9a11714320c4e6b7a835ef4c9df1f658ed10732f  CHANGELOG.md

@@ -287,6 +287,33 @@ def check_prompt_file_extensions(root: Path) -> list[str]:
     return failures
 
 
+def inert_record_layout_findings(root: Path) -> list[str]:
+    """Wave 1yyoj: configuration keys that look like the record layout but are inert.
+
+    Record roots are the `record_paths` module constants (ADR 1yb8v); nothing
+    reads these keys. Findings are routed as the advisory sensor
+    `inert_record_layout_config` by the lint CLI; this never rewrites config.
+    """
+    path = root / "docs/workflow-config.json"
+    if not path.exists():
+        return []
+    data, error = load_json(path)
+    if error or not isinstance(data, dict):
+        return []
+    hint = (
+        "has no effect; record roots are the constants in "
+        ".wavefoundry/framework/scripts/record_paths.py (ADR 1yb8v), so remove the key"
+    )
+    findings: list[str] = []
+    if "record_layout" in data:
+        findings.append(f"docs/workflow-config.json: `record_layout` {hint}")
+    for section in ("wave_implement", "wave_execution"):
+        block = data.get(section)
+        if isinstance(block, dict) and "wave_root" in block:
+            findings.append(f"docs/workflow-config.json: `{section}.wave_root` {hint}")
+    return findings
+
+
 def check_workflow_config(root: Path) -> list[str]:
     path = root / "docs/workflow-config.json"
     if not path.exists():
