@@ -39,6 +39,7 @@ from server_tools_support import load_server
 from test_tool_surface_golden import _BootedSurface
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 DIGEST_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "register-surface-handler-digests.json"
 
 
@@ -226,7 +227,7 @@ class ApplyMiddlewareTests(unittest.TestCase):
 
 class ModuleBoundaryTests(unittest.TestCase):
     def test_module_never_imports_server_impl_at_any_scope(self):
-        source = (SCRIPTS_DIR / "mcp_tool_registry.py").read_text(encoding="utf-8")
+        source = source_path("mcp_tool_registry.py").read_text(encoding="utf-8")
 
         def imported(tree):
             names = []
@@ -261,7 +262,7 @@ class ModuleBoundaryTests(unittest.TestCase):
                     found.append(ast.unparse(node))
             return found
 
-        source = (SCRIPTS_DIR / "mcp_tool_registry.py").read_text(encoding="utf-8")
+        source = source_path("mcp_tool_registry.py").read_text(encoding="utf-8")
         self.assertEqual(rebinds(source), [])
         for known_bad in ("entry.fn = fn", "setattr(entry, 'fn', fn)", "entry.fn, other = fn, 1"):
             with self.subTest(known_bad=known_bad):
@@ -270,26 +271,36 @@ class ModuleBoundaryTests(unittest.TestCase):
     def test_registry_module_is_in_purge_set_and_imported_at_module_top(self):
         # A module-top public-name import is what 1y0h0's reload test proves;
         # the purge entry is what makes that import fresh after reload.
+        # Wave 1yzd0: the registry lives in wf_server; the purge keys come from
+        # the alias table, and the module-top import must be the dotted form.
         def placement(source):
             tree = ast.parse(source)
             top_level = any(
-                isinstance(node, ast.Import) and any(alias.name == "mcp_tool_registry" for alias in node.names)
+                isinstance(node, ast.Import)
+                and any(alias.name == "wf_server.mcp_tool_registry" and alias.asname == "mcp_tool_registry"
+                        for alias in node.names)
                 for node in tree.body
             )
-            purge = next(
-                node for node in ast.walk(tree)
-                if isinstance(node, ast.Set)
-                and any(isinstance(e, ast.Constant) and e.value == "sensor_runner" for e in node.elts)
+            aliases = next(
+                node.value for node in tree.body
+                if isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "_FLAT_ALIASES" for t in node.targets)
             )
-            present = any(isinstance(e, ast.Constant) and e.value == "mcp_tool_registry" for e in purge.elts)
+            present = any(isinstance(k, ast.Constant) and k.value == "mcp_tool_registry" for k in aliases.keys)
             return top_level, present
 
-        source = (SCRIPTS_DIR / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertEqual(placement(source), (True, True))
         lazy = source.replace(
-            "import mcp_tool_registry  # tool registry",
-            "def _probe():\n    import mcp_tool_registry  # tool registry", 1)
+            "import wf_server.mcp_tool_registry as mcp_tool_registry  # tool registry",
+            "def _probe():\n    import wf_server.mcp_tool_registry as mcp_tool_registry  # tool registry", 1)
         self.assertEqual(placement(lazy)[0], False, "the known-bad lazy import must be detected")
+        stale = source.replace(
+            "import wf_server.mcp_tool_registry as mcp_tool_registry  # tool registry",
+            "from wf_server import mcp_tool_registry  # tool registry", 1)
+        self.assertEqual(placement(stale)[0], False, "the stale-on-reload from-import must be detected")
+        server = load_server()
+        self.assertTrue({"mcp_tool_registry", "wf_server.mcp_tool_registry"} <= server._PACKAGE_PURGE_KEYS)
 
 
 def _handler_digests(source: str) -> dict[str, str]:
@@ -321,7 +332,7 @@ class HandlerDigestTests(unittest.TestCase):
         # AC-1: no handler body, name, parameter, docstring, decorator or
         # annotation changed; the name sets are identical.
         expected = json.loads(DIGEST_FIXTURE.read_text(encoding="utf-8"))["handlers"]
-        source = (SCRIPTS_DIR / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         actual = _handler_digests(source)
         self.assertEqual(sorted(actual), sorted(expected))
         self.assertEqual(actual, expected)
@@ -330,7 +341,7 @@ class HandlerDigestTests(unittest.TestCase):
     def test_a_one_word_docstring_edit_changes_that_handler_digest(self):
         # Known-bad: the comparison must see a change confined to one
         # handler's docstring, and only that handler's digest may move.
-        source = (SCRIPTS_DIR / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         needle = "Return the repository root and implementation version info for this MCP server."
         self.assertEqual(source.count(needle), 1)
         before = _handler_digests(source)

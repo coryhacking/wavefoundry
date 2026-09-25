@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-19
+Last verified: 2026-09-25
 
 Memory ID: `1syzx-mem close-requires-explicit-disposition-for-evidence-derived-mem`
 Kind: `failed_attempt`
@@ -31,5 +31,5 @@ Before closing a wave, run memory proposal and give every drafted candidate an e
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_memory_records.py`

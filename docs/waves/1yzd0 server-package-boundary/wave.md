@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: active
-Last verified: 2026-09-24
+Status: closed
+Last verified: 2026-09-25
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -16,7 +16,7 @@ Move the server composition root, response handlers and tool registry into a `wf
 ## Changes
 
 Change ID: `1yxql-ref server-package-boundary`
-Change Status: `planned`
+Change Status: `implemented`
 
 ## Participants
 
@@ -25,10 +25,15 @@ Change Status: `planned`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer, release-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, security-reviewer
 
+Completed At: 2026-09-25
+
 ## Wave Summary
 
-Behavior-preserving package migration of server-owned modules, with single-owner flat aliases, reload coverage, old-runner upgrade compatibility and documented dependency limits.
+Wave `1yzd0` (Server Package Boundary) delivered one change: Server Package Boundary. Notable adjustments during implementation: Server Package Boundary: Readiness round 1 (receipt `review-policy-32c232e62ee9cf27fdb2`): security and release approve; red-team, code, QA, docs-contract and architecture block. One bounded repair: harness-coherence carve-out; framework-file enumeration helper and census plus the full test-seam list; alias table pinned in `server_impl` with guarded eager registration; frozen `SOURCE_FILES` scope; exact alias bytes; evaluator workflow doc, receipts and doc-citation census; E0 as its own reviewed, operator-committed step with an E1 recovery path and exclusive alias matching; memory-record retargeting; AC-2 scoped to the runner path; AC-5 fixture sourcing; Server Package Boundary: Package renamed `wf_server` by operator decision; independent rename verification approves (completeness, shadowing demo, `find_spec` absence, no framework collision). Implementation note for the move (RENAME-1): add `wf_server` to `mcp_tool_extensions.RESERVED_MODULE_NAMES` so a conflicting extension declaration is refused at validation, not only at load; Server Package Boundary: M then E2: the incremental update and graph rebuild resolve every moved definition to its package file (definition counts identical per module, e.g. 550 for `server_impl`), 248 handler-to-`server_impl` call edges before and after, no flat-path definition ownership left, alias modules kept; live `code_definition` after `wf_reload_mcp` answers package paths. E2 `docs/reports/retrieval-quality-1yzd0-e2b.json`: `pass` against E1, same evaluator identity and fixture digest, no violations, zero metric differences. A first E2 attempt ran while the scratch baseline graph build shared the machine and reported only latency (quality identical); it and the two E1 attempts are not evidence and were removed from `docs/reports`.
 
+**Changes delivered:**
+
+- **Server Package Boundary** (`1yxql-ref server-package-boundary`) — 8 ACs completed. Key decisions: Select a server-owned package with retained flat compatibility/declarations; Proposed package name wavefoundry_server; preserve server.py (renamed `wf_server` on 2026-09-25, below)
 ## Watchpoints
 
 - Watchpoint: no source edit before readiness freezes the module inventory and demonstrates the alias/reload strategy in disposable fixtures.
@@ -52,14 +57,14 @@ Behavior-preserving package migration of server-owned modules, with single-owner
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
 | wave-council-readiness | approved | current executed approval by coryhacking follows every affected repair | none |
-| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
-| code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
-| qa-reviewer | pending | no current executed approval | record approval evidence for qa-reviewer |
-| architecture-reviewer | pending | no current executed approval | record approval evidence for architecture-reviewer |
-| docs-contract-reviewer | pending | no current executed approval | record approval evidence for docs-contract-reviewer |
-| release-reviewer | pending | no current executed approval | record approval evidence for release-reviewer |
-| security-reviewer | pending | no current executed approval | record approval evidence for security-reviewer |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| wave-council-delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| release-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -76,14 +81,25 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 23 | 42,047 |
-| implement | 1 | 0 |
-| review | 1 | 0 |
-| **Total** | **25** | **42,047** |
+| plan | 24 | 40,289 |
+| implement | 58 | 15,620 |
+| review | 62 | 1,128,248 |
+| **Total** | **144** | **1,184,157** |
 
-<!-- wave:context-efficiency-state {"generation":24,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-11680,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4,"response_debit":11676,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"plan":{"calls":23,"content_source_credit":78610,"derived_artifact_credit":2932,"direct_net":42047,"estimated_tokens_saved":42047,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2606,"response_debit":40698,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809},"review":{"calls":1,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-402,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10,"response_debit":392,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":25,"content_source_credit":78610,"derived_artifact_credit":2932,"direct_net":29965,"estimated_tokens_saved":42047,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2620,"response_debit":52766,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809},"wave_id":"1yzd0 server-package-boundary"} -->
+<!-- wave:context-efficiency-state {"generation":126,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":58,"content_source_credit":58914,"derived_artifact_credit":2913,"direct_net":15620,"estimated_tokens_saved":15620,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4152,"response_debit":44437,"source_credit_count":14,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2382},"plan":{"calls":24,"content_source_credit":78610,"derived_artifact_credit":2932,"direct_net":40289,"estimated_tokens_saved":40289,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2615,"response_debit":42447,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809},"review":{"calls":62,"content_source_credit":1237153,"derived_artifact_credit":4657,"direct_net":1128248,"estimated_tokens_saved":1128248,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":5325,"response_debit":110553,"source_credit_count":58,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2316}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":144,"content_source_credit":1374677,"derived_artifact_credit":10502,"direct_net":1184157,"estimated_tokens_saved":1184157,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":12092,"response_debit":197437,"source_credit_count":100,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":8507},"wave_id":"1yzd0 server-package-boundary"} -->
 <!-- wave:context-efficiency end -->
 
+## Estimated Exploration Avoided
+
 <!-- wave:exploration-avoided begin -->
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 1 | 0 | 1 | 60,668 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":1,"estimated_exploration_avoided":60668,"surfaced_events":1} -->
 <!-- wave:exploration-avoided end -->

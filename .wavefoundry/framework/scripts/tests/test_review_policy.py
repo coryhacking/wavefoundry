@@ -1956,7 +1956,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "the shipped fallback template must scaffold zero declared targets",
         )
         server_impl_src = (
-            root / ".wavefoundry/framework/scripts/server_impl.py"
+            root / ".wavefoundry/framework/scripts/wf_server/server_impl.py"
         ).read_text("utf-8")
         self.assertNotIn(
             'return """# [Change Title]',

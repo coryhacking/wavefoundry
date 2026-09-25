@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-01
+Last verified: 2026-09-25
 
 Memory ID: `1wvo1-mem a-repair-is-not-landed-until-its-own-deletion-fails-a-test`
 Kind: `failed_attempt`
@@ -28,5 +28,5 @@ After writing any guard, delete it and run the suite. If nothing fails, the guar
 ## Targets
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_docs_lint.py`

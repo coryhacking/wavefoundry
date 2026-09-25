@@ -393,7 +393,7 @@ class GuruQuestionTypeContractParityTests(unittest.TestCase):
 
     SEED = REPO_ROOT / ".wavefoundry/framework/seeds/211-guru.prompt.md"
     GURU = REPO_ROOT / "docs/agents/guru.md"
-    RUNTIME = REPO_ROOT / ".wavefoundry/framework/scripts/server_impl.py"
+    RUNTIME = REPO_ROOT / ".wavefoundry/framework/scripts/wf_server/server_impl.py"
     SPEC = REPO_ROOT / "docs/specs/mcp-tool-surface.md"
     ARCHITECTURE = REPO_ROOT / "docs/architecture/search-architecture.md"
     HEADING = "## Question Classification"

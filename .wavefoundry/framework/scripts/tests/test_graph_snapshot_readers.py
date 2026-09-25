@@ -37,7 +37,10 @@ def _load(name: str):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
-    return mod
+    # A moved module's flat file is a sys.modules alias (wave 1yzd0): executing
+    # it replaces sys.modules[name] with the package module and leaves ``mod``
+    # hollow, so return the registered module rather than ``mod``.
+    return sys.modules[name]
 
 
 def _retired_graph_dir(root: Path) -> Path:

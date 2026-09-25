@@ -1,8 +1,9 @@
 # 1ye5y-adr — Flat Sibling Module For The Tool Registry
 
 Owner: Engineering
-Status: accepted
-Last verified: 2026-09-24
+Status: superseded
+Last verified: 2026-09-25
+Superseded by: [1yx4m-adr](1yx4m-adr%20wf-server-package.md) (placement only; the registry, the chain and the constraints on registration-time wrappers stand)
 
 ## Context
 

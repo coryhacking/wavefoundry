@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-11
+Last verified: 2026-09-25
 
 ## What This Document Covers
 
@@ -196,7 +196,7 @@ Subsequent builds reuse embeddings for unchanged chunk content and update metada
 A model, precision, model-set or walker identity change can require rebuilding; conversion alone does
 not change the model or vector precision.
 
-### Query time (`server_impl.py` `WaveIndex`)
+### Query time (`wf_server/server_impl.py` `WaveIndex`)
 
 1. `_ensure_loaded()` reads the project's shared SQLite index and layer provenance.
 2. Query embeddings use the layer's compatible model configuration with offline model loading.

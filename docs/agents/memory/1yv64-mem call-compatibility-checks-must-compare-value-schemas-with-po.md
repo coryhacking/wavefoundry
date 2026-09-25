@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-25
 
 Memory ID: `1yv64-mem call-compatibility-checks-must-compare-value-schemas-with-po`
 Kind: `failed_attempt`
@@ -31,5 +31,5 @@ A tool-override compatibility check that compares only parameter names and requi
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py`

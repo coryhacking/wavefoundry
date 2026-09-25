@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -24,10 +24,10 @@ Native-Windows support is **more than the bin shell scripts, but less than a rew
 
 Windows was considered — and handled correctly — in several places:
 
-- Process termination branches to `taskkill /PID <pid> /T /F` on `os.name == "nt"` (`server_impl.py:6735`).
+- Process termination branches to `taskkill /PID <pid> /T /F` on `os.name == "nt"` (`wf_server/server_impl.py`).
 - Process liveness uses `tasklist` on Windows (`indexer.py:192`, `upgrade_lib.py:121`).
 - File locking branches between `msvcrt.locking` (Windows) and `fcntl.flock` (POSIX) (`indexer.py:1906`, `dashboard_lib.py:171`).
-- Most background spawns set `creationflags=DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` on Windows (`server_impl.py:3440`, `setup_index.py:771`, dashboard spawn `server_impl.py:6594`).
+- Most background spawns set `creationflags=DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` on Windows (`wf_server/server_impl.py`, `setup_index.py:771`, dashboard spawn `wf_server/server_impl.py`).
 - Path strings are normalized through `replace("\\", "/")` before posix-path operations (`chunker.py:375` `_normalize_path`; `dashboard_lib.py` multiple sites).
 - Hook bodies are Python on every OS. Claude launch commands resolve the body from `CLAUDE_PROJECT_DIR` inside Python, avoiding shell-specific environment-variable syntax; hosts without a verified owner anchor retain an explicit repository-root contract.
 - `DmlExecutionProvider` (DirectML) is auto-detected and selected when available — it is in `PROVIDER_PRIORITY` (`provider_policy.py:26`) so no manual `WAVEFOUNDRY_EMBED_PROVIDER=dml` override is needed.
@@ -80,7 +80,7 @@ After any repair, use those verification commands from the repository root, reco
 | ID | Gap | Evidence | What breaks |
 | --- | --- | --- | --- |
 | ~~M-1~~ | ~~`dashboard_cmdline_pids` returns `None` on `os.name == "nt"` — no scan~~ — **RESOLVED (wave 1p6eq):** native Windows now gets a PowerShell/CIM cmdline scan (`_windows_process_cmdlines`); the probe also isolates `stdin` and suppresses the console window (wave 1p88t). | `dashboard_lib.py` (`_windows_process_cmdlines`, `dashboard_cmdline_pids`) | No action — orphan reconciliation runs on Windows. |
-| ~~M-2~~ | ~~One background reindex spawn sets `start_new_session=True` without the Windows `creationflags`~~ — **RESOLVED (wave 1p7pn/1p88t):** all detached reindex/dashboard spawns set `creationflags = DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP \| CREATE_NO_WINDOW` on Windows and `stdin=DEVNULL`. | `server_impl.py` (`_start_background_index_refresh` + sibling spawns) | No action — background reindex detaches correctly on Windows. |
+| ~~M-2~~ | ~~One background reindex spawn sets `start_new_session=True` without the Windows `creationflags`~~ — **RESOLVED (wave 1p7pn/1p88t):** all detached reindex/dashboard spawns set `creationflags = DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP \| CREATE_NO_WINDOW` on Windows and `stdin=DEVNULL`. | `wf_server/server_impl.py` (`_start_background_index_refresh` + sibling spawns) | No action — background reindex detaches correctly on Windows. |
 | ~~M-3~~ | ~~Git hooks rendered as `#!/usr/bin/env python3`; native Windows git can't run shebang Python directly~~ — **REMOVED (wave 1p88t): the git hooks were dropped entirely.** They only spawned a background incremental reindex and were opt-in/inactive-by-default; the in-session staleness monitor (wave 1p5xu) already hash-detects and refreshes VCS-driven index staleness within ~20s of an agent session, and `indexer.py`'s incremental diff is global so any trigger catches up `git pull`/`merge`/`checkout` changes. `render_git_hooks`/`git_hook_source` were removed and `remove_git_hooks` cleans up prior renders. The git-bash/`python3` execution concern is therefore moot. | `render_platform_surfaces.remove_git_hooks` (cleanup) | No action — git operations were never blocked; freshness is covered by the staleness monitor + global incremental reindex. |
 
 ### Low / pre-existing (not Windows-specific regressions)

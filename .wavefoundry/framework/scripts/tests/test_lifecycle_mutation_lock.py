@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 
 # Extracted handlers resolve the public composition-root module per call.
@@ -86,7 +87,7 @@ class MutationLockTests(unittest.TestCase):
                     "import sys, json; sys.path.insert(0, sys.argv[1]);\n"
                     "from types import SimpleNamespace\n"
                     "import importlib.util\n"
-                    "spec = importlib.util.spec_from_file_location('si', sys.argv[1] + '/server_impl.py')\n"
+                    "spec = importlib.util.spec_from_file_location('si', sys.argv[1] + '/wf_server/server_impl.py')\n"
                     "m = importlib.util.module_from_spec(spec); sys.modules['si'] = m\n"
                     "spec.loader.exec_module(m)\n"
                     "from pathlib import Path\n"
@@ -245,7 +246,7 @@ class SeatAlignmentTests(unittest.TestCase):
         self.assertTrue(issues)
 
     def test_prepare_flow_wires_the_alignment_check(self):
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn("seat_alignment_issues = _council_seat_alignment_issues(verdict_info, council_brief)", source)
         self.assertIn('"council_seats_misaligned"', source)
 
@@ -310,7 +311,7 @@ class SubprocessBoundsTests(unittest.TestCase):
         short-op bounds — a deadline there converts slow-network success
         into failure."""
         for name in ("upgrade_wavefoundry.py", "setup_wavefoundry.py"):
-            source = (SCRIPTS_ROOT / name).read_text(encoding="utf-8")
+            source = source_path(name).read_text(encoding="utf-8")
             self.assertNotIn("subprocess_ops_timeout_seconds", source,
                              f"{name} must stay exempt from short-op bounds")
 

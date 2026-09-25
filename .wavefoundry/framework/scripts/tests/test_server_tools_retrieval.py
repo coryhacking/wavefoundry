@@ -66,6 +66,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_index_layer,
     _write_sqlite_index,
 )
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 
 
@@ -15362,8 +15363,8 @@ class IndexBuildLockStatusTests(unittest.TestCase):
         self.assertFalse(resp["data"]["lock"]["held"])
 
     def test_recovery_message_no_longer_instructs_deleting_the_file(self):
-        src = ((SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-               + (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8"))
+        src = (source_path("server_impl.py").read_text(encoding="utf-8")
+               + source_path("index_handlers.py").read_text(encoding="utf-8"))
         self.assertNotIn("index-build.lock and retry", src)
         self.assertIn("index_build_status and read the `lock`", src)
 
@@ -15647,7 +15648,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
 
     def test_health_summary_reports_present_store(self):
         import importlib.util as ilu
-        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        iss_path = self.srv.SCRIPTS_DIR / "index_state_store.py"
         spec = ilu.spec_from_file_location("_iss_health_test", iss_path)
         iss = ilu.module_from_spec(spec)
         spec.loader.exec_module(iss)
@@ -15670,7 +15671,7 @@ class StateStoreOptimizeAndHealthTests(unittest.TestCase):
 
     def _load_iss(self):
         import importlib.util as ilu
-        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        iss_path = self.srv.SCRIPTS_DIR / "index_state_store.py"
         spec = ilu.spec_from_file_location("_iss_health_test", iss_path)
         iss = ilu.module_from_spec(spec)
         spec.loader.exec_module(iss)
@@ -15779,7 +15780,7 @@ class FtsRebuildContentTests(unittest.TestCase):
         self.assertEqual(resp["tables"]["code"]["rows_written"], 12)
         # And it is a from-scratch recovery: corrupt the FTS, rebuild again.
         import importlib.util as ilu
-        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        iss_path = self.srv.SCRIPTS_DIR / "index_state_store.py"
         spec = ilu.spec_from_file_location("_iss_fts_rebuild", iss_path)
         iss = ilu.module_from_spec(spec)
         spec.loader.exec_module(iss)
@@ -15830,7 +15831,7 @@ class CodeLexicalToolTests(unittest.TestCase):
 
     def _load_iss(self):
         import importlib.util as ilu
-        iss_path = Path(self.srv.__file__).resolve().parent / "index_state_store.py"
+        iss_path = self.srv.SCRIPTS_DIR / "index_state_store.py"
         spec = ilu.spec_from_file_location("_iss_lexical_test", iss_path)
         iss = ilu.module_from_spec(spec)
         spec.loader.exec_module(iss)
@@ -17896,7 +17897,7 @@ class EvidencePairDocumentationTests(unittest.TestCase):
         """
         import ast
         source = (self.REPO / ".wavefoundry" / "framework" / "scripts"
-                  / "server_impl.py").read_text()
+                  / "wf_server" / "server_impl.py").read_text()
         for node in ast.walk(ast.parse(source)):
             if (isinstance(node, ast.FunctionDef)
                     and node.name == "wf_graph_report"):
@@ -18047,7 +18048,7 @@ class NoReportPathPriorInOrganicOrderingTests(unittest.TestCase):
 
     def test_findings_register_behaviour_is_absent_from_the_server(self):
         # Requirement 9 leaves it to `1wq0b`. Absence is the contract.
-        source = (Path(__file__).resolve().parents[1] / "server_impl.py").read_text()
+        source = source_path("server_impl.py").read_text()
         self.assertNotIn("findings_register", source)
         self.assertNotIn("findings-register", source)
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-04
+Last verified: 2026-09-25
 
 Memory ID: `1uejb-mem imported-waves-need-a-manual-re-ready-no-gate-invalidates-a-`
 Kind: `decision`
@@ -32,5 +32,5 @@ Canonical overlap: none
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/review_policy_upgrade.py`

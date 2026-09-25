@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 ## Review Lane Summary
 
@@ -150,6 +150,24 @@ baseline command is:
 ```bash
 python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json
 ```
+
+**Run it as a CLI after an ordinary index update, with nothing in between** (wave
+`1yzd0`). The context-efficiency projection rewrites the open wave's `wave.md`
+shortly after each MCP call, which stales the index and schedules a background
+refresh; an evaluator run that overlaps it is invalidated (`index_not_ready`) or
+refused at preflight (`stale_index`). Update the index with
+`indexer.py --root . --content all` and start the evaluator immediately after,
+both with the tool venv's Python, making no MCP calls in between, on a quiet
+machine.
+
+**Package layout.** Production identity and golden relevance are resolved
+through `retrieval_eval.SERVER_PACKAGE_MODULES` (wave `1yzd0` E0). Logical keys
+stay the flat module names (`server_impl.py`), and each resolves to the file
+that implements it: `wf_server/<name>.py` when the package holds it, else the
+flat file. The fixture file and its digest are never rewritten; a receipt
+discloses the resolution in `production_identity.module_paths` and
+`relevance_path_resolution`, and a result on a flat alias path never counts as a
+relevance match.
 
 Pick a fresh `--out` name for every run. Since wave `1wpaj` the evaluator
 confines report paths and never overwrites an existing destination, so a run
@@ -320,10 +338,23 @@ pair (`docs/reports/retrieval-quality-post-1wur7-run1.json` and
 `docs/reports/retrieval-quality-post-1wur7.json`) binds the evaluator identity
 that wave shipped and is likewise incomparable after `1wuju`. The `1wuju`
 receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
-`1wuju` close) served as the before-receipt for wave `1wybs`. The current
-reference receipt is `docs/reports/retrieval-quality-1ymzq-after.json`:
-R2 was recorded on 2026-09-22 on stable complete generation 1914, with verdict `baseline` and no invalidation or operator-review reasons.
-It is a NEW baseline after `index_handlers.py` joined evaluator membership.
+`1wuju` close) served as the before-receipt for wave `1wybs`. The `1ymzq`
+reference receipt `docs/reports/retrieval-quality-1ymzq-after.json` (R2, recorded
+on 2026-09-22 on stable complete generation 1914 with verdict `baseline`) was a
+NEW baseline after `index_handlers.py` joined evaluator membership.
+The current reference receipt is `docs/reports/retrieval-quality-1yzd0-e2b.json`
+(E2, wave `1yzd0`): recorded on 2026-09-25 after the `wf_server` package move at
+stable complete generation 2106, compared against
+`docs/reports/retrieval-quality-1yzd0-e1c.json` (E1, the pre-move baseline
+with the same E0 evaluator and fixture digest), with verdict `pass`, no
+invalidation or operator-review reasons and no fixture-level violations. E0 changed evaluator identity, so neither E1
+nor E2 is comparable with the `1ymzq` receipts.
+E2 predates the final delivery repair that checks flat-alias file integrity at import.
+Its production digest therefore does not match the final repaired tree; it remains
+evidence for the measured move, not an exact final-tree measurement. The later
+repair is covered by the final package/extension tests, reload probes and independent
+review recorded in `docs/waves/1yzd0 server-package-boundary/independent-delivery-review.md`;
+no retrieval-ranking change was identified in that repair.
 That membership edit changes evaluator identity, so R2 is not a signed
 comparison against R0, R1, `1ymzk-after`, or `1y0bf-final`. The earlier staged
 window uses `docs/reports/retrieval-quality-1ymzq-before.json` (R0, captured after

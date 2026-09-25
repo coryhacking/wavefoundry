@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-29
+Last verified: 2026-09-25
 
 Memory ID: `1tz74-mem automatic-index-refresh-launchers-select-all-semantic-conten`
 Kind: `decision`
@@ -30,6 +30,6 @@ Wavefoundry automatic refresh launchers must pass `--content all` explicitly bec
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/render_platform_surfaces.py`
 - `.wavefoundry/framework/scripts/indexer.py`

@@ -19,6 +19,7 @@ from unittest.mock import patch
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 import context_efficiency as ce
 import index_state_store
@@ -177,7 +178,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
     def test_registered_envelope_census_is_exact(self):
         tree = ast.parse(
-            (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+            source_path("server_impl.py").read_text(encoding="utf-8")
         )
         register = next(
             node
@@ -252,7 +253,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         )
 
     def test_mcp_reload_evicts_context_efficiency_dependency(self):
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(
+        source = source_path("server_impl.py").read_text(
             encoding="utf-8"
         )
         self.assertIn(
@@ -262,7 +263,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
 
     def test_reload_and_upgrade_both_enforce_projection_barrier(self):
         runner = (SCRIPTS_ROOT / "server.py").read_text(encoding="utf-8")
-        implementation = (SCRIPTS_ROOT / "server_impl.py").read_text(
+        implementation = source_path("server_impl.py").read_text(
             encoding="utf-8"
         )
         self.assertIn(
@@ -496,7 +497,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 (telemetry.focus.wave_id, telemetry.focus.stage, telemetry.focus.phase_id),
                 focus_before,
             )
-            source = (SCRIPTS_ROOT / "context_efficiency_handlers.py").read_text(encoding="utf-8")
+            source = source_path("context_efficiency_handlers.py").read_text(encoding="utf-8")
             tree = ast.parse(source)
             projector = next(
                 node
@@ -1045,7 +1046,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             )
 
     def test_review_evidence_tool_description_names_repeatable_terminal_states(self):
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn("truthful ``not_issue`` /", source)
         self.assertIn("``dont_do_later`` reclassification", source)
         self.assertIn(
@@ -1958,7 +1959,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         is an accepted alias, so deriving from the caller's spelling returned a
         fully green review while publishing nothing, with no diagnostic.
         """
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         idx = source.index('_ensure_no_extra_args("wf_review_wave"')
         end = source.index("focus_stage=\"review\"", idx)
         end = source.index("\n        )", end)
@@ -2004,7 +2005,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         self.assertIn("repair and reverification work inside review cycles", directive)
         self.assertIn("subagent briefed for investigation or verification", directive)
         self.assertIn("executed probes", directive)
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         idx = source.index("def wf_implement_wave_response")
         self.assertIn(
             '"retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE',
@@ -2778,7 +2779,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
     def test_risk_score_registration_records_complete_request_arguments(self):
         """Operator review 2026-07-20 (P2): the recorded request must reflect
         the actual invocation — layer and include_tests included."""
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         start = source.index('def code_risk_score(')
         window = source[start:start + 8000]
         for arg in ('"scope": scope', '"top": top', '"max_hops": max_hops',
@@ -2876,7 +2877,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         serve the shared posture directive on activation; readiness-only
         prepare modes do not. Source-census assertions pin the shared constant
         at all three activation sites."""
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertEqual(
             source.count('"retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE'),
             2,
@@ -3280,7 +3281,7 @@ if flushed is None or not flushed.success:
             )
 
     def test_wf_review_wave_source_is_read_only(self):
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         fn = next(
             node
@@ -4159,7 +4160,7 @@ class LifecycleFocusReportingTests(unittest.TestCase):
         """Every focus mutation in the server and CE handler module goes through the single
         shared primitive; a new consumer that bypasses it fails here."""
         source_map = {
-            name: (SCRIPTS_ROOT / name).read_text(encoding="utf-8")
+            name: source_path(name).read_text(encoding="utf-8")
             for name in ("server_impl.py", "context_efficiency_handlers.py")
         }
         trees = {name: ast.parse(source) for name, source in source_map.items()}

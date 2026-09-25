@@ -21,6 +21,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -1384,7 +1385,7 @@ class ServerImplGraphAccessorGateTests(unittest.TestCase):
 
     def test_no_direct_from_root_sites_in_server_impl(self):
         src = "\n".join(
-            (SCRIPTS / name).read_text(encoding="utf-8")
+            source_path(name).read_text(encoding="utf-8")
             for name in ("server_impl.py", "codenav_handlers.py", "graph_handlers.py")
         )
         self.assertNotIn("GraphQueryIndex.from_root", src)
@@ -1395,7 +1396,7 @@ class ServerImplGraphAccessorGateTests(unittest.TestCase):
         # transformed in-memory payloads (collapse views) — never a fresh
         # parse of the on-disk artifact.
         src = "\n".join(
-            (SCRIPTS / name).read_text(encoding="utf-8")
+            source_path(name).read_text(encoding="utf-8")
             for name in ("server_impl.py", "codenav_handlers.py", "graph_handlers.py")
         )
         direct = re.findall(r"GraphQueryIndex\((\w+)", src)

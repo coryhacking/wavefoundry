@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-09-25
 
 Memory ID: `1tb3b-mem pending-states-stay-visible-to-history-and-dedup-consumers`
 Kind: `failed_attempt`
@@ -31,4 +31,4 @@ Wave 1t8la's rename-window archive body was initially invisible to statuses=None
 ## Targets
 
 - `.wavefoundry/framework/scripts/memory_records.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

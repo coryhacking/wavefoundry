@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-09-25
 
 Memory ID: `1svv9-mem reap-server-owned-posix-children-before-liveness-checks`
 Kind: `successful_pattern`
@@ -31,4 +31,4 @@ When changing server-launched dashboard or background processes, register only P
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

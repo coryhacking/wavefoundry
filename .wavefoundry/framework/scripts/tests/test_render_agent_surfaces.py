@@ -18,6 +18,7 @@ PLATFORM_RENDER_SCRIPT = SCRIPTS_ROOT / "render_platform_surfaces.py"
 GURU_STUB = "# Guru\n\nRole: guru\n"
 
 sys.path.insert(0, str(SCRIPTS_ROOT))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import render_agent_surfaces as ras  # noqa: E402
 import render_platform_surfaces as rps  # noqa: E402
 import review_policy  # noqa: E402
@@ -3351,7 +3352,7 @@ class TechdocsBaselinePreconditionAndPathTests(unittest.TestCase):
                 callers.append(path.name)
         self.assertEqual(callers, [])
         self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "techdocs_baseline.py").read_text(encoding="utf-8"))
-        self.assertIn("render_techdocs_baseline(", (SCRIPTS_ROOT / "techdocs_handlers.py").read_text(encoding="utf-8"))
+        self.assertIn("render_techdocs_baseline(", source_path("techdocs_handlers.py").read_text(encoding="utf-8"))
         # And the render pass itself has no call site.
         import inspect
 

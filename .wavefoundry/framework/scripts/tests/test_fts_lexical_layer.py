@@ -981,7 +981,9 @@ def _load_module(name: str):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
-    return mod
+    # A moved module's flat file is a sys.modules alias (wave 1yzd0); return the
+    # registered module, not the object the alias left hollow.
+    return sys.modules[name]
 
 
 class JavaInitializerLexicalEndToEndTests(_StoreCase):

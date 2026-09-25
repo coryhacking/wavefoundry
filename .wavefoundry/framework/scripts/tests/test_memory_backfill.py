@@ -14,6 +14,7 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 import memory_backfill
 import memory_cli
@@ -1345,7 +1346,7 @@ os._exit(23)
 
     def test_setup_resume_has_no_one_purpose_public_surface(self):
         setup_source = (SCRIPTS / "setup_wavefoundry.py").read_text(encoding="utf-8")
-        server_source = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        server_source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertNotIn("wave_setup_resume_after_memory", server_source)
         self.assertNotIn("wf_resume_setup_after_memory", server_source)
         self.assertNotIn("setup --resume-after-memory", setup_source)
@@ -1413,7 +1414,7 @@ class RootDefaultDiscoveryTests(unittest.TestCase):
 
     def test_no_cwd_dot_default_remains(self):
         for script in ("memory_backfill.py", "memory_cli.py"):
-            source = (SCRIPTS / script).read_text(encoding="utf-8")
+            source = source_path(script).read_text(encoding="utf-8")
             self.assertNotIn('"--root", default="."', source, script)
 
 

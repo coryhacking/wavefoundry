@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 ## Retained evidence
 
-The operator approved consolidating historical retrieval and semantic-search output after the 1.25.0 release. Retain five raw receipts: the three protected historical inputs and the documented reference comparison pair. These are historical measurements, not a fresh qualification of today's tree.
+The operator approved consolidating historical retrieval and semantic-search output after the 1.25.0 release. Retain five raw receipts: the three protected historical inputs and the documented reference comparison pair. Later waves add the reference pair they record, listed after them. These are historical measurements, not a fresh qualification of today's tree.
 
 | Receipt | Reason retained |
 | --- | --- |
@@ -15,6 +15,8 @@ The operator approved consolidating historical retrieval and semantic-search out
 | [post-1seas-vs-before](retrieval-quality-post-1seas-vs-before.json) | Protected historical comparison. |
 | [post-1wuju](retrieval-quality-post-1wuju.json) | Before-receipt consumed by the reference comparison. |
 | [post-1wybs](retrieval-quality-post-1wybs.json) | Documented reference receipt, subject to evaluator compatibility. Its fail verdict is preserved. |
+| [1yzd0-e1c](retrieval-quality-1yzd0-e1c.json) | Wave `1yzd0` E1: pre-move baseline recorded with the layout-independent E0 evaluator; the before side of the reference comparison. |
+| [1yzd0-e2b](retrieval-quality-1yzd0-e2b.json) | Wave `1yzd0` E2: current reference receipt after the `wf_server` package move; `pass` against E1. |
 
 Keep the query fixture at `docs/evals/retrieval-quality-golden.json`, evaluator code, tests and closed-wave review records. The [evaluation policy](../contributing/review-and-evals.md) still governs baseline compatibility and when to measure again.
 

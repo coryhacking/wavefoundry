@@ -43,6 +43,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_index_layer,
     _write_sqlite_index,
 )
+from framework_files import framework_source_files, source_path  # wf_server-aware source locations (wave 1yzd0)
 
 
 class McpSubprocessHelperTests(unittest.TestCase):
@@ -139,7 +140,7 @@ class McpSubprocessHelperTests(unittest.TestCase):
         import re
 
         targets = [
-            SCRIPTS_ROOT / "server_impl.py",
+            source_path("server_impl.py"),
             SCRIPTS_ROOT / "wave_lint_lib" / "secrets_validators.py",
         ]
         # Count both RAW spawns and shared-helper routings so the scan stays non-vacuous after 1p8gu
@@ -206,7 +207,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
 
     @staticmethod
     def _framework_script_paths() -> list[Path]:
-        paths = sorted(SCRIPTS_ROOT.glob("*.py"))
+        paths = framework_source_files()
         paths += sorted((SCRIPTS_ROOT / "wave_lint_lib").glob("*.py"))
         # subprocess_util IS the isolation helper; its own `subprocess.run(cmd, **kwargs)` delegation
         # sets the isolation kwargs and is the single allowlisted exception by construction.
@@ -378,7 +379,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         ]
         offenders = []
         for fname in entrypoints:
-            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            src = source_path(fname).read_text(encoding="utf-8")
             if "configure_utf8_stdio()" not in src:
                 offenders.append(fname)
         self.assertEqual(
@@ -397,11 +398,11 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
             "gen_codebase_map.py": "cli_stdio",  # no spawns; CLI-encoding wiring instead
         }
         for fname, token in expected.items():
-            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            src = source_path(fname).read_text(encoding="utf-8")
             self.assertIn(token, src, f"{fname} does not reference the shared {token} helper")
         # scan_secrets is a lib (run_secrets_scan is its CLI); both route through subprocess_util.
         for fname in ("scan_secrets.py", "run_secrets_scan.py"):
-            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            src = source_path(fname).read_text(encoding="utf-8")
             self.assertIn("subprocess_util", src, f"{fname} does not route through subprocess_util")
 
     def test_single_shared_isolation_helper_no_duplicates(self):
@@ -428,7 +429,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         self.assertIn("def isolated_run(", helper_src)
         self.assertIn("def isolated_popen(", helper_src)
         # server_impl's retained alias must DELEGATE, not re-implement the getattr lookup.
-        si_src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        si_src = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn("subprocess_util.no_window_creationflags()", si_src)
 
     def test_guard_detects_planted_bare_and_aliased_spawns(self):
@@ -633,7 +634,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         """Non-vacuous: each documented pythonw KEEP signature must actually occur in its file (so the
         allowlist cannot rot into grandfathering spawns that no longer exist)."""
         for fname, keeps in self._PYTHONW_KEEPS.items():
-            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            src = source_path(fname).read_text(encoding="utf-8")
             for sig in keeps:
                 self.assertIn(
                     sig, src,
@@ -652,7 +653,7 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         ds = (SCRIPTS_ROOT / "dashboard_server.py").read_text(encoding="utf-8")
         self.assertIn("subprocess_util.windowless_pythonw() or sys.executable", ds)
         for fname in ("server_impl.py", "upgrade_wavefoundry.py"):
-            src = (SCRIPTS_ROOT / fname).read_text(encoding="utf-8")
+            src = source_path(fname).read_text(encoding="utf-8")
             self.assertIn(
                 "subprocess_util.windowless_pythonw()", src,
                 f"{fname}._preferred_python must prefer the windowless pythonw on Windows",
@@ -2793,7 +2794,7 @@ class WaveMcpReloadTests(unittest.TestCase):
 
     def test_reload_helper_has_exactly_two_production_call_sites(self):
         observed: list[tuple[str, int]] = []
-        for path in (SERVER_PATH, SCRIPTS_ROOT / "server_impl.py", SCRIPTS_ROOT / "upgrade_handlers.py"):
+        for path in (SERVER_PATH, source_path("server_impl.py"), source_path("upgrade_handlers.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
@@ -6679,7 +6680,7 @@ class GpuDoctorToolTests(unittest.TestCase):
         # in addition to the Python-level redirect_stdout — so native onnxruntime/DirectML writes to
         # fd 1 cannot corrupt the MCP JSON-RPC stdout channel and hang the first call.
         import re as _re
-        src = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        src = source_path("server_impl.py").read_text(encoding="utf-8")
         start = src.index("def wf_gpu_doctor_response(")
         rest = src[start + 1:]
         m = _re.search(r"\n(?=def |class )", rest)

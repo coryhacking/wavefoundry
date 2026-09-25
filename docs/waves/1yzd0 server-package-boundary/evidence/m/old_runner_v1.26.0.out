@@ -1,0 +1,43 @@
+{
+ "v1.26.0": {
+  "upgrade_exit": 3,
+  "upgrade_tail": [
+   "  Extension module loaded from zip (.wavefoundry/framework/scripts/upgrade_extensions.py).",
+   "  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.",
+   "  Matching offline model-set asset found: wavefoundry-models-3.zip",
+   "  Upgrade lock written \u2014 dashboard will pause indexing.",
+   "  Upgrade log: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/logs/upgrade.log",
+   "  Watch:       tail -f /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/logs/upgrade.log",
+   "",
+   "\u2500\u2500 Phase 0b: Applying zip wf-verified-pack-njbxo19s.zip \u2500\u2500",
+   "  Extracted wf-verified-pack-njbxo19s.zip",
+   "  Withheld 1 non-feature or preexisting project-owned member(s) from extraction.",
+   "{\"status\": \"action_required\", \"kind\": \"storage_migration\", \"state\": \"restart_required\", \"code\": \"storage_restart_required\", \"invocation_token\": \"4e409535be3a43f88ac159328847c81c\", \"migration_id\": \"cc08f58877fb4bb995d328e822bd9c56\", \"root\": \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0\", \"root_identity\": {\"device\": 16777234, \"inode\": 709521399}, \"target_version\": \"1.27.0+m1yzd0\", \"pack_path\": \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/packs/wavefoundry-1.27.0.m1yzd0.zip\", \"pack_sha256\": \"39c166f047de7de18e247fa9bd4659b11baa29481df1fc234d8880bde3779645\", \"consumed_pack_path\": \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-verified-pack-njbxo19s.zip\", \"checkpoint_started_at\": \"2026-09-25T15:48:16.577825+00:00\", \"old_hosts\": [], \"discovery_limits\": [\"Process visibility is limited to accessible command lines; hidden, remote and unregistered hosts require operator confirmation.\"], \"message\": \"Save this command, fully stop the listed Wavefoundry MCP/dashboard hosts and confirm any hosts discovery cannot observe, then run it in an external terminal. No storage format change has occurred; extracted framework files and the upgrade checkpoint are retained. Keep the recorded archive until completion. If its path disappears, supply a relocated byte-identical archive with --pack; its recorded SHA-256 must match. Do not edit the receipt.\", \"command_argv\": [\"/Users/coryhacking/.wavefoundry/venv/bin/python\", \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", \"--root\", \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0\", \"--pack\", \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/packs/wavefoundry-1.27.0.m1yzd0.zip\", \"--yes\", \"--confirm-hosts-stopped\"], \"command\": \"/Users/coryhacking/.wavefoundry/venv/bin/python '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/framework/scripts/upgrade_wavefoundry.py' --root '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0' --pack '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/packs/wavefoundry-1.27.0.m1yzd0.zip' --yes --confirm-hosts-stopped\", \"command_shell\": \"POSIX shell\"}",
+   "POSIX shell: /Users/coryhacking/.wavefoundry/venv/bin/python '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/framework/scripts/upgrade_wavefoundry.py' --root '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0' --pack '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/packs/wavefoundry-1.27.0.m1yzd0.zip' --yes --confirm-hosts-stopped"
+  ],
+  "cleanup_exit": 4,
+  "cleanup_tail": [
+   "ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory."
+  ],
+  "package_present": true,
+  "flat_alias_bytes_ok": true,
+  "dry_run": {
+   "exit": 0,
+   "tail": [
+    "Scope: metadata readiness only; no full integrity, model or source-freshness audit.",
+    "wavefoundry mcp-server --dry-run: OK (root=/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0, handler=ImplHandler)"
+   ]
+  },
+  "identity": {
+   "server_impl": "wf_server.server_impl",
+   "server_impl_file": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/framework/scripts/wf_server/server_impl.py",
+   "dashboard_is_package": true,
+   "scripts_dir": "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner 8r4y1wpi/installed v1.26.0/.wavefoundry/framework/scripts"
+  },
+  "wf_server_info": {
+   "status": "ok",
+   "framework_version": "1.27.0+m1yzd0",
+   "server_impl_version": "1.27.0+m1yzd0"
+  }
+ }
+}

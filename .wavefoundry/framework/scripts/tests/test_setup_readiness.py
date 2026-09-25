@@ -34,6 +34,7 @@ class SetupReadinessTests(unittest.TestCase):
         target = self.root / '.wavefoundry/framework/scripts'
         target.mkdir(parents=True)
         for name in readiness.SOURCE_FILES:
+            (target / name).parent.mkdir(parents=True, exist_ok=True)  # wf_server/ entries
             shutil.copy2(SCRIPTS / name, target / name)
         (self.root / 'docs').mkdir()
         (self.root / 'docs/workflow-config.json').write_text('{}')

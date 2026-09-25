@@ -18,6 +18,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import framework_source_files  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 
 import build_pack
@@ -34,8 +35,10 @@ class UpgradeProtocolTests(unittest.TestCase):
     def _feature(self, root: Path) -> Path:
         fw = root / ".wavefoundry/framework"
         (fw / "scripts").mkdir(parents=True)
-        for source in SCRIPTS.glob("*.py"):
-            shutil.copy2(source, fw / "scripts" / source.name)
+        for source in framework_source_files(include_aliases=True):
+            target = fw / "scripts" / source.relative_to(SCRIPTS)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
         (fw / "VERSION").write_text("1.15.0+test\n", encoding="utf-8")
         return build_pack.build_zip(
             root,

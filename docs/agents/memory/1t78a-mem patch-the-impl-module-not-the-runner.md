@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-09-25
 
 Memory ID: `1t78a-mem patch-the-impl-module-not-the-runner`
 Kind: `environment_gotcha`
@@ -22,4 +22,4 @@ patch.object on the thin runner module (server.py) does not reach functions the 
 ## Targets
 
 - `.wavefoundry/framework/scripts/server.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

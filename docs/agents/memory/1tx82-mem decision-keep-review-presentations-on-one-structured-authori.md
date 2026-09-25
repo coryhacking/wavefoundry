@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-29
+Last verified: 2026-09-25
 
 Memory ID: `1tx82-mem decision-keep-review-presentations-on-one-structured-authori`
 Kind: `decision`
@@ -32,4 +32,4 @@ Review status rows, forensic listing, and guided actions must consume the single
 ## Targets
 
 - `.wavefoundry/framework/scripts/review_evidence.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

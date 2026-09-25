@@ -28,6 +28,7 @@ STORE_PATH = SCRIPTS_ROOT / "index_state_store.py"
 
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 # The RETIRED standalone graph state store's relative path. Wave 1xny6 lane L6b
 # removed `index_state_store.GRAPH_STATE_STORE_RELPATH` with its last reader;
@@ -1776,7 +1777,7 @@ class IndexPathResolverTests(unittest.TestCase):
     def test_both_store_modules_take_their_filename_from_index_paths(self):
         # One definition: neither store module may re-spell a filename literal.
         for name in ("index_state_store.py", "sqlite_vector_store.py"):
-            src = (SCRIPTS_ROOT / name).read_text(encoding="utf-8")
+            src = source_path(name).read_text(encoding="utf-8")
             for literal in (self.paths.INDEX_DATABASE_FILENAME,
                             self.paths.LEGACY_INDEX_DATABASE_FILENAME):
                 self.assertNotIn(f'"{literal}"', src, f"{name} re-spells {literal}")

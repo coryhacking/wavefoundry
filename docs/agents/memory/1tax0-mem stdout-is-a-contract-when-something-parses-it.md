@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-09-25
 
 Memory ID: `1tax0-mem stdout-is-a-contract-when-something-parses-it`
 Kind: `failed_attempt`
@@ -31,4 +31,4 @@ Wave 1tbvp changed the docs gardener's stdout summary and silently broke run_gar
 ## Targets
 
 - `.wavefoundry/framework/scripts/docs_gardener.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

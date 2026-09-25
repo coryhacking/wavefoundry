@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-09-25
 
 Memory ID: `1sv1q-mem census-model-download-paths-by-behavior-not-constructor-spel`
 Kind: `successful_pattern`
@@ -34,5 +34,5 @@ When changing model-download or TLS handling, census construction paths by behav
 ## Targets
 
 - `.wavefoundry/framework/scripts/accel_embedder.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/indexer.py`

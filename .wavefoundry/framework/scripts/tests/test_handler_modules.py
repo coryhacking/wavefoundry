@@ -25,6 +25,7 @@ from server_tools_support import load_server
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[2]
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 # Explicit aliases preserve the retired gate response names and private optimize name.
 FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
                      'memory_propose': 'memory_propose_response',
@@ -249,12 +250,12 @@ def _unresolved(source, module, server):
 class HandlerStructureTests(unittest.TestCase):
     def test_locations_import_boundaries_and_name_resolution(self):
         server = load_server()
-        server_defs = {n.name for n in ast.parse((SCRIPTS / 'server_impl.py').read_text()).body
+        server_defs = {n.name for n in ast.parse(source_path("server_impl.py").read_text()).body
                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         for name, tools in FAMILIES.items():
             with self.subTest(module=name):
                 module = importlib.import_module(name)
-                source = (SCRIPTS / (name + '.py')).read_text()
+                source = source_path(name).read_text()
                 tree = ast.parse(source)
                 local_defs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
                 for tool, response in tools.items():
@@ -276,8 +277,8 @@ class HandlerStructureTests(unittest.TestCase):
     def test_memory_partition_and_reexport_identities(self):
         server = load_server()
         memory = importlib.import_module('memory_handlers')
-        server_tree = ast.parse((SCRIPTS / 'server_impl.py').read_text())
-        memory_tree = ast.parse((SCRIPTS / 'memory_handlers.py').read_text())
+        server_tree = ast.parse(source_path("server_impl.py").read_text())
+        memory_tree = ast.parse(source_path("memory_handlers.py").read_text())
         staying = {'_auto_populate_memory_for_wave', '_memory_validation_diagnostics'}
         def definitions(tree):
             return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
@@ -298,7 +299,7 @@ class HandlerStructureTests(unittest.TestCase):
 
     def test_split_three_complete_partitions_and_identity(self):
         server = load_server()
-        root_tree = ast.parse((SCRIPTS / 'server_impl.py').read_text())
+        root_tree = ast.parse(source_path("server_impl.py").read_text())
         def owned(tree):
             result = set()
             for node in tree.body:
@@ -311,7 +312,7 @@ class HandlerStructureTests(unittest.TestCase):
         root_owned = owned(root_tree)
         for owner, names in SPLIT_THREE_ROSTERS.items():
             module = importlib.import_module(owner)
-            tree = ast.parse((SCRIPTS / (owner + '.py')).read_text())
+            tree = ast.parse(source_path(owner).read_text())
             self.assertTrue(set(names) <= owned(tree), owner)
             self.assertFalse(set(names) & root_owned, owner)
             for name in names:
@@ -440,13 +441,18 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
         import build_pack
         with tempfile.TemporaryDirectory() as temp:
             framework = Path(temp)
-            (framework / 'scripts').mkdir()
+            (framework / 'scripts' / 'wf_server').mkdir(parents=True)
+            shutil.copy2(SCRIPTS / 'wf_server' / '__init__.py', framework / 'scripts' / 'wf_server' / '__init__.py')
             for name in FAMILIES:
+                # Wave 1yzd0: the flat alias and the package implementation both ship.
                 shutil.copy2(SCRIPTS / (name + '.py'), framework / 'scripts' / (name + '.py'))
+                shutil.copy2(source_path(name), framework / 'scripts' / 'wf_server' / (name + '.py'))
             manifest = build_pack.write_manifest(framework, build_pack.collect_files(framework))
             entries = manifest.read_text().splitlines()
+        self.assertIn('scripts/wf_server/__init__.py', entries)
         for name in FAMILIES:
             self.assertIn('scripts/' + name + '.py', entries)
+            self.assertIn('scripts/wf_server/' + name + '.py', entries)
 
     def test_evaluator_real_server_attributes_and_missing_alias_control(self):
         import retrieval_eval
@@ -471,7 +477,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
         self.assertNotIn('techdocs_handlers.py', evaluator.PRODUCTION_RETRIEVAL_MODULES)
         functions = {}
         for module in ('server_impl', *FAMILIES):
-            tree = ast.parse((SCRIPTS / (module + '.py')).read_text())
+            tree = ast.parse(source_path(module).read_text())
             for node in tree.body:
                 if isinstance(node, ast.FunctionDef):
                     functions[node.name] = node
@@ -501,7 +507,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
                         edge = 'WaveIndex.' + target.attr
                 if edge in functions and edge not in reached:
                     pending.append(edge)
-        memory_tree = ast.parse((SCRIPTS / 'memory_handlers.py').read_text())
+        memory_tree = ast.parse(source_path("memory_handlers.py").read_text())
         memory_names = {node.name for node in memory_tree.body if isinstance(node, ast.FunctionDef)}
         self.assertTrue({'WaveIndex.search_docs', 'WaveIndex.search_code', '_response'} <= reached)
         self.assertFalse(memory_names & reached)
@@ -523,10 +529,14 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
             scripts = Path(temp)
             # Copy the moved file independently of the identity allowlist, so
             # omitting it is detected by digest invariance, not fixture setup.
+            # Wave 1yzd0: copy the package with its initializer so the identity
+            # reads the implementing files, and mutate the implementation.
+            (scripts / 'wf_server').mkdir()
+            shutil.copy2(SCRIPTS / 'wf_server' / '__init__.py', scripts / 'wf_server' / '__init__.py')
             for name in {*evaluator.PRODUCTION_RETRIEVAL_MODULES, 'codenav_handlers.py'}:
-                shutil.copy2(SCRIPTS / name, scripts / name)
+                shutil.copy2(source_path(name), source_path(name, scripts))
             before = evaluator._production_identity(scripts)
-            with (scripts / 'codenav_handlers.py').open('a') as handle:
+            with source_path('codenav_handlers.py', scripts).open('a') as handle:
                 handle.write('\n# isolated production-identity mutation\n')
             after = evaluator._production_identity(scripts)
             self.assertNotEqual(before['digest'], after['digest'])
@@ -535,7 +545,9 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
         import retrieval_eval as evaluator
         server = load_server()
         corpus = evaluator.load_fixture_corpus(ROOT / 'docs/evals/retrieval-quality-golden.json', root=ROOT)
-        resolved = evaluator.resolve_symbol_anchors(corpus, server, ROOT)
+        # Wave 1yzd0: resolve the golden paths the way the evaluator does.
+        resolution = evaluator.implementing_relevance_paths(ROOT, corpus)
+        resolved = evaluator.resolve_symbol_anchors(corpus, server, ROOT, resolution)
         symbols, contents = [], []
         for fixture in corpus['fixtures']:
             for entry in fixture['relevance']:
@@ -545,7 +557,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
                     self.assertIn(entry['path'] + '::' + anchor['value'], resolved)
                 elif anchor.get('type') == 'content':
                     contents.append(entry)
-                    self.assertIn(anchor['value'], (ROOT / entry['path']).read_text())
+                    self.assertIn(anchor['value'], (ROOT / resolution.get(entry['path'], entry['path'])).read_text())
         self.assertTrue(symbols)
         self.assertTrue(contents)
         # A valid file with the wrong content must fail the same content oracle.
@@ -558,7 +570,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
                       if e.get('anchor', {}).get('value') == 'code_lexical_response')
         target['path'] = '.wavefoundry/framework/scripts/server_impl.py'
         with self.assertRaises(evaluator.EvaluationInvalid) as caught:
-            evaluator.resolve_symbol_anchors(mutant, server, ROOT)
+            evaluator.resolve_symbol_anchors(mutant, server, ROOT, evaluator.implementing_relevance_paths(ROOT, mutant))
         self.assertEqual(caught.exception.code, 'unresolved_symbol_anchor')
 
 
@@ -576,14 +588,14 @@ with tempfile.TemporaryDirectory() as tmp:
     runner.build_server(root)
     try:
         old=getattr(runner.server_impl, response_name)
-        source=Path(module_name+'.py')
+        source=Path('wf_server')/(module_name+'.py')  # edit the implementation, never the alias
         source.write_text(source.read_text()+'\ndef '+response_name+'(root, *args, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
         result=runner.perform_mcp_reload()
         assert result['status']=='ok',result
         fresh=getattr(runner.server_impl, response_name)
         assert fresh is not old
         assert fresh(root)['data']['handler_reload_probe'] is True
-        tool_args = {'wf_open_gate': {'gate': 'framework_edit_allowed'},
+        tool_args = {'wf_open_gate': {'gate': 'framework_edit_allowed'}, 'code_read': {'path': 'README.md'},
                      'wf_context_efficiency_eval': {'wave_id': 'probe', 'phase_id': 'implementation', 'mode': 'register'}}.get(tool_name, {})
         served=runner.server_impl._TOOL_REGISTRY.get(tool_name).callable(**tool_args)
         assert served['data']['handler_reload_probe'] is True,served
@@ -596,6 +608,8 @@ with tempfile.TemporaryDirectory() as tmp:
 class HandlerReloadTests(unittest.TestCase):
     def test_actual_reload_serves_modified_scratch_handlers(self):
         cases = (
+            # Wave 1yzd0: every moved handler module, including code navigation.
+            ('codenav_handlers', 'code_read_response', 'code_read'),
             ('graph_handlers', 'wf_graph_report_response', 'wf_graph_report'),
             ('memory_handlers', 'memory_brief_response', 'memory_brief'),
             ('techdocs_handlers', 'wf_techdocs_audit_response', 'wf_techdocs_audit'),

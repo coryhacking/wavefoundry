@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-09-25
 
 Memory ID: `1svmp-mem protect-mcp-stdout-at-both-python-and-file-descriptor-bounda`
 Kind: `environment_gotcha`
@@ -34,4 +34,4 @@ When MCP stdio invokes in-process rebuilds or native libraries, redirect Python 
 
 - `.wavefoundry/framework/scripts/graph_query.py`
 - `.wavefoundry/framework/scripts/cli_stdio.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

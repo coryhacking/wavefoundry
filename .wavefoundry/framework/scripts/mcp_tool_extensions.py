@@ -51,9 +51,22 @@ EXTENSION_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 RESERVED_MODULE_NAMES = frozenset({
     "mcp_tool_extensions",
     "mcp_tool_roster",
-    "mcp_tool_registry",
     "server",
+    "wf_server",
+    # The wf_server package modules, which keep flat alias names (wave 1yzd0);
+    # test_server_package pins this set to server_impl._FLAT_ALIASES.
     "server_impl",
+    "mcp_tool_registry",
+    "codenav_handlers",
+    "graph_handlers",
+    "techdocs_handlers",
+    "memory_handlers",
+    "index_handlers",
+    "upgrade_handlers",
+    "edit_gate_handlers",
+    "dashboard_handlers",
+    "docs_handlers",
+    "context_efficiency_handlers",
 })
 
 

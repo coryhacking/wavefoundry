@@ -44,7 +44,10 @@ def _load(name: str):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
-    return mod
+    # A moved module's flat file is a sys.modules alias (wave 1yzd0): executing
+    # it replaces sys.modules[name] with the package module and leaves ``mod``
+    # hollow, so return the registered module rather than ``mod``.
+    return sys.modules[name]
 
 
 def load_server():
@@ -61,7 +64,7 @@ def load_independent_server():
     RealChildProcessCoherenceTests supplies actual process isolation.
     """
     spec = importlib.util.spec_from_file_location(
-        "server_impl_proc2", SCRIPTS_ROOT / "server_impl.py"
+        "server_impl_proc2", SCRIPTS_ROOT / "wf_server" / "server_impl.py"
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-09-25
 
 Memory ID: `1t4rg-mem a-canonical-constants-module-is-not-single-source-until-emit`
 Kind: `failed_attempt`
@@ -32,4 +32,4 @@ Wave 1seax: public_contract.py was created as the single source for public vocab
 ## Targets
 
 - `.wavefoundry/framework/scripts/public_contract.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

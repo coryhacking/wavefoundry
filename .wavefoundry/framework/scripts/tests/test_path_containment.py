@@ -10,6 +10,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import framework_source_files, source_path  # wf_server-aware source locations (wave 1yzd0)
 import path_containment as subject
 
 
@@ -132,8 +133,9 @@ class ProductionIdentityTests(unittest.TestCase):
             # Copy the target independently of the membership tuple: removing
             # its registration must make the digest assertion fail, not remove
             # the target from the fixture and falsely pass.
-            for source in SCRIPTS.glob("*.py"):
-                shutil.copyfile(source, scripts / source.name)
+            for source in framework_source_files(include_aliases=True):
+                (scripts / source.relative_to(SCRIPTS)).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, scripts / source.relative_to(SCRIPTS))
             target = scripts / "path_containment.py"
             self.assertTrue(target.is_file())
             before = retrieval_eval._production_identity(scripts)
@@ -223,12 +225,12 @@ class WrapperContractTests(unittest.TestCase):
             ('memory_records.py', '_contained_record_path'): ['validate_memory_id(memory_id)', 'canonical_memory_root(root)', 'resolved.parent != expected_root', 'return path'],
             ('memory_records.py', '_contained_memory_subdir_path'): ['validate_memory_id(memory_id)', 'subdir not in ("archive", "pointers")', 'canonical_memory_root(root)', 'resolved.parent != expected_parent', 'return path'],
             ('memory_records.py', '_contained_purge_staging_path'): ['validate_memory_id(memory_id)', 'canonical_memory_root(root)', 'resolved.parent != expected_parent', 'return path'],
-            ('server_impl.py', '_contained_wave_review_paths'): ['record_paths.load_record_roots(root)', 'waves_root != expected_waves_root', 'wave_dir.relative_to(waves_root).parts', '1 <= len(depth_parts) <= allowed_depth', 'wave_md.resolve(strict=False) != expected_wave_md', 'expected_events.resolve(strict=False) != expected_events', 'from exc'],
-            ('server_impl.py', 'resolve_path_under_root'): ['root = repo_root.resolve()', 'raw.resolve() if raw.is_absolute() else (root / raw).resolve()', 'except (OSError, RuntimeError) as exc:', '"path_resolution_failed"', '"path_outside_allowed_roots"'],
+            ('wf_server/server_impl.py', '_contained_wave_review_paths'): ['record_paths.load_record_roots(root)', 'waves_root != expected_waves_root', 'wave_dir.relative_to(waves_root).parts', '1 <= len(depth_parts) <= allowed_depth', 'wave_md.resolve(strict=False) != expected_wave_md', 'expected_events.resolve(strict=False) != expected_events', 'from exc'],
+            ('wf_server/server_impl.py', 'resolve_path_under_root'): ['root = repo_root.resolve()', 'raw.resolve() if raw.is_absolute() else (root / raw).resolve()', 'except (OSError, RuntimeError) as exc:', '"path_resolution_failed"', '"path_outside_allowed_roots"'],
             ('review_policy.py', 'contained_relative_path'): ['root.resolve(strict=True)', 'for part in Path(relative).parts:', 'cursor.is_symlink()', 'target.resolve(strict=False)', 'return target'],
         }
         for (filename, name), retained in clauses.items():
-            source = (SCRIPTS / filename).read_text()
+            source = source_path(filename).read_text()
             node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == name)
             body = ast.get_source_segment(source, node)
             for clause in retained:
@@ -251,7 +253,7 @@ CONTAINMENT_ALLOWLIST = {
     ('memory_backfill.py', '_canonical_waves_dir'): 'Record-layout directory authority and OSError diagnostics; separate follow-up.',
     ('memory_records.py', 'canonical_memory_root'): 'Exact canonical equality and unresolved return; separate follow-up.',
     ('memory_records.py', '_purge_disposition_path'): 'Disposition authority rejects parent/final symlinks; separate follow-up.',
-    ('server_impl.py', '_resolve_repo_path'): 'Absolute-input refusal and selective error mapping; separate follow-up.',
+    ('wf_server/server_impl.py', '_resolve_repo_path'): 'Absolute-input refusal and selective error mapping; separate follow-up.',
     ('techdocs_audit_lib.py', '_inside'): 'Nested lexical string-prefix predicate; separate follow-up.',
     ('retrieval_eval.py', '_path_under_root'): 'Relative string return, selective errors and evaluator identity; separate follow-up.',
     ('retrieval_eval.py', 'confined_report_path'): 'Report publication filename/role/lstat authority; separate follow-up.',
@@ -275,8 +277,8 @@ ADOPTED_CONTAINMENT = {
     ('memory_records.py', '_contained_record_path'),
     ('memory_records.py', '_contained_memory_subdir_path'),
     ('memory_records.py', '_contained_purge_staging_path'),
-    ('server_impl.py', '_contained_wave_review_paths'),
-    ('server_impl.py', 'resolve_path_under_root'),
+    ('wf_server/server_impl.py', '_contained_wave_review_paths'),
+    ('wf_server/server_impl.py', 'resolve_path_under_root'),
     ('review_policy.py', 'contained_relative_path'),
 }
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-02
+Last verified: 2026-09-25
 
 Memory ID: `1u8q1-mem server-impl-file-playbook`
 Kind: `fragile_file`
@@ -24,5 +24,5 @@ Before changing server_impl.py, identify the affected seam—lifecycle gate, con
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/docs_gardener.py`

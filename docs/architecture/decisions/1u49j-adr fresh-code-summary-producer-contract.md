@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-08-04
+Last verified: 2026-09-25
 
 ## Context
 
@@ -117,7 +117,7 @@ registration.
 
 - `.wavefoundry/framework/scripts/upgrade_wavefoundry.py` (`_emit_delegated_summary`,
   `_emit_primary_summary_via_delegate_or_fallback`, `_delegated_summary_payload`)
-- `.wavefoundry/framework/scripts/server_impl.py` (`UPGRADE_SUMMARY_TERMINAL_KEYS`,
+- `.wavefoundry/framework/scripts/wf_server/upgrade_handlers.py` (`UPGRADE_SUMMARY_TERMINAL_KEYS`,
   `_bounded_upgrade_summary`, `_parse_upgrade_summary`)
 - `.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py`
   (`DelegatedSummaryContractTests`, the permanent contract test)

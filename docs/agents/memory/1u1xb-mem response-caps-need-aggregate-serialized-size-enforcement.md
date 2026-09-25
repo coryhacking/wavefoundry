@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-25
 
 Memory ID: `1u1xb-mem response-caps-need-aggregate-serialized-size-enforcement`
 Kind: `failed_attempt`
@@ -32,5 +32,5 @@ Per-field truncation does not bound an MCP envelope: many small fields, oversize
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_server_tools.py`

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-19
+Last verified: 2026-09-25
 
 Memory ID: `1yf4y-mem reload-freshness-of-sibling-modules-purge-entry-plus-a-modul`
 Kind: `environment_gotcha`
@@ -32,6 +32,6 @@ On wf_reload_mcp, modules loaded through _load_script are re-imported (cached un
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_lifecycle_gates_structure.py`
 - `.wavefoundry/framework/scripts/tests/test_mcp_tool_registry.py`

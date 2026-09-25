@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-25
 
 ## The Problem
 
@@ -598,6 +598,6 @@ The fast surface always names the deep surface (`freshness_verification_tool: "i
 
 ## Handler module boundary (wave 1y0h2)
 
-Graph query responses (`code_impact_response`, `code_callgraph_response`, `code_callhierarchy_response`, `code_graph_path_response`, `code_graph_community_response`, `code_risk_score_response`, and `wf_graph_report_response`) live in `.wavefoundry/framework/scripts/graph_handlers.py`. Navigation and direct lexical responses live in `codenav_handlers.py`. `server_impl.py` retains decorated MCP registration and rebound response aliases. Shared loaders, snapshots, root containment and ignore-rule walking retain their existing owners and are looked up at invocation time.
+Graph query responses (`code_impact_response`, `code_callgraph_response`, `code_callhierarchy_response`, `code_graph_path_response`, `code_graph_community_response`, `code_risk_score_response`, and `wf_graph_report_response`) live in `.wavefoundry/framework/scripts/wf_server/graph_handlers.py`. Navigation and direct lexical responses live in `wf_server/codenav_handlers.py`. `wf_server/server_impl.py` retains decorated MCP registration and rebound response aliases. Shared loaders, snapshots, root containment and ignore-rule walking retain their existing owners and are looked up at invocation time.
 
 The retrieval evaluator fingerprints codenav because measured lexical/code-ask paths and direct anchor-resolution reads use it. Graph response handlers are outside the measured roots; graph storage/query modules remain in the existing fingerprint. The relocated corpus symbol anchor starts a new post-move baseline after index freshness is verified; historical reports are not compared across this identity change.

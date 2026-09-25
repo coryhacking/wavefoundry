@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import model_bundle
 import upgrade_wavefoundry
 
@@ -123,7 +124,7 @@ class ModelBundleTests(unittest.TestCase):
             ],
         }
         for rel, expected_sha in frozen_fixtures.items():
-            digest = hashlib.sha256((SCRIPTS / rel).read_bytes()).hexdigest()
+            digest = hashlib.sha256(source_path(rel).read_bytes()).hexdigest()
             self.assertEqual(digest, expected_sha, rel)
         benchmark_exemptions = set(frozen_fixtures) | {
             # The committed controlled-comparison result of those inputs.

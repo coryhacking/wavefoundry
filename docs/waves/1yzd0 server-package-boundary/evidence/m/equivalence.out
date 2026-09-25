@@ -1,0 +1,13 @@
+server_impl: 332 definitions; changed=['<module statements>', '_audit_harness_coherence', '_default_template', '_get_chunker_module', '_indexer_module', '_load_script', '_read_chunker_version', '_read_framework_pack_version', 'run_validate', 'run_validate_changed'] added=[] removed=[]
+mcp_tool_registry: 7 definitions; changed=[] added=[] removed=[]
+codenav_handlers: 52 definitions; changed=[] added=[] removed=[]
+graph_handlers: 25 definitions; changed=[] added=[] removed=[]
+techdocs_handlers: 3 definitions; changed=[] added=[] removed=[]
+memory_handlers: 29 definitions; changed=[] added=[] removed=[]
+index_handlers: 53 definitions; changed=[] added=[] removed=[]
+upgrade_handlers: 14 definitions; changed=[] added=[] removed=[]
+edit_gate_handlers: 9 definitions; changed=[] added=[] removed=[]
+dashboard_handlers: 11 definitions; changed=[] added=[] removed=[]
+docs_handlers: 7 definitions; changed=[] added=[] removed=[]
+context_efficiency_handlers: 17 definitions; changed=[] added=[] removed=[]
+RESULT: OK

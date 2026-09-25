@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import framework_source_files, source_path  # wf_server-aware source locations (wave 1yzd0)
 REPO_ROOT = SCRIPTS_ROOT.parents[2]  # scripts -> framework -> .wavefoundry -> repo root
 RENDER_PATH = SCRIPTS_ROOT / "render_platform_surfaces.py"
 RECONCILE_PATH = SCRIPTS_ROOT / "reconcile_scan.py"
@@ -85,7 +86,7 @@ class AntiDuplicationTests(unittest.TestCase):
         # reconcile_scan.py and upgrade_wavefoundry.py must IMPORT it, never re-author it.
         define_re = re.compile(r"^_RETIRED_SURFACE_REPLACEMENTS\s*[:=]", re.MULTILINE)
         definers = []
-        for path in sorted(SCRIPTS_ROOT.glob("*.py")):
+        for path in framework_source_files():
             text = path.read_text(encoding="utf-8")
             # An IMPORT line (`from ... import _RETIRED_SURFACE_REPLACEMENTS`) is not a definition.
             for m in define_re.finditer(text):
@@ -716,7 +717,7 @@ class RenamedMcpToolScanTests(unittest.TestCase):
             ("server_impl.py", "register_mcp_surface"),
             ("server.py", "build_server"),
         ):
-            source = (SCRIPTS_ROOT / file_name).read_text(encoding="utf-8")
+            source = source_path(file_name).read_text(encoding="utf-8")
             tree = _ast.parse(source)
             for node in _ast.walk(tree):
                 if isinstance(node, _ast.FunctionDef) and node.name == fn_name:

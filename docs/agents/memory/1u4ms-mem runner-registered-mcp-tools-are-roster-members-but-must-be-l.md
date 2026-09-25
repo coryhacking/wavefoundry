@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-09-25
 
 Memory ID: `1u4ms-mem runner-registered-mcp-tools-are-roster-members-but-must-be-l`
 Kind: `decision`
@@ -34,6 +34,6 @@ Reload survivors that server.py registers itself after register_mcp_surface retu
 ## Targets
 
 - `.wavefoundry/framework/scripts/mcp_tool_roster.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/server.py`
 - `.wavefoundry/framework/scripts/tests/test_render_platform_surfaces.py`

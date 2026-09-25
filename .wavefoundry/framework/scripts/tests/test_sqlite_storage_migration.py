@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import index_paths
 import sqlite_storage_migration as migration
 import upgrade_lib
@@ -58,7 +59,7 @@ class ReceiptTests(unittest.TestCase):
         import ast
         modules = ("sqlite_storage_migration", "setup_readiness", "setup_reconciliation",
                    "upgrade_extensions", "retrieval_eval")
-        sources = {name: (SCRIPTS / (name + ".py")).read_text() for name in modules}
+        sources = {name: source_path(name).read_text() for name in modules}
         def scan(name, source):
             found = set()
             for owner in ast.walk(ast.parse(source)):

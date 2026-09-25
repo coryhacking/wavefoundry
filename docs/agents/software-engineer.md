@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: software-engineer
 Category: build
-Last verified: 2026-08-27
+Last verified: 2026-09-25
 
 ## Operating Identity
 
@@ -88,8 +88,8 @@ Stop and record a note or journal entry when:
 **Stack (Wavefoundry):**
 - Python 3.x — `pathlib.Path`, `dataclasses`, `re`, `json`, `typing`
 - No build system; scripts run directly via `python3`
-- MCP server: `server_impl.py` (implementation), `server.py` (thin stdio runner) — use `@mcp.tool` decorator pattern; respect `_READONLY_TOOL` annotation for read-only tools
-- Key modules: `dashboard_lib.py` (dashboard data layer), `docs_lint.py` + `wave_lint_lib/` (validator engine), `lifecycle_id.py` (ID generation), `server_impl.py` (MCP tool surface)
+- MCP server: `wf_server/server_impl.py` (implementation), `server.py` (thin stdio runner) — use `@mcp.tool` decorator pattern; respect `_READONLY_TOOL` annotation for read-only tools
+- Key modules: `dashboard_lib.py` (dashboard data layer), `docs_lint.py` + `wave_lint_lib/` (validator engine), `lifecycle_id.py` (ID generation), `wf_server/server_impl.py` (MCP tool surface)
 - File format: JSON configs, Markdown change docs, plaintext seeds
 
 **Dominant patterns:**

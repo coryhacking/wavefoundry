@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -77,7 +77,7 @@ Wavefoundry uses the Wave Framework to develop itself:
 
 ## Workflow Overview
 
-*Reader summary:* steps 1-3 below prepare work and, in the default `ready` mode, never take the single OPEN slot; step 4 (or `wf_prepare_wave(mode='create')`, prepare-and-open) opens a wave, and only one wave is open at a time (`wf_prepare_wave` docstring, `server_impl.py`). Review evidence from step 5 is recorded in `docs/waves/<wave-id>/events.jsonl`, the sole machine authority; the wave's `wave.md` is a generated projection of it ([Data and control flow](../architecture/data-and-control-flow.md), State Ownership).
+*Reader summary:* steps 1-3 below prepare work and, in the default `ready` mode, never take the single OPEN slot; step 4 (or `wf_prepare_wave(mode='create')`, prepare-and-open) opens a wave, and only one wave is open at a time (`wf_prepare_wave` docstring, `wf_server/server_impl.py`). Review evidence from step 5 is recorded in `docs/waves/<wave-id>/events.jsonl`, the sole machine authority; the wave's `wave.md` is a generated projection of it ([Data and control flow](../architecture/data-and-control-flow.md), State Ownership).
 
 Wavefoundry uses the Wave Framework lifecycle for its own development:
 
@@ -122,7 +122,7 @@ Wavefoundry has two active persona agents representing people who use or operate
 
 ## Key Configuration
 
-*Reader summary:* three checked-in JSON files under `docs/` (the workflow config for lifecycle, review, and dashboard settings; the repo profile for archetypes and factor applicability; the prompt-surface manifest for the command catalog); the fourth is a gitignored local approval flag that the edit gates read (`_VALID_GATES`, `server_impl.py`; `render_platform_surfaces.GUARD_OVERRIDES_REL`, line 16).
+*Reader summary:* three checked-in JSON files under `docs/` (the workflow config for lifecycle, review, and dashboard settings; the repo profile for archetypes and factor applicability; the prompt-surface manifest for the command catalog); the fourth is a gitignored local approval flag that the edit gates read (`_VALID_GATES`, `wf_server/server_impl.py`; `render_platform_surfaces.GUARD_OVERRIDES_REL`, line 16).
 
 | File | Purpose |
 |------|---------|

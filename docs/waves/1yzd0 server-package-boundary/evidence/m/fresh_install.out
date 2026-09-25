@@ -1,0 +1,23 @@
+{
+ "fresh": {
+  "package_present": true,
+  "flat_alias_present": true,
+  "dry_run": {
+   "exit": 0,
+   "tail": [
+    "Scope: metadata readiness only; no full integrity, model or source-freshness audit.",
+    "wavefoundry mcp-server --dry-run: OK (root=/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner ea6q2g8f/fresh install, handler=ImplHandler)"
+   ]
+  },
+  "identity": {
+   "server_impl": "wf_server.server_impl",
+   "server_impl_file": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner ea6q2g8f/fresh install/.wavefoundry/framework/scripts/wf_server/server_impl.py",
+   "dashboard_is_package": true,
+   "scripts_dir": "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner ea6q2g8f/fresh install/.wavefoundry/framework/scripts"
+  },
+  "wf_server_info": {
+   "status": "ok",
+   "server_impl_version": "1.27.0+m1yzd0"
+  }
+ }
+}

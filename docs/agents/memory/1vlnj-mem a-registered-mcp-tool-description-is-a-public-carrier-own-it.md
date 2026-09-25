@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-17
+Last verified: 2026-09-25
 
 Memory ID: `1vlnj-mem a-registered-mcp-tool-description-is-a-public-carrier-own-it`
 Kind: `review_finding`
@@ -32,6 +32,6 @@ Wave 1viyu readiness (DOC-READY-002, RT-READY-003): the plan that changed wf_aud
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_server_tools.py`
 - `docs/specs/mcp-tool-surface.md`

@@ -1,0 +1,86 @@
+{
+ "v1.26.0": {
+  "upgrade_exit": 4,
+  "upgrade_tail": [
+   "",
+   "\u2500\u2500 Phase 3: Docs gate \u2500\u2500",
+   "docs-gardener: ok (nothing to report)",
+   "docs-lint: ok",
+   "  Docs gate: PASSED",
+   "",
+   "Historical memory requires bounded extraction and agent validation before Phase 4.",
+   "{\"candidates_drafted\": 0, \"candidates_pending\": 0, \"eligible_waves\": 297, \"entry_path\": \"upgrade\", \"failures\": 0, \"last_failure\": \"\", \"promoted\": 0, \"rejected\": 0, \"remaining_waves\": 287, \"retained\": 0, \"rewritten\": 0, \"run_id\": \"d0b634c70878f8df5b4f9e70a5ab9f9c\", \"state\": \"awaiting_validation\", \"waves_complete\": 6, \"waves_no_source\": 0, \"waves_unsupported\": 4}",
+   "{\"validation_worklist\": [], \"validation_worklist_count\": 0, \"validation_worklist_remaining\": 0}",
+   "automatic_batch=[{\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"1293d mcp-server-foundation\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"129p8 mcp-docs-search-reliability\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"12ahv mcp-agent-surface\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"12as1 design-system-extraction\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"12as7 wave-lifecycle-tool-fixes\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"unsupported\", \"wave_id\": \"12awg mcp-tool-cleanup\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"extracted\", \"wave_id\": \"12axj chunker-and-pack-improvements\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"unsupported\", \"wave_id\": \"12b9x journal-signal-over-log\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"unsupported\", \"wave_id\": \"12bc4 journal-upgrade-coverage-gaps\"}, {\"candidates_written\": 0, \"exhausted\": true, \"outcome\": \"unsupported\", \"wave_id\": \"12br9 code-search-language-filter\"}]",
+   "Reload MCP, run memory_backfill(mode='create', entry_path='upgrade') and memory_validate, then call wf_upgrade(phase='resume_after_memory').",
+   "WARNING: docs/workflow-config.json: `wave_implement.wave_root` has no effect; record roots are the constants in .wavefoundry/framework/scripts/record_paths.py (ADR 1yb8v), so remove the key [advisory sensor `inert_record_layout_config`, introduced in wave `1yyoj`; a flip to blocking is a recorded change]"
+  ],
+  "cleanup_exit": 4,
+  "cleanup_tail": [
+   "ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory."
+  ],
+  "package_present": true,
+  "flat_alias_bytes_ok": true,
+  "dry_run": {
+   "exit": 0,
+   "tail": [
+    "Scope: metadata readiness only; no full integrity, model or source-freshness audit.",
+    "wavefoundry mcp-server --dry-run: OK (root=/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.26.0, handler=ImplHandler)"
+   ]
+  },
+  "identity": {
+   "server_impl": "wf_server.server_impl",
+   "server_impl_file": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.26.0/.wavefoundry/framework/scripts/wf_server/server_impl.py",
+   "dashboard_is_package": true,
+   "scripts_dir": "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.26.0/.wavefoundry/framework/scripts"
+  },
+  "wf_server_info": {
+   "status": "ok",
+   "framework_version": "1.27.0+m1yzd0",
+   "server_impl_version": "1.27.0+m1yzd0"
+  }
+ }
+}
+{
+ "v1.25.0": {
+  "upgrade_exit": 4,
+  "upgrade_tail": [
+   "docs-gardener: updated docs/prompts/prompt-surface-manifest.json",
+   "docs-gardener: updated docs/prompts/review-wave.prompt.md",
+   "docs-gardener: stamped 19 doc(s)",
+   "docs-lint: ok",
+   "  Docs gate: PASSED",
+   "",
+   "Historical memory requires bounded extraction and agent validation before Phase 4.",
+   "{\"candidates_drafted\": 0, \"candidates_pending\": 0, \"eligible_waves\": 276, \"entry_path\": \"upgrade\", \"failures\": 10, \"last_failure\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"promoted\": 0, \"rejected\": 0, \"remaining_waves\": 266, \"retained\": 0, \"rewritten\": 0, \"run_id\": \"65aa978ff048d5a4023d7c1c0d11e1e6\", \"state\": \"awaiting_validation\", \"waves_complete\": 0, \"waves_no_source\": 0, \"waves_unsupported\": 0}",
+   "{\"validation_worklist\": [], \"validation_worklist_count\": 0, \"validation_worklist_remaining\": 0}",
+   "automatic_batch=[{\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"1293d mcp-server-foundation\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"129p8 mcp-docs-search-reliability\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12ahv mcp-agent-surface\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12as1 design-system-extraction\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12as7 wave-lifecycle-tool-fixes\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12awg mcp-tool-cleanup\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12axj chunker-and-pack-improvements\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12b9x journal-signal-over-log\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12bc4 journal-upgrade-coverage-gaps\"}, {\"error\": \"index_runtime_stale: chunker: persisted='executing code', supported='installed source capture'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.\", \"outcome\": \"failed\", \"wave_id\": \"12br9 code-search-language-filter\"}]",
+   "Reload MCP, run memory_backfill(mode='create', entry_path='upgrade') and memory_validate, then call wf_upgrade(phase='resume_after_memory').",
+   "WARNING: docs/workflow-config.json: `wave_implement.wave_root` has no effect; record roots are the constants in .wavefoundry/framework/scripts/record_paths.py (ADR 1yb8v), so remove the key [advisory sensor `inert_record_layout_config`, introduced in wave `1yyoj`; a flip to blocking is a recorded change]"
+  ],
+  "cleanup_exit": 4,
+  "cleanup_tail": [
+   "ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory."
+  ],
+  "package_present": true,
+  "flat_alias_bytes_ok": true,
+  "dry_run": {
+   "exit": 0,
+   "tail": [
+    "Scope: metadata readiness only; no full integrity, model or source-freshness audit.",
+    "wavefoundry mcp-server --dry-run: OK (root=/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.25.0, handler=ImplHandler)"
+   ]
+  },
+  "identity": {
+   "server_impl": "wf_server.server_impl",
+   "server_impl_file": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.25.0/.wavefoundry/framework/scripts/wf_server/server_impl.py",
+   "dashboard_is_package": true,
+   "scripts_dir": "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yzd0 old runner buyyi5x4/installed v1.25.0/.wavefoundry/framework/scripts"
+  },
+  "wf_server_info": {
+   "status": "ok",
+   "framework_version": "1.27.0+m1yzd0",
+   "server_impl_version": "1.27.0+m1yzd0"
+  }
+ }
+}

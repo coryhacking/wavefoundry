@@ -272,6 +272,12 @@ class BuildPackTests(unittest.TestCase):
             ".wavefoundry/framework/scripts/server_impl.py",
             names,
         )
+        # Wave 1yzd0: the flat file is the alias older runners require; the
+        # implementation ships in the package.
+        self.assertIn(
+            ".wavefoundry/framework/scripts/wf_server/server_impl.py",
+            names,
+        )
         self.assertIn(
             ".wavefoundry/framework/scripts/context_efficiency.py",
             names,
@@ -300,7 +306,7 @@ class BuildPackTests(unittest.TestCase):
                 ".wavefoundry/framework/scripts/review_evidence.py"
             ).decode("utf-8")
             server = archive.read(
-                ".wavefoundry/framework/scripts/server_impl.py"
+                ".wavefoundry/framework/scripts/wf_server/server_impl.py"
             ).decode("utf-8")
         self.assertIn("def build_compact_review_event", writer)
         self.assertIn("def review_evidence_human_table", writer)
@@ -339,7 +345,7 @@ class BuildPackTests(unittest.TestCase):
                 ".wavefoundry/framework/scripts/setup_wavefoundry.py"
             ).decode("utf-8")
             server = archive.read(
-                ".wavefoundry/framework/scripts/server_impl.py"
+                ".wavefoundry/framework/scripts/wf_server/server_impl.py"
             ).decode("utf-8")
         self.assertIn('visible.indexOf("<!--")', renderer)
         self.assertIn('paragraphLines.join(" ")', renderer)

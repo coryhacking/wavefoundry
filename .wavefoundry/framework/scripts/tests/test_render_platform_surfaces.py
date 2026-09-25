@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -2499,7 +2500,7 @@ class SyncSurfacesNeverRendersPermissionsTests(unittest.TestCase):
     SWITCH = "--include-permissions"
 
     def test_server_impl_never_names_the_permissions_switch(self):
-        source = (self.SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertNotIn(
             self.SWITCH,
             source,
@@ -2515,7 +2516,7 @@ class SyncSurfacesNeverRendersPermissionsTests(unittest.TestCase):
         # Positive controls: the two operator-run orchestrations DO pass it,
         # proving the negative pins above cannot rot into vacuity via a rename.
         for name in ("upgrade_wavefoundry.py", "setup_wavefoundry.py"):
-            source = (self.SCRIPTS / name).read_text(encoding="utf-8")
+            source = source_path(name).read_text(encoding="utf-8")
             self.assertIn(self.SWITCH, source, f"{name} must pass {self.SWITCH}")
 
     def test_renderer_default_is_off(self):
@@ -2529,7 +2530,7 @@ class SyncSurfacesNeverRendersPermissionsTests(unittest.TestCase):
         # not reach the permissions renderer under ANY name — not the function, not
         # the provenance key, not the scope-narrowing switch.
         for name in ("server_impl.py", "server.py"):
-            source = (self.SCRIPTS / name).read_text(encoding="utf-8")
+            source = source_path(name).read_text(encoding="utf-8")
             for symbol in (
                 "render_claude_permissions",
                 "PERMISSIONS_PROVENANCE_KEY",
@@ -2590,7 +2591,7 @@ class RosterRegistrationParityTests(unittest.TestCase):
             return isinstance(target, _ast.Attribute) and target.attr == "tool"
 
         if source is None:
-            source = (self.SCRIPTS / file_name).read_text(encoding="utf-8")
+            source = source_path(file_name).read_text(encoding="utf-8")
         found: set[str] = set()
         for node in _ast.walk(_ast.parse(source)):
             if isinstance(node, def_kinds) and node.name == fn_name:
@@ -2659,5 +2660,5 @@ class RosterRegistrationParityTests(unittest.TestCase):
     def test_register_mcp_surface_consumes_the_roster(self):
         # The implementation side asserts parity at registration time
         # (warning-only; this test is the hard gate).
-        source = (self.SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn('_load_script("mcp_tool_roster")', source)

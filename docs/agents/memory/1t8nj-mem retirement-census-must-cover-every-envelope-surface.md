@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-09-25
 
 Memory ID: `1t8nj-mem retirement-census-must-cover-every-envelope-surface`
 Kind: `failed_attempt`
@@ -30,4 +30,4 @@ Wave 1t9wa retired journals and claimed envelope fields removed, but the census 
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

@@ -25,6 +25,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 INDEXER_PATH = SCRIPTS_ROOT / "indexer.py"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+from framework_files import framework_source_files  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 
 
@@ -7447,7 +7448,7 @@ class OrphanRetirementCallerCensusTests(unittest.TestCase):
     def _script_sources(self) -> dict[str, str]:
         return {
             p.name: p.read_text(encoding="utf-8")
-            for p in SCRIPTS_ROOT.glob("*.py")
+            for p in framework_source_files()
         }
 
     def test_retire_orphaned_graph_paths_single_production_caller(self):

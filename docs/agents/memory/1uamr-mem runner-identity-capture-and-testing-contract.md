@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-02
+Last verified: 2026-09-25
 
 Memory ID: `1uamr-mem runner-identity-capture-and-testing-contract`
 Kind: `decision`
@@ -23,5 +23,5 @@ Keep runner identity hashing in exactly one implementation site, server_impl.com
 ## Targets
 
 - `.wavefoundry/framework/scripts/server.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_server_tools.py`

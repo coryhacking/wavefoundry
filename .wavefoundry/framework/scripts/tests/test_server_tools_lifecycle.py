@@ -38,6 +38,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_index_layer,
     _write_sqlite_index,
 )
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 
 def _make_wave(tmp: Path, wave_id: str, status: str, changes: list[dict]) -> Path:
@@ -3923,7 +3924,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         result = self.srv.index_health_response(idx)
         idx.docs_health.assert_called_once()
         self.assertEqual(result["status"], "ok")
-        source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
+        source = source_path("index_handlers.py").read_text(encoding="utf-8")
         start = source.index("def index_health_response")
         self.assertIn("docs_health", source[start:start + 4000])
 
@@ -4328,7 +4329,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         records = self.srv.validate_external_review_evidence(self.wave_md).records
         heads = sys.modules["review_evidence"].current_synthesis_heads(records)
         self.assertEqual(done["head_record_id"], heads["fixture-finding"]["record_id"])
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         start = source.index("def _review_evidence_list_response")
         end = source.index("def wf_review_event_response")
         body = source[start:end]
@@ -11606,7 +11607,7 @@ class WaveImplementTests(unittest.TestCase):
         self.assertEqual(projection_lanes, server_lanes)
 
     def test_roster_extractors_agree_over_current_wave_corpus(self):
-        repo = Path(self.srv.__file__).resolve().parents[3]
+        repo = self.srv.SCRIPTS_DIR.parents[2]
         wave_paths = sorted((repo / "docs" / "waves").glob("*/wave.md"))
         if not wave_paths:
             self.skipTest("repository wave corpus is unavailable")
@@ -13456,7 +13457,7 @@ class DeclaredWaveTreeSweepTests(unittest.TestCase):
     def setUp(self):
         self.srv = load_server()
         self.review = sys.modules["review_evidence"]
-        self.repo = Path(self.srv.__file__).resolve().parents[3]
+        self.repo = self.srv.SCRIPTS_DIR.parents[2]
         if not (self.repo / "docs" / "waves").is_dir():
             self.skipTest("repository wave tree not present")
 
@@ -14302,7 +14303,7 @@ Status: in-progress
         import setup_wavefoundry
         import render_agent_surfaces
 
-        real_fw = Path(self.srv.__file__).resolve().parent.parent
+        real_fw = self.srv.SCRIPTS_DIR.parent
         target_fw = self.root / ".wavefoundry" / "framework"
         for name in ("seeds", "install"):
             shutil.copytree(real_fw / name, target_fw / name)
@@ -15220,12 +15221,12 @@ class PublicTypedEventProcessRaceTests(unittest.TestCase):
         # registration layer; the inner blocking publication lock is only
         # ever acquired inside. No code path may inject the lifecycle lock
         # INSIDE a held publication lock.
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn("_wrap_lifecycle_mutation_lock(mcp, get_handler)", source)
         tree = ast.Module(body=[
             node
             for owner in ("server_impl.py", "memory_handlers.py")
-            for node in ast.parse((SCRIPTS_ROOT / owner).read_text(encoding="utf-8")).body
+            for node in ast.parse(source_path(owner).read_text(encoding="utf-8")).body
         ], type_ignores=[])
 
         def calls_lock(call, name):

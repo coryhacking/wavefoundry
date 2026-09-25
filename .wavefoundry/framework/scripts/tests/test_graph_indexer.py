@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 TESTS_ROOT = Path(__file__).resolve().parent
 for _p in (str(SCRIPTS_ROOT), str(TESTS_ROOT)):
     if _p not in sys.path:
@@ -7219,6 +7220,8 @@ class HeuristicImpactUnsupportedLanguageTests(unittest.TestCase):
         self.server_impl = importlib.util.module_from_spec(spec)
         sys.modules["server_impl"] = self.server_impl
         spec.loader.exec_module(self.server_impl)
+        # The flat file is a sys.modules alias (wave 1yzd0); keep the package module.
+        self.server_impl = sys.modules["server_impl"]
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -9564,7 +9567,7 @@ class GraphArtifactPersistenceTests(unittest.TestCase):
             "gen_codebase_map.py": "def _read_json",
         }
         for filename, marker in reader_sites.items():
-            src = (SCRIPTS_ROOT / filename).read_text(encoding="utf-8")
+            src = source_path(filename).read_text(encoding="utf-8")
             self.assertIn(marker, src, f"{filename}: sniffing reader missing")
             start = src.index(marker)
             body = src[start : start + 2000]

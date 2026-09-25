@@ -19,6 +19,7 @@ import tempfile
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+from framework_files import framework_source_files  # wf_server-aware source locations (wave 1yzd0)
 
 _DRIVER = r'''
 import asyncio, contextlib, hashlib, json, sys, tempfile
@@ -604,11 +605,11 @@ class ExtensionRefusalTests(unittest.TestCase):
 # function, is outside this census; the membership invariant below keeps the
 # reserved collections to served core or retired names.
 RESERVED_COLLECTIONS = {
-    ("server_impl.py", "_LIFECYCLE_MUTATION_LOCK_TOOLS"),
-    ("server_impl.py", "_COST_EXEMPT_TOOLS"),
-    ("server_impl.py", "_ARTIFACT_EXTRACTORS"),
-    ("server_impl.py", "_COST_FOCUS_EXTRACTORS"),
-    ("context_efficiency_handlers.py", "_STATE_SOURCE_EXTRACTORS"),
+    ("wf_server/server_impl.py", "_LIFECYCLE_MUTATION_LOCK_TOOLS"),
+    ("wf_server/server_impl.py", "_COST_EXEMPT_TOOLS"),
+    ("wf_server/server_impl.py", "_ARTIFACT_EXTRACTORS"),
+    ("wf_server/server_impl.py", "_COST_FOCUS_EXTRACTORS"),
+    ("wf_server/context_efficiency_handlers.py", "_STATE_SOURCE_EXTRACTORS"),
     ("publication_control.py", "PUBLICATION_WRITER_REGISTRY"),
     ("render_platform_surfaces.py", "_RENAMED_MCP_TOOLS"),
 }
@@ -624,13 +625,13 @@ NON_BEHAVIOR_COLLECTIONS = {
     ("retrieval_eval.py", "CALL_TIMEOUT_SECONDS"),
     ("retrieval_eval.py", "OPERATOR_REVIEW_P95_MS"),
     ("server.py", "_RELOAD_SURVIVOR_TOOLS"),
-    ("server_impl.py", "CODE_SEARCH_SUBSTRATE_SOURCES"),
-    ("server_impl.py", "CODE_ASK_SUBSTRATE_SOURCES"),
-    ("server_impl.py", "_CONTEXT_RETRIEVAL_TOOLS"),
-    ("server_impl.py", "_INDEXED_CONTEXT_TOOLS"),
-    ("server_impl.py", "_REFERENCE_ONLY_GRAPH_TOOLS"),
-    ("server_impl.py", "_LIFECYCLE_CONTEXT_STAGES"),
-    ("server_impl.py", "_TRACKING_CONTEXT_TOOLS"),
+    ("wf_server/server_impl.py", "CODE_SEARCH_SUBSTRATE_SOURCES"),
+    ("wf_server/server_impl.py", "CODE_ASK_SUBSTRATE_SOURCES"),
+    ("wf_server/server_impl.py", "_CONTEXT_RETRIEVAL_TOOLS"),
+    ("wf_server/server_impl.py", "_INDEXED_CONTEXT_TOOLS"),
+    ("wf_server/server_impl.py", "_REFERENCE_ONLY_GRAPH_TOOLS"),
+    ("wf_server/server_impl.py", "_LIFECYCLE_CONTEXT_STAGES"),
+    ("wf_server/server_impl.py", "_TRACKING_CONTEXT_TOOLS"),
     ("upgrade_extensions.py", "_CONFIG_KEY_RENAMES"),
     ("wave_lint_lib/constants.py", "WORKFLOW_REQUIRED_KEYS"),
 }
@@ -657,7 +658,7 @@ def _tool_name_collections() -> set[tuple[str, str]]:
         name for _file, name in RESERVED_COLLECTIONS | NON_BEHAVIOR_COLLECTIONS | set(DERIVED_COLLECTIONS)
     }
     found: set[tuple[str, str]] = set()
-    paths = sorted(SCRIPTS.glob("*.py")) + sorted((SCRIPTS / "wave_lint_lib").glob("*.py"))
+    paths = framework_source_files() + sorted((SCRIPTS / "wave_lint_lib").glob("*.py"))
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in tree.body:

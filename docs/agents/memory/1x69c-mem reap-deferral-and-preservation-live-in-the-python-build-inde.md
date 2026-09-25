@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-04
+Last verified: 2026-09-25
 
 Memory ID: `1x69c-mem reap-deferral-and-preservation-live-in-the-python-build-inde`
 Kind: `decision`
@@ -32,5 +32,5 @@ Wave 1x54z: build_index returns stranded_reap_deferred and stranded_reap_preserv
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/indexer.py`

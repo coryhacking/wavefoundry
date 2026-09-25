@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import framework_source_files, source_path  # wf_server-aware source locations (wave 1yzd0)
 VENV_BOOTSTRAP_PATH = SCRIPTS_ROOT / "venv_bootstrap.py"
 
 
@@ -374,7 +375,7 @@ class SingleResolverScanTests(unittest.TestCase):
 
     def test_tool_venv_env_read_in_exactly_one_place(self):
         offenders = []
-        for py in sorted(SCRIPTS_ROOT.glob("*.py")):
+        for py in framework_source_files():
             if py.name in self.ALLOWED or py.name in self.PENDING_RETIRED_BY_1P7PM_1P7PN:
                 continue
             if "WAVEFOUNDRY_TOOL_VENV" in py.read_text(encoding="utf-8"):
@@ -409,7 +410,7 @@ class SingleResolverScanTests(unittest.TestCase):
         a goal-B violation. ``python.exe`` is the precise marker (the codebase-map ``"Scripts"`` labels
         and setup_index's ``uv.exe`` uv-binary branch are NOT venv-python layout, so they don't trip)."""
         offenders = []
-        for py in sorted(SCRIPTS_ROOT.glob("*.py")):
+        for py in framework_source_files():
             if py.name in self.ALLOWED:
                 continue
             try:
@@ -451,7 +452,7 @@ class ActivateAdoptionScanTests(unittest.TestCase):
     def test_every_direct_launch_entry_activates_tool_venv(self):
         missing = []
         for name in self.ENTRY_SCRIPTS:
-            path = SCRIPTS_ROOT / name
+            path = source_path(name)
             self.assertTrue(path.is_file(), f"entry script {name} not found")
             src = path.read_text(encoding="utf-8")
             if "activate_tool_venv(" not in src:
@@ -466,7 +467,7 @@ class ActivateAdoptionScanTests(unittest.TestCase):
         # 1p802 AC-3: the re-exec is gone — no entry script CALLS reexec_into_tool_venv().
         offenders = []
         for name in self.ENTRY_SCRIPTS:
-            src = (SCRIPTS_ROOT / name).read_text(encoding="utf-8")
+            src = source_path(name).read_text(encoding="utf-8")
             if "reexec_into_tool_venv()" in src:
                 offenders.append(name)
         self.assertEqual(offenders, [], f"these entries still call the removed re-exec: {offenders}")

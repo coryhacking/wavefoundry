@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: architecture-reviewer
 Category: review
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 ## Operating Identity
 
@@ -34,7 +34,7 @@ Assume boundary integrity is at risk until dependency direction, control flow, a
 
 ### Tree-Sitter Coupling and Domain-Map Currency
 
-`docs/architecture/domain-map.md` documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `server_impl.py` (the language map owner) or `codenav_handlers.py` (the symbol-extraction consumer) that touch `_TS_SYMBOL_LANG_MAP`, `_extract_symbols_from_citations`, `_extract_symbols_ts`, or the lazy-load path (`_get_chunker_module`): verify that the MCP Server "Inbound Deps" entry in `domain-map.md` remains accurate. Any extension (new grammar) or removal must be reflected in the map. Flag as **medium** if the language set changes without a corresponding domain-map update.
+`docs/architecture/domain-map.md` documents the MCP Server domain's query-time coupling to the chunker's tree-sitter parser stack (used by `_extract_symbols_from_citations` for two-hop symbol expansion). When reviewing changes to `wf_server/server_impl.py` (the language map owner) or `wf_server/codenav_handlers.py` (the symbol-extraction consumer) that touch `_TS_SYMBOL_LANG_MAP`, `_extract_symbols_from_citations`, `_extract_symbols_ts`, or the lazy-load path (`_get_chunker_module`): verify that the MCP Server "Inbound Deps" entry in `domain-map.md` remains accurate. Any extension (new grammar) or removal must be reflected in the map. Flag as **medium** if the language set changes without a corresponding domain-map update.
 
 ### Data Layer Verification
 

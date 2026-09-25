@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The MCP server implementation lives in a `wf_server` package.** `server_impl`, the tool registry and the ten handler modules moved from `.wavefoundry/framework/scripts/` into `scripts/wf_server/`. Each keeps a flat file of the same name that resolves to the package module, so `import server_impl` and the other flat imports, private helpers reached through them, and patches on the flat names keep working; the flat names remain the public import surface. The entry point `scripts/server.py` and the distribution declarations `mcp_tool_extensions.py`, `mcp_tool_roster.py` and `record_paths.py` are unchanged, and extension modules stay flat files in `scripts/`. Upgrading from 1.25 or 1.26 works with the installed upgrade runner; restart the MCP host afterwards, because a reload on the old runner serves the new code but keeps reporting stale loaded code until restart. Distributions re-apply fork edits to `scripts/wf_server/<name>.py`, never to the flat alias file; the server refuses to start its implementation when a flat alias file has been replaced by a full copy, naming the file. `wf_server` and the moved module names are reserved extension module names.
+
 ## [1.27.0]
 
 ### Added

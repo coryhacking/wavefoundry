@@ -28,6 +28,7 @@ import numpy as np
 from server_tools_support import _make_repo, _write_sqlite_index, load_server
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 QUERY_VEC = np.array([1.0] + [0.0] * 383, dtype=np.float32)
 LONG_TAIL = "alpha_handler " + "filler " * 24  # a longer document: BM25 ranks it after the short ones
 
@@ -713,7 +714,7 @@ class CandidateMergeIdentityTests(_CandidateFixture):
         clamps are now READ FROM PRODUCTION, so the promise holds.
         """
         srv = self.srv
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
 
         def clamp_of(func_name):
@@ -842,7 +843,7 @@ class CandidateMergeIdentityTests(_CandidateFixture):
         no source-shape trick can satisfy. That work is recorded as a
         follow-up rather than claimed here.
         """
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         fn = next(
             (n for n in ast.walk(tree)
@@ -1031,7 +1032,7 @@ class SQLiteQueryShapeTests(unittest.TestCase):
 
     def test_ann_tuning_calls_and_constants_are_absent(self):
         for name in ("server_impl.py", "indexer.py"):
-            tree = ast.parse((SCRIPTS_ROOT / name).read_text(encoding="utf-8"))
+            tree = ast.parse(source_path(name).read_text(encoding="utf-8"))
             methods = {"nprobes", "minimum_nprobes", "maximum_nprobes", "refine_factor", "ef"}
             self.assertFalse([node for node in ast.walk(tree)
                               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)

@@ -281,7 +281,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         # tool-body half.  The registration-wrapper half is already present at the
         # cross-cutting site, so keying on it would be green today and blind to a
         # partial installation.
-        repo = Path(srv.__file__).resolve().parents[3]
+        repo = srv.SCRIPTS_DIR.parents[2]
         disjunct = "returned by a tool body before it calls its handler"
         cross = (repo / "docs/architecture/cross-cutting-concerns.md").read_text(encoding="utf-8")
         surface = (repo / "docs/specs/mcp-tool-surface.md").read_text(encoding="utf-8")

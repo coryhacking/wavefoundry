@@ -19,6 +19,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 
 import retrieval_eval as subject
@@ -2240,16 +2241,16 @@ class ProductionTuningEnvironmentTests(unittest.TestCase):
                     self.assertIsNone(default)
                     self.assertIn(
                         "SPEC_CHUNKING_DEFAULT_ON",
-                        sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8")))
+                        sources.setdefault(module, source_path(module).read_text(encoding="utf-8")))
                     continue
                 if name == "WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS":
                     # No module default: unset means "auto-scale by file count".
                     self.assertIsNone(default)
                     self.assertIn(
                         '"WAVEFOUNDRY_GRAPH_PARALLEL_WORKERS" in os.environ',
-                        sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8")))
+                        sources.setdefault(module, source_path(module).read_text(encoding="utf-8")))
                     continue
-                text = sources.setdefault(module, (SCRIPTS / module).read_text(encoding="utf-8"))
+                text = sources.setdefault(module, source_path(module).read_text(encoding="utf-8"))
                 found = re.search(patterns[name], text)
                 self.assertIsNotNone(found, f"{name} default not found in {module}")
                 self.assertEqual(default, found.group(1).replace("_", ""))

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-20
+Last verified: 2026-09-25
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -40,7 +40,7 @@ The lifecycle ID epoch for Wavefoundry is `2022-04-28T00:00:00Z` (UTC midnight, 
 
 ## MCP Tool Naming Namespaces (wave 1t3gt)
 
-The first-party MCP tool surface uses subsystem prefixes: `wf_` (framework/server operations and the wave lifecycle, verb-first names like `wf_close_wave` / `wf_open_gate` / `wf_start_dashboard`), `memory_` (agent memory records), `index_` (semantic/graph index), plus the pre-existing `docs_` / `code_` / `seed_`. The `wave_` prefix is retired with no aliases. `wave_review` and `wave_implement` still exist as workflow-config KEYS (they are config schema, not tool names) and must never be renamed in configs, fixtures, or migration tables. `MCP_TOOL_PREFIXES` in `server_impl.py` is the enforced invariant.
+The first-party MCP tool surface uses subsystem prefixes: `wf_` (framework/server operations and the wave lifecycle, verb-first names like `wf_close_wave` / `wf_open_gate` / `wf_start_dashboard`), `memory_` (agent memory records), `index_` (semantic/graph index), plus the pre-existing `docs_` / `code_` / `seed_`. The `wave_` prefix is retired with no aliases. `wave_review` and `wave_implement` still exist as workflow-config KEYS (they are config schema, not tool names) and must never be renamed in configs, fixtures, or migration tables. `MCP_TOOL_PREFIXES` in `wf_server/server_impl.py` is the enforced invariant.
 
 ## Context Efficiency Stage Model (wave 1t3gt)
 
@@ -60,7 +60,7 @@ Three durable facts from the 2026-08-27 test-suite-performance wave. (1) The can
 
 Three durable facts from the 2026-09-02 review-churn-follow-ups wave, all found by delivery review rather than by planning.
 
-(1) **Any edit to a `retrieval_eval.PRODUCTION_RETRIEVAL_MODULES` member owes a before/after receipt pair**, because production identity is whole-module: `_production_identity` hashes each module's whole bytes, so a lint-parse or install-audit edit to `server_impl.py`, which cannot reach a retrieval tool, still moves the digest and makes the wave the one that "changes production retrieval bytes" under the standing-gate policy. Check the module list before assuming a wave owes no receipt.
+(1) **Any edit to a `retrieval_eval.PRODUCTION_RETRIEVAL_MODULES` member owes a before/after receipt pair**, because production identity is whole-module: `_production_identity` hashes each module's whole bytes, so a lint-parse or install-audit edit to `wf_server/server_impl.py`, which cannot reach a retrieval tool, still moves the digest and makes the wave the one that "changes production retrieval bytes" under the standing-gate policy. Check the module list before assuming a wave owes no receipt.
 
 (2) **A `cross_generation` comparison attributes corpus drift to the change.** `_quality_comparison` is zero-tolerance (`cur + 1e-12 < base`) over holdout aggregate and per-class metrics, so documents added or changed between the two generations move holdout metrics with no retrieval edit at all; this wave's after-receipt returned `fail` on five `code_ask` regressions of at most 0.055 nDCG@10 across 37 generations. The proof pattern that settles it: reverse-patch the wave's own diff onto a scratch copy of the production modules and re-hash with `_production_identity`; equality with the before-receipt's digest bounds the wave's whole production change byte-exactly, and a call-site census plus an AST reachability closure from `code_ask`, `code_search`, `docs_search`, and `code_lexical` then shows whether any changed symbol is reachable. A drift-free same-generation pair is not available today: `run_evaluation`'s `production_scripts_dir` is identity-only (it hashes that directory but runs the imported modules), so the evaluator cannot measure pre-change bytes on the current generation.
 

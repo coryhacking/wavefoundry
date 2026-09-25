@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-25
 
 Memory ID: `1yuj1-mem test-mcp-tool-wrappers-through-call-tool-async-handlers-esca`
 Kind: `failed_attempt`
@@ -32,5 +32,5 @@ Calling tool.fn or checking __wf_middleware__ markers does not prove a wrapper's
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py`

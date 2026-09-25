@@ -14,6 +14,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SCRIPTS_ROOT.parents[2]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 from wave_lint_lib.docs_constants_validators import (  # noqa: E402
     _claims,
@@ -38,7 +39,7 @@ class PublicContractTests(unittest.TestCase):
         )
 
     def test_server_handler_consumes_the_module(self):
-        source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
+        source = source_path("index_handlers.py").read_text(encoding="utf-8")
         self.assertIn("from public_contract import INDEX_BUILD_CONTENT_VALUES", source)
         self.assertNotIn(
             'content not in {"docs", "code", "all", "graph", "map", "fts"}',
@@ -62,8 +63,8 @@ class PublicContractTests(unittest.TestCase):
         occurrences of any canonical reason value anywhere in server_impl or index_handlers —
         every shape (assignment, call argument, comparison, dict value,
         docstring) must go through the aliases."""
-        source = (SCRIPTS_ROOT / "server_impl.py").read_text(encoding="utf-8")
-        index_source = (SCRIPTS_ROOT / "index_handlers.py").read_text(encoding="utf-8")
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
+        index_source = source_path("index_handlers.py").read_text(encoding="utf-8")
         self.assertIn("_FRESHNESS_CURRENT, _FRESHNESS_STALE, _FRESHNESS_UNKNOWN = _INDEX_FRESHNESS_STATES", index_source)
         for required in (
             "_MODE_LEXICAL_FALLBACK, _MODE_LIVE_FALLBACK) = _SEARCH_MODES",

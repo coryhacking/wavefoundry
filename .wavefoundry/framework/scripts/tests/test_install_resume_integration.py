@@ -34,14 +34,15 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         shutil.copytree(FRAMEWORK / "install", target / "install")
         shutil.copytree(FRAMEWORK / "seeds", target / "seeds")
         shutil.copy2(FRAMEWORK / "VERSION", target / "VERSION")
-        self.server_file = target / "scripts/server_impl.py"
+        # Handlers resolve retained scripts through server_impl.SCRIPTS_DIR (wave 1yzd0).
+        self.scripts_dir = target / "scripts"
 
     def _sync(self):
-        with patch.object(server_impl, "__file__", str(self.server_file)):
+        with patch.object(server_impl, "SCRIPTS_DIR", self.scripts_dir):
             return docs_handlers.wf_sync_surfaces_response(self.root, mode="run")
 
     def _audit(self):
-        with patch.object(server_impl, "__file__", str(self.server_file)):
+        with patch.object(server_impl, "SCRIPTS_DIR", self.scripts_dir):
             return server_impl.wf_audit_install_response(self.root)
 
     def test_public_sync_repairs_empty_policy_region_without_permissions(self):

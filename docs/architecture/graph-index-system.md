@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-13
+Last verified: 2026-09-25
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -536,15 +536,15 @@ Each community record contains: `community_id`, `label`, `seed_node_id`, `node_i
 
 ---
 
-## MCP Integration (`server_impl.py`)
+## MCP Integration (`wf_server/server_impl.py`)
 
 ### Graph-Assisted `code_references`
 
-`_graph_references_candidate_files()` at `server_impl.py:9326-9352` is called unconditionally from `code_references_response()` at line 8588. It loads the project graph, resolves the queried symbol to a `node_id`, reads `index._in[node_id]` (incoming edges), and extracts `source_file` from each edge's source node. Returns a `frozenset[str]` of repo-relative paths, or `None` when the graph is absent, the symbol is unresolvable, or there are no incoming edges.
+`_graph_references_candidate_files()` at `wf_server/server_impl.py` is called unconditionally from `code_references_response()` at line 8588. It loads the project graph, resolves the queried symbol to a `node_id`, reads `index._in[node_id]` (incoming edges), and extracts `source_file` from each edge's source node. Returns a `frozenset[str]` of repo-relative paths, or `None` when the graph is absent, the symbol is unresolvable, or there are no incoming edges.
 
-When `restrict_files` is non-`None`, all three reference searchers (`_python_references`, `_treesitter_references`, `_non_python_references`) receive a pre-built `_files` list of `Path` objects, bypassing `_walk_repo_for_navigation()` entirely. The response includes `"graph_assisted": True/False` at `server_impl.py:8667, 8700`.
+When `restrict_files` is non-`None`, all three reference searchers (`_python_references`, `_treesitter_references`, `_non_python_references`) receive a pre-built `_files` list of `Path` objects, bypassing `_walk_repo_for_navigation()` entirely. The response includes `"graph_assisted": True/False` at `wf_server/server_impl.py, 8700`.
 
-### `code_callhierarchy_response()` (`server_impl.py`)
+### `code_callhierarchy_response()` (`wf_server/server_impl.py`)
 
 1. Obtains the index via `graph_query.get_query_index(root, layer="project")` (the server-process cache above; `GraphQueryIndex.from_root` under the kill switch or outside the server).
 2. Resolves the symbol, optionally qualifying with the `file` param by trying `file::symbol` first.
@@ -554,7 +554,7 @@ When `restrict_files` is non-`None`, all three reference searchers (`_python_ref
 6. When `context_depth > 0`, all immediate caller/callee node ids are gathered into a set, then a single combined `traverse(max_hops=1, direction="both")` is called per immediate neighbor; expanded neighbors (not already known) are appended as a `context` list.
 7. When the symbol is unresolvable, `_suggest_near_symbols(index, symbol)` populates a `suggestions` list in the response.
 
-### `code_callgraph_response()` (`server_impl.py:9610-9716`)
+### `code_callgraph_response()` (`wf_server/server_impl.py`)
 
 Calls `index.callgraph(symbol, depth=max(1,depth), direction=direction_value)`. When `include_tests=False` (default), nodes whose `source_file` matches `_is_test_path()` patterns are dropped, and edges referencing those filtered nodes are also dropped — keeping the subgraph internally consistent. Symmetric with `code_impact`'s filter. Enriches each remaining `"calls"` edge with a `"line"` field: groups all edges by source file, calls `_scan_all_call_sites_in_file()` once per unique source file, then calls `_first_call_site_at_or_after()` per edge using the source node's `source_location` as the start line.
 
@@ -576,7 +576,7 @@ Substring-match semantics are preserved across all paths because the candidate h
 
 The pattern established by `1301h` for `code_definition` is now applied uniformly across the seven other graph-using MCP tools: `code_references`, `code_callhierarchy`, `code_callgraph`, `_code_impact_graph_response` (graph mode of `code_impact`), `code_graph_path`, `code_graph_community`, and `wf_graph_report`. Every miss path attempts an incremental graph refresh before emitting suggestions or not-found.
 
-**Shared helpers in `server_impl.py`:**
+**Shared helpers in `wf_server/server_impl.py`:**
 
 - `_graph_refresh_then_recheck(root, recheck_fn)` — generic primitive that calls `index_build_response(root, content='graph', mode='update')` then invokes the supplied `recheck_fn()`. Returns `recheck_fn`'s result on success, or `None` on any exception. The refresh side-effect is centralized here; the six call sites only own the recheck closure.
 - `_graph_refresh_and_resolve(root, symbol, layer)` — convenience for the common symbol-resolution case. Refreshes, reloads `GraphQueryIndex`, calls `resolve_symbol(symbol)`, and returns `(fresh_index, node_id)` on hit or `(None, None)` on miss / refresh failure. `code_callhierarchy_response`, `code_callgraph_response`, and `_code_impact_graph_response` consume this helper.
@@ -599,7 +599,7 @@ The pattern established by `1301h` for `code_definition` is now applied uniforml
 
 Test coverage: `TestGraphRefreshThenRecheck`, `TestGraphRefreshAndResolve`, and `TestGraphToolRefreshOnMiss` in `tests/test_server_tools_retrieval.py` cover the helpers' unit behavior and verify each of the seven tools triggers exactly one refresh call on its miss path. The 1301h regression suite continues to pass, confirming `code_definition` was not affected by the helper extraction.
 
-### `code_impact_response()` (`server_impl.py:9579-9604`)
+### `code_impact_response()` (`wf_server/server_impl.py`)
 
 Two modes:
 
@@ -624,14 +624,14 @@ Obtains the index via `get_query_index(root, layer=layer_value)` (cached; see th
 
 Betweenness is served only on the base topology: a request carrying any collapse flag is refused with `betweenness_skipped_reason: "unsupported_for_collapsed_view"` rather than served from the base order, which is a behaviour reversal against the pre-wave code. The serve path gates on the persisted `cluster_builder_version`: a mismatch against runtime, **or a missing persisted version**, refuses the section with `betweenness_skipped_reason: "betweenness_artifact_stale"` and a `betweenness_stale_artifact` object, distinct from the absent-section reason. Betweenness arrived at cluster builder version 11, well after the artifact carried a version, so an unversioned betweenness section is not a pre-versioning artifact but one whose provenance cannot be established. The gate lives in this block rather than in `read_cluster_payload`, whose other consumers — the community tools, the communities resource, and the community labelling reached from call hierarchy and impact — would be stranded by a refusal there; only this block asserts a base-topology centrality *order* whose meaning depends on the artifact version.
 
-### `_scan_all_call_sites_in_file()` (`server_impl.py:9373-9426`)
+### `_scan_all_call_sites_in_file()` (`wf_server/server_impl.py`)
 
 Scans a single file exactly once for a list of callee labels:
 
 - **Python**: Parses with `ast`, walks all `ast.Call` nodes, matches against the full `label_set` in one pass. Returns `{label: [sorted call-site dicts]}`.
 - **Non-Python**: Iterates `callee_labels` and calls `_treesitter_references()` then `_non_python_references()` per label against the single restricted file.
 
-Called from `code_callhierarchy_response()` (outgoing direction, `server_impl.py:8993`) and `code_callgraph_response()` (per source file, `server_impl.py:9677`).
+Called from `code_callhierarchy_response()` (outgoing direction, `wf_server/server_impl.py`) and `code_callgraph_response()` (per source file, `wf_server/server_impl.py`).
 
 ---
 
@@ -639,7 +639,7 @@ Called from `code_callhierarchy_response()` (outgoing direction, `server_impl.py
 
 ### Wiring
 
-`index_build(content='graph')` invokes `setup_index.py --graph-only --root <root>` (`server_impl.py:2479-2480`). The `--graph-only` flag (`setup_index.py:757, 787-792`) routes to `run_index_rebuild(content="graph")` inside `setup_index.py`, which calls `_build_graph_artifacts()` in `indexer.py:1582-1642`:
+`index_build(content='graph')` invokes `setup_index.py --graph-only --root <root>` (`wf_server/server_impl.py`). The `--graph-only` flag (`setup_index.py:757, 787-792`) routes to `run_index_rebuild(content="graph")` inside `setup_index.py`, which calls `_build_graph_artifacts()` in `indexer.py:1582-1642`:
 
 ```
 index_build(content='graph')
@@ -685,7 +685,7 @@ The merge-state blob is loaded once and reused for eligibility and merge work; i
 
 ### Staleness Check
 
-`_index_is_up_to_date()` always returns `False` for `content="graph"` (`server_impl.py:2194-2196`). The staleness gate is bypassed so the build always enters the incremental extraction logic — but this does not mean every file is re-extracted. Within that logic, only files in the `changed_set` are re-extracted; unchanged files reuse their cached state artifacts. Bypassing the gate means the caller never short-circuits before entering the logic, not that the logic discards incremental state.
+`_index_is_up_to_date()` always returns `False` for `content="graph"` (`wf_server/server_impl.py`). The staleness gate is bypassed so the build always enters the incremental extraction logic — but this does not mean every file is re-extracted. Within that logic, only files in the `changed_set` are re-extracted; unchanged files reuse their cached state artifacts. Bypassing the gate means the caller never short-circuits before entering the logic, not that the logic discards incremental state.
 
 ### Graph-only Build Scope
 
@@ -704,16 +704,16 @@ Graph rows and their state share `index.sqlite` with semantic content; graph ext
 | BFS traversal | `GraphQueryIndex.traverse()` | `graph_query.py:178` |
 | Cluster communities | `update_graph_clusters()` | `graph_cluster.py` |
 | Extract DI edges | `resolve_di_edges()` | `graph_di_signals.py:245` |
-| MCP: callers/callees | `code_callhierarchy_response()` | `server_impl.py:8896` |
-| MCP: call tree | `code_callgraph_response()` | `server_impl.py:9610` |
-| MCP: blast radius | `code_impact_response()` | `server_impl.py:9579` |
-| MCP: shortest path | `code_graph_path_response()` | `server_impl.py:9864` |
-| MCP: community members | `code_graph_community_response()` | `server_impl.py:9951` |
-| MCP: structural report | `wf_graph_report_response()` | `server_impl.py:9719` |
-| MCP: reference restriction | `_graph_references_candidate_files()` | `server_impl.py:9326` |
-| MCP: definition narrowing | `_graph_definition_candidate_files()` | `server_impl.py` |
-| MCP resource: graph status | `wavefoundry://graph/status` | `server_impl.py` |
-| MCP resource: community catalog | `wavefoundry://graph/communities` | `server_impl.py` |
+| MCP: callers/callees | `code_callhierarchy_response()` | `wf_server/server_impl.py` |
+| MCP: call tree | `code_callgraph_response()` | `wf_server/server_impl.py` |
+| MCP: blast radius | `code_impact_response()` | `wf_server/server_impl.py` |
+| MCP: shortest path | `code_graph_path_response()` | `wf_server/server_impl.py` |
+| MCP: community members | `code_graph_community_response()` | `wf_server/server_impl.py` |
+| MCP: structural report | `wf_graph_report_response()` | `wf_server/server_impl.py` |
+| MCP: reference restriction | `_graph_references_candidate_files()` | `wf_server/server_impl.py` |
+| MCP: definition narrowing | `_graph_definition_candidate_files()` | `wf_server/server_impl.py` |
+| MCP resource: graph status | `wavefoundry://graph/status` | `wf_server/server_impl.py` |
+| MCP resource: community catalog | `wavefoundry://graph/communities` | `wf_server/server_impl.py` |
 
 ## Codebase Map (`gen_codebase_map.py`)
 

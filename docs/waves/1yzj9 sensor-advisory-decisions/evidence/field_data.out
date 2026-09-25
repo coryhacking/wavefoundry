@@ -1,0 +1,18 @@
+before 1wur7: 247 waves, 880 change docs, 424 with findings, 431 findings
+  top phrases: [('full framework suite', 93), ('full suite', 80), ('run_tests.py', 67), ('Full framework test suite', 40), ('Full framework suite', 28)]
+  seeded sample of 12 findings (wave, doc, AC, phrase), reviewed as true positives:
+    ('1p5x8', '1p601-enh codebase-map-mcp-surface.md', 'AC-3', 'full suite')
+    ('1p2q3', '1p2th-enh workflow-config-emits-code-navigation-', 'AC-5', 'All existing 2,200 framework tests')
+    ('1p7de', '1p7dg-enh cross-file-receiver-resolution.md', 'AC-7', 'full suite')
+    ('1t550', '1t551-bug prepare-create-activation-implement-fo', 'AC-3', 'full framework test suite')
+    ('12pn3', '12q8t-enh cia-spec-top-citation-hardening.md', 'AC-9', 'All existing tests')
+    ('12xr2', '12z4a-bug test-file-detection-case-conventions.m', 'AC-17', 'full framework test suite')
+    ('1vqqi', '1vmt2-enh techdocs-audit-tool-and-review-only-br', 'AC-7', 'full suite')
+    ('1p9qi', '1p9qe-enh sql-ddl-error-recovery.md', 'AC-6', 'full suite')
+    ('130rj', '130tc-enh csharp-aop-attribute-detection.md', 'AC-5', 'All existing tests')
+    ('1p66q', '1p66s-enh code-ask-doc-code-retrieval-balance.md', 'AC-5', 'full suite')
+    ('1rycg', '1rycf-enh index-bloat-gated-optimize-at-close.md', 'AC-6', 'Full framework tests')
+    ('12r09', '12r1z-maint upgrade-script-review-fixes.md', 'AC-8', 'All existing tests')
+since 1wur7, excluding this wave: 55 waves, 85 change docs, 1 with findings, 1 findings
+  top phrases: [('full suite', 1)]
+  hit: 1yd24/1yd25-debt canonical-declared-wave-fixtures.md

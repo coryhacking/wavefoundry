@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-25
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -77,7 +77,7 @@ This check does not validate model execution, full index integrity or query qual
 ## Naming Contract
 
 Tool names use prefixes by surface. The source of the rule is the `MCP_TOOL_PREFIXES` constant in
-`server_impl.py` (defined as `CORE_TOOL_PREFIXES` in `mcp_tool_extensions.py`); registration refuses
+`wf_server/server_impl.py` (defined as `CORE_TOOL_PREFIXES` in `mcp_tool_extensions.py`); registration refuses
 any first-party tool whose name starts with none of them.
 
 | Prefix    | Surface                                                           | Examples                              |
@@ -202,6 +202,22 @@ Nothing is loaded from a target repository. An extension that rebinds existing t
 names in place (the `MIDDLEWARE` entries bind late), or that mutates the server after registration,
 is outside what staging detects, and new extension tools
 must not write wave lifecycle records directly. Imports made by an extension module are not hashed.
+
+**Server package layout (wave `1yzd0`, ADR `1yx4m`).** The composition root `server_impl`, the
+registry `mcp_tool_registry` and the ten `*_handlers` modules live in `scripts/wf_server/`. What a
+distribution relies on is unchanged: the entry point is still `scripts/server.py`, the
+declarations `mcp_tool_extensions.py`, `mcp_tool_roster.py` and `record_paths.py` stay in
+`scripts/`, and extension modules stay flat files there. Each moved module keeps a flat
+`scripts/<name>.py` whose whole body replaces itself in `sys.modules` with `wf_server.<name>`, so
+`import server_impl`, private helpers reached through it, and `patch.object` on the flat name all
+reach the implementation; the flat names are the public import surface. When merging a release,
+re-apply fork edits to `scripts/wf_server/<name>.py`, never over the flat alias: the package refuses
+to import when a flat alias file is not the exact alias, naming the file. `wf_server` and the twelve
+moved module names are reserved extension module names, and a distribution that ships its own
+top-level module named `wf_server` is shadowed by the package. After upgrading from
+1.25 or 1.26, restart the MCP host: `wf_reload_mcp` on the old runner serves the package, but
+`loaded_code_stale` stays reported until the runner restarts. Editing `wf_server/__init__.py`
+always needs a restart, because the parent package is never reloaded.
 
 ## Core Verbs
 
@@ -1486,7 +1502,7 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
 
 `wf_reload_mcp()`
 
-- Reloads `server_impl.py`, rebuilds the handler, and refreshes the FastMCP
+- Reloads `wf_server/server_impl.py`, rebuilds the handler, and refreshes the FastMCP
   tool registry without replacing the runner process. The tool is async so a
   changed tool list's `notifications/tools/list_changed` send is awaited
   before the response reports `completed`.

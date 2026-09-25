@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+from framework_files import shipped_path  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 UPGRADE_PATH = SCRIPTS_ROOT / "upgrade_wavefoundry.py"
 REVIEW_PROTOCOL_SEEDS = (
@@ -3878,6 +3879,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                     "publication_control.py",
                     "public_contract.py",
                     "server_impl.py",
+                    "wf_server/server_impl.py",
                     "context_efficiency.py",
                     "score_context_efficiency_pairs.py",
                     "memory_backfill.py",
@@ -3887,7 +3889,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 ):
                     zf.writestr(
                         f".wavefoundry/framework/scripts/{name}",
-                        SCRIPTS_ROOT.joinpath(name).read_text(encoding="utf-8"),
+                        shipped_path(name).read_text(encoding="utf-8"),
                     )
                 for relative in (
                     "dashboard/ds/wfds.js",
@@ -3942,7 +3944,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             )
             self.assertIn(
                 "def wf_review_event(",
-                scripts.joinpath("server_impl.py").read_text(encoding="utf-8"),
+                scripts.joinpath("wf_server", "server_impl.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "EVENTS_FILENAME = \"events.jsonl\"",

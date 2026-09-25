@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-09-25
 
 Memory ID: `1t4sp-mem new-server-impl-sibling-imports-must-join-the-reload-evictio`
 Kind: `environment_gotcha`
@@ -23,5 +23,5 @@ When adding a module-level import of a sibling scripts-dir module to server_impl
 
 ## Targets
 
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
 - `.wavefoundry/framework/scripts/public_contract.py`

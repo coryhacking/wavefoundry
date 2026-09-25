@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: red-team
 Category: specialist
-Last verified: 2026-09-22
+Last verified: 2026-09-25
 
 ## Mission
 
@@ -157,12 +157,12 @@ Stop and record a note or journal entry when:
 - Gate posture and lifecycle surfaces (`050`, `100`, `170`, `180`, guard-overrides.json) — plausible bypass or ceremonial-bloat attack vectors
 - Seed/prompt contract drift — failure mode where seeds diverge from local operating surfaces over upgrade cycles
 - Dashboard/parser/lint alignment — failure mode where one surface adopts a different forward model than another
-- MCP tool surface (server_impl.py) — trust boundary; `_READONLY_TOOL` annotation is the access control line; challenge whether it is correctly applied
+- MCP tool surface (wf_server/server_impl.py) — trust boundary; `_READONLY_TOOL` annotation is the access control line; challenge whether it is correctly applied
 - Wave lifecycle state transitions — state machine edge cases and bypass paths (e.g., closing without review evidence, reopening after delivery)
 
 **Where to look:**
 - Wave Council config: `docs/workflow-config.json` (`wf_review_wave`)
-- Gate enforcement: `.wavefoundry/guard-overrides.json` and `_read_guard_overrides()` / `_write_guard_overrides()` in `server_impl.py`
+- Gate enforcement: `.wavefoundry/guard-overrides.json` and `_read_guard_overrides()` / `_write_guard_overrides()` in `wf_server/server_impl.py`
 - Harness core schema: `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md`
 - Lifecycle seeds: `.wavefoundry/framework/seeds/050-*`, `100-*`, `170-*`, `180-*`
 

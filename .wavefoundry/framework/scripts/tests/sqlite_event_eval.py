@@ -20,6 +20,8 @@ import sys
 import time
 import threading
 
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
+
 
 def _index_paths():
     """Resolve the owned database names from the single definition."""
@@ -198,7 +200,7 @@ def run(args):
               "requested_cycles": args.cycles, "minimum_cycles_met": args.cycles >= 10,
               "background_runtime_routing": "identical disposable indexer launcher; real frozen indexer via WAVEFOUNDRY_EVAL_RUNTIME",
               "models": state.export_meta_snapshot(index_dir).get("model_versions"),
-              "source_hashes": {name: hashlib.sha256((runtime / name).read_bytes()).hexdigest()
+              "source_hashes": {name: hashlib.sha256(source_path(name, runtime).read_bytes()).hexdigest()
                                 for name in ("indexer.py", "server_impl.py", "index_state_store.py", "accel_embedder.py")}}
 
     def observed_models():

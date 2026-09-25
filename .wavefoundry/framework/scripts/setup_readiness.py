@@ -40,7 +40,7 @@ MAX_ENV_ENTRIES = 4096
 SOURCE_FILES = (
     'setup_readiness.py', 'runtime_advisory.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
     'setup_reconciliation.py', 'storage_identity.py', 'venv_bootstrap.py', 'subprocess_util.py', 'repo_root.py', 'wf_cli.py',
-    'server.py', 'server_impl.py', 'index_compatibility.py', 'index_paths.py',
+    'server.py', 'server_impl.py', 'wf_server/server_impl.py', 'index_compatibility.py', 'index_paths.py',
     'index_state_store.py', 'sqlite_vector_store.py', 'sqlite_runtime.py', 'chunker.py',
     'indexer.py', 'graph_indexer.py', 'graph_store.py', 'model_bundle.py',
     'provider_policy.py', 'render_platform_surfaces.py', 'render_agent_surfaces.py',

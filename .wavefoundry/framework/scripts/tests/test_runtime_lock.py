@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
 import runtime_lock as rl  # noqa: E402
 import context_efficiency as ce  # noqa: E402
@@ -168,7 +169,7 @@ class RuntimeFileLockTests(unittest.TestCase):
             "review_evidence.py",
         )
         for name in consumers:
-            source = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
+            source = source_path(name).read_text(encoding="utf-8")
             tree = ast.parse(source)
             imported = {
                 alias.name
@@ -206,7 +207,7 @@ class RuntimeFileLockTests(unittest.TestCase):
             "server_impl.py",
             "indexer.py",
         ):
-            source = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
+            source = source_path(name).read_text(encoding="utf-8")
             for old_path in old_paths:
                 self.assertNotIn(old_path, source, f"{name}: {old_path}")
 

@@ -17,6 +17,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 MODULES = ("lifecycle_gate_support", "lifecycle_gates", "sensor_runner")
 FIELDS = {"root", "wave_md", "wave_text", "mode", "lint_result", "phase"}
 MARKERS = ("events.jsonl", "## Review Evidence", "## Review Signoff Evidence",
@@ -24,7 +25,7 @@ MARKERS = ("events.jsonl", "## Review Evidence", "## Review Signoff Evidence",
 
 
 def _source(name):
-    return (SCRIPTS / (name + ".py")).read_text(encoding="utf-8")
+    return source_path(name).read_text(encoding="utf-8")
 
 
 def _name(node):
@@ -190,27 +191,67 @@ def _purge_entries(source):
     return [e.value for e in candidates[0].elts if isinstance(e, ast.Constant)]
 
 
-def _purge_run(source):
-    entries = _purge_entries(source)
-    run = entries[entries.index("record_paths") + 1:]
-    if not set(MODULES).issubset(run):
-        raise AssertionError("Purge additions must include both lifecycle modules")
-    return run
+def _alias_table(source):
+    """Flat names in the server_impl ``_FLAT_ALIASES`` table (wave 1yzd0)."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_FLAT_ALIASES"
+                                                for t in node.targets):
+            return {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+    raise AssertionError("Expected a module-level _FLAT_ALIASES table")
+
+
+def _purge_covered(source):
+    """Names the reload purge evicts: the retained literal plus every moved
+    module except server_impl, whose flat and package keys are derived from
+    the alias table."""
+    return set(_purge_entries(source)) | (_alias_table(source) - {"server_impl"})
+
+
+def _evaluated_purge_keys(source):
+    """Evaluate the ``_FLAT_ALIASES`` table and ``_PACKAGE_PURGE_KEYS`` from
+    the source alone, without importing server_impl: a purge that evicts the
+    module being reloaded crashes the import, so it must fail here instead."""
+    wanted = [node for node in ast.parse(source).body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(t, ast.Name) and t.id in {"_FLAT_ALIASES", "_PACKAGE_PURGE_KEYS"}
+                      for t in node.targets)]
+    namespace = {}
+    exec(compile(ast.Module(body=wanted, type_ignores=[]), "<purge keys>", "exec"), namespace)
+    return namespace["_PACKAGE_PURGE_KEYS"]
+
+
+def _package_modules():
+    """Moved modules by flat name, from the package files on disk, independent
+    of both the purge literal and the alias table."""
+    return {p.stem for p in (SCRIPTS / "wf_server").glob("*.py") if p.name != "__init__.py"}
 
 
 def _direct_local_imports(source):
-    """Independent census of module-body sibling imports, not the purge list.
+    """Independent census of module-body framework imports, not the purge list.
 
-    Deliberately bounded to direct .py siblings; lazy and transitive imports
-    have different loading paths and are not covered by this census.
+    A flat sibling counts by its own name and a ``wf_server`` package module by
+    its flat name (wave 1yzd0: ``from wf_server.x import``, ``import
+    wf_server.x as x``). Deliberately bounded to module-body imports; lazy and
+    transitive imports have different loading paths and are not covered here.
     """
     names = set()
     for node in ast.parse(source).body:
         if isinstance(node, ast.Import):
-            names.update(alias.name.split('.')[0] for alias in node.names)
+            modules = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module.split('.')[0])
-    return {name for name in names if (SCRIPTS / (name + '.py')).is_file()}
+            modules = [node.module]
+            if node.module == "wf_server":
+                modules += ["wf_server." + alias.name for alias in node.names]
+        else:
+            continue
+        for module in modules:
+            parts = module.split(".")
+            if parts[0] == "wf_server":
+                if len(parts) > 1 and (SCRIPTS / "wf_server" / (parts[1] + ".py")).is_file():
+                    names.add(parts[1])
+            elif (SCRIPTS / (parts[0] + ".py")).is_file():
+                names.add(parts[0])
+    return names
 
 
 # Retain the existing process-bootstrap boundary, independently of the purge
@@ -367,7 +408,9 @@ class LifecycleGateStructureTests(unittest.TestCase):
 
     def test_reload_picks_up_every_added_module(self):
         from server_tools_support import _make_repo, load_server, load_thin_runner
-        names = _purge_run(_source("server_impl"))
+        package = _package_modules() - {"server_impl"}
+        names = (_direct_local_imports(_source("server_impl")) - _RELOAD_BOOTSTRAP_EXCLUSIONS) | package
+        self.assertTrue(set(MODULES) <= names and {"graph_handlers", "mcp_tool_registry"} <= names, names)
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_repo(Path(tmp))
             load_server()
@@ -378,16 +421,21 @@ class LifecycleGateStructureTests(unittest.TestCase):
                     stub = types.ModuleType(name)
                     stub.stale_gate_marker = True
                     sys.modules[name] = stub
-                response = runner.perform_mcp_reload()
+                    if name in package:
+                        sys.modules["wf_server." + name] = stub
+                try:
+                    response = runner.perform_mcp_reload()
+                except Exception as exc:  # a purge gap leaves a stub and the reload raises
+                    self.fail(f"reload raised {type(exc).__name__}: {exc}")
                 self.assertEqual(response["status"], "ok", response)
                 for name in names:
                     module = sys.modules[name]
                     self.assertFalse(hasattr(module, "stale_gate_marker"), name)
-                    self.assertEqual(Path(module.__file__).resolve(), (SCRIPTS / (name + ".py")).resolve())
+                    self.assertEqual(Path(module.__file__).resolve(), source_path(name).resolve())
+                    if name in package:
+                        self.assertIs(sys.modules["wf_server." + name], module, name)
             finally:
                 runner._get_handler().close()
-        with self.assertRaises(AssertionError):
-            _purge_run("purge = {'record_paths'}")
 
     def test_reload_purge_covers_direct_sibling_imports(self):
         source = _source("server_impl")
@@ -395,14 +443,25 @@ class LifecycleGateStructureTests(unittest.TestCase):
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS.issubset(imports))
         reloadable = imports - _RELOAD_BOOTSTRAP_EXCLUSIONS
         self.assertIn("index_source_guard", reloadable)
-        self.assertEqual(reloadable - set(_purge_entries(source)), set())
+        self.assertIn("graph_handlers", reloadable)  # package imports are counted (wave 1yzd0)
+        self.assertEqual(reloadable - _purge_covered(source), set())
+        # Every package module but server_impl is purged, derived from the files
+        # on disk rather than from the table the purge itself reads.
+        self.assertEqual(_package_modules() - {"server_impl"} - _purge_covered(source), set())
+        purge_keys = _evaluated_purge_keys(source)
+        for name in _package_modules() - {"server_impl"}:
+            self.assertTrue({name, "wf_server." + name} <= purge_keys, name)
+        self.assertFalse({"server_impl", "wf_server.server_impl", "wf_server"} & purge_keys)
+        dropped = source.replace('    "graph_handlers": "wf_server.graph_handlers",\n', '')
+        self.assertNotEqual(dropped, source)
+        self.assertEqual(_package_modules() - {"server_impl"} - _purge_covered(dropped), {"graph_handlers"})
         # The old purge-derived test silently lost coverage when an entry was
         # omitted. Derive expected modules from imports even for this mutant.
         omitted = source.replace('            "index_source_guard",\n', '')
         self.assertNotEqual(omitted, source)
         self.assertEqual(
             (_direct_local_imports(omitted) - _RELOAD_BOOTSTRAP_EXCLUSIONS)
-            - set(_purge_entries(omitted)), {"index_source_guard"})
+            - _purge_covered(omitted), {"index_source_guard"})
 
     def test_reload_refreshes_imported_siblings_and_source_guard_callable(self):
         from server_tools_support import _make_repo, load_server, load_thin_runner
@@ -418,13 +477,16 @@ class LifecycleGateStructureTests(unittest.TestCase):
                     patches.enter_context(patch.object(module, "stale_reload_marker", True, create=True))
                 stale_guard = lambda *args, **kwargs: "stale-source-guard"
                 patches.enter_context(patch.object(impl.index_source_guard, "index_source_guard", stale_guard))
-                response = runner.perform_mcp_reload()
+                try:
+                    response = runner.perform_mcp_reload()
+                except Exception as exc:
+                    self.fail(f"reload raised {type(exc).__name__}: {exc}")
                 self.assertEqual(response["status"], "ok", response)
                 for name, old_module in old_modules.items():
                     fresh = sys.modules[name]
                     self.assertIsNot(fresh, old_module, name)
                     self.assertFalse(hasattr(fresh, "stale_reload_marker"), name)
-                    self.assertEqual(Path(fresh.__file__).resolve(), (SCRIPTS / (name + ".py")).resolve())
+                    self.assertEqual(Path(fresh.__file__).resolve(), source_path(name).resolve())
                 guard = runner.server_impl.index_source_guard.index_source_guard
                 self.assertIsNot(guard, stale_guard)
                 with guard(root, wait=False):
@@ -511,7 +573,7 @@ class LifecycleGateStructureTests(unittest.TestCase):
 
         gate_source = _source("lifecycle_gates")
         self.assertEqual(len(blocking_comparisons(gate_source)), 1, "the helper is the only implementation")
-        server_source = (SCRIPTS / "server_impl.py").read_text(encoding="utf-8")
+        server_source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertEqual(blocking_comparisons(server_source), [],
                          "server_impl must call lifecycle_gates.has_blocking_diagnostics")
         self.assertIn("d.get('advisory') is True", ast.unparse(ast.parse(server_source)),

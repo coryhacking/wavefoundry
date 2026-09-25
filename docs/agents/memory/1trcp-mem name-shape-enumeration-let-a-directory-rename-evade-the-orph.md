@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-09-25
 
 Memory ID: `1trcp-mem name-shape-enumeration-let-a-directory-rename-evade-the-orph`
 Kind: `failed_attempt`
@@ -32,4 +32,4 @@ Wave 1to78 shipped the orphan-ledger docs-lint guard enumerating docs/waves chil
 ## Targets
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/wave_validators.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-25
+Last verified: 2026-09-25
 
 Memory ID: `1ti6d-mem relocating-cli-code-into-the-mcp-server-turns-process-global`
 Kind: `failed_attempt`
@@ -33,4 +33,4 @@ Before moving any script into the long-lived MCP server, audit it for temporary 
 ## Targets
 
 - `.wavefoundry/framework/scripts/memory_eval.py`
-- `.wavefoundry/framework/scripts/server_impl.py`
+- `.wavefoundry/framework/scripts/wf_server/server_impl.py`
