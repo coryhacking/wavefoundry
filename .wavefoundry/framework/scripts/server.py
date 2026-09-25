@@ -696,6 +696,20 @@ def build_server(root: Path):
     return mcp
 
 
+def _adopt_setup_baseline(root: Path, assessment: dict[str, Any]) -> None:
+    """Adopt a missing advisory setup stamp after a ready startup assessment (wave 1yzcz).
+
+    Never replaces a readable current-schema stamp and records the sources that
+    were assessed; any failure is one stderr line and never affects startup.
+    """
+    if assessment.get("status") != "ready":
+        return
+    try:
+        setup_readiness.adopt_setup_stamp(root, assessment, _SETUP_LOADED_IDENTITY)
+    except (OSError, ValueError) as exc:
+        print(f"wavefoundry: setup baseline not recorded: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     global _STARTUP_ASSESSMENT, _STARTUP_ROOT
     args = parse_args(argv)
@@ -737,6 +751,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    _adopt_setup_baseline(root, _STARTUP_ASSESSMENT)
     _configure_stdio_for_mcp_transport()
     # wave 1p8vp: isolate native fd-1 writes (onnxruntime cold-load) from the JSON-RPC channel, once,
     # before the transport captures sys.stdout.buffer. Runs only on the real stdio path (dry-run

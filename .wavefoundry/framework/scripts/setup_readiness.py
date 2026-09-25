@@ -55,6 +55,14 @@ OWNERSHIP_FILES = ('.wavefoundry/upgrade-in-progress.json',
 STAMP_PATH = '.wavefoundry/index/setup-state.json'
 ENV_KEYS = (REQUESTED_PROVIDER_ENV, SETUP_SELECTED_ENV,
             'WAVEFOUNDRY_DISABLE_RERANKER', 'PYTHONPATH', 'VIRTUAL_ENV')
+# Stamp comparison projects the recorded environment to the operator-controlled
+# fields that change what setup produces (wave 1yzcz). SETUP_SELECTED_ENV is a
+# handoff setup sets in its own process, and the launching interpreter, prefix,
+# PYTHONPATH and VIRTUAL_ENV differ between a terminal and an agent host without
+# any setup-relevant change; they stay recorded for diagnosis only. Interpreter
+# compatibility is judged live by environment_incompatible/dependencies_missing.
+COMPARED_ENV_KEYS = (REQUESTED_PROVIDER_ENV, 'WAVEFOUNDRY_DISABLE_RERANKER')
+STAMP_PROVENANCES = ('setup', 'upgrade', 'adopted')
 LIMITATIONS = [
     'Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.',
     'Dependency metadata does not prove native package imports or accelerator availability.',
@@ -420,7 +428,12 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
 
 
 def assess_setup(root: Path, *, loaded_identity: dict | None = None,
-                 timeout_seconds: float = 2.0) -> dict:
+                 timeout_seconds: float = 2.0, use_stamp: bool = True) -> dict:
+    """Assess local setup readiness; never repairs or writes application data.
+
+    ``use_stamp=False`` skips only the advisory stamp comparison (wave 1yzcz), so a
+    writer can judge live readiness without its own stale stamp; every live check runs.
+    """
     started = time.monotonic()
     advisory = runtime_advisory.python_runtime_advisory()
     result = {'schema_version': SCHEMA_VERSION, 'status': 'ready', 'signature': '',
@@ -507,13 +520,14 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                     needs_setup = True; reason('surface_entry_changed', f'Wavefoundry MCP launch entry needs setup reconciliation: {relative}')
         # Stamp comparison can reveal an update, but cannot authorize readiness.
         stamp_path = _safe(root, STAMP_PATH)
-        if stamp_path.exists():
+        if use_stamp and stamp_path.exists():
             try:
                 stamp = _json(stamp_path)
                 if (stamp.get('schema_version') == SCHEMA_VERSION and isinstance(stamp.get('sources'), dict)
                         and (stamp['sources'] != identity['sources']
                              or stamp.get('configuration') != _configuration_identity(root)
-                             or stamp.get('environment') != _environment_identity())):
+                             or projected_environment(stamp.get('environment'))
+                             != projected_environment(_environment_identity()))):
                     needs_setup = True; reason('setup_inputs_changed', 'Installed setup inputs changed since successful setup.')
             except (OSError, ValueError):
                 result['limitations'].append('The advisory setup stamp is unreadable; live observations were used.')
@@ -609,16 +623,51 @@ def exit_code(result: dict) -> int:
     return {'ready': 0, 'action_required': 1, 'indeterminate': 2}.get(result.get('status'), 2)
 
 
+def format_command(argv: list) -> str:
+    """Render an action argv with the platform's shell quoting; empty means restart."""
+    if not argv:
+        return 'Restart the Wavefoundry host.'
+    if os.name == 'nt':
+        return '& ' + ' '.join("'" + arg.replace("'", "''") + "'" for arg in argv)
+    return shlex.join(argv)
+
+
 def format_text(result: dict) -> str:
     lines = ['Setup readiness: ' + result['status']]
     lines.extend(item['message'] for item in result['reasons'])
     for action in result['actions']:
-        argv = action['argv']
-        command = ('& ' + ' '.join("'" + arg.replace("'", "''") + "'" for arg in argv)
-                   if os.name == 'nt' else shlex.join(argv)) if argv else 'Restart the Wavefoundry host.'
-        lines.append(command)
+        lines.append(format_command(action['argv']))
     lines.append('Scope: metadata readiness only; no full integrity, model or source-freshness audit.')
     return '\n'.join(lines)
+
+
+def projected_environment(environment) -> dict | None:
+    """The compared part of a recorded environment identity (wave 1yzcz).
+
+    Accepts stamps written before the projection existed: the Python version is
+    reduced to ``major.minor`` from the recorded ``sys.version`` string.
+    """
+    if not isinstance(environment, dict):
+        return None
+    variables, python = environment.get('variables'), environment.get('python')
+    if not isinstance(variables, dict) or not isinstance(python, list) or len(python) < 2:
+        return None
+    version = python[1] if isinstance(python[1], str) else ''
+    match = re.match(r'(\d+)\.(\d+)', version)
+    return {'tool_venv': environment.get('tool_venv'),
+            'python': match.group(0) if match else version,
+            'variables': {key: variables.get(key) for key in COMPARED_ENV_KEYS}}
+
+
+def read_setup_stamp(root: Path) -> dict | None:
+    """Return the stamp when it is a readable current-schema record, else None."""
+    try:
+        stamp = _json(_safe(Path(root), STAMP_PATH))
+    except (OSError, ValueError):
+        return None
+    if stamp.get('schema_version') != SCHEMA_VERSION or not isinstance(stamp.get('sources'), dict):
+        return None
+    return stamp
 
 
 def _environment_identity() -> dict:
@@ -692,14 +741,27 @@ def _configuration_identity(root: Path) -> dict:
     return result
 
 
-def write_setup_stamp(root: Path) -> None:
-    """Write the non-authoritative hint only from successful ordinary setup."""
+def write_setup_stamp(root: Path, *, provenance: str = 'setup', identity: dict | None = None,
+                      exclusive: bool = False) -> None:
+    """Write the non-authoritative setup hint (wave 1yzcz: three writers).
+
+    Writers: successful ordinary setup (``setup``), successful upgrade cleanup after a
+    live ready assessment (``upgrade``), and MCP startup adopting a missing baseline
+    after a live ready assessment (``adopted``). With ``identity``, the recorded
+    source hashes are the assessed ones and the write is refused when the sources
+    on disk changed since. With ``exclusive``, the stamp is published create-only
+    and an existing stamp is never replaced (``FileExistsError``).
+    """
+    if provenance not in STAMP_PROVENANCES:
+        raise ValueError(f'unknown stamp provenance: {provenance!r}')
     root = Path(root).resolve(strict=True)
     path = _safe(root, STAMP_PATH)
-    identity = capture_loaded_identity()
-    if identity['errors']:
-        raise ObservationError('; '.join(identity['errors']))
-    payload = {'schema_version': SCHEMA_VERSION, 'sources': identity['sources'],
+    current = capture_loaded_identity()
+    if current['errors']:
+        raise ObservationError('; '.join(current['errors']))
+    if identity is not None and identity.get('sources') != current['sources']:
+        raise ObservationError('framework sources changed since the assessment; stamp not written')
+    payload = {'schema_version': SCHEMA_VERSION, 'sources': current['sources'], 'provenance': provenance,
                'environment': _environment_identity(), 'configuration': _configuration_identity(root), 'written_at': time.time()}
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(prefix='.setup-state-', dir=path.parent)
@@ -708,6 +770,25 @@ def write_setup_stamp(root: Path) -> None:
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             json.dump(payload, stream, sort_keys=True); stream.write('\n')
             stream.flush(); os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        if exclusive:
+            os.link(temporary, path)
+        else:
+            os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def adopt_setup_stamp(root: Path, assessment: dict, identity: dict) -> bool:
+    """Record a baseline stamp when none is readable and startup assessed ready (wave 1yzcz).
+
+    Never replaces a readable current-schema stamp: an absent stamp is created
+    create-only; an unreadable or other-schema file is replaced. Returns whether
+    a stamp was written. Callers treat ``OSError``/``ValueError`` as non-fatal.
+    """
+    if assessment.get('status') != 'ready':
+        return False
+    if read_setup_stamp(root) is not None:
+        return False
+    absent = not _safe(Path(root), STAMP_PATH).exists()
+    write_setup_stamp(root, provenance='adopted', identity=identity, exclusive=absent)
+    return True

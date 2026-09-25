@@ -91,7 +91,9 @@ It is a bounded readiness check, not a complete integrity, freshness or search-q
 Check mode accepts only `--check`, `--root` and `--json`; it rejects repair or
 build options. Native Windows uses the same arguments through
 `.\.wavefoundry\bin\wf.cmd setup --check`. A missing advisory setup stamp
-causes live assessment, not an automatic rebuild. Ordinary source edits belong
+causes live assessment, not an automatic rebuild; the check never writes the stamp.
+Successful setup and upgrade cleanup write it, and MCP startup records a baseline
+when no readable stamp exists and startup assessed ready. Ordinary source edits belong
 to normal incremental indexing. Pending historical memory validation remains a
 separate advisory and does not invalidate an otherwise usable core index.
 MCP startup and its existing staleness monitor use the same assessment; startup

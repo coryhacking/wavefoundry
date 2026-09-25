@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-24
 
 ## Runtime advisory boundary
 
@@ -328,8 +328,11 @@ configuration, environment metadata, recovery ownership and index metadata. The
 check path dispatches before tool-environment activation. A separate stdlib SQLite
 child reads committed WAL-backed metadata without loading a second SQLite binding
 into the MCP process. Results distinguish readiness, required action and uncertainty;
-only ordinary successful setup writes the advisory `.wavefoundry/index/setup-state.json`.
-The stamp is not recovery or publication authority. MCP startup and the existing
+the advisory `.wavefoundry/index/setup-state.json` is written by successful ordinary
+setup, by successful upgrade cleanup after a live `ready` assessment, and by MCP
+startup when no readable stamp exists and startup assessed `ready`. Its comparison
+uses only setup-relevant environment fields, so a checker launched differently from
+setup does not report changed inputs. The stamp is not recovery or publication authority. MCP startup and the existing
 monitor share the assessment, invalidate it for relevant changes, and coalesce
 repeated stderr notices. Changed loaded assessment code requests a fresh host;
 ordinary product-source edits do not request setup.

@@ -1,0 +1,24 @@
+84688a59d9764bf463bc438e8d816d10b8cf5603  .claude/hooks/simulate-hooks.py
+db6322118a4ce90ec0c938a8c42ef14f76c942d1  .claude/hooks/wf-session-start.py
+ac0980b82baa67cbf9ba2110bf56437b062344be  .claude/settings.json
+d9fb23369e39f513cd066061d4e6f1c196e3986c  .wavefoundry/framework/scripts/render_platform_surfaces.py
+8978665b37bce2a88c97fa6cddf5efe07c15ea23  .wavefoundry/framework/scripts/server.py
+46eeccc3fcef72b0ec72f1420a25dfb474c3a9ac  .wavefoundry/framework/scripts/setup_readiness.py
+969c645e7db71b041f7d30dae78ab1440cf0a611  .wavefoundry/framework/scripts/tests/setup_ready_fixture.py
+f485182ff82925215dc3a91d25167c42441fc294  .wavefoundry/framework/scripts/tests/test_session_start_hook.py
+72cbb1aea8e0254cfcb6fd0c9cbc7ac9bd7f7f12  .wavefoundry/framework/scripts/tests/test_setup_readiness.py
+82dcadcab30a53c63a630cada4cfcf44c9ee53da  .wavefoundry/framework/scripts/tests/test_setup_stamp_writers.py
+94a9b84729aab80c1e2509ab81be0a3522d9d467  .wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py
+4cc82480cfc974ef78db8c7288e8c806bd49f0e1  .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
+948af17c1e407bd659bf703599df67a17217f835  .wavefoundry/framework/scripts/upgrade_wavefoundry.py
+3c1a312a46c393cb797f24a2206ca3e6cdc1cea7  .wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md
+51d2b8c6063137e2c927925ca4ae3d7c2d6d99fa  .wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md
+09d3d8da507b0bfc6c99ffda0b0f2a5ea42e926b  AGENTS.md
+d8e3bba84977e5a5e92236e9253e63f444c786da  CHANGELOG.md
+c6971f986e9dea3e9dd03acb6790ddd107c08d2c  docs/agents/platform-mapping.md
+639696ee5684b7b5978ffe16fea8c20aa7909c94  docs/architecture/data-and-control-flow.md
+e3707008d7c290ba300c57d93ef3c3cd918c3c1c  docs/architecture/domain-map.md
+3dbdd6054a178cc76dd734d960e73b793e4f91ae  docs/architecture/layering-rules.md
+3253e4b0f1a0de49e0a85c761f503a53fdedbe5d  docs/contributing/build-and-verification.md
+1316989153753ed6c97c2f7b3e4eeddda8e38d0b  docs/specs/mcp-tool-surface.md
+# git blob hashes (git hash-object)

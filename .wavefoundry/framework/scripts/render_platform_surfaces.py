@@ -211,6 +211,7 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
 #   event: the Claude settings event ("PreToolUse" / "PostToolUse" / "Stop")
 #   matcher: tool matcher for the settings entry, or None for unmatched events (Stop)
 #   status_message: statusMessage shown by Claude while the hook runs
+#   timeout: optional seconds, emitted on the command object only when present
 CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
     {
         "name": "pre-edit",
@@ -238,6 +239,15 @@ CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
         "event": "Stop",
         "matcher": None,
         "status_message": "Scheduling context-efficiency projection...",
+    },
+    # Wave 1yzcz — report setup readiness into the session context (report and ask;
+    # never runs setup). Startup and resume only; clear/compact would repeat it.
+    {
+        "name": "wf-session-start",
+        "event": "SessionStart",
+        "matcher": "startup|resume",
+        "status_message": "Checking Wavefoundry setup readiness...",
+        "timeout": 15,
     },
 )
 
@@ -622,6 +632,111 @@ def compose_script(body: str, include_helpers: bool = True) -> str:
     parts.append(_strip_leading_future(dedent(body).strip()))
     parts.append("\n")
     return "".join(parts)
+
+
+def compose_preactivation_script(body: str) -> str:
+    """Compose a hook body WITHOUT ``HOOK_BOOTSTRAP`` or the hook helpers (wave 1yzcz).
+
+    For hooks that run the setup-readiness check: it must run before tool-environment
+    activation, so no ``.pth`` file executes and ``activate_tool_venv`` (which can
+    ``sys.exit``) is never reached. The body owns its own ``sys.path`` and bytecode setup."""
+    return "".join(["#!/usr/bin/env python3\n", _FUTURE_LINE, "\n\n",
+                    _strip_leading_future(dedent(body).strip()), "\n"])
+
+
+def claude_session_start_source() -> str:
+    """SessionStart hook: report non-ready setup into the session context (wave 1yzcz).
+
+    Silent when ready. Never runs setup, activates the tool environment, or writes the
+    stamp; always exits 0. Plain syntax so the guard can fire on an older ``python3``.
+    """
+    return compose_preactivation_script(
+        """
+        import sys
+
+        sys.dont_write_bytecode = True
+
+        import os
+        from pathlib import Path
+
+        _ROOT = Path(__file__).resolve().parents[2]
+        _SCRIPTS = _ROOT / ".wavefoundry" / "framework" / "scripts"
+        MAX_REASONS = 8
+        MAX_LINE = 240
+        HEADER = "Wavefoundry setup readiness (tool output from the session-start hook):"
+        ASK = "Report this to the operator and ask before running any command."
+
+
+        def _clean(text):
+            text = "".join(ch if ch.isprintable() else " " for ch in str(text))
+            return text[:MAX_LINE]
+
+
+        def render(result, format_command):
+            status = result.get("status")
+            if status == "ready":
+                return []
+            reasons = result.get("reasons") or []
+            if status != "action_required":
+                first = reasons[0] if reasons else {"code": "unknown", "message": "no reason reported"}
+                return [_clean("Wavefoundry setup readiness could not be determined ("
+                               + str(first.get("code")) + ": " + str(first.get("message"))
+                               + "); run `wf setup --check --json` by hand.")]
+            lines = [HEADER]
+            for item in reasons[:MAX_REASONS]:
+                lines.append(_clean("- " + str(item.get("code")) + ": " + str(item.get("message"))))
+            if len(reasons) > MAX_REASONS:
+                lines.append("- (" + str(len(reasons) - MAX_REASONS) + " more reasons omitted)")
+            for action in result.get("actions") or []:
+                kind = action.get("kind")
+                if kind == "restart":
+                    lines.append("Recommended: restart the agent host.")
+                    continue
+                command = "Recommended: " + format_command(action.get("argv") or [])
+                if len(command) > MAX_LINE:
+                    # Never show a cut-off command; point at the full one instead.
+                    command = "Recommended: the command shown by `wf setup --check` (too long to show here)."
+                lines.append(_clean(command))
+                if kind == "setup":
+                    lines.append("Setup ends by asking for an agent-host restart.")
+                elif kind == "resume":
+                    lines.append("Stop the Wavefoundry hosts and run it from an external terminal.")
+            lines.append(ASK)
+            return lines
+
+
+        def main():
+            root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or _ROOT)
+            if str(_SCRIPTS) not in sys.path:
+                sys.path.insert(0, str(_SCRIPTS))
+            try:
+                import cli_stdio
+
+                cli_stdio.configure_utf8_stdio()
+            except Exception:
+                pass
+            import setup_readiness
+
+            result = setup_readiness.assess_setup(root)
+            if [item.get("code") for item in result.get("reasons") or []] == ["inputs_changed"]:
+                # State changed while assessing (the MCP server starts concurrently); once.
+                result = setup_readiness.assess_setup(root)
+            return render(result, setup_readiness.format_command)
+
+
+        if __name__ == "__main__":
+            try:
+                for _line in main():
+                    print(_line)
+            except BaseException as exc:
+                try:
+                    print(_clean("Wavefoundry setup readiness check failed (" + type(exc).__name__ + ": "
+                                 + str(exc) + "); run `wf setup --check` by hand."))
+                except BaseException:
+                    pass
+            raise SystemExit(0)
+        """
+    )
 
 
 def claude_pre_edit_source() -> str:
@@ -1319,6 +1434,8 @@ def render_claude_settings(repo_root: Path) -> None:
             "command": launcher_command(f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR"),
             "statusMessage": hook["status_message"],
         }
+        if "timeout" in hook:
+            entry_hook["timeout"] = hook["timeout"]
         entry: dict[str, object] = {"hooks": [entry_hook]}
         if hook["matcher"] is not None:
             entry = {"matcher": hook["matcher"], **entry}
@@ -2215,6 +2332,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
         write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source())
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "wf-session-start", claude_session_start_source())
         write_hook_bundle(
             repo_root / ".claude" / "hooks" / "context-efficiency-project",
             claude_context_efficiency_source(),

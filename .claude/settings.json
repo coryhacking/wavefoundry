@@ -43,6 +43,19 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import os,runpy,sys; root=os.environ.get('CLAUDE_PROJECT_DIR'); root or sys.exit('wavefoundry hook .claude/hooks/wf-session-start.py: missing project root environment variable CLAUDE_PROJECT_DIR'); runpy.run_path(os.path.join(root, '.claude', 'hooks', 'wf-session-start.py'), run_name='__main__')\"",
+            "statusMessage": "Checking Wavefoundry setup readiness...",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {

@@ -31,6 +31,7 @@ HOOKS = {
     "post-edit": REPO_ROOT / ".claude" / "hooks" / "post-edit.py",
     "session-capture": REPO_ROOT / ".claude" / "hooks" / "session-capture.py",
     "context-efficiency-project": REPO_ROOT / ".claude" / "hooks" / "context-efficiency-project.py",
+    "wf-session-start": REPO_ROOT / ".claude" / "hooks" / "wf-session-start.py",
 }
 
 

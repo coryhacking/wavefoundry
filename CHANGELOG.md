@@ -10,11 +10,19 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Setup readiness at session start.** A Claude Code `SessionStart` hook runs the read-only `wf setup --check` assessment when a session starts or resumes. It is silent when setup is ready; otherwise it adds a short report to the agent's context naming the reasons and the recommended command, and the agent asks before running anything. Operator note: the committed `.claude/settings.json` gains a `SessionStart` entry (operator hook entries are preserved); nothing runs setup automatically and no Git hooks are installed. Existing targets receive the matching `AGENTS.md` sentence through the upgrade reconciliation pass. Wave `1yzcz`.
+
+- **Setup baseline on upgrade and first start.** A successful upgrade refreshes the local setup fingerprint once its live readiness check passes, and the MCP server records one at startup when none exists, so a later pulled framework update is reported by `wf setup --check` and the startup notice. Operator note: installs that were only upgraded now gain a baseline, so `wf setup --check` can begin reporting `setup_inputs_changed` after a later pull; running `wf setup` clears it. Wave `1yzcz`.
+
 - **Extension tools may use core prefixes.** A distribution can name its own tools with `wf_` or another core prefix; a distribution-specific prefix remains the recommendation. Reuse of an existing tool name still requires a declared override, and names that core treats specially, such as lifecycle-locked, cost-accounted, publication-guarded and retired tool names, stay reserved. Wave `1yyoj`.
 
 - **Warning for inert record-layout config keys.** Docs-lint now warns, without failing, when `docs/workflow-config.json` contains `record_layout` or `wave_root`; record roots are the `record_paths` constants. Wave `1yyoj`.
 
 - **Distribution extension tools on the one MCP server.** A downstream distribution declares its own tool modules in `mcp_tool_extensions.py` to add tools, or explicitly override existing tools under their original names, without editing core registration. Declared modules are staged and validated before anything is served, receive the same permission tiers and wrappers as core tools, reload with `wf_reload_mcp`, and appear with content hashes in `wf_server_info`; any invalid declaration refuses to serve rather than serving a partial surface. The shipped declaration is empty. Wave `1yv9l`.
+
+### Fixed
+
+- **Setup no longer reports its own inputs as changed.** After an ordinary `wf setup`, `wf setup --check` and the MCP startup notice reported `setup_inputs_changed` on every run, because setup recorded a provider variable it sets in its own process. The fingerprint now compares only setup-relevant environment fields: the tool environment, the Python version and the operator's provider and reranker settings. Wave `1yzcz`.
 
 ## [1.26.0] - 2026-09-23
 

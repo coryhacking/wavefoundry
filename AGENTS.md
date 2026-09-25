@@ -259,7 +259,11 @@ the restart guidance before trusting further index operations.
 This instruction applies to every agent host through the canonical `AGENTS.md`.
 The MCP startup check and background monitor cover changes made outside the agent;
 they do not replace the explicit post-operation check or guarantee that the agent
-sees stderr notices. No Git hooks are installed by this guidance.
+sees stderr notices. Where the host supports it, a session-start hook runs the same
+read-only check and reports a non-ready result into the session; at session start
+no task authorization exists yet, so report it and ask the operator before running
+setup, and the existing task-authorization rule applies after that. The hook never
+runs setup. No Git hooks are installed by this guidance.
 
 ### MCP / Wavefoundry server — enabling per host
 

@@ -3071,6 +3071,42 @@ def _run_retired_model_cleanup(root: Path, to_version: object) -> dict[str, Any]
     return result
 
 
+def _record_setup_baseline(root: Path) -> None:
+    """Refresh the advisory setup stamp after a successful upgrade (wave 1yzcz).
+
+    Runs only on phase_cleanup's success path, after the upgrade lock is removed,
+    in the standalone new-code ``--cleanup`` process. The stamp is written only
+    when a live assessment (ignoring the old stamp) is ready, and an existing
+    readable stamp is kept when its compared environment differs from the current
+    one, so an operator environment change the live checks cannot see is not
+    hidden. Any failure is logged and never fails the upgrade.
+    """
+    try:
+        import setup_readiness
+
+        identity = setup_readiness.capture_loaded_identity()
+        result = setup_readiness.assess_setup(root, use_stamp=False)
+        status = result.get("status")
+        if status != "ready":
+            command = "wf setup" if status == "action_required" else "wf setup --check"
+            _log(f"  Setup baseline not recorded (setup readiness: {status}); run `{command}`.")
+            return
+        prior = setup_readiness.read_setup_stamp(root)
+        if prior is not None and (
+            setup_readiness.projected_environment(prior.get("environment"))
+            != setup_readiness.projected_environment(setup_readiness._environment_identity())
+        ):
+            _log(
+                "  Setup baseline not recorded: the environment differs from the one setup "
+                "last recorded; run `wf setup`."
+            )
+            return
+        setup_readiness.write_setup_stamp(root, provenance="upgrade", identity=identity)
+        _log("  Setup baseline recorded.")
+    except Exception as exc:  # the stamp is advisory; never fail the upgrade on it
+        _log(f"  ⚠  Setup baseline not recorded: {exc}; run `wf setup --check`.")
+
+
 def phase_cleanup(
     root: Path,
     from_version: str | None,
@@ -3209,6 +3245,10 @@ def phase_cleanup(
     # somehow did not land (soft failure, out-of-band edit, or a transition
     # upgrade that ran an older pipeline without Phase 2c).
     _ensure_lifecycle_policy_backstop(root)
+    if not index_update_failed:
+        _record_setup_baseline(root)
+    else:
+        _log("  Setup baseline not recorded (index update failed); run `wf setup`.")
 
     _print_operator_summary(
         from_version=from_version,

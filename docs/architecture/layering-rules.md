@@ -132,6 +132,9 @@ The child deadline does not promise a global deadline for parent filesystem read
 `setup_requirements.py` owns the shared dependency declarations and setup CLI
 grammar used by setup and the assessor; metadata inspection must not activate the tool environment or execute
 its `.pth` files. Advisory stamps never replace live compatibility and ownership checks.
+The same holds for its consumers that run before activation: `wf setup --check`,
+MCP startup, and the Claude Code session-start hook, whose body is composed without
+the tool-environment bootstrap and writes no framework bytecode.
 
 `sqlite_storage_migration` may load the pinned legacy reader only during supported
 setup- or upgrade-owned conversion. Its durable receipt records recovery and cleanup progress;

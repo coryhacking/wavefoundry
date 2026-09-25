@@ -57,6 +57,17 @@ framework, configuration or environment changes and coalesces identical notices.
 Health exposes this setup assessment separately from full search readiness.
 A stale loaded assessor cannot certify the newer checkout: restart the host and
 check again. No automatic setup, dependency install or storage recovery is triggered.
+When startup assesses `ready` and no readable advisory setup stamp exists, the
+server records one as a baseline (create-only when absent; an unreadable or
+other-schema file is replaced; a readable current-schema stamp never is); a write
+failure is one stderr line and never affects startup. A successful upgrade also
+refreshes the stamp after a live `ready` assessment, which takes any configuration
+edited since the last setup as the new baseline; run `wf setup` after changing
+indexing, embedding or provider configuration.
+Where the host supports it, a session-start hook runs the same read-only assessment
+before tool-environment activation and adds a bounded report to the agent's context
+when setup is not ready (Claude Code `SessionStart`); it asks the operator before any
+command runs and never runs setup itself.
 
 The equivalent shell command is `wf setup --check [--root PATH] [--json]`.
 Statuses are `ready`, `action_required` and `indeterminate`, with exits 0, 1 and 2.

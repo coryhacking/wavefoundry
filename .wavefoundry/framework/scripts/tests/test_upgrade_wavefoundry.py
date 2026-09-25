@@ -1361,6 +1361,117 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
                 self.mod._regenerate_codebase_map_on_upgrade(self.root)  # must not raise
 
 
+class PhaseCleanupSetupBaselineTests(unittest.TestCase):
+    """Wave 1yzcz (1yzcy AC-4): a successful cleanup refreshes the advisory setup stamp.
+
+    Drives the real ``phase_cleanup`` success path against a repository the real
+    readiness check reports ready (``setup_ready_fixture``).
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPTS_ROOT / "tests"))
+        import setup_ready_fixture
+        import setup_readiness
+
+        self.readiness = setup_readiness
+        self.mod = load_upgrade_module()
+        self.lib = _load_upgrade_lib()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        env = setup_ready_fixture.build(self.root)
+        self.env = patch.dict(os.environ, env, clear=True)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.stamp = self.root / ".wavefoundry/index/setup-state.json"
+
+    def _cleanup(self, **kwargs):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.mod.phase_cleanup(
+                root=self.root, from_version=None, to_version=None, zip_path=None,
+                pruned_count=0, ran_index_rebuild=False, failed_phase=None,
+                lock_present=True, **kwargs,
+            )
+        return buf.getvalue()
+
+    def _provenance(self):
+        return json.loads(self.stamp.read_text())["provenance"]
+
+    def test_ready_cleanup_replaces_an_older_stamp_after_the_lock_is_removed(self):
+        self.readiness.write_setup_stamp(self.root)
+        older = json.loads(self.stamp.read_text())
+        older["sources"]["server.py"] = "0" * 64
+        self.stamp.write_text(json.dumps(older))
+        lock = self.root / ".wavefoundry/upgrade-in-progress.json"
+        original = self.readiness.write_setup_stamp
+        seen = []
+
+        def observed(root, **kwargs):
+            seen.append(lock.exists())
+            return original(root, **kwargs)
+
+        with patch.object(self.readiness, "write_setup_stamp", side_effect=observed):
+            out = self._cleanup()
+        self.assertEqual(seen, [False])
+        self.assertEqual(self._provenance(), "upgrade")
+        self.assertIn("Setup baseline recorded.", out)
+        self.assertIn("Upgrade complete", out)
+
+    def test_not_ready_cleanup_writes_nothing_and_names_setup(self):
+        for info in (self.root / "venv").rglob("numpy-*.dist-info"):
+            shutil.rmtree(info)
+        out = self._cleanup()
+        self.assertFalse(self.stamp.exists())
+        self.assertIn("setup readiness: action_required); run `wf setup`.", out)
+
+    def test_indeterminate_cleanup_names_the_check(self):
+        with patch.object(self.readiness, "assess_setup",
+                          return_value={"status": "indeterminate", "reasons": [], "actions": []}):
+            out = self._cleanup()
+        self.assertFalse(self.stamp.exists())
+        self.assertIn("run `wf setup --check`.", out)
+
+    def test_index_update_failure_writes_nothing(self):
+        out = self._cleanup(index_update_failed=True)
+        self.assertFalse(self.stamp.exists())
+        self.assertIn("Setup baseline not recorded (index update failed); run `wf setup`.", out)
+
+    def test_source_change_since_assessment_writes_nothing(self):
+        real = self.readiness.capture_loaded_identity()
+        stale = dict(real, sources=dict(real["sources"], **{"server.py": "0" * 64}))
+        with patch.object(self.readiness, "capture_loaded_identity", side_effect=[stale, real, real, real]):
+            out = self._cleanup()
+        self.assertFalse(self.stamp.exists())
+        self.assertIn("Setup baseline not recorded: framework sources changed", out)
+
+    def test_prior_stamp_with_a_different_environment_is_kept(self):
+        with patch.dict(os.environ, {self.readiness.REQUESTED_PROVIDER_ENV: "cpu"}):
+            self.readiness.write_setup_stamp(self.root)
+        before = self.stamp.read_bytes()
+        out = self._cleanup()
+        self.assertEqual(self.stamp.read_bytes(), before)
+        self.assertIn("environment differs", out)
+
+    def test_baseline_failure_never_fails_the_upgrade(self):
+        with patch.object(self.readiness, "assess_setup", side_effect=RuntimeError("boom")):
+            out = self._cleanup()
+        self.assertIn("Setup baseline not recorded: boom", out)
+        self.assertIn("Upgrade complete", out)
+        self.assertFalse(self.stamp.exists())
+
+    def test_failed_phase_never_reaches_the_baseline(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+            self.mod.phase_cleanup(
+                root=self.root, from_version=None, to_version=None, zip_path=None,
+                pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate", lock_present=True,
+            )
+        self.assertFalse(self.stamp.exists())
+
+
 class ReadInstalledRevisionDelegationTests(unittest.TestCase):
     """Wave 1p44p — upgrade_wavefoundry._read_installed_revision routes through the
     single canonical resolver in check_version (no MANIFEST json.loads)."""

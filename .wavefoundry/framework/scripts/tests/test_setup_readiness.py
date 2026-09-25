@@ -298,6 +298,124 @@ class SetupReadinessTests(unittest.TestCase):
         self.assertEqual(result['status'], 'indeterminate')
         self.assertEqual(result['actions'], [])
 
+    # Wave 1yzcz (1yzcy): stamp projection, provenance and writers.
+
+    def _stamp(self):
+        return json.loads((self.index / 'setup-state.json').read_text())
+
+    def test_stamp_ignores_setup_handoff_and_launch_variables(self):
+        # Setup sets SETUP_SELECTED_ENV in its own process before writing the stamp;
+        # a fresh checker never has it, nor the writer's PYTHONPATH/VIRTUAL_ENV.
+        with patch.dict(os.environ, {readiness.SETUP_SELECTED_ENV: 'CoreMLExecutionProvider',
+                                     'PYTHONPATH': '/elsewhere', 'VIRTUAL_ENV': '/some/venv'}):
+            readiness.write_setup_stamp(self.root)
+        self.assertEqual(self._stamp()['environment']['variables'][readiness.SETUP_SELECTED_ENV],
+                         'CoreMLExecutionProvider')
+        result = self.assess()
+        self.assertEqual(result['status'], 'ready', result)
+
+    def test_projection_equal_across_launch_details(self):
+        base = readiness._environment_identity()
+        varied = json.loads(json.dumps(base))
+        varied['python'] = ['/other/python3', f'{sys.version_info.major}.{sys.version_info.minor}.99 (other build)',
+                            '/other/prefix', 'd']
+        for key in (readiness.SETUP_SELECTED_ENV, 'PYTHONPATH', 'VIRTUAL_ENV'):
+            varied['variables'][key] = 'different'
+        self.assertEqual(readiness.projected_environment(base), readiness.projected_environment(varied))
+
+    def test_projection_detects_operator_controlled_changes(self):
+        base = readiness._environment_identity()
+        # Values differ from whatever the running environment pins (the suite runner sets cpu/1).
+        provider = 'coreml' if base['variables'].get(readiness.REQUESTED_PROVIDER_ENV) == 'cpu' else 'cpu'
+        reranker = '0' if base['variables'].get('WAVEFOUNDRY_DISABLE_RERANKER') == '1' else '1'
+        cases = {
+            'tool_venv': lambda e: e.__setitem__('tool_venv', '/another/venv'),
+            'python_minor': lambda e: e['python'].__setitem__(1, '2.7.18 (legacy)'),
+            'provider': lambda e: e['variables'].__setitem__(readiness.REQUESTED_PROVIDER_ENV, provider),
+            'reranker': lambda e: e['variables'].__setitem__('WAVEFOUNDRY_DISABLE_RERANKER', reranker),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(label):
+                varied = json.loads(json.dumps(base))
+                mutate(varied)
+                self.assertNotEqual(readiness.projected_environment(base), readiness.projected_environment(varied))
+
+    def test_operator_provider_change_after_stamp_requests_setup(self):
+        readiness.write_setup_stamp(self.root)
+        changed = 'coreml' if os.environ.get(readiness.REQUESTED_PROVIDER_ENV) == 'cpu' else 'cpu'
+        with patch.object(readiness, '_dependencies', return_value=[]), \
+                patch.dict(os.environ, {readiness.REQUESTED_PROVIDER_ENV: changed}):
+            result = self.assess()
+        self.assertEqual(result['status'], 'action_required', result)
+        self.assertIn('setup_inputs_changed', [r['code'] for r in result['reasons']])
+
+    def test_pre_projection_stamp_compares_by_the_same_rule(self):
+        readiness.write_setup_stamp(self.root)
+        stamp = self._stamp()
+        stamp.pop('provenance')
+        stamp['environment']['python'] = ['/old/python3', f'{sys.version_info.major}.{sys.version_info.minor}.1 (old)',
+                                          '/old/prefix', '']
+        stamp['environment']['variables'][readiness.SETUP_SELECTED_ENV] = 'CPUExecutionProvider'
+        (self.index / 'setup-state.json').write_text(json.dumps(stamp))
+        self.assertEqual(self.assess()['status'], 'ready')
+        stamp['environment']['python'][1] = '3.9.18 (old)'
+        (self.index / 'setup-state.json').write_text(json.dumps(stamp))
+        self.assertIn('setup_inputs_changed', [r['code'] for r in self.assess()['reasons']])
+
+    def test_use_stamp_false_skips_only_the_stamp_comparison(self):
+        readiness.write_setup_stamp(self.root)
+        (self.root / 'docs/workflow-config.json').write_text('{"indexing":{"include_tests":true}}')
+        self.assertIn('setup_inputs_changed', [r['code'] for r in self.assess()['reasons']])
+        result = self.assess(use_stamp=False)
+        self.assertEqual(result['status'], 'ready', result)
+        with patch.object(readiness, '_dependencies', return_value=['numpy']):
+            self.assertIn('dependencies_missing', [r['code'] for r in self.assess(use_stamp=False)['reasons']])
+
+    def test_stamp_records_provenance_and_rejects_unknown(self):
+        readiness.write_setup_stamp(self.root)
+        self.assertEqual(self._stamp()['provenance'], 'setup')
+        readiness.write_setup_stamp(self.root, provenance='upgrade')
+        self.assertEqual(self._stamp()['provenance'], 'upgrade')
+        with self.assertRaises(ValueError):
+            readiness.write_setup_stamp(self.root, provenance='other')
+
+    def test_identity_guard_refuses_a_source_change_since_assessment(self):
+        identity = readiness.capture_loaded_identity()
+        stale = {'sources': dict(identity['sources'], **{'server.py': '0' * 64})}
+        with self.assertRaises(readiness.ObservationError):
+            readiness.write_setup_stamp(self.root, provenance='adopted', identity=stale)
+        self.assertFalse((self.index / 'setup-state.json').exists())
+        readiness.write_setup_stamp(self.root, provenance='adopted', identity=identity)
+        self.assertEqual(self._stamp()['provenance'], 'adopted')
+
+    def test_exclusive_write_never_replaces_an_existing_stamp(self):
+        readiness.write_setup_stamp(self.root)
+        before = (self.index / 'setup-state.json').read_bytes()
+        with self.assertRaises(FileExistsError):
+            readiness.write_setup_stamp(self.root, provenance='adopted', exclusive=True)
+        self.assertEqual((self.index / 'setup-state.json').read_bytes(), before)
+        self.assertEqual([p.name for p in self.index.iterdir() if p.name.startswith('.setup-state-')], [])
+
+    def test_adoption_writes_only_a_missing_or_unreadable_baseline(self):
+        identity = readiness.capture_loaded_identity()
+        self.assertFalse(readiness.adopt_setup_stamp(self.root, {'status': 'action_required'}, identity))
+        self.assertFalse((self.index / 'setup-state.json').exists())
+        self.assertTrue(readiness.adopt_setup_stamp(self.root, {'status': 'ready'}, identity))
+        self.assertEqual(self._stamp()['provenance'], 'adopted')
+        readiness.write_setup_stamp(self.root)
+        (self.root / 'docs/workflow-config.json').write_text('{"indexing":{"include_tests":true}}')
+        before = (self.index / 'setup-state.json').read_bytes()
+        self.assertFalse(readiness.adopt_setup_stamp(self.root, {'status': 'ready'}, identity))
+        self.assertEqual((self.index / 'setup-state.json').read_bytes(), before)
+        (self.index / 'setup-state.json').write_text('{broken')
+        self.assertTrue(readiness.adopt_setup_stamp(self.root, {'status': 'ready'}, identity))
+        self.assertEqual(self._stamp()['provenance'], 'adopted')
+        other = dict(self._stamp(), schema_version=readiness.SCHEMA_VERSION + 1, provenance='setup')
+        (self.index / 'setup-state.json').write_text(json.dumps(other))
+        self.assertTrue(readiness.adopt_setup_stamp(self.root, {'status': 'ready'}, identity))
+        self.assertEqual(self._stamp()['schema_version'], readiness.SCHEMA_VERSION)
+        self.assertEqual(self._stamp()['provenance'], 'adopted')
+
     def test_unreadable_advisory_stamp_does_not_force_setup(self):
         (self.index / 'setup-state.json').write_text('{broken')
         result = self.assess()

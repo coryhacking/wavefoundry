@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-24
 
 ## Domains
 
@@ -40,7 +40,12 @@ MCP startup, monitoring and health. `setup_requirements.py` owns canonical runti
 dependency declarations and setup CLI grammar; the assessor validates recorded
 setup continuations with that same bootstrap-safe parser. The assessor reads a fixed, bounded census and at most
 one isolated SQLite metadata snapshot; it owns no index or recovery mutations.
-Only successful ordinary setup writes its advisory stamp. Recovery continuations
+Its advisory stamp has three writers, each a separate call outside the assessor:
+successful ordinary setup (after reconciliation completes), successful upgrade
+cleanup after a live `ready` assessment, and MCP startup after a `ready` startup
+assessment when no readable stamp exists (never replacing a readable one). The stamp
+compares only setup-relevant environment fields (tool environment, Python
+`major.minor`, provider and reranker selection). Recovery continuations
 remain owned and fully revalidated by setup or upgrade, never by the check.
 
 ## Interaction Edges
@@ -58,6 +63,7 @@ remain owned and fully revalidated by setup or upgrade, never by the check.
 | `review_evidence.py` → `.wavefoundry/locks/review-evidence-adoptions.lock` | host-local `project_state_publication_lock` coordination write | stable | MCP lifecycle validator |
 | `review_policy_reconcile.py` → registered lifecycle carrier sections | all-or-nothing exact-section atomic replacement under lifecycle→publication ownership | stable | Upgrade lifecycle reconciler |
 | `indexer.py` → `.wavefoundry/index/` | file write | stable | Engineering (setup/incremental) |
+| `setup_wavefoundry.py`, `upgrade_wavefoundry.phase_cleanup`, `server.main` → `.wavefoundry/index/setup-state.json` | advisory atomic write: setup on success after reconciliation; upgrade cleanup and startup adoption after a live ready assessment (adoption is create-only when absent, replaces only an unreadable or other-schema file, never a readable current-schema stamp) | stable | Engineering (setup readiness) |
 | `server.py` → `.wavefoundry/index/` | file read | stable | MCP server (search tools) |
 | `server.py` → `.wavefoundry/logs/context-efficiency.sqlite` | bounded write-through event/source/evaluation transaction on eligible calls | stable | MCP server (context-efficiency telemetry) |
 | `server.py` → `.wavefoundry/logs/context-efficiency.gap` | durable fail-closed poison when an accounting transaction cannot commit | stable | MCP server (context-efficiency telemetry) |

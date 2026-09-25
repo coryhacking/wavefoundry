@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-24
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -70,7 +70,7 @@ Every skill emits to each active host dir among `.codex/skills/`, `.claude/skill
 
 | Host | Hook path contract | MCP path contract | Evidence level |
 |------|--------------------|-------------------|----------------|
-| Claude Code | Owner-bound through `CLAUDE_PROJECT_DIR`; main-session `Stop` renders separate session-capture and detached Context Efficiency projection adapters | Owner-bound through `CLAUDE_PROJECT_DIR` | Executed on macOS from nested cwd; committed launcher is platform-neutral and uses windowless detached Python on Windows |
+| Claude Code | Owner-bound through `CLAUDE_PROJECT_DIR`; main-session `Stop` renders separate session-capture and detached Context Efficiency projection adapters; `SessionStart` (`startup\|resume`, 15 s timeout) renders a pre-activation setup-readiness report that is silent when ready and never runs setup | Owner-bound through `CLAUDE_PROJECT_DIR` | Executed on macOS from nested cwd; committed launcher is platform-neutral and uses windowless detached Python on Windows |
 | Cursor | Host launches project hooks from the workspace root | `${workspaceFolder}` `cwd` pin | Renderer/fixture verified |
 | GitHub Copilot | Repository-root contract; native `bash` and `powershell` fields | Provider/UI registration | Schema rendered; host runtime not claimed |
 | Windsurf | `working_directory: "."` project-root contract | Provider/UI registration | Renderer/fixture verified |

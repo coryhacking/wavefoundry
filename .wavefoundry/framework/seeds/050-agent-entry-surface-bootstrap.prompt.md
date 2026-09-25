@@ -58,7 +58,11 @@ the restart guidance before trusting further index operations.
 This instruction applies to every agent host through the canonical `AGENTS.md`.
 The MCP startup check and background monitor cover changes made outside the agent;
 they do not replace the explicit post-operation check or guarantee that the agent
-sees stderr notices. No Git hooks are installed by this guidance.
+sees stderr notices. Where the host supports it, a session-start hook runs the same
+read-only check and reports a non-ready result into the session; at session start
+no task authorization exists yet, so report it and ask the operator before running
+setup, and the existing task-authorization rule applies after that. The hook never
+runs setup. No Git hooks are installed by this guidance.
 
 Also put a short native-Windows pre-MCP prerequisite instruction in root `AGENTS.md`: for a fresh install or an already-seeded checkout on a new workstation, run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before treating `wf.cmd`, MCP or completed install rows as proof of local readiness. A failed or policy-blocked diagnostic must route to `.wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md` **Python prerequisite**; the required host command remains `python3` 3.11 or newer. Do not rerender, reseed or rebuild merely to diagnose missing local Python.
 
@@ -378,14 +382,26 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
  "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
  "PostToolUse": [
  { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/post-edit.py\"", "statusMessage": "Running docs gates..." } ] }
+ ],
+ "Stop": [
+ { "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/session-capture.py\"", "statusMessage": "Capturing session state..." } ] },
+ { "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/context-efficiency-project.py\"", "statusMessage": "Scheduling context-efficiency projection..." } ] }
+ ],
+ "SessionStart": [
+ { "matcher": "startup|resume", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/wf-session-start.py\"", "statusMessage": "Checking Wavefoundry setup readiness...", "timeout": 15 } ] }
  ]
  }
 }
 ```
 
-Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+The rendered commands resolve each body from `CLAUDE_PROJECT_DIR`; the JSON above shows the shape, not the exact launcher text.
+
+Generated entrypoints (single `<name>.py` body each):
 - `.claude/hooks/pre-edit.py` — seed protection + framework plan gate
 - `.claude/hooks/post-edit.py` — `docs-lint`
+- `.claude/hooks/session-capture.py` — session-end capture (never blocks)
+- `.claude/hooks/context-efficiency-project.py` — detached Context Efficiency projection
+- `.claude/hooks/wf-session-start.py` — setup-readiness report at session start and resume; runs the read-only check before any tool-environment activation, is silent when ready, reports and asks otherwise, never runs setup, and always exits 0
 - `.claude/hooks/simulate-hooks.py` — local test harness for the above
 
 **MCP permission allowlist (renderer-owned, rendered on the upgrade/install path).** The install and upgrade renders also merge a framework-owned MCP allowlist into the same `.claude/settings.json` `permissions.allow` array, derived from the canonical tool roster (`.wavefoundry/framework/scripts/mcp_tool_roster.py`) so tool renames self-heal on the next upgrade. Contract:
